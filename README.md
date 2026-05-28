@@ -1,0 +1,372 @@
+# Project Command Center
+
+A local-first project and task management web app with AI-assisted task capture from messy text and Discord input. Designed to eventually run on custom Unsloth-trained models served via llama.cpp.
+
+## Core principle
+
+**The app owns the logic. AI only returns structured suggestions.**
+
+```
+Good:  Python workflow → AI extracts tasks → Python validates → Python saves
+Bad:   AI decides everything and directly edits the database
+```
+
+## Stack
+
+```
+Frontend:      React + Vite + TypeScript
+Backend:       FastAPI
+Database:      SQLite
+ORM:           SQLAlchemy 2.0 (typed syntax)
+Migrations:    Alembic
+Validation:    Pydantic v2
+Logging:       structlog (with request IDs)
+AI Runtime:    Ollama (v1) → llama.cpp (v2)
+Training:      Unsloth
+Discord:       discord.py
+Backups:       litestream or cron'd sqlite3 .backup
+```
+
+## Architecture
+
+```
+React Web App
+  ↓
+FastAPI Backend
+  ├── Project APIs
+  ├── Task APIs
+  ├── Inbox APIs
+  ├── AI Workflows  ──→  ModelGateway  ──→  Provider (Ollama / llama.cpp)
+  ├── Settings/Config API
+  └── Discord API endpoints
+       ↓
+SQLite Database
+
+Discord Bot (separate process)
+  ↓ (local-only binding + shared secret)
+FastAPI Backend
+```
+
+## MVP goal
+
+```
+Paste messy text into web app
+→ AI extracts task candidates
+→ user reviews / edits / accepts
+→ tasks created in the right project
+→ corrections saved as training data
+```
+
+Then add Discord:
+
+```
+Discord /inbox "finish firewall cleanup by Friday"
+→ backend processes it
+→ AI extracts task candidates
+→ app stores them
+→ bot replies with summary
+```
+
+## Repo layout
+
+```
+project-command-center/
+  backend/
+    app/
+      main.py
+      config.py
+      logging_config.py
+
+      api/
+        routes_projects.py
+        routes_tasks.py
+        routes_inbox.py
+        routes_ai.py
+        routes_settings.py
+        routes_discord.py
+
+      db/
+        models.py
+        session.py
+      alembic/
+        versions/
+        env.py
+      alembic.ini
+
+      services/
+        projects.py
+        tasks.py
+        inbox.py
+        activity.py
+        training_data.py
+
+      ai/
+        gateway.py
+        profiles.yaml
+        schemas.py
+
+        providers/
+          base.py
+          openai_compatible.py
+          ollama.py
+          llamacpp.py
+
+        prompts/
+          extract_tasks.md
+          match_project.md
+          summarize_project.md
+
+        workflows/
+          extract_tasks.py
+          match_project.py
+          summarize_project.py
+
+        evals/
+          extraction_cases.yaml
+          run_evals.py
+
+      integrations/
+        discord/
+          bot.py
+          commands.py
+
+  frontend/
+    src/
+      api/
+      features/
+        dashboard/
+        projects/
+        tasks/
+        inbox/
+        settings/
+      components/
+      routes/
+      types/
+
+  training/
+    exports/
+    unsloth/
+      train_task_extractor.py
+      datasets/
+      models/
+
+  data/
+    app.db
+    backups/
+
+  docker-compose.yml
+  CLAUDE.md
+  README.md
+```
+
+## Database schema
+
+Tables:
+
+```
+projects
+project_aliases
+tasks                  (includes status: candidate | accepted | rejected | done)
+inbox_items            (includes input_hash for idempotency)
+activity_events
+ai_training_examples
+```
+
+All tables use **soft deletes** via a `deleted_at` column. Don't actually delete rows — you'll change your mind, and training data references them.
+
+Tasks use a `status` enum rather than a separate `task_candidates` table. Candidates and real tasks live in the same table, distinguished by status. Simpler queries, no sync logic. Split later if it ever becomes painful.
+
+### The most important table
+
+```
+ai_training_examples
+- id
+- task_name          (e.g. "extract_tasks", "match_project")
+- input_text         (raw input, exactly as the model saw it)
+- model_output_json  (full model output, not just the diff)
+- corrected_output_json
+- accepted           (bool)
+- model_profile      (e.g. "task_extraction")
+- model_name         (e.g. "qwen2.5:3b")
+- created_at
+```
+
+This collects fine-tuning data automatically as you correct AI outputs. **Do not skip storing the full input and full output** — the diff alone is useless for training later.
+
+## Model gateway
+
+Never call Ollama directly from workflow code. Always go through the gateway:
+
+```
+Workflow → ModelGateway → Provider → Ollama / llama.cpp
+```
+
+This is the single most important architectural decision in the project. It means Sprint 0 code keeps working when the custom-trained model arrives.
+
+### Model profiles (v1, Ollama)
+
+```yaml
+task_extraction:
+  provider: ollama
+  model: qwen2.5:3b           # also benchmark 7b and Qwen3 on your data
+  temperature: 0
+  max_tokens: 1024
+  response_mode: json_schema
+  system_prompt: extract_tasks.md
+
+project_matching:
+  provider: ollama
+  model: qwen2.5:3b
+  temperature: 0
+  max_tokens: 1024
+  response_mode: json_schema
+  system_prompt: match_project.md
+
+summary:
+  provider: ollama
+  model: llama3.2:3b
+  temperature: 0.2
+  max_tokens: 2048
+  response_mode: text
+  system_prompt: summarize_project.md
+```
+
+### Model profiles (v2, custom llama.cpp)
+
+```yaml
+task_extraction:
+  provider: llamacpp
+  model: task-extractor-v1.Q4_K_M.gguf
+  base_url: http://localhost:8080/v1
+  temperature: 0
+  max_tokens: 768
+  response_mode: json_schema
+  system_prompt: extract_tasks.md
+```
+
+## AI workflow
+
+```
+Raw inbox text
+→ hash input + check for duplicates (idempotency)
+→ save inbox item
+→ call task extraction model via gateway
+→ validate JSON with Pydantic
+→ create task rows with status="candidate"
+→ user reviews in UI
+→ accepted candidates flip status to "accepted"
+→ correction (original vs final) saved to ai_training_examples
+```
+
+## Task extraction schema
+
+```json
+{
+  "summary": "string",
+  "project_hint": "string|null",
+  "tasks": [
+    {
+      "title": "string",
+      "description": "string|null",
+      "due_date": "YYYY-MM-DD|null",
+      "priority": "low|medium|high|urgent",
+      "assignee_hint": "string|null",
+      "confidence": 0.0
+    }
+  ],
+  "needs_review": true
+}
+```
+
+## Sprint plan
+
+```
+Sprint 0:  Repo setup, FastAPI skeleton, Alembic, structlog,
+           React+Vite scaffold, config, health endpoint, .env handling
+Sprint 1:  Projects + tasks CRUD, soft deletes, basic React pages
+Sprint 2:  Inbox + ModelGateway + Ollama provider + extraction workflow
+           + Pydantic validation + review queue UI
+           + first 5 eval cases in extraction_cases.yaml
+Sprint 3:  Discord /inbox command (local-only, shared secret)
+Sprint 4:  Project matching workflow + aliases
+Sprint 5:  Dashboard views + settings UI (edit prompts, swap profiles)
+Sprint 6:  Hardening, litestream backups, expanded eval suite, docs
+Sprint 7+: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
+```
+
+## First vertical slice
+
+Build this end-to-end before anything else:
+
+```
+React inbox page
+POST /api/inbox                    (creates inbox_item)
+POST /api/inbox/{id}/process       (runs extraction workflow)
+Ollama call through ModelGateway
+Pydantic validation
+Task rows saved with status="candidate"
+Review UI lists candidates
+Accept candidate → status="accepted"
+Diff saved to ai_training_examples
+```
+
+If this works, everything else is incremental.
+
+## Cross-cutting requirements (set up in Sprint 0)
+
+- **Structured logging with request IDs.** Every request gets an ID; every log line in its lifecycle carries it. When an AI workflow misbehaves, you'll trace one inbox item from POST → extraction → validation → candidate creation. `structlog` does this in ~20 lines of config.
+- **Alembic from day one.** Schema changes without migrations on a database you actually use is painful. `alembic init` in Sprint 0.
+- **Idempotency.** Hash inbox input text. Re-processing the same input shouldn't create duplicate candidates.
+- **Soft deletes.** `deleted_at` column on every user-facing table.
+- **Backups.** Even just a nightly `sqlite3 .backup` cron is fine. Set it up before you have data you care about losing.
+- **Eval harness.** Five hand-written cases in `extraction_cases.yaml` and a script that runs them on prompt changes. Doesn't need to be fancy.
+
+## Settings UI
+
+A small page that lets you:
+- Switch active model profiles
+- Edit prompts in `ai/prompts/*.md` without restarting
+- Tune temperature, max_tokens
+- Trigger a re-run of evals
+
+This pays for itself the first time you tune a prompt.
+
+## Do not build yet
+
+```
+Custom models           (wait for real training data, ~200+ examples)
+Discord buttons
+Calendar sync
+Obsidian integration
+Email ingestion
+Multi-user auth
+Celery / Redis
+Vector DB
+Autonomous agents
+```
+
+## Dev commands
+
+```
+ollama serve
+cd backend && uvicorn app.main:app --reload
+cd frontend && npm run dev
+python -m app.integrations.discord.bot   # later
+```
+
+## North star
+
+A **boring, reliable local app** where AI is a helper, not the boss:
+
+```
+React UI
++ FastAPI app core
++ SQLite truth
++ small local model calls through a gateway
++ Pydantic validation
++ review queue
++ training data collection
++ eventual custom llama.cpp models trained on your own corrections
+```
+
+That's the blueprint.
