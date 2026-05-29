@@ -55,13 +55,13 @@ Key rules that apply right now:
   - `GET /health` → `{ "status": "ok", "env": settings.app_env }`
   - Bind to `127.0.0.1` in uvicorn config (not `0.0.0.0`)
 
-- [ ] **`backend/app/db/session.py`**
+- [X] **`backend/app/db/session.py`**
   - Create SQLAlchemy engine from `settings.database_url`
   - `SessionLocal` factory
   - `get_db()` dependency (yields a session, closes on exit)
   - No models yet — just the engine and session wiring
 
-- [ ] **Alembic initialization**
+- [X] **Alembic initialization**
   - `alembic init backend/app/alembic`
   - Edit `alembic.ini`: set `script_location = app/alembic`
   - Edit `alembic/env.py`: import `Base` from `db/models.py` (stub — empty `Base` is fine for now), read `sqlalchemy.url` from `get_settings().database_url`
