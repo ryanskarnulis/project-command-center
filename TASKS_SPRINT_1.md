@@ -49,7 +49,7 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
       + mark-done + delete. Hooks call `src/api/`, components consume hooks.
 
 ## Done check
-- [ ] End-to-end manual test: create project → create task → mark done → soft-deleted project
+- [x] End-to-end manual test: create project → create task → mark done → soft-deleted project
       disappears from the list
 - [x] Logs show structured output with request IDs across the new routes
-- [ ] Migration committed; README sprint status + `TASKS.md` Sprint 0/1 checkboxes updated
+- [x] Migration committed; README sprint status + `TASKS.md` Sprint 0/1 checkboxes updated

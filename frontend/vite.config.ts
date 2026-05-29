@@ -1,9 +1,13 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [react()],
-  // Bind to 0.0.0.0 so other devices on the LAN can load the dev server.
-  server: { host: true },
+export default defineConfig(({ mode }) => {
+  // DEV_HOST (from the gitignored .env) controls the dev server bind.
+  // Defaults to loopback; set DEV_HOST=0.0.0.0 to expose on the LAN.
+  const env = loadEnv(mode, process.cwd(), '')
+  return {
+    plugins: [react()],
+    server: { host: env.DEV_HOST || '127.0.0.1' },
+  }
 })

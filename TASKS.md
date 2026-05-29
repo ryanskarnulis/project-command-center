@@ -10,15 +10,15 @@ When starting a sprint, copy the relevant tasks into a `TASKS_SPRINT_X.md` file 
 ## Sprint 0 — Skeleton & Infrastructure
 > Goal: every layer exists, wired together, and the health endpoint is live. No business logic.
 
-- [ ] `backend/app/main.py` — FastAPI app instance, mounts routers, runs health endpoint
-- [ ] `backend/app/config.py` — pydantic-settings, reads `.env`, exports a `get_settings()` function
-- [ ] `backend/app/logging_config.py` — structlog config, request-ID middleware wired into FastAPI
-- [ ] Alembic initialized — `alembic.ini` + `backend/app/alembic/env.py` pointing at `DATABASE_URL`
-- [ ] `GET /health` returns `{ "status": "ok", "env": "development" }`
-- [ ] `uvicorn app.main:app --reload` starts without errors
-- [ ] Frontend Vite scaffold runs — `npm run dev` opens the default page
-- [ ] Feature folder structure in place: `src/features/{dashboard,projects,tasks,inbox,settings}`
-- [ ] First commit on main: "Sprint 0 complete"
+- [x] `backend/app/main.py` — FastAPI app instance, mounts routers, runs health endpoint
+- [x] `backend/app/config.py` — pydantic-settings, reads `.env`, exports a `get_settings()` function
+- [x] `backend/app/logging_config.py` — structlog config, request-ID middleware wired into FastAPI
+- [x] Alembic initialized — `alembic.ini` + `backend/app/alembic/env.py` pointing at `DATABASE_URL`
+- [x] `GET /health` returns `{ "status": "ok", "env": "development" }`
+- [x] `uvicorn app.main:app --reload` starts without errors
+- [x] Frontend Vite scaffold runs — `npm run dev` opens the default page
+- [x] Feature folder structure in place: `src/features/{dashboard,projects,tasks,inbox,settings}`
+- [x] First commit on main: "Sprint 0 complete"
 
 ---
 
@@ -26,22 +26,22 @@ When starting a sprint, copy the relevant tasks into a `TASKS_SPRINT_X.md` file 
 > Goal: create/read/update/delete projects and tasks through the API and basic React pages. No AI yet.
 
 ### Backend
-- [ ] `backend/app/db/models.py` — `Project`, `Task` SQLAlchemy 2.0 models with soft deletes (`deleted_at`)
-- [ ] `backend/app/db/session.py` — engine + `get_db` dependency
-- [ ] Alembic migration: initial schema (projects, tasks)
-- [ ] `backend/app/services/projects.py` — CRUD helpers, soft-delete filter baked in
-- [ ] `backend/app/services/tasks.py` — CRUD helpers, filter by project, soft-delete filter baked in
-- [ ] `backend/app/api/routes_projects.py` — GET list, GET one, POST, PATCH, DELETE (soft)
-- [ ] `backend/app/api/routes_tasks.py` — GET list (by project), GET one, POST, PATCH, DELETE (soft)
-- [ ] Happy-path pytest for each service (projects + tasks)
+- [x] `backend/app/db/models.py` — `Project`, `Task` SQLAlchemy 2.0 models with soft deletes (`deleted_at`)
+- [x] `backend/app/db/session.py` — engine + `get_db` dependency
+- [x] Alembic migration: initial schema (projects, tasks)
+- [x] `backend/app/services/projects.py` — CRUD helpers, soft-delete filter baked in
+- [x] `backend/app/services/tasks.py` — CRUD helpers, filter by project, soft-delete filter baked in
+- [x] `backend/app/api/routes_projects.py` — GET list, GET one, POST, PATCH, DELETE (soft)
+- [x] `backend/app/api/routes_tasks.py` — GET list (by project), GET one, POST, PATCH, DELETE (soft)
+- [x] Happy-path pytest for each service (projects + tasks)
 
 ### Frontend
-- [ ] `src/api/projects.ts` — typed fetch wrappers for project endpoints
-- [ ] `src/api/tasks.ts` — typed fetch wrappers for task endpoints
-- [ ] `src/features/projects/` — project list page + create form
-- [ ] `src/features/tasks/` — task list page (scoped to a project) + create form
-- [ ] Basic routing in `src/routes/` — `/projects`, `/projects/:id/tasks`
-- [ ] End-to-end manual test: create project → create task → mark done → soft-deleted project disappears
+- [x] `src/api/projects.ts` — typed fetch wrappers for project endpoints
+- [x] `src/api/tasks.ts` — typed fetch wrappers for task endpoints
+- [x] `src/features/projects/` — project list page + create form
+- [x] `src/features/tasks/` — task list page (scoped to a project) + create form
+- [x] Basic routing in `src/routes/` — `/projects`, `/projects/:id/tasks`
+- [x] End-to-end manual test: create project → create task → mark done → soft-deleted project disappears
 
 ---
 

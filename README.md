@@ -281,9 +281,9 @@ Raw inbox text
 ## Sprint plan
 
 ```
-Sprint 0:  Repo setup, FastAPI skeleton, Alembic, structlog,
+Sprint 0:  [DONE] Repo setup, FastAPI skeleton, Alembic, structlog,
            React+Vite scaffold, config, health endpoint, .env handling
-Sprint 1:  Projects + tasks CRUD, soft deletes, basic React pages
+Sprint 1:  [DONE] Projects + tasks CRUD, soft deletes, basic React pages
 Sprint 2:  Inbox + ModelGateway + Ollama provider + extraction workflow
            + Pydantic validation + review queue UI
            + first 5 eval cases in extraction_cases.yaml
@@ -349,8 +349,8 @@ Autonomous agents
 
 ```
 ollama serve
-cd backend && uvicorn app.main:app --reload
-cd frontend && npm run dev
+cd backend && python -m app.main   # reload on; binds API_HOST from .env (default 127.0.0.1, set 0.0.0.0 for LAN)
+cd frontend && npm run dev   # binds DEV_HOST from .env (default 127.0.0.1, set 0.0.0.0 for LAN)
 python -m app.integrations.discord.bot   # later
 ```
 
