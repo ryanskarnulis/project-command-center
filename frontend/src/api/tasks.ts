@@ -1,0 +1,42 @@
+import { apiClient } from './client'
+import type { Task, TaskCreate, TaskUpdate } from '../types/task'
+
+export async function listTasks(projectId: number): Promise<Task[]> {
+  const res = await apiClient(`/api/projects/${projectId}/tasks`)
+  return (await res.json()) as Task[]
+}
+
+export async function createTask(
+  projectId: number,
+  data: TaskCreate,
+): Promise<Task> {
+  const res = await apiClient(`/api/projects/${projectId}/tasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  return (await res.json()) as Task
+}
+
+export async function getTask(id: number): Promise<Task> {
+  const res = await apiClient(`/api/tasks/${id}`)
+  return (await res.json()) as Task
+}
+
+export async function updateTask(id: number, data: TaskUpdate): Promise<Task> {
+  const res = await apiClient(`/api/tasks/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  return (await res.json()) as Task
+}
+
+export async function markTaskDone(id: number): Promise<Task> {
+  const res = await apiClient(`/api/tasks/${id}/done`, { method: 'POST' })
+  return (await res.json()) as Task
+}
+
+export async function deleteTask(id: number): Promise<void> {
+  await apiClient(`/api/tasks/${id}`, { method: 'DELETE' })
+}

@@ -34,8 +34,8 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
       setting (default `["http://localhost:5173","http://127.0.0.1:5173"]`)
 
 ## Backend — tests
-- [ ] Happy-path pytest for `services/projects.py` (create → get → soft-delete hidden from list)
-- [ ] Happy-path pytest for `services/tasks.py` (create under project → mark done → soft-delete)
+- [x] Happy-path pytest for `services/projects.py` (create → get → soft-delete hidden from list)
+- [x] Happy-path pytest for `services/tasks.py` (create under project → mark done → soft-delete)
 
 ## Frontend — setup
 - [ ] `npm install react-router-dom` (approved)

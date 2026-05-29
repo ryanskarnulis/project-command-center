@@ -9,7 +9,8 @@ export class ApiError extends Error {
   }
 }
 
-const BASE_URL = import.meta.env.VITE_API_URL
+const BASE_URL =
+  import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000`
 
 export async function apiClient(
   path: string,
