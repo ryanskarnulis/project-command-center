@@ -38,10 +38,10 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
 - [x] Happy-path pytest for `services/tasks.py` (create under project → mark done → soft-delete)
 
 ## Frontend — setup
-- [ ] `npm install react-router-dom` (approved)
-- [ ] `src/types/project.ts`, `src/types/task.ts` — TS types mirroring the `*Read` schemas
-- [ ] `src/api/projects.ts`, `src/api/tasks.ts` — typed wrappers over `apiClient`
-- [ ] `src/routes/` — router with `/projects` and `/projects/:id/tasks`; `App.tsx` renders it
+- [x] `npm install react-router-dom` (approved)
+- [x] `src/types/project.ts`, `src/types/task.ts` — TS types mirroring the `*Read` schemas
+- [x] `src/api/projects.ts`, `src/api/tasks.ts` — typed wrappers over `apiClient`
+- [x] `src/routes/` — router with `/projects` and `/projects/:id/tasks`; `App.tsx` renders it
 
 ## Frontend — features
 - [ ] `src/features/projects/` — `useProjects` hook + project list page + create form
