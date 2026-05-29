@@ -74,36 +74,36 @@ Key rules that apply right now:
 
 ### Backend — Test harness (infrastructure only)
 
-- [ ] Add `pytest`, `pytest-asyncio`, `httpx` to backend deps
-- [ ] `backend/tests/conftest.py`
+- [X] Add `pytest`, `pytest-asyncio`, `httpx` to backend deps
+- [X] `backend/tests/conftest.py`
   - `client` fixture returning a FastAPI `TestClient`
   - `db_session` fixture using an isolated temp/in-memory SQLite db
   - Override the `get_db` dependency so tests never touch `data/app.db`
-- [ ] `backend/tests/test_health.py` — one test asserting `GET /health`
+- [X] `backend/tests/test_health.py` — one test asserting `GET /health`
   returns 200 and `{"status":"ok","env":"development"}`
-- [ ] `pytest` runs green from `backend/`
+- [X] `pytest` runs green from `backend/`
 
 ### Frontend — Vite scaffold cleanup
 
-- [ ] **Feature folder structure confirmed**
+- [X] **Feature folder structure confirmed**
   - `src/features/dashboard/`, `src/features/projects/`, `src/features/tasks/`
   - `src/features/inbox/`, `src/features/settings/`
   - `src/api/`, `src/components/`, `src/routes/`, `src/types/`
 
-- [ ] **`tsconfig.json` (or `tsconfig.app.json`) — strict mode verified**
+- [X] **`tsconfig.json` (or `tsconfig.app.json`) — strict mode verified**
   - `"strict": true` is present under `compilerOptions`
   - `npm run build` passes with no type errors on the default scaffold
 
-- [ ] **Delete Vite boilerplate**
+- [X] **Delete Vite boilerplate**
   - Remove `src/App.css`, `src/assets/react.svg`, placeholder content in `App.tsx`
   - Replace `App.tsx` with a bare `<div>Project Command Center</div>` so the slate is clean
 
-- [ ] **`src/api/client.ts`** — base fetch wrapper
+- [X] **`src/api/client.ts`** — base fetch wrapper
   - `apiClient(path, options)` that prepends `http://127.0.0.1:8000`
   - Throws a typed `ApiError` on non-2xx responses
   - No auth headers yet
 
-- [ ] **Smoke test**
+- [X] **Smoke test**
   - `npm run dev` opens the page, shows "Project Command Center"
   - `npm run build` exits 0 with no type errors
 
@@ -145,11 +145,11 @@ Do them in this order — each one sets up the next:
 
 ## Definition of done for this sprint
 
-- [ ] `curl http://127.0.0.1:8000/health` returns 200 with correct JSON
-- [ ] Log line shows `request_id` on every request
-- [ ] `alembic current` runs without errors
-- [ ] `npm run build` exits 0
-- [ ] No bare `print()` calls anywhere
-- [ ] No `any` in TypeScript without a `// TODO`
-- [ ] Committed on main: `git log --oneline` shows Sprint 0 work
-- [ ] pytest exits 0 from backend/
+- [X] `curl http://127.0.0.1:8000/health` returns 200 with correct JSON
+- [X] Log line shows `request_id` on every request
+- [X] `alembic current` runs without errors
+- [X] `npm run build` exits 0
+- [X] No bare `print()` calls anywhere
+- [X] No `any` in TypeScript without a `// TODO`
+- [X] Committed on main: `git log --oneline` shows Sprint 0 work
+- [X] pytest exits 0 from backend/
