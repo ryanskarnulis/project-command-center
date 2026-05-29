@@ -11,26 +11,26 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
 - [x] `backend/app/db/models.py` — `Base(DeclarativeBase)` exists
 
 ## Backend — models & migration
-- [ ] `backend/app/db/models.py` — `TimestampMixin` (created_at, updated_at) + `deleted_at` column;
+- [x] `backend/app/db/models.py` — `TimestampMixin` (created_at, updated_at) + `deleted_at` column;
       `Project` (id, name, description|None) and `Task` (id, project_id FK, title, description|None,
       status enum candidate|accepted|rejected|done default 'accepted', priority enum
       low|medium|high|urgent default 'medium', due_date|None). SQLAlchemy 2.0 typed
       (`Mapped[...]`, `mapped_column(...)`).
-- [ ] Alembic migration: `alembic revision --autogenerate -m "projects and tasks"`, review the
+- [x] Alembic migration: `alembic revision --autogenerate -m "projects and tasks"`, review the
       generated file, then `alembic upgrade head`. Commit the migration.
 
 ## Backend — services (soft-delete baked in)
-- [ ] `backend/app/services/common.py` — shared helper that filters `deleted_at IS NULL`
-- [ ] `backend/app/services/projects.py` — list/get/create/update/soft-delete, using the helper
-- [ ] `backend/app/services/tasks.py` — list (by project)/get/create/update/soft-delete + mark-done
+- [x] `backend/app/services/common.py` — shared helper that filters `deleted_at IS NULL`
+- [x] `backend/app/services/projects.py` — list/get/create/update/soft-delete, using the helper
+- [x] `backend/app/services/tasks.py` — list (by project)/get/create/update/soft-delete + mark-done
 
 ## Backend — API
-- [ ] `backend/app/schemas/projects.py` — `ProjectCreate`, `ProjectUpdate`, `ProjectRead` (Pydantic v2)
-- [ ] `backend/app/schemas/tasks.py` — `TaskCreate`, `TaskUpdate`, `TaskRead` (Pydantic v2)
-- [ ] `backend/app/api/routes_projects.py` — GET list, GET one, POST, PATCH, DELETE (soft)
-- [ ] `backend/app/api/routes_tasks.py` — GET list (by project), GET one, POST, PATCH, DELETE (soft)
-- [ ] `backend/app/main.py` — include both routers under `/api`
-- [ ] `backend/app/main.py` — add `CORSMiddleware`; `backend/app/config.py` — `cors_origins`
+- [x] `backend/app/schemas/projects.py` — `ProjectCreate`, `ProjectUpdate`, `ProjectRead` (Pydantic v2)
+- [x] `backend/app/schemas/tasks.py` — `TaskCreate`, `TaskUpdate`, `TaskRead` (Pydantic v2)
+- [x] `backend/app/api/routes_projects.py` — GET list, GET one, POST, PATCH, DELETE (soft)
+- [x] `backend/app/api/routes_tasks.py` — GET list (by project), GET one, POST, PATCH, DELETE (soft)
+- [x] `backend/app/main.py` — include both routers under `/api`
+- [x] `backend/app/main.py` — add `CORSMiddleware`; `backend/app/config.py` — `cors_origins`
       setting (default `["http://localhost:5173","http://127.0.0.1:5173"]`)
 
 ## Backend — tests
@@ -51,5 +51,5 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
 ## Done check
 - [ ] End-to-end manual test: create project → create task → mark done → soft-deleted project
       disappears from the list
-- [ ] Logs show structured output with request IDs across the new routes
+- [x] Logs show structured output with request IDs across the new routes
 - [ ] Migration committed; README sprint status + `TASKS.md` Sprint 0/1 checkboxes updated
