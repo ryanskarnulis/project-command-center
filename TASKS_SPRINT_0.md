@@ -42,12 +42,12 @@ Key rules that apply right now:
   - Reads from `.env` via `model_config = SettingsConfig(env_file=".env")`
   - Cached singleton: `@lru_cache` on `get_settings()`
 
-- [ ] **`backend/app/logging_config.py`**
+- [X] **`backend/app/logging_config.py`**
   - Configure `structlog` with JSON renderer in production, console renderer in dev
   - `RequestIDMiddleware` (Starlette `BaseHTTPMiddleware`) that generates a UUID per request and binds it to the structlog context
   - Export `configure_logging()` and `RequestIDMiddleware`
 
-- [ ] **`backend/app/main.py`**
+- [X] **`backend/app/main.py`**
   - Create `FastAPI` app instance
   - Call `configure_logging()` on startup
   - Add `RequestIDMiddleware`
@@ -67,7 +67,7 @@ Key rules that apply right now:
   - Edit `alembic/env.py`: import `Base` from `db/models.py` (stub — empty `Base` is fine for now), read `sqlalchemy.url` from `get_settings().database_url`
   - `alembic current` should run without errors (no migrations yet is fine)
 
-- [ ] **Smoke test**
+- [X] **Smoke test**
   - `cd backend && uvicorn app.main:app --reload`
   - `curl http://127.0.0.1:8000/health` returns `{"status":"ok","env":"development"}`
   - Request-ID appears in log output
