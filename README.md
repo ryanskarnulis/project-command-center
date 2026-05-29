@@ -187,7 +187,7 @@ ai_training_examples
 - corrected_output_json
 - accepted           (bool)
 - model_profile      (e.g. "task_extraction")
-- model_name         (e.g. "qwen2.5:3b")
+- model_name         (e.g. "gemma4:e2b")
 - created_at
 ```
 
@@ -208,7 +208,7 @@ This is the single most important architectural decision in the project. It mean
 ```yaml
 task_extraction:
   provider: ollama
-  model: qwen2.5:3b           # also benchmark 7b and Qwen3 on your data
+  model: gemma4:e2b           # starting model; benchmark e4b / other sizes on your data later
   temperature: 0
   max_tokens: 1024
   response_mode: json_schema
@@ -216,7 +216,7 @@ task_extraction:
 
 project_matching:
   provider: ollama
-  model: qwen2.5:3b
+  model: gemma4:e2b
   temperature: 0
   max_tokens: 1024
   response_mode: json_schema
@@ -224,7 +224,7 @@ project_matching:
 
 summary:
   provider: ollama
-  model: llama3.2:3b
+  model: gemma4:e2b
   temperature: 0.2
   max_tokens: 2048
   response_mode: text
