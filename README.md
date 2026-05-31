@@ -284,9 +284,9 @@ Raw inbox text
 Sprint 0:  [DONE] Repo setup, FastAPI skeleton, Alembic, structlog,
            React+Vite scaffold, config, health endpoint, .env handling
 Sprint 1:  [DONE] Projects + tasks CRUD, soft deletes, basic React pages
-Sprint 2:  Inbox + ModelGateway + Ollama provider + extraction workflow
+Sprint 2:  [DONE] Inbox + ModelGateway + Ollama provider + extraction workflow
            + Pydantic validation + review queue UI
-           + first 5 eval cases in extraction_cases.yaml
+           + eval cases in extraction_cases.yaml (7/7 on gemma4:e2b)
 Sprint 3:  Discord /inbox command (local-only, shared secret)
 Sprint 4:  Project matching workflow + aliases
 Sprint 5:  Dashboard views + settings UI (edit prompts, swap profiles)

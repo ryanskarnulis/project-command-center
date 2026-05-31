@@ -9,7 +9,10 @@ task_extraction:
   provider: ollama
   model: gemma4:e2b
   temperature: 0
-  max_tokens: 1024
+  # 2048, not 1024: a complete multi-task extraction with descriptions overruns
+  # 1024 output tokens and truncates mid-JSON (→ invalid/empty output). Raised
+  # 2026-05-31 while fixing recall on messy multi-action notes.
+  max_tokens: 2048
   response_mode: json_schema
   system_prompt: extract_tasks.md
 

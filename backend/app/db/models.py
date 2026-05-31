@@ -84,6 +84,7 @@ class InboxItem(Base, TimestampMixin, SoftDeleteMixin):
     project_hint: Mapped[str | None] = mapped_column(default=None)
     needs_review: Mapped[bool] = mapped_column(default=True)
     processed_at: Mapped[datetime | None] = mapped_column(default=None)
+    reviewed_at: Mapped[datetime | None] = mapped_column(default=None)
     model_output_json: Mapped[str | None] = mapped_column(default=None)
     model_name: Mapped[str | None] = mapped_column(default=None)
 

@@ -49,31 +49,33 @@ When starting a sprint, copy the relevant tasks into a `TASKS_SPRINT_X.md` file 
 > Goal: the full AI loop works end-to-end. This is the most important sprint.
 
 ### Backend — Inbox & models
-- [ ] `backend/app/db/models.py` — add `InboxItem`, `AITrainingExample` models + migration
-- [ ] `backend/app/services/inbox.py` — save inbox item, SHA-256 hash for idempotency check
-- [ ] `backend/app/services/training_data.py` — write correction to `ai_training_examples`
-- [ ] `backend/app/ai/schemas.py` — Pydantic v2 schemas for extraction input/output
-- [ ] `backend/app/ai/profiles.yaml` — `task_extraction`, `project_matching`, `summary` profiles
-- [ ] `backend/app/ai/providers/base.py` — abstract `BaseProvider` with `complete()` method
-- [ ] `backend/app/ai/providers/ollama.py` — Ollama HTTP provider (uses `httpx`, no `import ollama`)
-- [ ] `backend/app/ai/gateway.py` — loads profile by name, routes to correct provider
-- [ ] `backend/app/ai/prompts/extract_tasks.md` — extraction system prompt
-- [ ] `backend/app/ai/workflows/extract_tasks.py` — full workflow: hash → save → call gateway → validate → create candidates
-- [ ] `backend/app/api/routes_inbox.py` — `POST /api/inbox`, `POST /api/inbox/{id}/process`
-- [ ] Pydantic validation failure: log raw output + save to `ai_training_examples` as failure case
-- [ ] Idempotency: same input hash returns existing inbox item, no re-extraction
-- [ ] Happy-path pytest for extraction workflow (mock the gateway)
-- [ ] `backend/app/ai/evals/extraction_cases.yaml` — 5 hand-written test cases
-- [ ] `backend/app/ai/evals/run_evals.py` — script that runs cases and prints pass/fail
+- [x] `backend/app/db/models.py` — add `InboxItem`, `AITrainingExample` models + migration
+- [x] `backend/app/services/inbox.py` — save inbox item, SHA-256 hash for idempotency check
+- [x] `backend/app/services/training_data.py` — write correction to `ai_training_examples`
+- [x] `backend/app/ai/schemas.py` — Pydantic v2 schemas for extraction input/output
+- [x] `backend/app/ai/profiles.yaml` — `task_extraction`, `project_matching`, `summary` profiles
+- [x] `backend/app/ai/providers/base.py` — abstract `BaseProvider` with `complete()` method
+- [x] `backend/app/ai/providers/ollama.py` — Ollama HTTP provider (uses `httpx`, no `import ollama`)
+- [x] `backend/app/ai/gateway.py` — loads profile by name, routes to correct provider
+- [x] `backend/app/ai/prompts/extract_tasks.md` — extraction system prompt
+- [x] `backend/app/ai/workflows/extract_tasks.py` — full workflow: hash → save → call gateway → validate → create candidates
+- [x] `backend/app/api/routes_inbox.py` — `POST /api/inbox`, `POST /api/inbox/{id}/process` (+ `GET` list/one/candidates, `POST /{id}/review`)
+- [x] Pydantic validation failure: log raw output + save to `ai_training_examples` as failure case
+- [x] Idempotency: same input hash returns existing inbox item, no re-extraction
+- [x] Happy-path pytest for extraction workflow (mock the gateway)
+- [x] `backend/app/ai/evals/extraction_cases.yaml` — 5 hand-written test cases
+- [x] `backend/app/ai/evals/run_evals.py` — script that runs cases and prints pass/fail
 
 ### Frontend — Inbox & review queue
-- [ ] `src/api/inbox.ts` — typed fetch wrappers for inbox endpoints
-- [ ] `src/features/inbox/InboxPage.tsx` — textarea to paste messy text, submit button
-- [ ] `src/features/inbox/ReviewQueue.tsx` — lists candidate tasks from a processed inbox item
-- [ ] Accept candidate → `PATCH /api/tasks/{id}` sets status to `accepted`
-- [ ] Reject candidate → soft-delete via `DELETE /api/tasks/{id}`
-- [ ] On accept/reject: diff written to `ai_training_examples` via service call
-- [ ] End-to-end manual test: paste text → process → review → accept some → reject some → check DB
+- [x] `src/api/inbox.ts` — typed fetch wrappers for inbox endpoints
+- [x] `src/features/inbox/InboxPage.tsx` — textarea to paste messy text, submit button
+- [x] `src/features/inbox/ReviewQueue.tsx` — lists candidate tasks from a processed inbox item
+- [x] Accept/reject candidates — via batch `POST /api/inbox/{id}/review` (supersedes the
+      per-candidate `PATCH`/`DELETE` wording; one atomic call applies all decisions)
+- [x] On review: corrections written to `ai_training_examples` as **one** row (full input + output
+      + corrected output)
+- [x] End-to-end manual test: paste text → process → review → accept some → reject some → check DB
+      (see TASKS_SPRINT_2.md "Done check" — verified via DB on inbox #5)
 
 ---
 

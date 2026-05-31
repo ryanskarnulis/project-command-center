@@ -85,6 +85,10 @@ def review_inbox(
     item = _get_inbox_or_404(db, inbox_item_id)
     try:
         result = review_service.review_inbox(db, item, data.decisions)
+    except review_service.AlreadyReviewedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)

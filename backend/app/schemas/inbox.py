@@ -24,6 +24,7 @@ class InboxRead(BaseModel):
     project_hint: str | None
     needs_review: bool
     processed_at: datetime | None
+    reviewed_at: datetime | None
     model_name: str | None
     created_at: datetime
     updated_at: datetime

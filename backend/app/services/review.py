@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 import structlog
 from sqlalchemy.orm import Session
@@ -16,6 +17,15 @@ from app.services.training_data import record_example
 logger = structlog.get_logger(__name__)
 
 _PROFILE = "task_extraction"
+
+
+class AlreadyReviewedError(Exception):
+    """Raised when an already-reviewed inbox item is reviewed again.
+
+    Re-reviewing would re-flip task statuses and append a second, contradictory
+    ``ai_training_examples`` row for the same input — polluting the training set
+    (prime directive #4). One inbox item gets exactly one review.
+    """
 
 
 def _corrected_task(task: Task) -> dict[str, object]:
@@ -45,8 +55,14 @@ def review_inbox(
     a diff (prime directive #4).
 
     Raises ``ValueError`` if a decision references a task that is not an active
-    candidate of this inbox item.
+    candidate of this inbox item, or ``AlreadyReviewedError`` if the item was
+    already reviewed.
     """
+    if item.reviewed_at is not None:
+        raise AlreadyReviewedError(
+            f"inbox item {item.id} was already reviewed at {item.reviewed_at.isoformat()}"
+        )
+
     candidates = {t.id: t for t in inbox_service.list_candidates(db, item.id)}
 
     accepted: list[Task] = []
@@ -68,6 +84,7 @@ def review_inbox(
             task.status = TaskStatus.rejected
             rejected_count += 1
 
+    item.reviewed_at = datetime.now(UTC)
     db.commit()
     for task in accepted:
         db.refresh(task)

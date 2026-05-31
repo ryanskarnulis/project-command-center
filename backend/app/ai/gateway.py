@@ -54,6 +54,7 @@ def complete(
     profile_name: str,
     user_content: str,
     json_schema: dict[str, Any] | None = None,
+    model_override: str | None = None,
 ) -> str:
     """Run a single model call through the named profile and return raw text.
 
@@ -61,6 +62,11 @@ def complete(
     stays generic — it does not know about any particular output schema. The
     caller passes ``json_schema`` (e.g. ``ExtractionOutput.model_json_schema()``)
     and the gateway forwards it to the provider's structured-output support.
+
+    ``model_override`` is for benchmarking only (e.g. the eval harness comparing
+    model sizes against one profile's prompt/temperature). Workflows never pass
+    it — they resolve the model from the profile, keeping model names out of
+    workflow code per the constitution.
     """
     profile = get_profile(profile_name)
     try:
@@ -74,7 +80,7 @@ def complete(
     ]
     return provider_cls().complete(
         messages=messages,
-        model=profile.model,
+        model=model_override or profile.model,
         temperature=profile.temperature,
         max_tokens=profile.max_tokens,
         response_mode=profile.response_mode,

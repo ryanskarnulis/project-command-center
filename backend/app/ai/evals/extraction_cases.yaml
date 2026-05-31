@@ -9,6 +9,10 @@
 #   assignee_hint_present: bool  at least one task has / no task has assignee_hint
 #   needs_review: bool           exact match on the needs_review flag
 #   priority_in: [low|...]       at least one task has a priority in the set
+#   confidence_varies: bool      task confidences are not all equal (catches the
+#                                "everything pinned at 1.0" failure; trivially
+#                                satisfied when there are fewer than 2 tasks)
+#   low_confidence_present: bool at least one task has confidence < 0.8
 
 - name: single_task_with_due_date
   raw_text: "Email the budget spreadsheet to Sarah by Friday."
@@ -46,3 +50,42 @@
   expect:
     min_tasks: 1
     priority_in: ["urgent", "high"]
+
+# Hard recall cases: messy notes where actions are buried in prose, some implied
+# ("someone needs to", "we should probably", "at some point", no hard date). These
+# reproduce the real failure — small models drop the soft/implied tasks and pin
+# every confidence at 1.0. Content is kept distinct from the prompt's few-shot
+# example to avoid train/test leakage.
+- name: messy_multi_task_firewall
+  raw_text: >-
+    ok dump from the firewall migration sync today. biggest thing: need to finish
+    the firewall ruleset cleanup before the audit, that's due friday and it's the
+    one that'll sink us if it slips. Sarah said she'd take the VLAN re-tagging but
+    honestly that can wait till next week, low stakes. also someone needs to
+    document the new VPN split-tunnel config — nobody's written it down and Mark
+    keeps asking. and we should probably schedule a rollback test at some point, no
+    hard date. oh and order the replacement SFP modules, the spare drawer is empty
+    again.
+  today: "2026-05-31"
+  expect:
+    min_tasks: 5
+    title_contains: ["firewall", "vlan", "vpn", "rollback", "sfp"]
+    assignee_hint_present: true
+    needs_review: true
+    confidence_varies: true
+    low_confidence_present: true
+
+- name: messy_multi_task_office_move
+  raw_text: >-
+    notes from the office move planning call. we have to get the new floor's
+    network drops certified before anyone moves desks — that's the blocker. Priya
+    is handling the ISP circuit transfer, should be done by june 12. need to label
+    and pack the server rack, and at some point figure out what to do with the old
+    UPS units, they might be e-waste. also book the freight elevator for moving day,
+    can't forget that one again.
+  today: "2026-05-31"
+  expect:
+    min_tasks: 4
+    title_contains: ["network", "circuit", "rack", "elevator"]
+    assignee_hint_present: true
+    confidence_varies: true
