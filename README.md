@@ -352,8 +352,31 @@ Autonomous agents
 ollama serve
 cd backend && python -m app.main   # reload on; binds API_HOST from .env (default 127.0.0.1, set 0.0.0.0 for LAN)
 cd frontend && npm run dev   # binds DEV_HOST from .env (default 127.0.0.1, set 0.0.0.0 for LAN)
-python -m app.integrations.discord.bot   # later
+cd backend && python -m app.integrations.discord.bot   # Discord bot (needs DISCORD_BOT_TOKEN + BACKEND_SHARED_SECRET)
 ```
+
+## Discord setup (Sprint 3)
+
+The bot is a separate process that calls the API over HTTP. To run it:
+
+1. **Create the app + bot** at https://discord.com/developers/applications → New
+   Application → Bot. Copy the bot token (shown once).
+2. **Set env vars** in `backend/.env`:
+   - `DISCORD_BOT_TOKEN` — the token from step 1.
+   - `BACKEND_SHARED_SECRET` — any long random string (e.g.
+     `python -c "import secrets; print(secrets.token_urlsafe(32))"`). Empty disables
+     the `/api/discord/inbox` route (returns 503). Backend and bot read the same `.env`.
+   - `DISCORD_GUILD_ID` (optional) — your server's ID. Set it for **instant** slash-command
+     registration during testing; without it, global sync can take ~an hour to appear.
+3. **Invite the bot**: OAuth2 → URL Generator → scopes `bot` + `applications.commands`,
+   permission `Send Messages`. Open the URL, pick your server, authorize.
+4. **Run** the three processes above. In Discord: `/inbox <messy text>` → the bot replies
+   with extracted task titles; the candidates appear in the web app's inbox
+   **"Awaiting review"** list to accept/reject.
+
+> The API binds to `API_HOST` (loopback by default). The shared secret — not the bind
+> address — is what protects the discord route, so it stays safe even when the API is
+> exposed on the LAN.
 
 ## North star
 

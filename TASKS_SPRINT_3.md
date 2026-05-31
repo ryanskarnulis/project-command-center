@@ -100,4 +100,16 @@ cd backend && mypy app && ruff check app
 5. Open the web app inbox/review queue → the Discord-sourced candidates are there to review.
 
 ## Done check
-_(fill in once the slice is verified end-to-end — e.g. "verified via curl + bot on guild X, inbox #N")_
+Verified end-to-end: `/inbox` on a real guild → backend extracted candidates (inbox #10/#11,
+`source=discord`) → reviewed in the web app via the new **"Awaiting review"** list. Backend
+suite green (23 passing); `tsc -b` + eslint clean on the frontend.
+
+Post-build additions (beyond the original plan, prompted by manual testing):
+- `DISCORD_GUILD_ID` (optional) for instant slash-command sync — global sync can take ~an hour.
+- Web inbox **pending-review list** (`GET /api/inbox`) so Discord captures surface in the UI;
+  this closed a Sprint-2 gap where the inbox screen was session-local only.
+- **Dismiss** for zero-candidate notes (empty-decision review) + return-to-main-screen after review.
+
+Known follow-up (not blocking): empty-dismiss records the training example with `accepted=false`;
+for a note the model *correctly* read as task-free this is arguably a confirmation, not a
+rejection. Revisit in `review_service` if the training-signal semantics matter.

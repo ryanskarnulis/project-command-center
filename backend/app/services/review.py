@@ -11,7 +11,6 @@ from app.ai import gateway
 from app.db.models import AITrainingExample, InboxItem, Task, TaskStatus
 from app.schemas.inbox import ReviewDecision, ReviewResult
 from app.services import inbox as inbox_service
-from app.services import tasks as tasks_service
 from app.services.training_data import record_example
 
 logger = structlog.get_logger(__name__)

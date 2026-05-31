@@ -90,8 +90,11 @@ When starting a sprint, copy the relevant tasks into a `TASKS_SPRINT_X.md` file 
 - [x] `backend/app/integrations/discord/bot.py` — discord.py bot, separate process
 - [x] `backend/app/integrations/discord/commands.py` — `/inbox` slash command, calls backend over HTTP
 - [x] Bot replies with extraction summary (task titles + project hint)
-- [ ] Manual test: `/inbox "finish firewall cleanup by Friday"` → candidates appear in app
-      (needs a real Discord token/guild — yours to run; see TASKS_SPRINT_3.md verification)
+- [x] Manual test: `/inbox "finish firewall cleanup by Friday"` → candidates appear in app
+      (verified on a real guild; reviewed via the new inbox "Awaiting review" list)
+- [x] Web inbox shows a pending-review queue (`GET /api/inbox`) so out-of-band (Discord)
+      captures are reviewable; zero-candidate notes can be dismissed; returns to main screen
+      after review. (Not in the original plan — added when Discord capture exposed the gap.)
 
 ---
 
