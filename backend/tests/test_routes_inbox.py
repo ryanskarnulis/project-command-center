@@ -121,6 +121,33 @@ def test_review_twice_conflicts(
     assert examples["reviewed_at"] is not None
 
 
+def test_review_empty_decisions_dismisses(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty-decision review marks the item reviewed (the 'dismiss' path used
+    by the web UI for notes that extracted no tasks) and records one example."""
+    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
+
+    inbox_id = client.post("/api/inbox", json={"raw_text": "nothing to do here"}).json()[
+        "id"
+    ]
+    client.post(f"/api/inbox/{inbox_id}/process")
+
+    resp = client.post(f"/api/inbox/{inbox_id}/review", json={"decisions": []})
+    assert resp.status_code == 200
+    result = resp.json()
+    assert result["accepted"] == 0
+    assert result["rejected"] == 0
+
+    # The item drops out of the pending set (it's now reviewed).
+    assert client.get(f"/api/inbox/{inbox_id}").json()["reviewed_at"] is not None
+    # Re-dismissing is still blocked.
+    assert (
+        client.post(f"/api/inbox/{inbox_id}/review", json={"decisions": []}).status_code
+        == 409
+    )
+
+
 def test_review_rejects_unknown_task_id(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

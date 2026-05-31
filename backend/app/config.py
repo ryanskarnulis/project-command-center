@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     discord_bot_token: str = ""
     # Where the bot process reaches the API (loopback by default — same host).
     backend_base_url: str = "http://127.0.0.1:8000"
+    # Optional: sync slash commands to this one guild for instant availability
+    # during testing. Global sync (when unset) can take up to ~an hour to appear.
+    discord_guild_id: int | None = None
 
     # Explicit CORS allow-list (the local Vite dev server).
     cors_origins: list[str] = [

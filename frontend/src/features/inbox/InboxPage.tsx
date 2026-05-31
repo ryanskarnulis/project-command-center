@@ -1,4 +1,4 @@
-import { type SubmitEvent, useState } from 'react'
+import { type SubmitEvent, useEffect, useState } from 'react'
 import { useInbox } from './useInbox'
 import { ReviewQueue } from './ReviewQueue'
 
@@ -6,15 +6,24 @@ export function InboxPage() {
   const {
     inboxItem,
     candidates,
+    pending,
     loading,
     error,
     submitting,
-    result,
+    notice,
     submit,
     review,
+    loadPending,
+    selectItem,
     reset,
   } = useInbox()
   const [text, setText] = useState('')
+
+  // Surface items awaiting review (including out-of-band captures like Discord)
+  // on load.
+  useEffect(() => {
+    void loadPending()
+  }, [loadPending])
 
   async function handleSubmit(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -25,34 +34,57 @@ export function InboxPage() {
   function handleNewCapture() {
     setText('')
     reset()
+    void loadPending()
   }
 
-  const reviewed = result !== null
   // A re-pasted note resolves (idempotently) to an already-reviewed inbox item;
   // re-reviewing is blocked server-side, so show its state read-only instead.
   const alreadyReviewed = inboxItem?.reviewed_at != null
+  const emptyCandidates =
+    inboxItem != null && !loading && !alreadyReviewed && candidates.length === 0
 
   return (
     <main>
       <h1>Inbox</h1>
 
-      {!reviewed && (
-        <form onSubmit={handleSubmit}>
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Paste messy notes here — meetings, todos, anything…"
-            rows={6}
-          />
-          <button type="submit" disabled={loading || !text.trim()}>
-            {loading ? 'Processing…' : 'Extract tasks'}
-          </button>
-        </form>
-      )}
+      {notice && <p role="status">{notice}</p>}
+
+      <form onSubmit={handleSubmit}>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Paste messy notes here — meetings, todos, anything…"
+          rows={6}
+        />
+        <button type="submit" disabled={loading || !text.trim()}>
+          {loading ? 'Processing…' : 'Extract tasks'}
+        </button>
+      </form>
 
       {error && <p role="alert">{error}</p>}
 
-      {inboxItem && !reviewed && (
+      {pending.length > 0 && (
+        <section>
+          <h2>Awaiting review ({pending.length})</h2>
+          <ul>
+            {pending.map((item) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  disabled={loading}
+                  aria-current={inboxItem?.id === item.id}
+                  onClick={() => void selectItem(item)}
+                >
+                  <span>[{item.source}]</span>{' '}
+                  {item.summary ?? item.raw_text.slice(0, 60)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {inboxItem && (
         <section>
           {inboxItem.summary && (
             <p>
@@ -68,7 +100,7 @@ export function InboxPage() {
         </section>
       )}
 
-      {!reviewed && !alreadyReviewed && candidates.length > 0 && (
+      {!alreadyReviewed && candidates.length > 0 && (
         <ReviewQueue
           key={inboxItem?.id}
           candidates={candidates}
@@ -77,27 +109,22 @@ export function InboxPage() {
         />
       )}
 
-      {!reviewed && alreadyReviewed && (
+      {emptyCandidates && (
         <section>
-          <p>This note was already reviewed — re-reviewing is disabled.</p>
-          <button type="button" onClick={handleNewCapture}>
-            New capture
+          <p>No tasks were extracted from this note.</p>
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => void review([])}
+          >
+            {submitting ? 'Dismissing…' : 'Dismiss (no tasks)'}
           </button>
         </section>
       )}
 
-      {inboxItem &&
-        !loading &&
-        !error &&
-        !reviewed &&
-        candidates.length === 0 && <p>No task candidates were extracted.</p>}
-
-      {reviewed && result && (
+      {alreadyReviewed && (
         <section>
-          <p>
-            Review saved — {result.accepted} accepted, {result.rejected}{' '}
-            rejected. Training example #{result.training_example_id} recorded.
-          </p>
+          <p>This note was already reviewed — re-reviewing is disabled.</p>
           <button type="button" onClick={handleNewCapture}>
             New capture
           </button>

@@ -22,11 +22,24 @@ def build_bot() -> commands.Bot:
     bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
     inbox_commands.register(bot)
 
+    guild_id = get_settings().discord_guild_id
+
     @bot.event
     async def on_ready() -> None:
-        # Sync slash commands with Discord so /inbox shows up.
-        await bot.tree.sync()
-        logger.info("discord_bot_ready", user=str(bot.user))
+        # Sync slash commands with Discord so /inbox shows up. A guild-scoped sync
+        # is instant (good for testing); a global sync can take up to ~an hour.
+        if guild_id is not None:
+            guild = discord.Object(id=guild_id)
+            bot.tree.copy_global_to(guild=guild)
+            synced = await bot.tree.sync(guild=guild)
+        else:
+            synced = await bot.tree.sync()
+        logger.info(
+            "discord_bot_ready",
+            user=str(bot.user),
+            guild_id=guild_id,
+            commands=[c.name for c in synced],
+        )
 
     return bot
 
