@@ -14,6 +14,14 @@ class Settings(BaseSettings):
     # "0.0.0.0" in .env to expose the API on the LAN.
     api_host: str = "127.0.0.1"
 
+    # Discord integration (Sprint 3). The bot is a separate process that calls the
+    # API over HTTP. The shared secret is the real protection on the discord route
+    # (an empty secret disables the route); compared constant-time on every request.
+    backend_shared_secret: str = ""
+    discord_bot_token: str = ""
+    # Where the bot process reaches the API (loopback by default — same host).
+    backend_base_url: str = "http://127.0.0.1:8000"
+
     # Explicit CORS allow-list (the local Vite dev server).
     cors_origins: list[str] = [
         "http://localhost:5173",

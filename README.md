@@ -287,7 +287,8 @@ Sprint 1:  [DONE] Projects + tasks CRUD, soft deletes, basic React pages
 Sprint 2:  [DONE] Inbox + ModelGateway + Ollama provider + extraction workflow
            + Pydantic validation + review queue UI
            + eval cases in extraction_cases.yaml (7/7 on gemma4:e2b)
-Sprint 3:  Discord /inbox command (local-only, shared secret)
+Sprint 3:  [DONE] Discord /inbox command — shared-secret route + discord.py bot
+           (set BACKEND_SHARED_SECRET to enable POST /api/discord/inbox)
 Sprint 4:  Project matching workflow + aliases
 Sprint 5:  Dashboard views + settings UI (edit prompts, swap profiles)
 Sprint 6:  Hardening, litestream backups, expanded eval suite, docs

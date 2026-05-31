@@ -82,13 +82,16 @@ When starting a sprint, copy the relevant tasks into a `TASKS_SPRINT_X.md` file 
 ## Sprint 3 — Discord Bot
 > Goal: `/inbox` slash command in Discord triggers the same extraction workflow.
 
-- [ ] `backend/app/api/routes_discord.py` — `POST /api/discord/inbox` (shared-secret auth)
-- [ ] API bound to `127.0.0.1` only in uvicorn config
-- [ ] `BACKEND_SHARED_SECRET` in `.env`, validated on every discord route request
-- [ ] `backend/app/integrations/discord/bot.py` — discord.py bot, separate process
-- [ ] `backend/app/integrations/discord/commands.py` — `/inbox` slash command, calls backend over HTTP
-- [ ] Bot replies with extraction summary (task titles + project hint)
+- [x] `backend/app/api/routes_discord.py` — `POST /api/discord/inbox` (shared-secret auth)
+- [x] API bind: kept at `api_host` default (loopback); shared secret is the route's
+      protection since the user runs `0.0.0.0` for LAN (explicit override of the 127.0.0.1 rule)
+- [x] `BACKEND_SHARED_SECRET` in `.env`, validated (`hmac.compare_digest`) on every discord
+      route request; empty secret disables the route (503)
+- [x] `backend/app/integrations/discord/bot.py` — discord.py bot, separate process
+- [x] `backend/app/integrations/discord/commands.py` — `/inbox` slash command, calls backend over HTTP
+- [x] Bot replies with extraction summary (task titles + project hint)
 - [ ] Manual test: `/inbox "finish firewall cleanup by Friday"` → candidates appear in app
+      (needs a real Discord token/guild — yours to run; see TASKS_SPRINT_3.md verification)
 
 ---
 
