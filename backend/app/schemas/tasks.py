@@ -27,11 +27,14 @@ class TaskRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    project_id: int
+    project_id: int | None
+    inbox_item_id: int | None
     title: str
     description: str | None
     status: TaskStatus
     priority: TaskPriority
     due_date: date | None
+    confidence: float | None
+    assignee_hint: str | None
     created_at: datetime
     updated_at: datetime

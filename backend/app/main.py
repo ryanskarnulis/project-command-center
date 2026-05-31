@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
 
-from app.api import routes_projects, routes_tasks
+from app.api import routes_inbox, routes_projects, routes_tasks
 from app.config import get_settings
 from app.logging_config import RequestIDMiddleware, configure_logging
 
@@ -18,6 +18,7 @@ logger = structlog.get_logger(__name__)
 api_router = APIRouter()
 api_router.include_router(routes_projects.router)
 api_router.include_router(routes_tasks.router)
+api_router.include_router(routes_inbox.router)
 
 
 @asynccontextmanager

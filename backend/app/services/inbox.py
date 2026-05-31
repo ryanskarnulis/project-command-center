@@ -1,0 +1,61 @@
+from __future__ import annotations
+
+import hashlib
+from collections.abc import Sequence
+
+from sqlalchemy.orm import Session
+
+from app.db.models import InboxItem, InboxSource, Task
+from app.services.common import active
+
+
+def hash_text(text: str) -> str:
+    """Stable SHA-256 hex digest of the raw inbox text (idempotency key)."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def create_inbox_item(
+    db: Session,
+    *,
+    raw_text: str,
+    source: InboxSource = InboxSource.web,
+) -> InboxItem:
+    """Create an inbox item, idempotently.
+
+    If an active inbox item already exists with the same input hash, return it
+    unchanged — re-submitting the same text must not create a duplicate row (and
+    therefore must not lead to duplicate candidate extraction downstream).
+    """
+    input_hash = hash_text(raw_text)
+    existing = db.execute(
+        active(InboxItem).where(InboxItem.input_hash == input_hash)
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    item = InboxItem(raw_text=raw_text, input_hash=input_hash, source=source)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def get_inbox_item(db: Session, inbox_item_id: int) -> InboxItem | None:
+    return db.execute(
+        active(InboxItem).where(InboxItem.id == inbox_item_id)
+    ).scalar_one_or_none()
+
+
+def list_inbox_items(db: Session) -> Sequence[InboxItem]:
+    return db.execute(active(InboxItem).order_by(InboxItem.id)).scalars().all()
+
+
+def list_candidates(db: Session, inbox_item_id: int) -> Sequence[Task]:
+    """Active candidate (and reviewed) tasks belonging to one inbox item."""
+    return (
+        db.execute(
+            active(Task).where(Task.inbox_item_id == inbox_item_id).order_by(Task.id)
+        )
+        .scalars()
+        .all()
+    )

@@ -10,25 +10,13 @@ from sqlalchemy.orm import Session
 from app.ai import gateway
 from app.ai.schemas import ExtractionInput, ExtractionOutput
 from app.db.models import InboxItem, Task, TaskStatus
-from app.services.common import active
+from app.services.inbox import list_candidates as _existing_candidates
 from app.services.tasks import create_task
 from app.services.training_data import record_example
 
 logger = structlog.get_logger(__name__)
 
 _PROFILE = "task_extraction"
-
-
-def _existing_candidates(db: Session, inbox_item_id: int) -> Sequence[Task]:
-    return (
-        db.execute(
-            active(Task)
-            .where(Task.inbox_item_id == inbox_item_id)
-            .order_by(Task.id)
-        )
-        .scalars()
-        .all()
-    )
 
 
 def extract_tasks(db: Session, inbox_item: InboxItem) -> Sequence[Task]:
