@@ -1,0 +1,48 @@
+# Hand-written eval cases for the task_extraction workflow. Run against the real
+# model via `python -m app.ai.evals.run_evals`.
+#
+# `expect` assertion vocabulary (all optional, structural not exact-string):
+#   min_tasks / max_tasks       integer bounds on len(tasks)
+#   title_contains: [substr...]  each substring (case-insensitive) appears in
+#                                the title of some task
+#   project_hint_present: bool   project_hint is / is not null
+#   assignee_hint_present: bool  at least one task has / no task has assignee_hint
+#   needs_review: bool           exact match on the needs_review flag
+#   priority_in: [low|...]       at least one task has a priority in the set
+
+- name: single_task_with_due_date
+  raw_text: "Email the budget spreadsheet to Sarah by Friday."
+  today: "2026-05-31"
+  expect:
+    min_tasks: 1
+    max_tasks: 2
+    title_contains: ["budget"]
+    assignee_hint_present: true
+
+- name: multi_task_standup_notes
+  raw_text: "Standup notes: ship the auth fix, write the release notes, ping ops about the deploy."
+  today: "2026-05-31"
+  expect:
+    min_tasks: 3
+    title_contains: ["auth", "release", "deploy"]
+
+- name: ambiguous_needs_review
+  raw_text: "maybe look into the thing we talked about, not sure when"
+  today: "2026-05-31"
+  expect:
+    needs_review: true
+
+- name: no_actionable_task
+  raw_text: "Had a great lunch with the team today, good vibes all around."
+  today: "2026-05-31"
+  expect:
+    min_tasks: 0
+    max_tasks: 0
+    needs_review: true
+
+- name: urgent_priority_signal
+  raw_text: "URGENT: the production database is down, fix it ASAP."
+  today: "2026-05-31"
+  expect:
+    min_tasks: 1
+    priority_in: ["urgent", "high"]

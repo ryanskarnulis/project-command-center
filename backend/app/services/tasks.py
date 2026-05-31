@@ -27,12 +27,15 @@ def get_task(db: Session, task_id: int) -> Task | None:
 def create_task(
     db: Session,
     *,
-    project_id: int,
+    project_id: int | None,
     title: str,
     description: str | None = None,
     status: TaskStatus = TaskStatus.accepted,
     priority: TaskPriority = TaskPriority.medium,
     due_date: date | None = None,
+    inbox_item_id: int | None = None,
+    confidence: float | None = None,
+    assignee_hint: str | None = None,
 ) -> Task:
     task = Task(
         project_id=project_id,
@@ -41,6 +44,9 @@ def create_task(
         status=status,
         priority=priority,
         due_date=due_date,
+        inbox_item_id=inbox_item_id,
+        confidence=confidence,
+        assignee_hint=assignee_hint,
     )
     db.add(task)
     db.commit()

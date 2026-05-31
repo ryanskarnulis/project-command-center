@@ -37,32 +37,33 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
       Confirm `render_as_batch=True` in `alembic/env.py`. **Review generated file**, then `upgrade head`. Commit.
 
 ## Backend — AI subsystem (the gateway is the most important decision)
-- [ ] `ai/__init__.py`, `ai/providers/__init__.py`, `ai/workflows/__init__.py` (package scaffolding).
-- [ ] `ai/schemas.py` — Pydantic v2 `ExtractedTask`, `ExtractionOutput`, `ExtractionInput`
+- [x] `ai/__init__.py`, `ai/providers/__init__.py`, `ai/workflows/__init__.py` (package scaffolding).
+      (also `ai/evals/__init__.py` so `python -m app.ai.evals.run_evals` works.)
+- [x] `ai/schemas.py` — Pydantic v2 `ExtractedTask`, `ExtractionOutput`, `ExtractionInput`
       (matches the README task-extraction JSON: summary, project_hint|null, tasks[], needs_review).
-- [ ] `ai/profiles.yaml` — `task_extraction`, `project_matching`, `summary` (model `gemma4:e2b`,
+- [x] `ai/profiles.yaml` — `task_extraction`, `project_matching`, `summary` (model `gemma4:e2b`,
       temps/tokens/response_mode per README).
-- [ ] `ai/prompts/extract_tasks.md` — extraction system prompt (plain markdown, not a Python string).
-- [ ] `ai/providers/base.py` — `BaseProvider` ABC, typed `complete(...) -> str`.
-- [ ] `ai/providers/ollama.py` — `OllamaProvider` via httpx to `/api/chat`
+- [x] `ai/prompts/extract_tasks.md` — extraction system prompt (plain markdown, not a Python string).
+- [x] `ai/providers/base.py` — `BaseProvider` ABC, typed `complete(...) -> str`.
+- [x] `ai/providers/ollama.py` — `OllamaProvider` via httpx to `/api/chat`
       (`format=<schema>`, `options.temperature`, `num_predict`, `stream=False`). No `import ollama`.
-- [ ] `ai/gateway.py` — load profile by name + its prompt file, route to the provider, return raw text.
+- [x] `ai/gateway.py` — load profile by name + its prompt file, route to the provider, return raw text.
       Workflows call only the gateway.
-- [ ] `ai/workflows/extract_tasks.py` — idempotent: if processed/has candidates, return them; else
+- [x] `ai/workflows/extract_tasks.py` — idempotent: if processed/has candidates, return them; else
       build input (+ today) → gateway → `ExtractionOutput.model_validate_json` → create candidate Tasks
       (`status=candidate`, `project_id=None`, `inbox_item_id` set), persist summary/hint/needs_review,
       set `processed_at`. On `ValidationError`: log raw + write failure training row + surface error.
-- [ ] `ai/evals/extraction_cases.yaml` — 5 hand-written cases with `expect` assertions.
-- [ ] `ai/evals/run_evals.py` — `python -m app.ai.evals.run_evals`: run cases vs the real model,
-      validate, print pass/fail, exit non-zero on failure.
+- [x] `ai/evals/extraction_cases.yaml` — 5 hand-written cases with `expect` assertions.
+- [x] `ai/evals/run_evals.py` — `python -m app.ai.evals.run_evals`: run cases vs the real model,
+      validate, print pass/fail, exit non-zero on failure. (5/5 pass against `gemma4:e2b`.)
 
 ## Backend — services
 - [ ] `services/inbox.py` — `hash_text` (SHA-256, stdlib), idempotent `create_inbox_item`
       (same active hash → return existing, no new row), `get_inbox_item`/`list_inbox_items`,
       `list_candidates(inbox_item_id)`. Inbox only — no extraction/matching logic here.
-- [ ] `services/training_data.py` — `record_example(...)` (stdlib `json`), used by the failure path
-      and by `/review`.
-- [ ] `services/tasks.py` — extend `create_task` for `project_id: int | None`, `inbox_item_id`,
+- [x] `services/training_data.py` — `record_example(...)`, used by the failure path
+      and by `/review`. (Built alongside the AI subsystem — the workflow's failure path needs it.)
+- [x] `services/tasks.py` — extend `create_task` for `project_id: int | None`, `inbox_item_id`,
       `confidence`, `assignee_hint` (defaults keep existing callers working).
 
 ## Backend — API
@@ -78,9 +79,9 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
 
 ## Backend — tests (mock the gateway)
 - [ ] `tests/test_inbox.py` — idempotency: same text twice → one row, same id.
-- [ ] `tests/test_extract_workflow.py` — happy path (canned valid JSON → candidates created,
+- [x] `tests/test_extract_workflow.py` — happy path (canned valid JSON → candidates created,
       idempotent re-run) + validation failure (bad JSON → failure training row + error surfaced).
-- [ ] `tests/test_training_data.py` — `record_example` stores full input/output.
+- [x] `tests/test_training_data.py` — `record_example` stores full input/output.
 - [ ] (optional) `tests/test_routes_inbox.py` — POST → process → review writes statuses + 1 training row.
 
 ## Frontend — inbox & review queue
