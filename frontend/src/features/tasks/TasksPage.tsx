@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from 'react'
+import { type SubmitEvent, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useTasks } from './useTasks'
 import type { TaskPriority } from '../../types/task'
@@ -14,7 +14,7 @@ export function TasksPage() {
   const [priority, setPriority] = useState<TaskPriority>('medium')
   const [submitting, setSubmitting] = useState(false)
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!title.trim()) return
     setSubmitting(true)

@@ -44,8 +44,8 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
 - [x] `src/routes/` — router with `/projects` and `/projects/:id/tasks`; `App.tsx` renders it
 
 ## Frontend — features
-- [ ] `src/features/projects/` — `useProjects` hook + project list page + create form
-- [ ] `src/features/tasks/` — `useTasks` hook + task list page (scoped to project) + create form
+- [X] `src/features/projects/` — `useProjects` hook + project list page + create form
+- [X] `src/features/tasks/` — `useTasks` hook + task list page (scoped to project) + create form
       + mark-done + delete. Hooks call `src/api/`, components consume hooks.
 
 ## Done check
