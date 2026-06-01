@@ -157,14 +157,20 @@ Scope extensions agreed with the user (beyond the original list above):
 ## Sprint 6 — Hardening & Backups
 > Goal: the app is reliable enough to trust with real data.
 
-- [ ] Nightly SQLite backup — cron or shell script using `sqlite3 .backup`
-- [ ] `activity_events` model + migration — log project/task changes
-- [ ] `backend/app/services/activity.py` — write activity events from service layer
-- [ ] `src/features/projects/ActivityFeed.tsx` — shows recent activity per project
-- [ ] Expanded eval suite — 20+ cases in `extraction_cases.yaml`
-- [ ] `docker-compose.yml` — backend + frontend in containers (for clean restarts, not prod)
-- [ ] README updated: setup steps, env vars, dev commands all verified accurate
-- [ ] Full manual smoke test of the entire flow, top to bottom
+- [x] Nightly SQLite backup — `scripts/backup_db.sh` (stdlib `sqlite3.Connection.backup()`
+      online snapshot + 14-day prune, cron line in README; no external CLI dependency)
+- [x] `activity_events` model + migration — append-only audit log (no `deleted_at`,
+      documented exception); migration `09002cc3cb7c`
+- [x] `backend/app/services/activity.py` — `record_event`/`list_events`, called from
+      `services/projects.py` + `services/tasks.py` (task events guarded on `project_id`)
+- [x] `src/features/projects/ActivityFeed.tsx` — per-project feed on the tasks page
+      (`GET /api/projects/{id}/activity`, `useProjectActivity` hook, refreshes on task change)
+- [x] Expanded eval suite — 20 cases in `extraction_cases.yaml` (was 7)
+- [ ] `docker-compose.yml` — backend + frontend in containers (**deferred**: "clean
+      restarts, not prod"; not needed to trust the app with data — the one open box)
+- [x] README updated: backup script + cron, activity-log schema note, Sprint 6 status
+- [~] Full manual smoke test of the entire flow, top to bottom (backend pytest green;
+      UI smoke test pending a manual run with Ollama up)
 
 ---
 

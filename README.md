@@ -174,6 +174,11 @@ ai_training_examples
 
 All tables use **soft deletes** via a `deleted_at` column. Don't actually delete rows — you'll change your mind, and training data references them.
 
+> **Exception:** `activity_events` (Sprint 6) is an append-only audit log and has
+> **no** `deleted_at` — an audit trail is never user-edited. It records
+> project/task lifecycle changes (created/updated/completed/deleted) from the
+> service layer and feeds the per-project ActivityFeed.
+
 Tasks use a `status` enum rather than a separate `task_candidates` table. Candidates and real tasks live in the same table, distinguished by status. Simpler queries, no sync logic. Split later if it ever becomes painful.
 
 ### The most important table
@@ -301,7 +306,10 @@ Sprint 5:  [DONE] Dashboard — GET /api/dashboard (instant counts) +
            Settings UI — edit model profiles (write to gitignored profiles.local.yaml,
            deep-merged over the committed profiles.yaml; reload, no restart), edit
            ai/prompts/*.md on disk, and trigger eval runs (synchronous, pass/fail counts).
-Sprint 6:  Hardening, litestream backups, expanded eval suite, docs
+Sprint 6:  [IN PROGRESS] Hardening — append-only activity_events log (project/task
+           changes, surfaced as a per-project ActivityFeed on the tasks page);
+           nightly SQLite backup script (scripts/backup_db.sh + cron); extraction
+           eval suite expanded to 20 cases. docker-compose deferred (one open box).
 Sprint 7+: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
 ```
 
@@ -370,6 +378,19 @@ cd backend && python -m app.integrations.discord.bot   # Discord bot (needs DISC
 cd backend && python -m app.ai.evals.run_evals         # task_extraction eval cases (needs Ollama)
 cd backend && python -m app.ai.evals.run_match_evals   # project_matching eval cases (needs Ollama)
 cd backend && python -m app.ai.evals.run_summary_evals # project summary eval cases (needs Ollama)
+./scripts/backup_db.sh                                 # snapshot data/app.db → data/backups/
+```
+
+### Backups (Sprint 6)
+
+`scripts/backup_db.sh` takes a consistent snapshot of `data/app.db` into
+`data/backups/` and prunes snapshots older than `BACKUP_RETENTION_DAYS` (default 14).
+It uses Python's stdlib `sqlite3.Connection.backup()` — a proper online backup (safe
+on a live DB, not a torn file copy), with no external `sqlite3` CLI dependency.
+Schedule it with cron:
+
+```
+0 2 * * * /path/to/project-command-center/scripts/backup_db.sh
 ```
 
 ## Discord setup (Sprint 3)

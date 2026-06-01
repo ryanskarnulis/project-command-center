@@ -276,3 +276,39 @@ code {
   font-size: 14px;
   color: var(--text);
 }
+
+.activity-feed {
+  margin-top: 32px;
+  text-align: left;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.activity-feed ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.activity-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 0 8px 12px;
+  border-left: 3px solid var(--border);
+}
+
+.activity-item.activity-created {
+  border-left-color: var(--accent);
+}
+
+.activity-item.activity-completed {
+  border-left-color: var(--accent-border);
+}
+
+.activity-time {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+}

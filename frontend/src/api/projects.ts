@@ -1,5 +1,10 @@
 import { apiClient } from './client'
-import type { Project, ProjectCreate, ProjectUpdate } from '../types/project'
+import type {
+  ActivityEvent,
+  Project,
+  ProjectCreate,
+  ProjectUpdate,
+} from '../types/project'
 
 export async function listProjects(): Promise<Project[]> {
   const res = await apiClient('/api/projects')
@@ -34,4 +39,12 @@ export async function updateProject(
 
 export async function deleteProject(id: number): Promise<void> {
   await apiClient(`/api/projects/${id}`, { method: 'DELETE' })
+}
+
+export async function getProjectActivity(
+  id: number,
+  limit = 50,
+): Promise<ActivityEvent[]> {
+  const res = await apiClient(`/api/projects/${id}/activity?limit=${limit}`)
+  return (await res.json()) as ActivityEvent[]
 }

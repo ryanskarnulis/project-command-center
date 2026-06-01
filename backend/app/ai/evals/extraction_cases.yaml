@@ -89,3 +89,123 @@
     title_contains: ["network", "circuit", "rack", "elevator"]
     assignee_hint_present: true
     confidence_varies: true
+
+# --- Sprint 6: expanded suite (target 20+ cases) -----------------------------
+# Same structural-not-exact-string assertion vocabulary as above. Kept lenient
+# because these run against the real small model; tighten only what it can hold.
+
+- name: relative_due_tomorrow
+  raw_text: "Send the signed contract back to legal tomorrow."
+  today: "2026-05-31"
+  expect:
+    min_tasks: 1
+    max_tasks: 1
+    title_contains: ["contract"]
+
+- name: relative_due_next_tuesday
+  raw_text: "Prep the quarterly slides for the board meeting next Tuesday."
+  today: "2026-05-31"
+  expect:
+    min_tasks: 1
+    title_contains: ["slides"]
+
+- name: relative_due_end_of_month
+  raw_text: "Reconcile the AWS invoices by the end of the month."
+  today: "2026-05-31"
+  expect:
+    min_tasks: 1
+    title_contains: ["invoice"]
+
+- name: project_hint_present_explicit
+  raw_text: "For the Mobile App project: fix the login crash and bump the SDK version."
+  today: "2026-05-31"
+  expect:
+    min_tasks: 2
+    title_contains: ["login", "sdk"]
+    project_hint_present: true
+
+- name: single_clear_task_low_priority
+  raw_text: "Whenever you get a chance, tidy up the README typos. No rush at all."
+  today: "2026-05-31"
+  expect:
+    min_tasks: 1
+    max_tasks: 1
+    title_contains: ["readme"]
+    priority_in: ["low", "medium"]
+
+- name: explicit_assignee_extraction
+  raw_text: "Ask Marcus to review the migration script and have Dana update the runbook."
+  today: "2026-05-31"
+  expect:
+    min_tasks: 2
+    title_contains: ["migration", "runbook"]
+    assignee_hint_present: true
+
+- name: no_actionable_status_update
+  raw_text: "FYI the deploy went out fine last night and metrics look healthy. Nothing needed from anyone."
+  today: "2026-05-31"
+  expect:
+    min_tasks: 0
+    max_tasks: 0
+    needs_review: true
+
+- name: no_actionable_thanks_note
+  raw_text: "Thanks everyone for the great work this quarter, really proud of the team."
+  today: "2026-05-31"
+  expect:
+    min_tasks: 0
+    max_tasks: 0
+
+- name: mixed_priority_incident
+  raw_text: >-
+    incident wrap-up: top priority, rotate the leaked API key right now before
+    anything else. then write the postmortem this week. and eventually we should
+    add an alert for this case, low priority, no deadline.
+  today: "2026-05-31"
+  expect:
+    min_tasks: 3
+    title_contains: ["key", "postmortem", "alert"]
+    priority_in: ["urgent", "high"]
+    confidence_varies: true
+
+- name: two_clear_tasks_with_dates
+  raw_text: "Book the venue by June 6 and send invites by June 9 for the offsite."
+  today: "2026-05-31"
+  expect:
+    min_tasks: 2
+    title_contains: ["venue", "invite"]
+
+- name: buried_implied_tasks_kitchen_remodel
+  raw_text: >-
+    rough notes from the kitchen remodel chat. the big one is we need to get the
+    electrical permit pulled before the inspector visit, that's hard-blocking
+    everything. Tom said he'd chase the cabinet supplier about the delay. we should
+    probably also get a second quote on the countertops at some point, and somebody
+    has to remember to shut off the water main before demo day.
+  today: "2026-05-31"
+  expect:
+    min_tasks: 4
+    title_contains: ["permit", "cabinet", "countertop", "water"]
+    assignee_hint_present: true
+    confidence_varies: true
+    low_confidence_present: true
+
+- name: buried_implied_tasks_grant_application
+  raw_text: >-
+    dump from the grant prep meeting. firm deadline: the application portal closes
+    july 1, no extensions. Lena owns the budget narrative. we still need someone to
+    pull the letters of support, and at some point double-check the eligibility
+    criteria haven't changed since last cycle — not urgent but don't want a
+    surprise. oh and we should draft the abstract early so the PI can review it.
+  today: "2026-05-31"
+  expect:
+    min_tasks: 4
+    title_contains: ["budget", "letters", "eligibility", "abstract"]
+    assignee_hint_present: true
+    confidence_varies: true
+
+- name: ambiguous_vague_followup
+  raw_text: "we should circle back on that vendor thing at some point, can't remember the details"
+  today: "2026-05-31"
+  expect:
+    needs_review: true

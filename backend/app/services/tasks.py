@@ -7,7 +7,28 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.db.models import Task, TaskPriority, TaskStatus
+from app.services import activity
 from app.services.common import active, soft_delete
+
+
+def _log_task_event(db: Session, task: Task, action: str) -> None:
+    """Record an activity event for a task, but only once it belongs to a project.
+
+    Extraction creates candidates with ``project_id=None``; logging those would
+    flood the per-project feed with rows no feed can show. A candidate first
+    surfaces when review sets its ``project_id`` (an ``updated`` event), which is
+    exactly when it lands in a project.
+    """
+    if task.project_id is None:
+        return
+    activity.record_event(
+        db,
+        project_id=task.project_id,
+        entity_type="task",
+        entity_id=task.id,
+        action=action,
+        summary=f'Task "{task.title}" {action}',
+    )
 
 
 def list_tasks(db: Session, project_id: int) -> Sequence[Task]:
@@ -51,6 +72,7 @@ def create_task(
     db.add(task)
     db.commit()
     db.refresh(task)
+    _log_task_event(db, task, "created")
     return task
 
 
@@ -59,6 +81,7 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
         setattr(task, key, value)
     db.commit()
     db.refresh(task)
+    _log_task_event(db, task, "updated")
     return task
 
 
@@ -66,9 +89,11 @@ def mark_done(db: Session, task: Task) -> Task:
     task.status = TaskStatus.done
     db.commit()
     db.refresh(task)
+    _log_task_event(db, task, "completed")
     return task
 
 
 def soft_delete_task(db: Session, task: Task) -> None:
     soft_delete(task)
     db.commit()
+    _log_task_event(db, task, "deleted")

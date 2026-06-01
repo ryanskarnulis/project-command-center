@@ -120,6 +120,27 @@ class InboxItem(Base, TimestampMixin, SoftDeleteMixin):
     candidates: Mapped[list[Task]] = relationship(back_populates="inbox_item")
 
 
+class ActivityEvent(Base, TimestampMixin):
+    """Append-only audit log of project/task lifecycle changes (Sprint 6).
+
+    Deliberately NOT soft-deletable (no ``deleted_at``): an audit trail is never
+    user-edited. This is the one documented exception to the soft-delete rule in
+    CLAUDE.md. ``created_at`` is the event time; ``project_id`` is indexed for the
+    per-project activity feed query.
+    """
+
+    __tablename__ = "activity_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("projects.id"), index=True, default=None
+    )
+    entity_type: Mapped[str]  # "project" | "task"
+    entity_id: Mapped[int]
+    action: Mapped[str]  # "created" | "updated" | "completed" | "deleted"
+    summary: Mapped[str]  # human-readable, e.g. 'Task "Fix VPN" created'
+
+
 class AITrainingExample(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "ai_training_examples"
 

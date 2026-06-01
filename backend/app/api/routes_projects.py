@@ -6,8 +6,9 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.db.models import Project, ProjectAlias
+from app.db.models import ActivityEvent, Project, ProjectAlias
 from app.db.session import get_db
+from app.schemas.activity import ActivityEventRead
 from app.schemas.projects import (
     ProjectAliasCreate,
     ProjectAliasRead,
@@ -15,6 +16,7 @@ from app.schemas.projects import (
     ProjectRead,
     ProjectUpdate,
 )
+from app.services import activity as activity_service
 from app.services import projects as projects_service
 
 logger = structlog.get_logger(__name__)
@@ -76,6 +78,14 @@ def delete_project(project_id: int, db: Session = Depends(get_db)) -> None:
     project = _get_or_404(db, project_id)
     projects_service.soft_delete_project(db, project)
     logger.info("project_deleted", project_id=project_id)
+
+
+@router.get("/{project_id}/activity", response_model=list[ActivityEventRead])
+def list_activity(
+    project_id: int, limit: int = 50, db: Session = Depends(get_db)
+) -> Sequence[ActivityEvent]:
+    _get_or_404(db, project_id)
+    return activity_service.list_events(db, project_id, limit=limit)
 
 
 @router.get("/{project_id}/aliases", response_model=list[ProjectAliasRead])

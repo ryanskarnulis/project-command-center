@@ -15,3 +15,13 @@ export interface ProjectUpdate {
   name?: string
   description?: string | null
 }
+
+export interface ActivityEvent {
+  id: number
+  project_id: number | null
+  entity_type: string
+  entity_id: number
+  action: string
+  summary: string
+  created_at: string
+}

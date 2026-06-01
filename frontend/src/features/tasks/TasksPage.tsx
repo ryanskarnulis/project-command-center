@@ -1,6 +1,7 @@
 import { type SubmitEvent, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useTasks } from './useTasks'
+import { ActivityFeed } from '../projects/ActivityFeed'
 import type { TaskPriority } from '../../types/task'
 
 const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
@@ -13,6 +14,9 @@ export function TasksPage() {
   const [title, setTitle] = useState('')
   const [priority, setPriority] = useState<TaskPriority>('medium')
   const [submitting, setSubmitting] = useState(false)
+  // Bumped after any task mutation so the ActivityFeed re-fetches.
+  const [activityKey, setActivityKey] = useState(0)
+  const bumpActivity = () => setActivityKey((k) => k + 1)
 
   async function handleSubmit(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -22,6 +26,7 @@ export function TasksPage() {
       await create({ title: title.trim(), priority })
       setTitle('')
       setPriority('medium')
+      bumpActivity()
     } finally {
       setSubmitting(false)
     }
@@ -64,14 +69,22 @@ export function TasksPage() {
             <span>{t.title}</span> <span>[{t.status}]</span>{' '}
             <span>({t.priority})</span>{' '}
             {t.status !== 'done' && (
-              <button onClick={() => void markDone(t.id)}>Mark done</button>
+              <button
+                onClick={() => void markDone(t.id).then(bumpActivity)}
+              >
+                Mark done
+              </button>
             )}{' '}
-            <button onClick={() => void remove(t.id)}>Delete</button>
+            <button onClick={() => void remove(t.id).then(bumpActivity)}>
+              Delete
+            </button>
           </li>
         ))}
       </ul>
 
       {!loading && tasks.length === 0 && <p>No tasks yet.</p>}
+
+      <ActivityFeed projectId={id} refreshKey={activityKey} />
     </main>
   )
 }

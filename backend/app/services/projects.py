@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.db.models import Project, ProjectAlias
+from app.services import activity
 from app.services.common import active, soft_delete
 
 
@@ -25,6 +26,14 @@ def create_project(db: Session, *, name: str, description: str | None = None) ->
     db.add(project)
     db.commit()
     db.refresh(project)
+    activity.record_event(
+        db,
+        project_id=project.id,
+        entity_type="project",
+        entity_id=project.id,
+        action="created",
+        summary=f'Project "{project.name}" created',
+    )
     return project
 
 
@@ -33,12 +42,28 @@ def update_project(db: Session, project: Project, fields: Mapping[str, Any]) -> 
         setattr(project, key, value)
     db.commit()
     db.refresh(project)
+    activity.record_event(
+        db,
+        project_id=project.id,
+        entity_type="project",
+        entity_id=project.id,
+        action="updated",
+        summary=f'Project "{project.name}" updated',
+    )
     return project
 
 
 def soft_delete_project(db: Session, project: Project) -> None:
     soft_delete(project)
     db.commit()
+    activity.record_event(
+        db,
+        project_id=project.id,
+        entity_type="project",
+        entity_id=project.id,
+        action="deleted",
+        summary=f'Project "{project.name}" deleted',
+    )
 
 
 # --- Aliases & deterministic project matching (Sprint 4) -------------------
