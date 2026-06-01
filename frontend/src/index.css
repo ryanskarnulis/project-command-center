@@ -173,3 +173,106 @@ code {
   font-size: 14px;
   color: var(--text);
 }
+
+.error {
+  color: #e5484d;
+}
+
+.settings {
+  text-align: left;
+  padding: 0 24px 48px;
+}
+
+.settings section {
+  margin: 24px 0;
+}
+
+.settings-note {
+  font-size: 15px;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+
+.settings-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.settings-profile,
+.settings-prompt,
+.settings-eval {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.settings-profile-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-meta {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--text);
+}
+
+.settings-field {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.settings-field label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.settings-field em {
+  color: var(--accent);
+  font-style: normal;
+}
+
+.settings-field input {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.settings-prompt-text {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--mono);
+  font-size: 14px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text-h);
+  resize: vertical;
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-eval-fails {
+  margin: 4px 0 0;
+  padding-left: 20px;
+  font-size: 14px;
+  color: var(--text);
+}

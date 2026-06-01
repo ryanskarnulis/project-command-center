@@ -11,6 +11,9 @@ from app.ai.providers.base import BaseProvider, Message, ResponseMode
 from app.ai.providers.ollama import OllamaProvider
 
 _PROFILES_PATH = Path(__file__).parent / "profiles.yaml"
+# Runtime overrides written by the settings UI. Gitignored; deep-merged over the
+# committed profiles.yaml (local wins per-field). The committed file is never edited.
+_LOCAL_PROFILES_PATH = Path(__file__).parent / "profiles.local.yaml"
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 # Provider registry. A profile's `provider` field selects one of these.
@@ -30,10 +33,31 @@ class Profile(BaseModel):
     system_prompt: str
 
 
+def _load_raw_merged() -> dict[str, dict[str, Any]]:
+    """Committed profiles.yaml deep-merged with profiles.local.yaml (local wins).
+
+    Profiles are flat field maps, so the merge is per-profile, per-field. The
+    settings UI writes only to the local file; this is where its edits take effect.
+    """
+    base: dict[str, Any] = yaml.safe_load(_PROFILES_PATH.read_text()) or {}
+    merged: dict[str, dict[str, Any]] = {name: dict(cfg) for name, cfg in base.items()}
+
+    if _LOCAL_PROFILES_PATH.exists():
+        local: dict[str, Any] = yaml.safe_load(_LOCAL_PROFILES_PATH.read_text()) or {}
+        for name, cfg in local.items():
+            merged.setdefault(name, {}).update(cfg)
+
+    return merged
+
+
 @lru_cache
 def _load_profiles() -> dict[str, Profile]:
-    raw: dict[str, Any] = yaml.safe_load(_PROFILES_PATH.read_text())
-    return {name: Profile.model_validate(cfg) for name, cfg in raw.items()}
+    return {name: Profile.model_validate(cfg) for name, cfg in _load_raw_merged().items()}
+
+
+def reload_profiles() -> None:
+    """Drop the cached profiles so the next read picks up local-override edits."""
+    _load_profiles.cache_clear()
 
 
 def get_profile(name: str) -> Profile:

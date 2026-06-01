@@ -4,7 +4,7 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.models import TaskPriority
+from app.db.models import TaskPriority, TaskStatus
 
 
 class ExtractedTask(BaseModel):
@@ -103,4 +103,37 @@ class MatchInput(BaseModel):
         for choice in self.projects:
             aliases = f" (aliases: {', '.join(choice.aliases)})" if choice.aliases else ""
             lines.append(f"- id={choice.id}: {choice.name}{aliases}")
+        return "\n".join(lines)
+
+
+class SummaryTaskRow(BaseModel):
+    """One task row passed to the summarizer (read-only snapshot)."""
+
+    title: str
+    status: TaskStatus
+    priority: TaskPriority
+    due_date: date | None = None
+
+
+class SummaryInput(BaseModel):
+    """Builder for the user message handed to the summary workflow.
+
+    The profile is ``response_mode: text`` so there is no output schema —
+    the model returns free-form prose. ``today`` is injected here (not left
+    to the model to guess) so overdue reasoning is accurate.
+    """
+
+    project_name: str
+    tasks: list[SummaryTaskRow]
+    today: date
+
+    def to_user_content(self) -> str:
+        lines = [f"Project: {self.project_name}", f"Today: {self.today.isoformat()}", ""]
+        if not self.tasks:
+            lines.append("No open tasks.")
+        else:
+            lines.append("Open tasks:")
+            for t in self.tasks:
+                due = f", due {t.due_date}" if t.due_date else ""
+                lines.append(f"  - [{t.priority}] {t.title}{due}")
         return "\n".join(lines)

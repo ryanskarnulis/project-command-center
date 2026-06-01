@@ -87,6 +87,19 @@ def _run_case(case: dict[str, Any], profile: str, model: str | None) -> tuple[bo
     return _check_expect(output, case.get("expect", {}))
 
 
+def run() -> list[dict[str, Any]]:
+    """Programmatic entry point used by the settings eval runner.
+
+    Runs each case once on the default profile. Returns one row per case:
+    ``{"name": str, "passed": bool, "reason": str}``.
+    """
+    results: list[dict[str, Any]] = []
+    for case in _load_cases():
+        ok, reason = _run_case(case, _DEFAULT_PROFILE, None)
+        results.append({"name": case["name"], "passed": ok, "reason": reason})
+    return results
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run task_extraction eval cases.")
     parser.add_argument(

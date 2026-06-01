@@ -134,16 +134,23 @@ Scope extensions agreed with the user (beyond the original list above):
 > Goal: useful overview page and a settings panel for tuning AI without restarting.
 
 ### Dashboard
-- [ ] `backend/app/api/routes_ai.py` — summary endpoint: `GET /api/projects/{id}/summary` (calls summary workflow)
-- [ ] `backend/app/ai/prompts/summarize_project.md` — summary system prompt
-- [ ] `backend/app/ai/workflows/summarize_project.py` — summarize a project's open tasks
-- [ ] `src/features/dashboard/DashboardPage.tsx` — open tasks count, recent inbox items, per-project summaries
+- [x] `backend/app/api/routes_ai.py` — `GET /api/dashboard` (counts, no model) + `GET /api/projects/{id}/summary` (calls summary workflow)
+- [x] `backend/app/ai/prompts/summarize_project.md` — summary system prompt
+- [x] `backend/app/ai/workflows/summarize_project.py` — summarize a project's open tasks
+- [x] `backend/app/services/dashboard.py` — aggregation service (open-task counts, recent inbox)
+- [x] `backend/app/schemas/dashboard.py` — `DashboardRead`, `ProjectOpenTasksRow`, `ProjectSummaryRead`
+- [x] `src/types/dashboard.ts` + `src/api/dashboard.ts` + `src/features/dashboard/useDashboard.ts`
+- [x] `src/features/dashboard/DashboardPage.tsx` — open tasks count, recent inbox items, per-project summaries with on-demand Summarize button
+- [x] `backend/app/ai/evals/summary_cases.yaml` + `run_summary_evals.py` — 3 eval cases
+- [x] `backend/tests/test_routes_ai.py` + `test_summary_workflow.py` — 9 tests (all passing)
 
 ### Settings
-- [ ] `backend/app/api/routes_settings.py` — GET/PATCH profiles, GET/PUT prompt files, trigger eval run
-- [ ] `src/features/settings/SettingsPage.tsx` — switch active profile, edit prompt text, tune temp/tokens
-- [ ] Prompt edits write to `ai/prompts/*.md` on disk (not in DB)
-- [ ] "Run evals" button calls backend → runs `run_evals.py` → returns pass/fail
+- [x] `backend/app/api/routes_settings.py` — GET/PATCH profiles, GET/PUT prompt files, trigger eval run
+- [x] `src/features/settings/SettingsPage.tsx` — switch active profile, edit prompt text, tune temp/tokens
+- [x] Prompt edits write to `ai/prompts/*.md` on disk (not in DB); profile edits write to
+      gitignored `profiles.local.yaml`, deep-merged over committed `profiles.yaml` (untouched)
+- [x] "Run evals" button calls backend → runs the suite's `run()` → returns pass/fail counts
+      (`run_evals.py`/`run_match_evals.py`/`run_summary_evals.py` each expose `run()`)
 
 ---
 

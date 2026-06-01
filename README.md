@@ -293,7 +293,14 @@ Sprint 4:  [DONE] Project matching — deterministic alias lookup first, AI fall
            (project_matching profile) guarded so the model can't invent a project.
            Suggestion stored on the inbox item, applied to accepted candidates at
            review (overridable). Overriding an AI suggestion → ai_training_examples.
-Sprint 5:  Dashboard views + settings UI (edit prompts, swap profiles)
+Sprint 5:  [DONE] Dashboard — GET /api/dashboard (instant counts) +
+           GET /api/projects/{id}/summary (on-demand AI prose, 502-safe).
+           DashboardPage with per-project Summarize button; recent inbox links
+           resolve to the project tasks actually filed to (not just the suggestion).
+           summary eval suite (run_summary_evals.py).
+           Settings UI — edit model profiles (write to gitignored profiles.local.yaml,
+           deep-merged over the committed profiles.yaml; reload, no restart), edit
+           ai/prompts/*.md on disk, and trigger eval runs (synchronous, pass/fail counts).
 Sprint 6:  Hardening, litestream backups, expanded eval suite, docs
 Sprint 7+: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
 ```
@@ -327,11 +334,15 @@ If this works, everything else is incremental.
 
 ## Settings UI
 
-A small page that lets you:
-- Switch active model profiles
+A small page (Sprint 5) that lets you:
+- Edit model profiles — model, temperature, max_tokens
 - Edit prompts in `ai/prompts/*.md` without restarting
-- Tune temperature, max_tokens
-- Trigger a re-run of evals
+- Trigger a re-run of evals (per suite: `task_extraction` / `project_matching` / `summary`)
+
+Profile edits write to **`backend/app/ai/profiles.local.yaml`** (gitignored), which the gateway
+deep-merges over the committed `profiles.yaml` (local wins per-field). The committed file is
+never touched, so your tuning stays local and the defaults stay in git. The gateway's profile
+cache is cleared on each save, so changes take effect without a restart.
 
 This pays for itself the first time you tune a prompt.
 
@@ -358,6 +369,7 @@ cd frontend && npm run dev   # binds DEV_HOST from .env (default 127.0.0.1, set 
 cd backend && python -m app.integrations.discord.bot   # Discord bot (needs DISCORD_BOT_TOKEN + BACKEND_SHARED_SECRET)
 cd backend && python -m app.ai.evals.run_evals         # task_extraction eval cases (needs Ollama)
 cd backend && python -m app.ai.evals.run_match_evals   # project_matching eval cases (needs Ollama)
+cd backend && python -m app.ai.evals.run_summary_evals # project summary eval cases (needs Ollama)
 ```
 
 ## Discord setup (Sprint 3)

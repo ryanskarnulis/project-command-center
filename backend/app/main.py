@@ -9,7 +9,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
 
-from app.api import routes_discord, routes_inbox, routes_projects, routes_tasks
+from app.api import (
+    routes_ai,
+    routes_discord,
+    routes_inbox,
+    routes_projects,
+    routes_settings,
+    routes_tasks,
+)
 from app.config import get_settings
 from app.logging_config import RequestIDMiddleware, configure_logging
 
@@ -20,6 +27,8 @@ api_router.include_router(routes_projects.router)
 api_router.include_router(routes_tasks.router)
 api_router.include_router(routes_inbox.router)
 api_router.include_router(routes_discord.router)
+api_router.include_router(routes_ai.router)
+api_router.include_router(routes_settings.router)
 
 
 @asynccontextmanager

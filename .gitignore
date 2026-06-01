@@ -17,6 +17,9 @@ dist/
 .env.*
 !.env.example
 
+# AI runtime overrides (written by the Settings UI; never committed)
+backend/app/ai/profiles.local.yaml
+
 # Database & backups
 data/app.db
 data/app.db-*
