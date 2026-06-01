@@ -15,9 +15,10 @@ def _log_task_event(db: Session, task: Task, action: str) -> None:
     """Record an activity event for a task, but only once it belongs to a project.
 
     Extraction creates candidates with ``project_id=None``; logging those would
-    flood the per-project feed with rows no feed can show. A candidate first
-    surfaces when review sets its ``project_id`` (an ``updated`` event), which is
-    exactly when it lands in a project.
+    flood the per-project feed with rows no feed can show. (Accepting a candidate
+    at review files it into a project, but that path commits in bulk in
+    ``services.review`` and logs its own ``created`` event there, not through this
+    helper.)
     """
     if task.project_id is None:
         return

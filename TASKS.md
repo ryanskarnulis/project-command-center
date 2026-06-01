@@ -169,8 +169,9 @@ Scope extensions agreed with the user (beyond the original list above):
 - [ ] `docker-compose.yml` — backend + frontend in containers (**deferred**: "clean
       restarts, not prod"; not needed to trust the app with data — the one open box)
 - [x] README updated: backup script + cron, activity-log schema note, Sprint 6 status
-- [~] Full manual smoke test of the entire flow, top to bottom (backend pytest green;
-      UI smoke test pending a manual run with Ollama up)
+- [x] Full manual smoke test of the entire flow, top to bottom (project/task lifecycle
+      verified in the browser; AI inbox→process→accept path verified live against Ollama
+      — accepted candidate logs a `created` task event in the feed)
 
 ---
 

@@ -1,8 +1,11 @@
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.db.models import InboxItem, TaskStatus
+from app.schemas.inbox import ReviewDecision, ReviewEdit
 from app.services import activity as activity_service
 from app.services import projects as projects_service
+from app.services import review as review_service
 from app.services import tasks as tasks_service
 
 
@@ -96,6 +99,71 @@ def test_created_task_with_project_emits_created_event(db_session: Session) -> N
     ]
     assert [e.action for e in task_events] == ["created"]
     assert task_events[0].summary == 'Task "direct task" created'
+
+
+def test_review_accept_emits_task_created_event(db_session: Session) -> None:
+    # The AI path: a candidate accepted into a project at review must appear in
+    # the feed even though review commits in bulk (not via tasks_service).
+    project = projects_service.create_project(db_session, name="Filed")
+    item = InboxItem(raw_text="messy note", input_hash="hash-1", summary="s")
+    db_session.add(item)
+    db_session.commit()
+    db_session.refresh(item)
+    candidate = tasks_service.create_task(
+        db_session,
+        project_id=None,
+        title="from inbox",
+        status=TaskStatus.candidate,
+        inbox_item_id=item.id,
+    )
+
+    review_service.review_inbox(
+        db_session,
+        item,
+        [
+            ReviewDecision(
+                task_id=candidate.id,
+                action="accept",
+                edits=ReviewEdit(project_id=project.id),
+            )
+        ],
+    )
+
+    task_events = [
+        e
+        for e in activity_service.list_events(db_session, project.id)
+        if e.entity_type == "task"
+    ]
+    assert [e.action for e in task_events] == ["created"]
+    assert task_events[0].summary == 'Task "from inbox" created'
+
+
+def test_review_reject_emits_no_task_event(db_session: Session) -> None:
+    project = projects_service.create_project(db_session, name="Empty")
+    item = InboxItem(raw_text="note", input_hash="hash-2")
+    db_session.add(item)
+    db_session.commit()
+    db_session.refresh(item)
+    candidate = tasks_service.create_task(
+        db_session,
+        project_id=None,
+        title="rejected",
+        status=TaskStatus.candidate,
+        inbox_item_id=item.id,
+    )
+
+    review_service.review_inbox(
+        db_session,
+        item,
+        [ReviewDecision(task_id=candidate.id, action="reject")],
+    )
+
+    task_events = [
+        e
+        for e in activity_service.list_events(db_session, project.id)
+        if e.entity_type == "task"
+    ]
+    assert task_events == []
 
 
 def test_activity_route_returns_events_and_404(client: TestClient) -> None:

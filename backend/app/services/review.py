@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.ai import gateway
 from app.db.models import AITrainingExample, InboxItem, Task, TaskStatus
 from app.schemas.inbox import ReviewDecision, ReviewResult
+from app.services import activity as activity_service
 from app.services import inbox as inbox_service
 from app.services import projects as projects_service
 from app.services.training_data import record_example
@@ -124,6 +125,22 @@ def review_inbox(
     db.commit()
     for task in accepted:
         db.refresh(task)
+
+    # Activity feed: an accepted candidate is the task's first appearance in a
+    # project, so log it as "created" (matching a directly-created task). Review
+    # mutates and commits tasks in bulk here rather than via tasks_service, so the
+    # logging hook in that service doesn't fire — emit explicitly. Unfiled
+    # (project_id is None) and rejected tasks produce nothing.
+    for task in accepted:
+        if task.project_id is not None:
+            activity_service.record_event(
+                db,
+                project_id=task.project_id,
+                entity_type="task",
+                entity_id=task.id,
+                action="created",
+                summary=f'Task "{task.title}" created',
+            )
 
     corrected = {
         "summary": item.summary,
