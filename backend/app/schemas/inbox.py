@@ -26,18 +26,25 @@ class InboxRead(BaseModel):
     processed_at: datetime | None
     reviewed_at: datetime | None
     model_name: str | None
+    suggested_project_id: int | None
     created_at: datetime
     updated_at: datetime
 
 
 class ReviewEdit(BaseModel):
-    """Per-task edits applied on accept. Only set fields are applied."""
+    """Per-task edits applied on accept. Only set fields are applied.
+
+    ``project_id`` overrides the project the note was matched to: omit it to
+    inherit the inbox item's suggestion, send an id to redirect the task, or send
+    ``null`` to accept it with no project.
+    """
 
     title: str | None = None
     description: str | None = None
     due_date: date | None = None
     priority: TaskPriority | None = None
     assignee_hint: str | None = None
+    project_id: int | None = None
 
 
 class ReviewDecision(BaseModel):
@@ -54,3 +61,4 @@ class ReviewResult(BaseModel):
     accepted: int
     rejected: int
     training_example_id: int
+    match_training_example_id: int | None = None

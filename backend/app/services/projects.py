@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.db.models import Project
+from app.db.models import Project, ProjectAlias
 from app.services.common import active, soft_delete
 
 
@@ -38,3 +39,87 @@ def update_project(db: Session, project: Project, fields: Mapping[str, Any]) -> 
 def soft_delete_project(db: Session, project: Project) -> None:
     soft_delete(project)
     db.commit()
+
+
+# --- Aliases & deterministic project matching (Sprint 4) -------------------
+
+
+def _normalize(text: str) -> str:
+    """Lowercase, trim, and collapse internal whitespace for matching."""
+    return " ".join(text.split()).lower()
+
+
+def list_aliases(db: Session, project_id: int) -> Sequence[ProjectAlias]:
+    return (
+        db.execute(
+            active(ProjectAlias)
+            .where(ProjectAlias.project_id == project_id)
+            .order_by(ProjectAlias.id)
+        )
+        .scalars()
+        .all()
+    )
+
+
+def get_alias(db: Session, alias_id: int) -> ProjectAlias | None:
+    return db.execute(
+        active(ProjectAlias).where(ProjectAlias.id == alias_id)
+    ).scalar_one_or_none()
+
+
+def create_alias(db: Session, *, project_id: int, alias: str) -> ProjectAlias:
+    row = ProjectAlias(project_id=project_id, alias=alias)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def soft_delete_alias(db: Session, alias: ProjectAlias) -> None:
+    soft_delete(alias)
+    db.commit()
+
+
+def list_projects_with_aliases(
+    db: Session,
+) -> Sequence[tuple[Project, list[str]]]:
+    """Active projects paired with their active alias strings.
+
+    Feeds the AI project-matching fallback its choice list. Lives here (not in a
+    workflow) so the service owns project data and stays free of any ``ai/``
+    import.
+    """
+    aliases_by_project: dict[int, list[str]] = defaultdict(list)
+    for row in db.execute(active(ProjectAlias).order_by(ProjectAlias.id)).scalars():
+        aliases_by_project[row.project_id].append(row.alias)
+    return [(project, aliases_by_project[project.id]) for project in list_projects(db)]
+
+
+def match_text_to_project(db: Session, text: str | None) -> Project | None:
+    """Deterministically resolve a project from a note's text.
+
+    A project matches when its normalized name, or any of its normalized aliases,
+    appears as a substring of the normalized ``text`` — which the caller builds
+    from everything the note offers (the model's ``project_hint``, the summary,
+    the raw text, and the task titles). Searching the raw text, not just the
+    hint, is the point: the extractor often won't surface an alias as the hint,
+    but the alias is right there in the note ("finish the *firewall* cleanup…").
+
+    Returns the project only when exactly one matches — zero or an ambiguous
+    (multi-project) result returns ``None`` so the caller can fall back to the AI
+    matcher. Pure Python: no model is consulted here.
+    """
+    if text is None:
+        return None
+    norm = _normalize(text)
+    if not norm:
+        return None
+
+    matches: list[Project] = []
+    for project, aliases in list_projects_with_aliases(db):
+        name_norm = _normalize(project.name)
+        if (name_norm and name_norm in norm) or any(
+            (alias_norm := _normalize(alias)) and alias_norm in norm for alias in aliases
+        ):
+            matches.append(project)
+    return matches[0] if len(matches) == 1 else None

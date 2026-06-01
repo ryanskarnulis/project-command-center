@@ -1,0 +1,57 @@
+# Hand-written eval cases for the project_matching workflow. Run against the real
+# model via `python -m app.ai.evals.run_match_evals`.
+#
+# Each case supplies the candidate `projects` (id / name / aliases), a
+# `project_hint` (plus optional `summary` / `task_titles`), and the expected
+# `project_id` — an id from the list, or `null` when nothing should match. These
+# probe the model's *fuzzy* matching directly; the deterministic alias lookup
+# (exact name / alias-in-hint) is covered by unit tests, not here.
+
+- name: alias_abbreviation
+  project_hint: "fw migration follow-ups"
+  projects:
+    - id: 4
+      name: "Home Network"
+      aliases: ["firewall", "homelab"]
+    - id: 7
+      name: "Q3 Marketing"
+      aliases: []
+  expect:
+    project_id: 4
+
+- name: semantic_match_no_alias
+  project_hint: "quarterly ad campaign planning"
+  task_titles: ["Draft the launch email", "Book the billboard slot"]
+  projects:
+    - id: 4
+      name: "Home Network"
+      aliases: ["firewall", "homelab"]
+    - id: 7
+      name: "Q3 Marketing"
+      aliases: []
+  expect:
+    project_id: 7
+
+- name: partial_name
+  project_hint: "marketing"
+  projects:
+    - id: 7
+      name: "Q3 Marketing"
+      aliases: []
+    - id: 9
+      name: "Office Move"
+      aliases: ["relocation"]
+  expect:
+    project_id: 7
+
+- name: no_plausible_match
+  project_hint: "schedule a dentist appointment"
+  projects:
+    - id: 4
+      name: "Home Network"
+      aliases: ["firewall", "homelab"]
+    - id: 7
+      name: "Q3 Marketing"
+      aliases: []
+  expect:
+    project_id: null

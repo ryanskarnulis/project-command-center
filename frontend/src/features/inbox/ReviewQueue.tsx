@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ReviewDecision, ReviewEdit } from '../../types/inbox'
+import type { Project } from '../../types/project'
 import type { Task, TaskPriority } from '../../types/task'
 
 const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
@@ -11,10 +12,14 @@ interface RowState {
   due_date: string
   priority: TaskPriority
   assignee_hint: string
+  projectId: number | null
 }
 
 interface ReviewQueueProps {
   candidates: Task[]
+  projects: Project[]
+  /** Project the note was matched to; rows default to it, overridable per task. */
+  suggestedProjectId: number | null
   submitting: boolean
   onSubmitReview: (decisions: ReviewDecision[]) => void
 }
@@ -25,7 +30,10 @@ function orNull(value: string): string | null {
   return trimmed === '' ? null : trimmed
 }
 
-function initialRows(candidates: Task[]): Record<number, RowState> {
+function initialRows(
+  candidates: Task[],
+  suggestedProjectId: number | null,
+): Record<number, RowState> {
   const rows: Record<number, RowState> = {}
   for (const c of candidates) {
     rows[c.id] = {
@@ -35,13 +43,22 @@ function initialRows(candidates: Task[]): Record<number, RowState> {
       due_date: c.due_date ?? '',
       priority: c.priority,
       assignee_hint: c.assignee_hint ?? '',
+      projectId: c.project_id ?? suggestedProjectId,
     }
   }
   return rows
 }
 
-/** Build an edits object containing only fields the user changed from the candidate. */
-function diffEdits(candidate: Task, row: RowState): ReviewEdit | undefined {
+/** Build an edits object containing only fields the user changed from the candidate.
+ *
+ * The project baseline is the note's suggestion (what the backend applies when no
+ * override is sent), not the candidate's own project_id, which is null pre-accept.
+ */
+function diffEdits(
+  candidate: Task,
+  row: RowState,
+  suggestedProjectId: number | null,
+): ReviewEdit | undefined {
   const edits: ReviewEdit = {}
   if (row.title.trim() !== candidate.title) edits.title = row.title.trim()
   if (orNull(row.description) !== candidate.description) {
@@ -54,16 +71,19 @@ function diffEdits(candidate: Task, row: RowState): ReviewEdit | undefined {
   if (orNull(row.assignee_hint) !== candidate.assignee_hint) {
     edits.assignee_hint = orNull(row.assignee_hint)
   }
+  if (row.projectId !== suggestedProjectId) edits.project_id = row.projectId
   return Object.keys(edits).length > 0 ? edits : undefined
 }
 
 export function ReviewQueue({
   candidates,
+  projects,
+  suggestedProjectId,
   submitting,
   onSubmitReview,
 }: ReviewQueueProps) {
   const [rows, setRows] = useState<Record<number, RowState>>(() =>
-    initialRows(candidates),
+    initialRows(candidates, suggestedProjectId),
   )
 
   function update(taskId: number, patch: Partial<RowState>) {
@@ -76,7 +96,7 @@ export function ReviewQueue({
       if (row.action === 'reject') {
         return { task_id: c.id, action: 'reject' }
       }
-      const edits = diffEdits(c, row)
+      const edits = diffEdits(c, row, suggestedProjectId)
       return edits
         ? { task_id: c.id, action: 'accept', edits }
         : { task_id: c.id, action: 'accept' }
@@ -157,6 +177,23 @@ export function ReviewQueue({
                   }
                   placeholder="Assignee (optional)"
                 />
+                <select
+                  aria-label="Project"
+                  value={row.projectId === null ? '' : String(row.projectId)}
+                  disabled={rejected}
+                  onChange={(e) =>
+                    update(c.id, {
+                      projectId: e.target.value === '' ? null : Number(e.target.value),
+                    })
+                  }
+                >
+                  <option value="">— no project —</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
               </div>
             </li>
           )

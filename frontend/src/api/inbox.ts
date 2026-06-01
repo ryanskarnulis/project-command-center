@@ -21,6 +21,11 @@ export async function listInbox(): Promise<InboxItem[]> {
   return (await res.json()) as InboxItem[]
 }
 
+export async function getInbox(id: number): Promise<InboxItem> {
+  const res = await apiClient(`/api/inbox/${id}`)
+  return (await res.json()) as InboxItem
+}
+
 export async function processInbox(id: number): Promise<Task[]> {
   const res = await apiClient(`/api/inbox/${id}/process`, { method: 'POST' })
   return (await res.json()) as Task[]

@@ -14,6 +14,7 @@ export interface InboxItem {
   processed_at: string | null
   reviewed_at: string | null
   model_name: string | null
+  suggested_project_id: number | null
   created_at: string
   updated_at: string
 }
@@ -30,6 +31,8 @@ export interface ReviewEdit {
   due_date?: string | null
   priority?: TaskPriority
   assignee_hint?: string | null
+  /** Override the matched project: an id, or null to file under no project. */
+  project_id?: number | null
 }
 
 export interface ReviewDecision {
@@ -46,4 +49,5 @@ export interface ReviewResult {
   accepted: number
   rejected: number
   training_example_id: number
+  match_training_example_id: number | null
 }

@@ -49,6 +49,24 @@ class Project(Base, TimestampMixin, SoftDeleteMixin):
     description: Mapped[str | None] = mapped_column(default=None)
 
     tasks: Mapped[list[Task]] = relationship(back_populates="project")
+    aliases: Mapped[list[ProjectAlias]] = relationship(back_populates="project")
+
+
+class ProjectAlias(Base, TimestampMixin, SoftDeleteMixin):
+    """An alternate name a project is referred to by in raw notes.
+
+    The deterministic half of project matching: an extracted note's
+    ``project_hint`` is matched against project names and these aliases in
+    Python before any model is consulted.
+    """
+
+    __tablename__ = "project_aliases"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    alias: Mapped[str]
+
+    project: Mapped[Project] = relationship(back_populates="aliases")
 
 
 class Task(Base, TimestampMixin, SoftDeleteMixin):
@@ -87,6 +105,17 @@ class InboxItem(Base, TimestampMixin, SoftDeleteMixin):
     reviewed_at: Mapped[datetime | None] = mapped_column(default=None)
     model_output_json: Mapped[str | None] = mapped_column(default=None)
     model_name: Mapped[str | None] = mapped_column(default=None)
+
+    # Project-matching suggestion (Sprint 4). ``suggested_project_id`` is the
+    # project Python (alias lookup) or the model proposed for this note's tasks;
+    # the match_* columns capture the model I/O when the AI fallback produced it,
+    # so an override at review can be saved as a training example.
+    suggested_project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("projects.id"), default=None
+    )
+    match_input_text: Mapped[str | None] = mapped_column(default=None)
+    match_output_json: Mapped[str | None] = mapped_column(default=None)
+    match_model_name: Mapped[str | None] = mapped_column(default=None)
 
     candidates: Mapped[list[Task]] = relationship(back_populates="inbox_item")
 

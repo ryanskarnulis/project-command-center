@@ -23,3 +23,16 @@ class ProjectRead(BaseModel):
     description: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class ProjectAliasCreate(BaseModel):
+    alias: str
+
+
+class ProjectAliasRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    alias: str
+    created_at: datetime

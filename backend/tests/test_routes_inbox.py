@@ -97,6 +97,150 @@ def test_inbox_process_review_e2e(
     assert corrected["tasks"][0]["title"] == "Email Q2 budget to Sarah"
 
 
+def _fake_gateway(match_output: str):
+    """A gateway.complete double: extraction returns _VALID_OUTPUT (project_hint
+    "Firewall"), the project_matching call returns ``match_output``."""
+
+    def fake(*, profile_name: str, **_: object) -> str:
+        if profile_name == "project_matching":
+            return match_output
+        return json.dumps(_VALID_OUTPUT)
+
+    return fake
+
+
+def _match_rows(db: Session) -> list[AITrainingExample]:
+    rows = db.execute(active(AITrainingExample)).scalars().all()
+    return [r for r in rows if r.task_name == "project_matching"]
+
+
+def test_review_inherits_ai_suggestion_and_captures_match(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # "Home Network" does not match the hint "Firewall" deterministically, so the
+    # AI fallback runs; we make it suggest this project.
+    pid = client.post("/api/projects", json={"name": "Home Network"}).json()["id"]
+    monkeypatch.setattr(
+        gateway,
+        "complete",
+        _fake_gateway(json.dumps({"project_id": pid, "confidence": 0.9})),
+    )
+
+    inbox_id = client.post("/api/inbox", json={"raw_text": "standup"}).json()["id"]
+    candidates = client.post(f"/api/inbox/{inbox_id}/process").json()
+
+    # The suggestion is exposed on the inbox item.
+    assert client.get(f"/api/inbox/{inbox_id}").json()["suggested_project_id"] == pid
+
+    # Accept both with no project edits → both inherit the suggestion.
+    review = client.post(
+        f"/api/inbox/{inbox_id}/review",
+        json={"decisions": [{"task_id": c["id"], "action": "accept"} for c in candidates]},
+    ).json()
+
+    after = client.get(f"/api/inbox/{inbox_id}/candidates").json()
+    assert all(c["project_id"] == pid for c in after)
+
+    match_rows = _match_rows(db_session)
+    assert len(match_rows) == 1
+    assert match_rows[0].id == review["match_training_example_id"]
+    assert match_rows[0].accepted is True  # kept the suggestion
+    assert json.loads(match_rows[0].corrected_output_json) == {"project_id": pid}
+
+
+def test_review_override_redirects_and_records_correction(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pid = client.post("/api/projects", json={"name": "Home Network"}).json()["id"]
+    other = client.post("/api/projects", json={"name": "Other"}).json()["id"]
+    monkeypatch.setattr(
+        gateway, "complete", _fake_gateway(json.dumps({"project_id": pid, "confidence": 0.9}))
+    )
+
+    inbox_id = client.post("/api/inbox", json={"raw_text": "standup"}).json()["id"]
+    candidates = client.post(f"/api/inbox/{inbox_id}/process").json()
+
+    # Override every accepted task to a different project than the suggestion.
+    client.post(
+        f"/api/inbox/{inbox_id}/review",
+        json={
+            "decisions": [
+                {"task_id": c["id"], "action": "accept", "edits": {"project_id": other}}
+                for c in candidates
+            ]
+        },
+    )
+
+    after = client.get(f"/api/inbox/{inbox_id}/candidates").json()
+    assert all(c["project_id"] == other for c in after)
+
+    match_rows = _match_rows(db_session)
+    assert len(match_rows) == 1
+    assert match_rows[0].accepted is False  # suggestion was overridden
+    assert json.loads(match_rows[0].corrected_output_json) == {"project_id": other}
+
+
+def test_review_deterministic_suggestion_writes_no_match_row(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A project literally named "Firewall" matches the hint deterministically — no
+    # model output, so there is nothing to capture as a match training example.
+    pid = client.post("/api/projects", json={"name": "Firewall"}).json()["id"]
+    monkeypatch.setattr(gateway, "complete", _fake_gateway("unused"))
+
+    inbox_id = client.post("/api/inbox", json={"raw_text": "standup"}).json()["id"]
+    candidates = client.post(f"/api/inbox/{inbox_id}/process").json()
+    assert client.get(f"/api/inbox/{inbox_id}").json()["suggested_project_id"] == pid
+
+    client.post(
+        f"/api/inbox/{inbox_id}/review",
+        json={"decisions": [{"task_id": candidates[0]["id"], "action": "accept"}]},
+    )
+
+    after = {c["id"]: c for c in client.get(f"/api/inbox/{inbox_id}/candidates").json()}
+    assert after[candidates[0]["id"]]["project_id"] == pid  # inherited deterministically
+    assert _match_rows(db_session) == []
+
+
+def test_review_override_to_missing_project_400(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client.post("/api/projects", json={"name": "Home Network"})
+    monkeypatch.setattr(gateway, "complete", _fake_gateway(json.dumps({"project_id": 1, "confidence": 0.5})))
+
+    inbox_id = client.post("/api/inbox", json={"raw_text": "standup"}).json()["id"]
+    candidates = client.post(f"/api/inbox/{inbox_id}/process").json()
+
+    resp = client.post(
+        f"/api/inbox/{inbox_id}/review",
+        json={
+            "decisions": [
+                {"task_id": candidates[0]["id"], "action": "accept", "edits": {"project_id": 9999}}
+            ]
+        },
+    )
+    assert resp.status_code == 400
+
+
+def test_review_reject_all_writes_no_match_row(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pid = client.post("/api/projects", json={"name": "Home Network"}).json()["id"]
+    monkeypatch.setattr(
+        gateway, "complete", _fake_gateway(json.dumps({"project_id": pid, "confidence": 0.9}))
+    )
+
+    inbox_id = client.post("/api/inbox", json={"raw_text": "standup"}).json()["id"]
+    candidates = client.post(f"/api/inbox/{inbox_id}/process").json()
+
+    client.post(
+        f"/api/inbox/{inbox_id}/review",
+        json={"decisions": [{"task_id": c["id"], "action": "reject"} for c in candidates]},
+    )
+    # An AI suggestion existed, but nothing was accepted → no match signal.
+    assert _match_rows(db_session) == []
+
+
 def test_review_twice_conflicts(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

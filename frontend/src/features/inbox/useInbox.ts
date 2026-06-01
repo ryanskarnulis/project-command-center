@@ -3,17 +3,21 @@ import { ApiError } from '../../api/client'
 import {
   createInbox,
   getCandidates,
+  getInbox,
   listInbox,
   processInbox,
   reviewInbox,
 } from '../../api/inbox'
+import { listProjects } from '../../api/projects'
 import type { InboxItem, ReviewDecision } from '../../types/inbox'
+import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 
 interface UseInbox {
   inboxItem: InboxItem | null
   candidates: Task[]
   pending: InboxItem[]
+  projects: Project[]
   loading: boolean
   error: string | null
   submitting: boolean
@@ -21,6 +25,7 @@ interface UseInbox {
   submit: (rawText: string) => Promise<void>
   review: (decisions: ReviewDecision[]) => Promise<void>
   loadPending: () => Promise<void>
+  loadProjects: () => Promise<void>
   selectItem: (item: InboxItem) => Promise<void>
   reset: () => void
 }
@@ -43,6 +48,7 @@ export function useInbox(): UseInbox {
   const [inboxItem, setInboxItem] = useState<InboxItem | null>(null)
   const [candidates, setCandidates] = useState<Task[]>([])
   const [pending, setPending] = useState<InboxItem[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -53,6 +59,15 @@ export function useInbox(): UseInbox {
     setCandidates([])
     setError(null)
     setNotice(null)
+  }, [])
+
+  // Projects populate the per-task project dropdown in the review queue.
+  const loadProjects = useCallback(async () => {
+    try {
+      setProjects(await listProjects())
+    } catch {
+      // Non-fatal: the dropdown just falls back to "no project".
+    }
   }, [])
 
   // Items awaiting review: processed (have candidates) but not yet reviewed.
@@ -95,6 +110,8 @@ export function useInbox(): UseInbox {
       const item = await createInbox({ raw_text: rawText })
       setInboxItem(item)
       const tasks = await processInbox(item.id)
+      // Re-fetch: processing sets the matched-project suggestion on the item.
+      setInboxItem(await getInbox(item.id))
       setCandidates(tasks)
     } catch (e: unknown) {
       setError(messageFor(e, 'Failed to process inbox text'))
@@ -131,6 +148,7 @@ export function useInbox(): UseInbox {
     inboxItem,
     candidates,
     pending,
+    projects,
     loading,
     error,
     submitting,
@@ -138,6 +156,7 @@ export function useInbox(): UseInbox {
     submit,
     review,
     loadPending,
+    loadProjects,
     selectItem,
     reset,
   }

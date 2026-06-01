@@ -7,6 +7,7 @@ export function InboxPage() {
     inboxItem,
     candidates,
     pending,
+    projects,
     loading,
     error,
     submitting,
@@ -14,16 +15,23 @@ export function InboxPage() {
     submit,
     review,
     loadPending,
+    loadProjects,
     selectItem,
     reset,
   } = useInbox()
   const [text, setText] = useState('')
 
   // Surface items awaiting review (including out-of-band captures like Discord)
-  // on load.
+  // and load projects for the review-queue project picker on load.
   useEffect(() => {
     void loadPending()
-  }, [loadPending])
+    void loadProjects()
+  }, [loadPending, loadProjects])
+
+  const suggestedProject =
+    inboxItem === null
+      ? null
+      : (projects.find((p) => p.id === inboxItem.suggested_project_id) ?? null)
 
   async function handleSubmit(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -96,6 +104,11 @@ export function InboxPage() {
               <strong>Project hint:</strong> {inboxItem.project_hint}
             </p>
           )}
+          {suggestedProject && (
+            <p>
+              <strong>Matched project:</strong> {suggestedProject.name}
+            </p>
+          )}
           {inboxItem.needs_review && <p>Flagged for review.</p>}
         </section>
       )}
@@ -104,6 +117,8 @@ export function InboxPage() {
         <ReviewQueue
           key={inboxItem?.id}
           candidates={candidates}
+          projects={projects}
+          suggestedProjectId={inboxItem?.suggested_project_id ?? null}
           submitting={submitting}
           onSubmitReview={(decisions) => void review(decisions)}
         />

@@ -101,13 +101,32 @@ When starting a sprint, copy the relevant tasks into a `TASKS_SPRINT_X.md` file 
 ## Sprint 4 — Project Matching
 > Goal: extracted tasks get automatically matched to existing projects using aliases.
 
-- [ ] `backend/app/db/models.py` — add `ProjectAlias` model + migration
-- [ ] `backend/app/ai/prompts/match_project.md` — matching system prompt
-- [ ] `backend/app/ai/workflows/match_project.py` — takes task + project list → returns best match
-- [ ] `backend/app/services/projects.py` — add alias lookup helpers
-- [ ] Matching workflow called after extraction; `project_id` set on accepted candidates
-- [ ] `backend/app/api/routes_projects.py` — CRUD for aliases
-- [ ] Manual test: inbox text mentions a project by alias → task lands in correct project
+- [x] `backend/app/db/models.py` — add `ProjectAlias` model + migration
+      (also added `inbox_items.suggested_project_id` + `match_input_text`/`match_output_json`/
+      `match_model_name` to persist the match suggestion and model I/O)
+- [x] `backend/app/ai/prompts/match_project.md` — matching system prompt
+- [x] `backend/app/ai/workflows/match_project.py` — deterministic alias lookup first, AI
+      fallback on a miss with a Python guard (returned `project_id` must be one offered).
+      Matches per **inbox item** via `project_hint` (the extraction schema has one hint per
+      note, not per task); candidate task titles are passed to the model as context. Non-fatal:
+      a match failure never loses the extracted tasks.
+- [x] `backend/app/services/projects.py` — alias CRUD + `match_text_to_project`
+      (searches the note's hint + summary + raw text + task titles, so an alias in the
+      body matches even when the extractor produced no hint) + `list_projects_with_aliases`
+- [x] Matching workflow called after extraction (in `routes_inbox.process`, best-effort);
+      `project_id` set on accepted candidates at review (inherits the suggestion, overridable)
+- [x] `backend/app/api/routes_projects.py` — CRUD for aliases (`/projects/{id}/aliases`)
+- [x] Manual test: inbox text mentions a project by alias → task lands in correct project
+      (deterministic alias match on the note's `project_hint`)
+- [x] Eval: `backend/app/ai/evals/match_cases.yaml` + `run_match_evals.py` (CLAUDE.md: every
+      workflow has an eval case)
+
+Scope extensions agreed with the user (beyond the original list above):
+- [x] ReviewQueue project-override dropdown — shows the matched project, overridable per task
+      (`ReviewEdit.project_id`; frontend `ReviewQueue`/`useInbox`/`InboxPage`)
+- [x] Match-correction training capture — overriding an **AI** suggestion writes a
+      `project_matching` row to `ai_training_examples` (prime directive #4). Deterministic
+      alias hits have no model output, so they capture nothing.
 
 ---
 

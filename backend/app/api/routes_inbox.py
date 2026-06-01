@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.ai.workflows import extract_tasks as extract_workflow
+from app.ai.workflows import match_project as match_workflow
 from app.db.models import InboxItem, Task
 from app.db.session import get_db
 from app.schemas.inbox import InboxCreate, InboxRead, ReviewRequest, ReviewResult
@@ -62,6 +63,15 @@ def process_inbox(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="extraction validation failed",
         ) from None
+
+    # Project matching is enrichment, not the core product: a failure here (bad
+    # model output, Ollama unreachable) must not lose the extracted tasks, so it
+    # is best-effort and never fails /process.
+    try:
+        match_workflow.match_inbox_item(db, item)
+    except Exception:  # noqa: BLE001 — matching is non-fatal enrichment
+        logger.exception("match_failed", inbox_item_id=item.id)
+
     logger.info(
         "inbox_processed",
         inbox_item_id=item.id,

@@ -289,7 +289,10 @@ Sprint 2:  [DONE] Inbox + ModelGateway + Ollama provider + extraction workflow
            + eval cases in extraction_cases.yaml (7/7 on gemma4:e2b)
 Sprint 3:  [DONE] Discord /inbox command — shared-secret route + discord.py bot
            (set BACKEND_SHARED_SECRET to enable POST /api/discord/inbox)
-Sprint 4:  Project matching workflow + aliases
+Sprint 4:  [DONE] Project matching — deterministic alias lookup first, AI fallback
+           (project_matching profile) guarded so the model can't invent a project.
+           Suggestion stored on the inbox item, applied to accepted candidates at
+           review (overridable). Overriding an AI suggestion → ai_training_examples.
 Sprint 5:  Dashboard views + settings UI (edit prompts, swap profiles)
 Sprint 6:  Hardening, litestream backups, expanded eval suite, docs
 Sprint 7+: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
@@ -353,6 +356,8 @@ ollama serve
 cd backend && python -m app.main   # reload on; binds API_HOST from .env (default 127.0.0.1, set 0.0.0.0 for LAN)
 cd frontend && npm run dev   # binds DEV_HOST from .env (default 127.0.0.1, set 0.0.0.0 for LAN)
 cd backend && python -m app.integrations.discord.bot   # Discord bot (needs DISCORD_BOT_TOKEN + BACKEND_SHARED_SECRET)
+cd backend && python -m app.ai.evals.run_evals         # task_extraction eval cases (needs Ollama)
+cd backend && python -m app.ai.evals.run_match_evals   # project_matching eval cases (needs Ollama)
 ```
 
 ## Discord setup (Sprint 3)
