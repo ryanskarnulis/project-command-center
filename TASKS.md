@@ -220,8 +220,11 @@ Hardening additions (Codex review pass):
       `useInbox.dismiss`; backend + Vitest tests.
 - [ ] Trash / restore view — surface the soft-delete safety net in the UI
       (recently deleted projects/tasks → restore)
-- [ ] Alias management UI — add/remove aliases on the project edit page over the
-      existing Sprint 4 alias CRUD endpoints; directly feeds match accuracy
+- [x] Alias management UI — add/remove aliases in the project edit modal over the
+      existing Sprint 4 alias CRUD endpoints (`GET/POST/DELETE
+      /api/projects/{id}/aliases`); directly feeds match accuracy. Frontend-only
+      (`listAliases`/`createAlias`/`deleteAlias` wrappers + alias section in
+      `ProjectEditModal`, managed independently of name/description Save); Vitest test.
 
 ### Task-model slice (separate PRs — do not bundle)
 - [ ] Task nesting — nullable `parent_task_id` FK on `tasks` + Alembic migration;

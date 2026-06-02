@@ -335,7 +335,9 @@ Sprint 7:  [WIP] Daily-use & polish. Done: daily-use slice (global task view,
            eval run, GET /api/settings/evals/runs, shown on the Settings page).
            Capture-hygiene (in progress): dismiss/clear inbox items
            (DELETE /api/inbox/{id} soft-delete + per-item Dismiss button; training
-           examples preserved, no migration).
+           examples preserved, no migration); alias management UI (add/remove
+           aliases in the project edit modal over the Sprint 4 alias endpoints,
+           frontend-only).
 Sprint 8:  Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```
