@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -46,3 +48,16 @@ class EvalRunResult(BaseModel):
     passed: int
     total: int
     cases: list[EvalCaseResult]
+
+
+class EvalRunRecord(BaseModel):
+    """A persisted eval run (history). No per-case detail — that lives only in
+    the in-memory ``EvalRunResult`` returned at run time."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    suite: str
+    passed: int
+    total: int
+    created_at: datetime

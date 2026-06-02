@@ -240,11 +240,16 @@ Hardening additions (Codex review pass):
       the global task view keeps accepted work reachable even when project context is weak.
 
 ### Visibility slice
-- [ ] Training-data viewer + progress meter — read-only page: row count, progress bar
-      to 200, and input / output / corrected triples. The app's whole reason for
-      existing currently has no UI surface; also tells us when fine-tuning is viable.
-- [ ] Eval history — persist pass/fail per eval run (tiny table) so prompt edits can
-      be seen to help or regress over time
+- [x] Training-data viewer + progress meter — read-only `/training` page: row count,
+      progress bar to 200, per-task breakdown, task/accepted filters, and input /
+      output / corrected triples. Backend: `GET /api/training-examples` +
+      `/api/training-examples/stats` (`services/training_data.list_examples` /
+      `example_stats`, soft-delete aware), `routes_training.py`, `schemas/training.py`.
+- [x] Eval history — append-only `eval_runs` table (no `deleted_at`, documented
+      exception; migration `61ed365bec4c`); each Settings eval run persists a row via
+      `services/eval_history.record_run`; `GET /api/settings/evals/runs` (read-only) +
+      history shown per suite on the Settings page so prompt/profile edits can be seen
+      to help or regress over time.
 
 ### UI polish (split into small PRs, not one redesign)
 - [ ] Real top-level navigation — sidebar or top nav linking Dashboard / Inbox / Projects / Tasks / Settings

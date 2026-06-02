@@ -129,6 +129,7 @@ export function SettingsPage() {
     profileState,
     promptState,
     evalState,
+    evalRuns,
     saveProfile,
     savePrompt,
     runEvals,
@@ -207,6 +208,16 @@ export function SettingsPage() {
                           <code>{c.name}</code>: {c.reason}
                         </li>
                       ))}
+                  </ul>
+                )}
+                {evalRuns[suite] && evalRuns[suite].length > 0 && (
+                  <ul className="eval-history">
+                    {evalRuns[suite].map((run) => (
+                      <li key={run.id}>
+                        {run.passed}/{run.total} ·{' '}
+                        {new Date(run.created_at).toLocaleString()}
+                      </li>
+                    ))}
                   </ul>
                 )}
               </li>

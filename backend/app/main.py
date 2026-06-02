@@ -16,6 +16,7 @@ from app.api import (
     routes_projects,
     routes_settings,
     routes_tasks,
+    routes_training,
 )
 from app.config import get_settings
 from app.logging_config import RequestIDMiddleware, configure_logging
@@ -29,6 +30,7 @@ api_router.include_router(routes_inbox.router)
 api_router.include_router(routes_discord.router)
 api_router.include_router(routes_ai.router)
 api_router.include_router(routes_settings.router)
+api_router.include_router(routes_training.router)
 
 
 @asynccontextmanager

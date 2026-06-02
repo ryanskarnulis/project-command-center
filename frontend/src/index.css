@@ -429,3 +429,114 @@ code {
     color: #fde047;
   }
 }
+
+/* ── Training-data viewer ───────────────────────────────────────────── */
+.training {
+  text-align: left;
+}
+
+.training-stats {
+  margin: 16px 0 24px;
+}
+
+.training-progress {
+  height: 12px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.training-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.training-progress-label {
+  margin-bottom: 6px;
+  font-size: 15px;
+}
+
+.training-by-task {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.training-filters {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.training-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.training-filters select {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.training-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.training-example {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.training-example-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.training-accepted {
+  color: #16a34a;
+  font-size: 14px;
+}
+
+.training-rejected {
+  color: #e74c3c;
+  font-size: 14px;
+}
+
+.training-pre {
+  font-family: var(--mono);
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--code-bg);
+  padding: 8px;
+  border-radius: 4px;
+  margin: 4px 0 0;
+}
+
+.eval-history {
+  margin: 4px 0 0;
+  padding-left: 20px;
+  font-size: 14px;
+  color: var(--text);
+}

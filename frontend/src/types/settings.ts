@@ -32,3 +32,11 @@ export interface EvalRunResult {
   total: number
   cases: EvalCaseResult[]
 }
+
+export interface EvalRunRecord {
+  id: number
+  suite: string
+  passed: number
+  total: number
+  created_at: string
+}

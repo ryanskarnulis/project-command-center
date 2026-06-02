@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from ipaddress import ip_address
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy.orm import Session
 
+from app.db.models import EvalRun
+from app.db.session import get_db
 from app.schemas.settings import (
+    EvalRunRecord,
     EvalRunResult,
     ProfileRead,
     ProfileUpdate,
     PromptRead,
     PromptUpdate,
 )
+from app.services import eval_history
 from app.services import settings as settings_service
 
 logger = structlog.get_logger(__name__)
@@ -98,11 +104,30 @@ def put_prompt(name: str, update: PromptUpdate) -> PromptRead:
     response_model=EvalRunResult,
     dependencies=[Depends(require_local_settings_write)],
 )
-def run_eval(suite: str) -> EvalRunResult:
-    """Run an eval suite synchronously and return per-case pass/fail + totals."""
+def run_eval(suite: str, db: Session = Depends(get_db)) -> EvalRunResult:
+    """Run an eval suite synchronously and return per-case pass/fail + totals.
+
+    The pass/fail totals are also persisted to the ``eval_runs`` history so a
+    prompt/profile edit can be seen to help or regress over time.
+    """
     try:
-        return settings_service.run_eval(suite)
+        result = settings_service.run_eval(suite)
     except KeyError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown eval suite: {suite!r}"
         ) from None
+    eval_history.record_run(
+        db, suite=result.suite, passed=result.passed, total=result.total
+    )
+    db.commit()
+    return result
+
+
+@router.get("/evals/runs", response_model=list[EvalRunRecord])
+def list_eval_runs(
+    suite: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+) -> Sequence[EvalRun]:
+    """Persisted eval-run history, newest-first (read-only; public like other reads)."""
+    return eval_history.list_runs(db, suite=suite, limit=limit)

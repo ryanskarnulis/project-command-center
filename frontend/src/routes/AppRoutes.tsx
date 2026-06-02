@@ -4,6 +4,7 @@ import { InboxPage } from '../features/inbox/InboxPage'
 import { ProjectsPage } from '../features/projects/ProjectsPage'
 import { SettingsPage } from '../features/settings/SettingsPage'
 import { TasksPage } from '../features/tasks/TasksPage'
+import { TrainingPage } from '../features/training/TrainingPage'
 
 export function AppRoutes() {
   return (
@@ -14,6 +15,7 @@ export function AppRoutes() {
       <Route path="/tasks" element={<TasksPage />} />
       <Route path="/projects" element={<ProjectsPage />} />
       <Route path="/projects/:projectId/tasks" element={<TasksPage />} />
+      <Route path="/training" element={<TrainingPage />} />
       <Route path="/settings" element={<SettingsPage />} />
     </Routes>
   )

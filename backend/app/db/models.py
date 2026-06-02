@@ -154,6 +154,24 @@ class ActivityEvent(Base, TimestampMixin):
     summary: Mapped[str]  # human-readable, e.g. 'Task "Fix VPN" created'
 
 
+class EvalRun(Base, TimestampMixin):
+    """Append-only history of eval-suite runs (Sprint 7).
+
+    Like ``ActivityEvent``, this is deliberately NOT soft-deletable (no
+    ``deleted_at``): it is a run log, never user-edited — the second documented
+    exception to the soft-delete rule in CLAUDE.md. One row per suite run;
+    ``created_at`` is the run time. Lets prompt/profile edits be judged as
+    helping or regressing over time.
+    """
+
+    __tablename__ = "eval_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    suite: Mapped[str] = mapped_column(index=True)
+    passed: Mapped[int]
+    total: Mapped[int]
+
+
 class AITrainingExample(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "ai_training_examples"
 

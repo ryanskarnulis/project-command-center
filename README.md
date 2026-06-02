@@ -169,6 +169,7 @@ project_aliases
 tasks                  (includes status: candidate | accepted | rejected | done)
 inbox_items            (includes input_hash for idempotency)
 activity_events
+eval_runs
 ai_training_examples
 ```
 
@@ -178,6 +179,11 @@ All tables use **soft deletes** via a `deleted_at` column. Don't actually delete
 > **no** `deleted_at` — an audit trail is never user-edited. It records
 > project/task lifecycle changes (created/updated/completed/deleted) from the
 > service layer and feeds the per-project ActivityFeed.
+>
+> **Exception:** `eval_runs` (Sprint 7) is the same kind of append-only run log
+> (one row per eval-suite run: `suite`, `passed`, `total`) and likewise has **no**
+> `deleted_at`. It lets prompt/profile edits be judged as helping or regressing over
+> time; surfaced as run history on the Settings page.
 
 Tasks use a `status` enum rather than a separate `task_candidates` table. Candidates and real tasks live in the same table, distinguished by status. Simpler queries, no sync logic. Split later if it ever becomes painful.
 
@@ -321,7 +327,14 @@ Sprint 6:  [DONE] Hardening — append-only activity_events log (project/task
            dashboard grouped aggregate queries; blank-string input validation;
            Discord processing matches web inbox (project matching included);
            frontend Vitest smoke tests. docker-compose deferred.
-Sprint 7+: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
+Sprint 7:  [WIP] Daily-use & polish. Done: daily-use slice (global task view,
+           overdue/due-soon highlighting, inline task + project editing), General
+           project. Visibility slice: training-data viewer + progress-to-200 meter
+           (read-only GET /api/training-examples + /stats, /training page) and
+           eval-run history (append-only eval_runs table, persisted on each Settings
+           eval run, GET /api/settings/evals/runs, shown on the Settings page).
+Sprint 8:  Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
+           (gated on 200+ training examples — the /training meter tracks this)
 ```
 
 ## First vertical slice

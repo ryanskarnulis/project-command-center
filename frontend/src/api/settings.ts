@@ -1,5 +1,6 @@
 import { apiClient } from './client'
 import type {
+  EvalRunRecord,
   EvalRunResult,
   Profile,
   ProfileUpdate,
@@ -49,4 +50,15 @@ export async function runEval(suite: string): Promise<EvalRunResult> {
     method: 'POST',
   })
   return (await res.json()) as EvalRunResult
+}
+
+export async function getEvalRuns(
+  suite?: string,
+  limit = 10,
+): Promise<EvalRunRecord[]> {
+  const params = new URLSearchParams()
+  if (suite) params.set('suite', suite)
+  params.set('limit', String(limit))
+  const res = await apiClient(`/api/settings/evals/runs?${params.toString()}`)
+  return (await res.json()) as EvalRunRecord[]
 }

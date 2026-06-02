@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
+  getEvalRuns,
   getProfiles,
   getPrompts,
   putPrompt,
@@ -7,6 +8,7 @@ import {
   updateProfile,
 } from '../../api/settings'
 import type {
+  EvalRunRecord,
   EvalRunResult,
   Profile,
   ProfileUpdate,
@@ -42,6 +44,7 @@ interface UseSettings {
   profileState: Record<string, ActionState>
   promptState: Record<string, ActionState>
   evalState: Record<string, EvalState>
+  evalRuns: Record<string, EvalRunRecord[]>
   saveProfile: (name: string, fields: ProfileUpdate) => void
   savePrompt: (name: string, text: string) => void
   runEvals: (suite: string) => void
@@ -55,6 +58,7 @@ export function useSettings(): UseSettings {
   const [profileState, setProfileState] = useState<Record<string, ActionState>>({})
   const [promptState, setPromptState] = useState<Record<string, ActionState>>({})
   const [evalState, setEvalState] = useState<Record<string, EvalState>>({})
+  const [evalRuns, setEvalRuns] = useState<Record<string, EvalRunRecord[]>>({})
 
   useEffect(() => {
     Promise.all([getProfiles(), getPrompts()])
@@ -64,6 +68,27 @@ export function useSettings(): UseSettings {
       })
       .catch((err: unknown) => setError(errMessage(err)))
       .finally(() => setLoading(false))
+  }, [])
+
+  // Eval-run history is non-critical: load it, but never block the page on it.
+  const refreshRuns = useCallback((suite: string) => {
+    getEvalRuns(suite)
+      .then((runs) => setEvalRuns((prev) => ({ ...prev, [suite]: runs })))
+      .catch(() => {
+        /* history is best-effort; the run result itself still shows */
+      })
+  }, [])
+
+  useEffect(() => {
+    getEvalRuns(undefined, 50)
+      .then((runs) => {
+        const grouped: Record<string, EvalRunRecord[]> = {}
+        for (const run of runs) (grouped[run.suite] ??= []).push(run)
+        setEvalRuns(grouped)
+      })
+      .catch(() => {
+        /* history is best-effort */
+      })
   }, [])
 
   const saveProfile = useCallback((name: string, fields: ProfileUpdate) => {
@@ -111,6 +136,7 @@ export function useSettings(): UseSettings {
           ...prev,
           [suite]: { running: false, result, error: null },
         }))
+        refreshRuns(suite)
       })
       .catch((err: unknown) => {
         setEvalState((prev) => ({
@@ -118,7 +144,7 @@ export function useSettings(): UseSettings {
           [suite]: { running: false, result: null, error: errMessage(err) },
         }))
       })
-  }, [])
+  }, [refreshRuns])
 
   return {
     profiles,
@@ -128,6 +154,7 @@ export function useSettings(): UseSettings {
     profileState,
     promptState,
     evalState,
+    evalRuns,
     saveProfile,
     savePrompt,
     runEvals,
