@@ -22,6 +22,7 @@ class TaskUpdate(BaseModel):
     status: TaskStatus | None = None
     priority: TaskPriority | None = None
     due_date: date | None = None
+    project_id: int | None = None
 
 
 class TaskRead(BaseModel):

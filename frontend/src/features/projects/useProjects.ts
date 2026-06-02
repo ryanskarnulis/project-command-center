@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
-import { createProject, deleteProject, listProjects } from '../../api/projects'
-import type { Project, ProjectCreate } from '../../types/project'
+import { createProject, deleteProject, listProjects, updateProject } from '../../api/projects'
+import type { Project, ProjectCreate, ProjectUpdate } from '../../types/project'
 
 interface UseProjects {
   projects: Project[]
   loading: boolean
   error: string | null
   create: (data: ProjectCreate) => Promise<void>
+  update: (id: number, data: ProjectUpdate) => Promise<void>
   remove: (id: number) => Promise<void>
   reload: () => void
 }
@@ -48,6 +49,14 @@ export function useProjects(): UseProjects {
     [reload],
   )
 
+  const update = useCallback(
+    async (id: number, data: ProjectUpdate) => {
+      await updateProject(id, data)
+      reload()
+    },
+    [reload],
+  )
+
   const remove = useCallback(
     async (id: number) => {
       await deleteProject(id)
@@ -56,5 +65,5 @@ export function useProjects(): UseProjects {
     [reload],
   )
 
-  return { projects, loading, error, create, remove, reload }
+  return { projects, loading, error, create, update, remove, reload }
 }

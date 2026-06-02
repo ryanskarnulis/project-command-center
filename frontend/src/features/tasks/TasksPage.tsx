@@ -1,8 +1,12 @@
-import { type SubmitEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useTasks } from './useTasks'
+import { listProjects } from '../../api/projects'
+import type { Project } from '../../types/project'
+import type { Task, TaskPriority } from '../../types/task'
+import { compareByDue, dueStatus, formatDueDate } from '../../utils/dates'
 import { ActivityFeed } from '../projects/ActivityFeed'
-import type { TaskPriority } from '../../types/task'
+import { TaskEditModal } from './TaskEditModal'
+import { useTasks } from './useTasks'
 
 const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
 
@@ -10,16 +14,22 @@ export function TasksPage() {
   const { projectId } = useParams()
   const id = projectId === undefined ? undefined : Number(projectId)
   const isGlobal = id === undefined
-  const { tasks, loading, error, create, markDone, remove } = useTasks(id)
+  const { tasks, loading, error, create, update, markDone, remove } = useTasks(id)
 
   const [title, setTitle] = useState('')
   const [priority, setPriority] = useState<TaskPriority>('medium')
   const [submitting, setSubmitting] = useState(false)
+  const [editing, setEditing] = useState<Task | null>(null)
+  const [projects, setProjects] = useState<Project[]>([])
+
+  useEffect(() => {
+    listProjects().then(setProjects).catch(() => {})
+  }, [])
   // Bumped after any task mutation so the ActivityFeed re-fetches.
   const [activityKey, setActivityKey] = useState(0)
   const bumpActivity = () => setActivityKey((k) => k + 1)
 
-  async function handleSubmit(e: SubmitEvent<HTMLFormElement>) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!title.trim()) return
     setSubmitting(true)
@@ -67,17 +77,21 @@ export function TasksPage() {
       {error && <p role="alert">{error}</p>}
 
       <ul>
-        {tasks.map((t) => (
+        {[...tasks].sort(compareByDue).map((t) => (
           <li key={t.id}>
             <span>{t.title}</span> <span>[{t.status}]</span>{' '}
             <span>({t.priority})</span>{' '}
+            {t.due_date && t.status !== 'done' && (
+              <span className={`due due-${dueStatus(t.due_date)}`}>
+                Due {formatDueDate(t.due_date)}
+              </span>
+            )}{' '}
             {isGlobal && t.project_id !== null && (
               <Link to={`/projects/${t.project_id}/tasks`}>Project #{t.project_id}</Link>
             )}{' '}
+            <button onClick={() => setEditing(t)}>Edit</button>{' '}
             {t.status !== 'done' && (
-              <button
-                onClick={() => void markDone(t.id).then(bumpActivity)}
-              >
+              <button onClick={() => void markDone(t.id).then(bumpActivity)}>
                 Mark done
               </button>
             )}{' '}
@@ -91,6 +105,18 @@ export function TasksPage() {
       {!loading && tasks.length === 0 && <p>No tasks yet.</p>}
 
       {!isGlobal && <ActivityFeed projectId={id} refreshKey={activityKey} />}
+
+      {editing && (
+        <TaskEditModal
+          task={editing}
+          projects={projects}
+          onClose={() => setEditing(null)}
+          onSave={async (taskId, data) => {
+            await update(taskId, data)
+            bumpActivity()
+          }}
+        />
+      )}
     </main>
   )
 }

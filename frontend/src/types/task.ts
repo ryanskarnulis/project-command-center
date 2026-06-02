@@ -30,4 +30,5 @@ export interface TaskUpdate {
   status?: TaskStatus
   priority?: TaskPriority
   due_date?: string | null
+  project_id?: number | null
 }

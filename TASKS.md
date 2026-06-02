@@ -206,10 +206,11 @@ Hardening additions (Codex review pass):
 ### Daily-use slice (highest priority — makes it a real daily driver)
 - [x] Global / cross-project task view — "everything on my plate" sorted by due date
       (top-level `/tasks` shows accepted work across projects)
-- [ ] Overdue / due-soon highlighting in the global view
-- [ ] Inline task editing in the task list — status / priority / due-date / description
-      (confirm current page isn't create-only; gap before estimates/dependencies)
-- [ ] Edit project info from the UI — frontend slice over existing `PATCH /api/projects/{id}`
+- [x] Overdue / due-soon highlighting in the global view
+- [x] Inline task editing in the task list — status / priority / due-date / description
+      (modal dialog; `updateTask()` wired via `useTasks.update()`)
+- [x] Edit project info from the UI — frontend slice over existing `PATCH /api/projects/{id}`
+      (modal dialog; `updateProject()` wired via `useProjects.update()`)
 
 ### Capture-hygiene slice
 - [ ] Clear / dismiss items from the recent inbox view — soft-delete on `inbox_items`

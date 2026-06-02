@@ -6,14 +6,16 @@ import {
   listAllTasks,
   listTasks,
   markTaskDone,
+  updateTask,
 } from '../../api/tasks'
-import type { Task, TaskCreate } from '../../types/task'
+import type { Task, TaskCreate, TaskUpdate } from '../../types/task'
 
 interface UseTasks {
   tasks: Task[]
   loading: boolean
   error: string | null
   create: (data: TaskCreate) => Promise<void>
+  update: (id: number, data: TaskUpdate) => Promise<void>
   markDone: (id: number) => Promise<void>
   remove: (id: number) => Promise<void>
   reload: () => void
@@ -61,6 +63,14 @@ export function useTasks(projectId?: number): UseTasks {
     [projectId, reload],
   )
 
+  const update = useCallback(
+    async (id: number, data: TaskUpdate) => {
+      await updateTask(id, data)
+      reload()
+    },
+    [reload],
+  )
+
   const markDone = useCallback(
     async (id: number) => {
       await markTaskDone(id)
@@ -77,5 +87,5 @@ export function useTasks(projectId?: number): UseTasks {
     [reload],
   )
 
-  return { tasks, loading, error, create, markDone, remove, reload }
+  return { tasks, loading, error, create, update, markDone, remove, reload }
 }

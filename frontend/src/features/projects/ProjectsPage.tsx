@@ -1,14 +1,17 @@
-import { type SubmitEvent, useState } from 'react'
+import { type FormEvent, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useProjects } from './useProjects'
+import { ProjectEditModal } from './ProjectEditModal'
+import type { Project } from '../../types/project'
 
 export function ProjectsPage() {
-  const { projects, loading, error, create, remove } = useProjects()
+  const { projects, loading, error, create, update, remove } = useProjects()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [editing, setEditing] = useState<Project | null>(null)
 
-  async function handleSubmit(e: SubmitEvent<HTMLFormElement>) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!name.trim()) return
     setSubmitting(true)
@@ -52,6 +55,7 @@ export function ProjectsPage() {
           <li key={p.id}>
             <Link to={`/projects/${p.id}/tasks`}>{p.name}</Link>
             {p.description && <span> — {p.description}</span>}{' '}
+            <button onClick={() => setEditing(p)}>Edit</button>{' '}
             {p.is_protected ? (
               <span>Protected</span>
             ) : (
@@ -62,6 +66,14 @@ export function ProjectsPage() {
       </ul>
 
       {!loading && projects.length === 0 && <p>No projects yet.</p>}
+
+      {editing && (
+        <ProjectEditModal
+          project={editing}
+          onClose={() => setEditing(null)}
+          onSave={update}
+        />
+      )}
     </main>
   )
 }

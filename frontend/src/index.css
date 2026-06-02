@@ -312,3 +312,120 @@ code {
   font-size: 13px;
   color: var(--text);
 }
+
+/* ── Modal ─────────────────────────────────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 440px;
+  width: 100%;
+  box-shadow: var(--shadow);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-h);
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text);
+  padding: 0 4px;
+}
+
+.modal-close:hover {
+  color: var(--text-h);
+}
+
+.modal-body form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modal-body label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
+  margin-bottom: 2px;
+}
+
+.modal-body input,
+.modal-body select,
+.modal-body textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.modal-body textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* ── Due-date badges ────────────────────────────────────────────────── */
+
+.due {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid currentColor;
+}
+
+.due-overdue {
+  color: #c0392b;
+}
+
+.due-today {
+  color: #d97706;
+}
+
+.due-soon {
+  color: #ca8a04;
+}
+
+@media (prefers-color-scheme: dark) {
+  .due-overdue {
+    color: #e74c3c;
+  }
+
+  .due-today {
+    color: #fb923c;
+  }
+
+  .due-soon {
+    color: #fde047;
+  }
+}
