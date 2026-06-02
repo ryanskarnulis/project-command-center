@@ -29,6 +29,7 @@ def test_match_deterministic_alias_makes_no_model_call(
     monkeypatch.setattr(gateway, "complete", _no_model)
     project = projects_service.create_project(db_session, name="Home Network")
     projects_service.create_alias(db_session, project_id=project.id, alias="firewall")
+    db_session.commit()
 
     item = _inbox(db_session, hint="firewall ruleset cleanup")
     matched = workflow.match_inbox_item(db_session, item)
@@ -47,6 +48,7 @@ def test_match_deterministic_alias_in_raw_text_without_hint(
     monkeypatch.setattr(gateway, "complete", _no_model)
     project = projects_service.create_project(db_session, name="Home Network")
     projects_service.create_alias(db_session, project_id=project.id, alias="firewall")
+    db_session.commit()
 
     item = InboxItem(raw_text="finish the firewall cleanup", input_hash="h1")
     item.project_hint = None  # extractor surfaced no hint
@@ -64,6 +66,7 @@ def test_match_ai_fallback_sets_suggestion(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = projects_service.create_project(db_session, name="Home Network")
+    db_session.commit()
     item = _inbox(db_session, hint="the home net thing")  # no deterministic hit
 
     raw = json.dumps({"project_id": project.id, "confidence": 0.8, "reasoning": "fit"})
@@ -83,6 +86,7 @@ def test_match_ai_out_of_range_id_leaves_unmatched(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     projects_service.create_project(db_session, name="Home Network")
+    db_session.commit()
     item = _inbox(db_session, hint="the home net thing")
 
     raw = json.dumps({"project_id": 9999, "confidence": 0.9})  # id not offered
@@ -104,6 +108,7 @@ def test_match_ai_validation_failure_is_nonfatal_and_recorded(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     projects_service.create_project(db_session, name="Home Network")
+    db_session.commit()
     item = _inbox(db_session, hint="the home net thing")
 
     bad = "this is not json"
@@ -123,6 +128,7 @@ def test_match_is_idempotent(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = projects_service.create_project(db_session, name="Home Network")
+    db_session.commit()
     item = _inbox(db_session, hint="the home net thing")
 
     calls = 0
@@ -147,6 +153,7 @@ def test_match_no_hint_makes_no_call(
 ) -> None:
     monkeypatch.setattr(gateway, "complete", _no_model)
     projects_service.create_project(db_session, name="Home Network")
+    db_session.commit()
     item = _inbox(db_session, hint=None)
 
     assert workflow.match_inbox_item(db_session, item) is None

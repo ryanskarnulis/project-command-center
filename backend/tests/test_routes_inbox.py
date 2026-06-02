@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.ai import gateway
 from app.db.models import AITrainingExample, TaskStatus
+from app.services import inbox as inbox_service
 from app.services.common import active
 
 _VALID_OUTPUT = {
@@ -95,6 +96,21 @@ def test_inbox_process_review_e2e(
     assert corrected["needs_review"] is False
     assert len(corrected["tasks"]) == 1
     assert corrected["tasks"][0]["title"] == "Email Q2 budget to Sarah"
+
+
+def test_create_inbox_strips_raw_text_and_rejects_blank(client: TestClient) -> None:
+    created = client.post("/api/inbox", json={"raw_text": "  messy notes  "})
+    assert created.status_code == 201
+    body = created.json()
+    assert body["raw_text"] == "messy notes"
+    assert body["input_hash"] == inbox_service.hash_text("messy notes")
+
+    again = client.post("/api/inbox", json={"raw_text": "messy notes"})
+    assert again.status_code == 201
+    assert again.json()["id"] == body["id"]
+
+    blank = client.post("/api/inbox", json={"raw_text": "   "})
+    assert blank.status_code == 422
 
 
 def _fake_gateway(match_output: str):
@@ -222,6 +238,56 @@ def test_review_override_to_missing_project_400(
     assert resp.status_code == 400
 
 
+def test_review_edit_strips_and_rejects_blank_text(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
+
+    inbox_id = client.post("/api/inbox", json={"raw_text": "notes to edit"}).json()["id"]
+    candidates = client.post(f"/api/inbox/{inbox_id}/process").json()
+    task_id = candidates[0]["id"]
+
+    blank_title = client.post(
+        f"/api/inbox/{inbox_id}/review",
+        json={
+            "decisions": [
+                {
+                    "task_id": task_id,
+                    "action": "accept",
+                    "edits": {"title": "   "},
+                }
+            ]
+        },
+    )
+    assert blank_title.status_code == 422
+
+    review = client.post(
+        f"/api/inbox/{inbox_id}/review",
+        json={
+            "decisions": [
+                {
+                    "task_id": task_id,
+                    "action": "accept",
+                    "edits": {
+                        "title": "  Fixed title  ",
+                        "description": "   ",
+                        "assignee_hint": "   ",
+                    },
+                }
+            ]
+        },
+    )
+    assert review.status_code == 200
+
+    candidate = {
+        candidate["id"]: candidate
+        for candidate in client.get(f"/api/inbox/{inbox_id}/candidates").json()
+    }[task_id]
+    assert candidate["title"] == "Fixed title"
+    assert candidate["description"] is None
+    assert candidate["assignee_hint"] is None
+
+
 def test_review_reject_all_writes_no_match_row(
     client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -290,6 +356,46 @@ def test_review_empty_decisions_dismisses(
         client.post(f"/api/inbox/{inbox_id}/review", json={"decisions": []}).status_code
         == 409
     )
+
+
+def test_list_pending_inbox_filters_orders_and_limits(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
+
+    unprocessed_id = client.post("/api/inbox", json={"raw_text": "unprocessed"}).json()[
+        "id"
+    ]
+
+    reviewed_id = client.post("/api/inbox", json={"raw_text": "reviewed"}).json()["id"]
+    reviewed_candidates = client.post(f"/api/inbox/{reviewed_id}/process").json()
+    client.post(
+        f"/api/inbox/{reviewed_id}/review",
+        json={
+            "decisions": [
+                {"task_id": candidate["id"], "action": "accept"}
+                for candidate in reviewed_candidates
+            ]
+        },
+    )
+
+    older_pending_id = client.post(
+        "/api/inbox", json={"raw_text": "older pending"}
+    ).json()["id"]
+    client.post(f"/api/inbox/{older_pending_id}/process")
+
+    newer_pending_id = client.post(
+        "/api/inbox", json={"raw_text": "newer pending"}
+    ).json()["id"]
+    client.post(f"/api/inbox/{newer_pending_id}/process")
+
+    pending = client.get("/api/inbox/pending").json()
+    assert [item["id"] for item in pending] == [newer_pending_id, older_pending_id]
+    assert unprocessed_id not in {item["id"] for item in pending}
+    assert reviewed_id not in {item["id"] for item in pending}
+
+    limited = client.get("/api/inbox/pending?limit=1").json()
+    assert [item["id"] for item in limited] == [newer_pending_id]
 
 
 def test_review_rejects_unknown_task_id(

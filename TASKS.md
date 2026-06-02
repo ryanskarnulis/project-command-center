@@ -173,9 +173,89 @@ Scope extensions agreed with the user (beyond the original list above):
       verified in the browser; AI inbox→process→accept path verified live against Ollama
       — accepted candidate logs a `created` task event in the feed)
 
+Hardening additions (Codex review pass):
+- [x] Atomic workflow commits — service layer uses `flush()` only; workflows own `commit()`;
+      rollback on any exception; no partial writes on extraction or review
+- [x] DB-backed inbox idempotency — `uq_inbox_items_active_input_hash` partial unique index
+      (`deleted_at IS NULL`); `create_inbox_item` catches `IntegrityError` for race-safety;
+      soft-deleted rows no longer block re-submission; migration validates no existing dupes
+- [x] General project — protected `system_key="general"` seed (idempotent migration);
+      `is_protected` property guards soft-delete; active tasks rehomed to General on project
+      delete; `_default_project_id_for_status` auto-files accepted/done tasks
+- [x] Global task view — `GET /api/tasks` + `POST /tasks` (unscoped, lands in General);
+      `/tasks` frontend route; `useTasks` dispatches to scoped or global endpoint
+- [x] Settings writes localhost-only — `require_local_settings_write` dependency on profile
+      `PATCH`, prompt `PUT`, and eval `POST`; LAN clients get 403; reads remain public
+- [x] Server-side pending inbox endpoint — `GET /api/inbox/pending?limit=N`; filtering and
+      newest-first ordering moved from frontend to backend service layer
+- [x] Dashboard grouped aggregate queries — single `GROUP BY` for per-project task counts;
+      batch project resolution for recent inbox items; zero-task projects still appear
+- [x] Blank-string input validation — `NonBlankStr` / `OptionalStrippedStr` in
+      `schemas/common.py`; applied to project names, aliases, task titles, inbox text,
+      Discord text, and review edits; optional blank fields normalize to null
+- [x] Discord processing matches web — `routes_discord` calls `match_workflow.match_inbox_item`
+      after extraction; match failure is non-fatal, matching web inbox behavior
+- [x] Frontend Vitest smoke tests — Vitest + jsdom + Testing Library + jest-dom wired via
+      Vite config; `npm run test`; inbox review flow smoke test (load, edit, reject, submit)
+
 ---
 
-## Sprint 7+ — Custom Model Training
+## Sprint 7 — Daily-Use & Polish
+> Goal: make the app a daily driver.
+
+### Daily-use slice (highest priority — makes it a real daily driver)
+- [x] Global / cross-project task view — "everything on my plate" sorted by due date
+      (top-level `/tasks` shows accepted work across projects)
+- [ ] Overdue / due-soon highlighting in the global view
+- [ ] Inline task editing in the task list — status / priority / due-date / description
+      (confirm current page isn't create-only; gap before estimates/dependencies)
+- [ ] Edit project info from the UI — frontend slice over existing `PATCH /api/projects/{id}`
+
+### Capture-hygiene slice
+- [ ] Clear / dismiss items from the recent inbox view — soft-delete on `inbox_items`
+      (DELETE route + UI). MUST NOT cascade-delete the item's `ai_training_examples`
+      rows — those are accounting data; just hide the inbox row.
+- [ ] Trash / restore view — surface the soft-delete safety net in the UI
+      (recently deleted projects/tasks → restore)
+- [ ] Alias management UI — add/remove aliases on the project edit page over the
+      existing Sprint 4 alias CRUD endpoints; directly feeds match accuracy
+
+### Task-model slice (separate PRs — do not bundle)
+- [ ] Task nesting — nullable `parent_task_id` FK on `tasks` + Alembic migration;
+      `list_subtasks()` helper in `services/tasks.py`; cycle-detection guard (no A→B→A);
+      nested display in task list with indent; create-subtask from parent task context
+- [ ] Task duration estimate — nullable `estimated_days` integer column + migration;
+      UI shows human labels (1 day / 3 days / 1 week / 2 weeks); feeds task-dependency
+      scheduling and future kanban / calendar auto-layout (do not build those yet)
+- [ ] Task dependencies — self-referential `task_dependencies` table + migration
+      + Python cycle-detection guard (prime directive #1: app owns the logic, no
+      "blocked" status without a guard preventing A→B→A cycles)
+
+### Default "General" project
+- [x] Seed a default "General" project (idempotent migration, stable slug not id)
+- [x] Make it un-deletable (guard in `services/projects.py` — soft-delete must not
+      orphan capture)
+- [x] Decide: deleting a non-General project rehomes its active tasks to "General";
+      the global task view keeps accepted work reachable even when project context is weak.
+
+### Visibility slice
+- [ ] Training-data viewer + progress meter — read-only page: row count, progress bar
+      to 200, and input / output / corrected triples. The app's whole reason for
+      existing currently has no UI surface; also tells us when fine-tuning is viable.
+- [ ] Eval history — persist pass/fail per eval run (tiny table) so prompt edits can
+      be seen to help or regress over time
+
+### UI polish (split into small PRs, not one redesign)
+- [ ] Real top-level navigation — sidebar or top nav linking Dashboard / Inbox / Projects / Tasks / Settings
+- [ ] Consistent empty / loading / error states across pages
+- [ ] Toasts for success / failure
+- [ ] Shared component layer in `src/components/` — Button, Card, Badge, Modal
+- [ ] Visual hierarchy — card-based layout, readable type scale, subtle color accents for status/priority
+- [ ] Mobile-responsive layout (accessed from LAN devices)
+
+---
+
+## Sprint 8 — Custom Model Training
 > Do not start until you have 200+ rows in `ai_training_examples`.
 
 - [ ] Export `ai_training_examples` to JSONL training format
@@ -195,3 +275,4 @@ Scope extensions agreed with the user (beyond the original list above):
 - [ ] Bulk accept/reject in review queue
 - [ ] Dark mode
 - [ ] Export tasks to markdown
+- [ ] `docker-compose.yml` — backend + frontend in containers (deferred from Sprint 6)

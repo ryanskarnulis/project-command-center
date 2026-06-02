@@ -1,4 +1,5 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig } from 'vitest/config'
+import { loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
@@ -9,5 +10,9 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: { host: env.DEV_HOST || '127.0.0.1' },
+    test: {
+      environment: 'jsdom',
+      setupFiles: './src/test/setup.ts',
+    },
   }
 })

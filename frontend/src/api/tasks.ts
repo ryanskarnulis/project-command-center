@@ -6,6 +6,20 @@ export async function listTasks(projectId: number): Promise<Task[]> {
   return (await res.json()) as Task[]
 }
 
+export async function listAllTasks(): Promise<Task[]> {
+  const res = await apiClient('/api/tasks')
+  return (await res.json()) as Task[]
+}
+
+export async function createUnscopedTask(data: TaskCreate): Promise<Task> {
+  const res = await apiClient('/api/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  return (await res.json()) as Task
+}
+
 export async function createTask(
   projectId: number,
   data: TaskCreate,

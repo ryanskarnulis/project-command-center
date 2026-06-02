@@ -15,6 +15,7 @@ def test_record_example_stores_full_input_and_output(db_session: Session) -> Non
         model_profile="task_extraction",
         model_name="gemma4:e2b",
     )
+    db_session.commit()
 
     assert example.id is not None
     assert example.input_text == input_text

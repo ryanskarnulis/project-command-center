@@ -95,8 +95,13 @@ def match_inbox_item(db: Session, item: InboxItem) -> Project | None:
     )
     deterministic = projects_service.match_text_to_project(db, search_text)
     if deterministic is not None:
-        item.suggested_project_id = deterministic.id
-        db.commit()
+        try:
+            item.suggested_project_id = deterministic.id
+            db.commit()
+            db.refresh(item)
+        except Exception:
+            db.rollback()
+            raise
         logger.info(
             "match_deterministic", inbox_item_id=item.id, project_id=deterministic.id
         )
@@ -119,27 +124,35 @@ def match_inbox_item(db: Session, item: InboxItem) -> Project | None:
     )
 
     model_name = gateway.get_profile(_PROFILE).model
-    item.match_input_text = user_content
-    item.match_output_json = raw
-    item.match_model_name = model_name
+    try:
+        item.match_input_text = user_content
+        item.match_output_json = raw
+        item.match_model_name = model_name
 
-    if result is None:
-        # Invalid output or a non-offered id: record the raw output as a failure
-        # case (prime directive #3) and leave the item unmatched. record_example
-        # commits, persisting the match_* fields set above in the same session.
-        record_example(
-            db,
-            task_name=_PROFILE,
-            input_text=user_content,
-            model_output_json=raw,
-            model_profile=_PROFILE,
-            model_name=model_name,
-        )
-        logger.warning("match_unresolved", inbox_item_id=item.id)
-        return None
+        if result is None:
+            # Invalid output or a non-offered id: record the raw output as a
+            # failure case (prime directive #3) and leave the item unmatched.
+            # The match_* fields and failure example commit together.
+            record_example(
+                db,
+                task_name=_PROFILE,
+                input_text=user_content,
+                model_output_json=raw,
+                model_profile=_PROFILE,
+                model_name=model_name,
+            )
+            db.commit()
+            db.refresh(item)
+            logger.warning("match_unresolved", inbox_item_id=item.id)
+            return None
 
-    item.suggested_project_id = result.project_id
-    db.commit()
+        item.suggested_project_id = result.project_id
+        db.commit()
+        db.refresh(item)
+    except Exception:
+        db.rollback()
+        raise
+
     logger.info(
         "match_ai",
         inbox_item_id=item.id,

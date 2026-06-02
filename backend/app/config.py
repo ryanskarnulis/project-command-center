@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
 
     # Host the API binds to. Constitution default is loopback-only; set to
-    # "0.0.0.0" in .env to expose the API on the LAN.
+    # "0.0.0.0" in .env to expose the API on the LAN. Settings read routes are
+    # visible over the LAN, but settings writes are guarded localhost-only.
     api_host: str = "127.0.0.1"
 
     # Discord integration (Sprint 3). The bot is a separate process that calls the

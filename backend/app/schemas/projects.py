@@ -4,15 +4,17 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.common import NonBlankStr, OptionalStrippedStr
+
 
 class ProjectCreate(BaseModel):
-    name: str
-    description: str | None = None
+    name: NonBlankStr
+    description: OptionalStrippedStr = None
 
 
 class ProjectUpdate(BaseModel):
-    name: str | None = None
-    description: str | None = None
+    name: NonBlankStr | None = None
+    description: OptionalStrippedStr = None
 
 
 class ProjectRead(BaseModel):
@@ -21,12 +23,14 @@ class ProjectRead(BaseModel):
     id: int
     name: str
     description: str | None
+    system_key: str | None
+    is_protected: bool
     created_at: datetime
     updated_at: datetime
 
 
 class ProjectAliasCreate(BaseModel):
-    alias: str
+    alias: NonBlankStr
 
 
 class ProjectAliasRead(BaseModel):

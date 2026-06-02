@@ -8,7 +8,8 @@ const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
 
 export function TasksPage() {
   const { projectId } = useParams()
-  const id = Number(projectId)
+  const id = projectId === undefined ? undefined : Number(projectId)
+  const isGlobal = id === undefined
   const { tasks, loading, error, create, markDone, remove } = useTasks(id)
 
   const [title, setTitle] = useState('')
@@ -34,10 +35,12 @@ export function TasksPage() {
 
   return (
     <main>
-      <p>
-        <Link to="/projects">← Projects</Link>
-      </p>
-      <h1>Tasks</h1>
+      {!isGlobal && (
+        <p>
+          <Link to="/projects">← Projects</Link>
+        </p>
+      )}
+      <h1>{isGlobal ? 'Open Tasks' : 'Tasks'}</h1>
 
       <form onSubmit={handleSubmit}>
         <input
@@ -68,6 +71,9 @@ export function TasksPage() {
           <li key={t.id}>
             <span>{t.title}</span> <span>[{t.status}]</span>{' '}
             <span>({t.priority})</span>{' '}
+            {isGlobal && t.project_id !== null && (
+              <Link to={`/projects/${t.project_id}/tasks`}>Project #{t.project_id}</Link>
+            )}{' '}
             {t.status !== 'done' && (
               <button
                 onClick={() => void markDone(t.id).then(bumpActivity)}
@@ -84,7 +90,7 @@ export function TasksPage() {
 
       {!loading && tasks.length === 0 && <p>No tasks yet.</p>}
 
-      <ActivityFeed projectId={id} refreshKey={activityKey} />
+      {!isGlobal && <ActivityFeed projectId={id} refreshKey={activityKey} />}
     </main>
   )
 }

@@ -21,6 +21,11 @@ export async function listInbox(): Promise<InboxItem[]> {
   return (await res.json()) as InboxItem[]
 }
 
+export async function listPendingInbox(limit = 50): Promise<InboxItem[]> {
+  const res = await apiClient(`/api/inbox/pending?limit=${limit}`)
+  return (await res.json()) as InboxItem[]
+}
+
 export async function getInbox(id: number): Promise<InboxItem> {
   const res = await apiClient(`/api/inbox/${id}`)
   return (await res.json()) as InboxItem

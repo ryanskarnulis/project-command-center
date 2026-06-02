@@ -4,7 +4,7 @@ import {
   createInbox,
   getCandidates,
   getInbox,
-  listInbox,
+  listPendingInbox,
   processInbox,
   reviewInbox,
 } from '../../api/inbox'
@@ -66,7 +66,7 @@ export function useInbox(): UseInbox {
     try {
       setProjects(await listProjects())
     } catch {
-      // Non-fatal: the dropdown just falls back to "no project".
+      // Non-fatal: accepted tasks still fall back to General on the backend.
     }
   }, [])
 
@@ -74,12 +74,7 @@ export function useInbox(): UseInbox {
   // This is how out-of-band captures (e.g. Discord) surface in the web app.
   const loadPending = useCallback(async () => {
     try {
-      const items = await listInbox()
-      setPending(
-        items
-          .filter((i) => i.processed_at !== null && i.reviewed_at === null)
-          .sort((a, b) => b.id - a.id),
-      )
+      setPending(await listPendingInbox())
     } catch (e: unknown) {
       setError(messageFor(e, 'Failed to load pending inbox items'))
     }

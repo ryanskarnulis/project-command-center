@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.ai import gateway
 from app.ai.workflows import extract_tasks as workflow
-from app.db.models import AITrainingExample, InboxItem, TaskStatus
+from app.db.models import AITrainingExample, InboxItem, Task, TaskStatus
 from app.services.common import active
 
 _VALID_OUTPUT = {
@@ -67,6 +67,32 @@ def test_extract_happy_path(db_session: Session, monkeypatch: pytest.MonkeyPatch
     assert item.processed_at is not None
     assert item.model_output_json == raw
     assert item.model_name == gateway.get_profile("task_extraction").model
+
+
+def test_extract_rolls_back_candidates_if_metadata_commit_fails(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raw = json.dumps(_VALID_OUTPUT)
+    monkeypatch.setattr(gateway, "complete", lambda **_: raw)
+    original_create_task = workflow.create_task
+
+    def create_then_fail(*args: object, **kwargs: object) -> Task:
+        original_create_task(*args, **kwargs)
+        raise RuntimeError("metadata write failed")
+
+    monkeypatch.setattr(workflow, "create_task", create_then_fail)
+
+    item = _make_inbox_item(db_session)
+    item_id = item.id
+    with pytest.raises(RuntimeError, match="metadata write failed"):
+        workflow.extract_tasks(db_session, item)
+
+    db_session.expire_all()
+    saved_item = db_session.get(InboxItem, item_id)
+    assert saved_item is not None
+    assert saved_item.processed_at is None
+    assert saved_item.model_output_json is None
+    assert len(workflow._existing_candidates(db_session, item_id)) == 0
 
 
 def test_extract_is_idempotent(

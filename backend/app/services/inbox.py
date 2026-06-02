@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Sequence
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import InboxItem, InboxSource, Task
@@ -35,9 +36,18 @@ def create_inbox_item(
 
     item = InboxItem(raw_text=raw_text, input_hash=input_hash, source=source)
     db.add(item)
-    db.commit()
-    db.refresh(item)
-    return item
+    try:
+        db.flush()
+        db.refresh(item)
+        return item
+    except IntegrityError:
+        db.rollback()
+        existing = db.execute(
+            active(InboxItem).where(InboxItem.input_hash == input_hash)
+        ).scalar_one_or_none()
+        if existing is None:
+            raise
+        return existing
 
 
 def get_inbox_item(db: Session, inbox_item_id: int) -> InboxItem | None:
@@ -48,6 +58,23 @@ def get_inbox_item(db: Session, inbox_item_id: int) -> InboxItem | None:
 
 def list_inbox_items(db: Session) -> Sequence[InboxItem]:
     return db.execute(active(InboxItem).order_by(InboxItem.id)).scalars().all()
+
+
+def list_pending_review_items(
+    db: Session, *, limit: int = 50
+) -> Sequence[InboxItem]:
+    """Processed inbox items still awaiting review, newest first."""
+    return (
+        db.execute(
+            active(InboxItem)
+            .where(InboxItem.processed_at.is_not(None))
+            .where(InboxItem.reviewed_at.is_(None))
+            .order_by(InboxItem.id.desc())
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
 
 
 def list_candidates(db: Session, inbox_item_id: int) -> Sequence[Task]:

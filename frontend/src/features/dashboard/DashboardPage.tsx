@@ -13,8 +13,10 @@ export function DashboardPage() {
       <h1>Dashboard</h1>
 
       <section className="dashboard-stat">
-        <span className="stat-value">{overview.total_open_tasks}</span>
-        <span className="stat-label"> open tasks</span>
+        <Link to="/tasks" className="dashboard-stat-link">
+          <span className="stat-value">{overview.total_open_tasks}</span>
+          <span className="stat-label"> open tasks</span>
+        </Link>
       </section>
 
       <section>
@@ -65,7 +67,7 @@ export function DashboardPage() {
                   to={
                     item.resolved_project_id
                       ? `/projects/${item.resolved_project_id}/tasks`
-                      : '/inbox'
+                      : '/tasks'
                   }
                 >
                   {item.summary ?? `Inbox #${item.id}`}

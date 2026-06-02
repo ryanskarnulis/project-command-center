@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from ipaddress import ip_address
+
 import structlog
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.schemas.settings import (
     EvalRunResult,
@@ -17,13 +19,35 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 
+def require_local_settings_write(request: Request) -> None:
+    """Allow settings mutations only from direct loopback/test clients."""
+    host = request.client.host if request.client else None
+    if host in {"localhost", "testclient"}:
+        return
+    if host is not None:
+        try:
+            if ip_address(host).is_loopback:
+                return
+        except ValueError:
+            pass
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="settings writes are only allowed from localhost",
+    )
+
+
 @router.get("/profiles", response_model=list[ProfileRead])
 def get_profiles() -> list[ProfileRead]:
     """Effective (merged) model profiles, with overridden fields marked."""
     return settings_service.list_profiles()
 
 
-@router.patch("/profiles/{name}", response_model=ProfileRead)
+@router.patch(
+    "/profiles/{name}",
+    response_model=ProfileRead,
+    dependencies=[Depends(require_local_settings_write)],
+)
 def patch_profile(name: str, update: ProfileUpdate) -> ProfileRead:
     """Override editable fields of a profile; writes to profiles.local.yaml."""
     try:
@@ -54,7 +78,11 @@ def get_prompt(name: str) -> PromptRead:
         ) from None
 
 
-@router.put("/prompts/{name}", response_model=PromptRead)
+@router.put(
+    "/prompts/{name}",
+    response_model=PromptRead,
+    dependencies=[Depends(require_local_settings_write)],
+)
 def put_prompt(name: str, update: PromptUpdate) -> PromptRead:
     """Overwrite a prompt file on disk. Takes effect on the next model call."""
     try:
@@ -65,7 +93,11 @@ def put_prompt(name: str, update: PromptUpdate) -> PromptRead:
         ) from None
 
 
-@router.post("/evals/{suite}/run", response_model=EvalRunResult)
+@router.post(
+    "/evals/{suite}/run",
+    response_model=EvalRunResult,
+    dependencies=[Depends(require_local_settings_write)],
+)
 def run_eval(suite: str) -> EvalRunResult:
     """Run an eval suite synchronously and return per-case pass/fail + totals."""
     try:

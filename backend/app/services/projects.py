@@ -6,9 +6,13 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.db.models import Project, ProjectAlias
+from app.db.models import Project, ProjectAlias, Task
 from app.services import activity
 from app.services.common import active, soft_delete
+
+DEFAULT_PROJECT_NAME = "General"
+DEFAULT_PROJECT_DESCRIPTION = "Default project for unfiled tasks"
+DEFAULT_PROJECT_SYSTEM_KEY = "general"
 
 
 def list_projects(db: Session) -> Sequence[Project]:
@@ -24,7 +28,7 @@ def get_project(db: Session, project_id: int) -> Project | None:
 def create_project(db: Session, *, name: str, description: str | None = None) -> Project:
     project = Project(name=name, description=description)
     db.add(project)
-    db.commit()
+    db.flush()
     db.refresh(project)
     activity.record_event(
         db,
@@ -37,10 +41,47 @@ def create_project(db: Session, *, name: str, description: str | None = None) ->
     return project
 
 
+def get_default_project(db: Session) -> Project | None:
+    return db.execute(
+        active(Project).where(Project.system_key == DEFAULT_PROJECT_SYSTEM_KEY)
+    ).scalar_one_or_none()
+
+
+def ensure_default_project(db: Session) -> Project:
+    project = get_default_project(db)
+    if project is not None:
+        return project
+
+    project = db.execute(
+        active(Project)
+        .where(Project.name == DEFAULT_PROJECT_NAME, Project.system_key.is_(None))
+        .order_by(Project.id)
+    ).scalar_one_or_none()
+    if project is None:
+        project = Project(
+            name=DEFAULT_PROJECT_NAME,
+            description=DEFAULT_PROJECT_DESCRIPTION,
+            system_key=DEFAULT_PROJECT_SYSTEM_KEY,
+        )
+        db.add(project)
+    else:
+        project.system_key = DEFAULT_PROJECT_SYSTEM_KEY
+        if project.description is None:
+            project.description = DEFAULT_PROJECT_DESCRIPTION
+
+    db.flush()
+    db.refresh(project)
+    return project
+
+
+def ensure_default_project_id(db: Session) -> int:
+    return ensure_default_project(db).id
+
+
 def update_project(db: Session, project: Project, fields: Mapping[str, Any]) -> Project:
     for key, value in fields.items():
         setattr(project, key, value)
-    db.commit()
+    db.flush()
     db.refresh(project)
     activity.record_event(
         db,
@@ -54,8 +95,18 @@ def update_project(db: Session, project: Project, fields: Mapping[str, Any]) -> 
 
 
 def soft_delete_project(db: Session, project: Project) -> None:
+    if project.is_protected:
+        raise ValueError(f'Project "{project.name}" is protected and cannot be deleted')
+
+    default_project = ensure_default_project(db)
+    for task in db.execute(
+        active(Task).where(Task.project_id == project.id)
+    ).scalars():
+        task.project_id = default_project.id
+
+    db.flush()
     soft_delete(project)
-    db.commit()
+    db.flush()
     activity.record_event(
         db,
         project_id=project.id,
@@ -95,14 +146,14 @@ def get_alias(db: Session, alias_id: int) -> ProjectAlias | None:
 def create_alias(db: Session, *, project_id: int, alias: str) -> ProjectAlias:
     row = ProjectAlias(project_id=project_id, alias=alias)
     db.add(row)
-    db.commit()
+    db.flush()
     db.refresh(row)
     return row
 
 
 def soft_delete_alias(db: Session, alias: ProjectAlias) -> None:
     soft_delete(alias)
-    db.commit()
+    db.flush()
 
 
 def list_projects_with_aliases(

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
@@ -35,6 +35,8 @@ def create_inbox(data: InboxCreate, db: Session = Depends(get_db)) -> InboxItem:
     item = inbox_service.create_inbox_item(
         db, raw_text=data.raw_text, source=data.source
     )
+    db.commit()
+    db.refresh(item)
     logger.info("inbox_created", inbox_item_id=item.id, source=item.source)
     return item
 
@@ -42,6 +44,14 @@ def create_inbox(data: InboxCreate, db: Session = Depends(get_db)) -> InboxItem:
 @router.get("", response_model=list[InboxRead])
 def list_inbox(db: Session = Depends(get_db)) -> Sequence[InboxItem]:
     return inbox_service.list_inbox_items(db)
+
+
+@router.get("/pending", response_model=list[InboxRead])
+def list_pending_inbox(
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+) -> Sequence[InboxItem]:
+    return inbox_service.list_pending_review_items(db, limit=limit)
 
 
 @router.get("/{inbox_item_id}", response_model=InboxRead)
@@ -60,7 +70,7 @@ def process_inbox(
         # The workflow already logged the raw output and wrote a failure training
         # row; surface the error rather than returning a silent empty list.
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="extraction validation failed",
         ) from None
 

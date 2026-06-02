@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { createTask, deleteTask, listTasks, markTaskDone } from '../../api/tasks'
+import {
+  createTask,
+  createUnscopedTask,
+  deleteTask,
+  listAllTasks,
+  listTasks,
+  markTaskDone,
+} from '../../api/tasks'
 import type { Task, TaskCreate } from '../../types/task'
 
 interface UseTasks {
@@ -12,7 +19,7 @@ interface UseTasks {
   reload: () => void
 }
 
-export function useTasks(projectId: number): UseTasks {
+export function useTasks(projectId?: number): UseTasks {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -22,7 +29,8 @@ export function useTasks(projectId: number): UseTasks {
 
   useEffect(() => {
     let active = true
-    listTasks(projectId)
+    const request = projectId === undefined ? listAllTasks() : listTasks(projectId)
+    request
       .then((data) => {
         if (!active) return
         setTasks(data)
@@ -43,7 +51,11 @@ export function useTasks(projectId: number): UseTasks {
 
   const create = useCallback(
     async (data: TaskCreate) => {
-      await createTask(projectId, data)
+      if (projectId === undefined) {
+        await createUnscopedTask(data)
+      } else {
+        await createTask(projectId, data)
+      }
       reload()
     },
     [projectId, reload],

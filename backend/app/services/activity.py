@@ -19,7 +19,8 @@ def record_event(
 ) -> ActivityEvent:
     """Append one activity event. The log is immutable, so this only ever inserts.
 
-    Mirrors ``services.training_data.record_example``: build, add, commit, refresh.
+    Caller owns the transaction boundary. This helper only stages the row and
+    flushes so the event id is available to callers before commit.
     """
     event = ActivityEvent(
         project_id=project_id,
@@ -29,7 +30,7 @@ def record_event(
         summary=summary,
     )
     db.add(event)
-    db.commit()
+    db.flush()
     db.refresh(event)
     return event
 

@@ -8,7 +8,19 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Task, TaskPriority, TaskStatus
 from app.services import activity
+from app.services import projects as projects_service
 from app.services.common import active, soft_delete
+
+
+_FILED_STATUSES = {TaskStatus.accepted, TaskStatus.done}
+
+
+def _default_project_id_for_status(
+    db: Session, project_id: int | None, status: TaskStatus
+) -> int | None:
+    if project_id is None and status in _FILED_STATUSES:
+        return projects_service.ensure_default_project_id(db)
+    return project_id
 
 
 def _log_task_event(db: Session, task: Task, action: str) -> None:
@@ -32,12 +44,15 @@ def _log_task_event(db: Session, task: Task, action: str) -> None:
     )
 
 
-def list_tasks(db: Session, project_id: int) -> Sequence[Task]:
-    return (
-        db.execute(active(Task).where(Task.project_id == project_id).order_by(Task.id))
-        .scalars()
-        .all()
-    )
+def list_tasks(
+    db: Session, project_id: int | None = None, status: TaskStatus | None = None
+) -> Sequence[Task]:
+    query = active(Task).order_by(Task.id)
+    if project_id is not None:
+        query = query.where(Task.project_id == project_id)
+    if status is not None:
+        query = query.where(Task.status == status)
+    return db.execute(query).scalars().all()
 
 
 def get_task(db: Session, task_id: int) -> Task | None:
@@ -59,6 +74,7 @@ def create_task(
     confidence: float | None = None,
     assignee_hint: str | None = None,
 ) -> Task:
+    project_id = _default_project_id_for_status(db, project_id, status)
     task = Task(
         project_id=project_id,
         title=title,
@@ -71,7 +87,7 @@ def create_task(
         assignee_hint=assignee_hint,
     )
     db.add(task)
-    db.commit()
+    db.flush()
     db.refresh(task)
     _log_task_event(db, task, "created")
     return task
@@ -80,7 +96,8 @@ def create_task(
 def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     for key, value in fields.items():
         setattr(task, key, value)
-    db.commit()
+    task.project_id = _default_project_id_for_status(db, task.project_id, task.status)
+    db.flush()
     db.refresh(task)
     _log_task_event(db, task, "updated")
     return task
@@ -88,7 +105,8 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
 
 def mark_done(db: Session, task: Task) -> Task:
     task.status = TaskStatus.done
-    db.commit()
+    task.project_id = _default_project_id_for_status(db, task.project_id, task.status)
+    db.flush()
     db.refresh(task)
     _log_task_event(db, task, "completed")
     return task
@@ -96,5 +114,5 @@ def mark_done(db: Session, task: Task) -> Task:
 
 def soft_delete_task(db: Session, task: Task) -> None:
     soft_delete(task)
-    db.commit()
+    db.flush()
     _log_task_event(db, task, "deleted")

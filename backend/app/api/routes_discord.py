@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.ai.workflows import extract_tasks as extract_workflow
+from app.ai.workflows import match_project as match_workflow
 from app.config import Settings, get_settings
 from app.db.models import InboxSource
 from app.db.session import get_db
@@ -63,15 +64,24 @@ def discord_inbox(
     item = inbox_service.create_inbox_item(
         db, raw_text=data.raw_text, source=InboxSource.discord
     )
+    db.commit()
+    db.refresh(item)
     try:
         candidates = extract_workflow.extract_tasks(db, item)
     except ValidationError:
         # The workflow already logged the raw output and wrote a failure training
         # row; surface the error rather than returning a silent empty list.
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="extraction validation failed",
         ) from None
+
+    # Keep Discord capture aligned with web inbox processing. Matching is
+    # enrichment, so a failure here must not discard extracted candidates.
+    try:
+        match_workflow.match_inbox_item(db, item)
+    except Exception:  # noqa: BLE001 — matching is non-fatal enrichment
+        logger.exception("discord_match_failed", inbox_item_id=item.id)
 
     logger.info(
         "discord_inbox_processed",

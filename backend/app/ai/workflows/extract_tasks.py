@@ -59,40 +59,51 @@ def extract_tasks(db: Session, inbox_item: InboxItem) -> Sequence[Task]:
             raw_output=raw,
             error=str(exc),
         )
-        record_example(
-            db,
-            task_name=_PROFILE,
-            input_text=inbox_item.raw_text,
-            model_output_json=raw,
-            model_profile=_PROFILE,
-            model_name=model_name,
-        )
+        try:
+            record_example(
+                db,
+                task_name=_PROFILE,
+                input_text=inbox_item.raw_text,
+                model_output_json=raw,
+                model_profile=_PROFILE,
+                model_name=model_name,
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
         raise
 
-    tasks = [
-        create_task(
-            db,
-            project_id=None,
-            title=task.title,
-            description=task.description,
-            status=TaskStatus.candidate,
-            priority=task.priority,
-            due_date=task.due_date,
-            inbox_item_id=inbox_item.id,
-            confidence=task.confidence,
-            assignee_hint=task.assignee_hint,
-        )
-        for task in result.tasks
-    ]
+    try:
+        tasks = [
+            create_task(
+                db,
+                project_id=None,
+                title=task.title,
+                description=task.description,
+                status=TaskStatus.candidate,
+                priority=task.priority,
+                due_date=task.due_date,
+                inbox_item_id=inbox_item.id,
+                confidence=task.confidence,
+                assignee_hint=task.assignee_hint,
+            )
+            for task in result.tasks
+        ]
 
-    inbox_item.summary = result.summary
-    inbox_item.project_hint = result.project_hint
-    inbox_item.needs_review = result.needs_review
-    inbox_item.model_output_json = raw
-    inbox_item.model_name = model_name
-    inbox_item.processed_at = datetime.now(UTC)
-    db.commit()
-    db.refresh(inbox_item)
+        inbox_item.summary = result.summary
+        inbox_item.project_hint = result.project_hint
+        inbox_item.needs_review = result.needs_review
+        inbox_item.model_output_json = raw
+        inbox_item.model_name = model_name
+        inbox_item.processed_at = datetime.now(UTC)
+        db.commit()
+        db.refresh(inbox_item)
+        for task in tasks:
+            db.refresh(task)
+    except Exception:
+        db.rollback()
+        raise
 
     logger.info(
         "extraction_completed",

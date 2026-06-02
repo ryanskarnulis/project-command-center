@@ -3,10 +3,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.db.models import Task
+from app.db.models import Task, TaskStatus
 from app.db.session import get_db
 from app.schemas.tasks import TaskCreate, TaskRead, TaskUpdate
 from app.services import projects as projects_service
@@ -39,6 +39,31 @@ def list_tasks(project_id: int, db: Session = Depends(get_db)) -> Sequence[Task]
     return tasks_service.list_tasks(db, project_id)
 
 
+@router.get("/tasks", response_model=list[TaskRead])
+def list_all_tasks(
+    status_filter: TaskStatus | None = Query(default=TaskStatus.accepted, alias="status"),
+    db: Session = Depends(get_db),
+) -> Sequence[Task]:
+    return tasks_service.list_tasks(db, status=status_filter)
+
+
+@router.post("/tasks", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
+def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db)) -> Task:
+    task = tasks_service.create_task(
+        db,
+        project_id=None,
+        title=data.title,
+        description=data.description,
+        status=data.status,
+        priority=data.priority,
+        due_date=data.due_date,
+    )
+    db.commit()
+    db.refresh(task)
+    logger.info("task_created", task_id=task.id, project_id=task.project_id)
+    return task
+
+
 @router.post(
     "/projects/{project_id}/tasks",
     response_model=TaskRead,
@@ -57,6 +82,8 @@ def create_task(
         priority=data.priority,
         due_date=data.due_date,
     )
+    db.commit()
+    db.refresh(task)
     logger.info("task_created", task_id=task.id, project_id=project_id)
     return task
 
@@ -72,6 +99,8 @@ def update_task(
 ) -> Task:
     task = _get_task_or_404(db, task_id)
     updated = tasks_service.update_task(db, task, data.model_dump(exclude_unset=True))
+    db.commit()
+    db.refresh(updated)
     logger.info("task_updated", task_id=updated.id)
     return updated
 
@@ -80,6 +109,8 @@ def update_task(
 def mark_task_done(task_id: int, db: Session = Depends(get_db)) -> Task:
     task = _get_task_or_404(db, task_id)
     updated = tasks_service.mark_done(db, task)
+    db.commit()
+    db.refresh(updated)
     logger.info("task_marked_done", task_id=updated.id)
     return updated
 
@@ -88,4 +119,5 @@ def mark_task_done(task_id: int, db: Session = Depends(get_db)) -> Task:
 def delete_task(task_id: int, db: Session = Depends(get_db)) -> None:
     task = _get_task_or_404(db, task_id)
     tasks_service.soft_delete_task(db, task)
+    db.commit()
     logger.info("task_deleted", task_id=task_id)

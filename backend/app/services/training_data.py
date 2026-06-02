@@ -21,7 +21,8 @@ def record_example(
     Stores the full input and full model output, never a diff — the diff alone
     is useless for training later. On the extraction failure path
     ``model_output_json`` is the raw (possibly invalid-JSON) model string; the
-    column is plain text, so that is fine and intentional.
+    column is plain text, so that is fine and intentional. Caller owns the
+    transaction boundary; this helper only stages and flushes the row.
     """
     example = AITrainingExample(
         task_name=task_name,
@@ -33,6 +34,6 @@ def record_example(
         model_name=model_name,
     )
     db.add(example)
-    db.commit()
+    db.flush()
     db.refresh(example)
     return example

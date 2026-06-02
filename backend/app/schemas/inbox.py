@@ -6,10 +6,11 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from app.db.models import InboxSource, TaskPriority
+from app.schemas.common import NonBlankStr, OptionalStrippedStr
 
 
 class InboxCreate(BaseModel):
-    raw_text: str
+    raw_text: NonBlankStr
     source: InboxSource = InboxSource.web
 
 
@@ -35,15 +36,15 @@ class ReviewEdit(BaseModel):
     """Per-task edits applied on accept. Only set fields are applied.
 
     ``project_id`` overrides the project the note was matched to: omit it to
-    inherit the inbox item's suggestion, send an id to redirect the task, or send
-    ``null`` to accept it with no project.
+    inherit the inbox item's suggestion or the General fallback, send an id to
+    redirect the task, or send ``null`` to file it under General.
     """
 
-    title: str | None = None
-    description: str | None = None
+    title: NonBlankStr | None = None
+    description: OptionalStrippedStr = None
     due_date: date | None = None
     priority: TaskPriority | None = None
-    assignee_hint: str | None = None
+    assignee_hint: OptionalStrippedStr = None
     project_id: int | None = None
 
 

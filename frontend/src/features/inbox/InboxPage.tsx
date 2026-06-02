@@ -32,6 +32,7 @@ export function InboxPage() {
     inboxItem === null
       ? null
       : (projects.find((p) => p.id === inboxItem.suggested_project_id) ?? null)
+  const generalProject = projects.find((p) => p.system_key === 'general') ?? null
 
   async function handleSubmit(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -115,10 +116,13 @@ export function InboxPage() {
 
       {!alreadyReviewed && candidates.length > 0 && (
         <ReviewQueue
-          key={inboxItem?.id}
+          key={`${inboxItem?.id}:${suggestedProject?.id ?? ''}:${
+            generalProject?.id ?? ''
+          }`}
           candidates={candidates}
           projects={projects}
-          suggestedProjectId={inboxItem?.suggested_project_id ?? null}
+          suggestedProjectId={suggestedProject?.id ?? null}
+          defaultProjectId={generalProject?.id ?? null}
           submitting={submitting}
           onSubmitReview={(decisions) => void review(decisions)}
         />

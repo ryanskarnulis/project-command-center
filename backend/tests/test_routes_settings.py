@@ -9,6 +9,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from app.ai import gateway
+from app.main import app
 from app.services import settings as settings_service
 
 
@@ -34,6 +35,12 @@ def isolated_prompts(
     (pdir / "extract_tasks.md").write_text("original prompt\n")
     monkeypatch.setattr(gateway, "_PROMPTS_DIR", pdir)
     yield pdir
+
+
+@pytest.fixture
+def lan_client() -> Generator[TestClient, None, None]:
+    with TestClient(app, client=("192.168.1.50", 50000)) as test_client:
+        yield test_client
 
 
 class TestProfiles:
@@ -91,6 +98,22 @@ class TestProfiles:
         )
         assert resp.status_code == 422
 
+    def test_lan_client_can_read_profiles(
+        self, lan_client: TestClient, isolated_local: Path
+    ) -> None:
+        resp = lan_client.get("/api/settings/profiles")
+        assert resp.status_code == 200
+
+    def test_lan_client_cannot_patch_profile(
+        self, lan_client: TestClient, isolated_local: Path
+    ) -> None:
+        resp = lan_client.patch(
+            "/api/settings/profiles/task_extraction", json={"temperature": 0.7}
+        )
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "settings writes are only allowed from localhost"
+        assert not isolated_local.exists()
+
 
 class TestPrompts:
     def test_list_prompts(self, client: TestClient, isolated_prompts: Path) -> None:
@@ -129,6 +152,25 @@ class TestPrompts:
         resp = client.put("/api/settings/prompts/..%2fsecret.md", json={"text": "x"})
         assert resp.status_code == 404
 
+    def test_lan_client_can_read_prompts(
+        self, lan_client: TestClient, isolated_prompts: Path
+    ) -> None:
+        list_resp = lan_client.get("/api/settings/prompts")
+        get_resp = lan_client.get("/api/settings/prompts/extract_tasks.md")
+
+        assert list_resp.status_code == 200
+        assert get_resp.status_code == 200
+
+    def test_lan_client_cannot_put_prompt(
+        self, lan_client: TestClient, isolated_prompts: Path
+    ) -> None:
+        resp = lan_client.put(
+            "/api/settings/prompts/extract_tasks.md", json={"text": "new body\n"}
+        )
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "settings writes are only allowed from localhost"
+        assert (isolated_prompts / "extract_tasks.md").read_text() == "original prompt\n"
+
 
 class TestEvalRun:
     def test_run_eval_returns_structured_results(
@@ -152,3 +194,20 @@ class TestEvalRun:
 
     def test_run_unknown_suite_404(self, client: TestClient) -> None:
         assert client.post("/api/settings/evals/bogus/run").status_code == 404
+
+    def test_lan_client_cannot_run_eval(
+        self, lan_client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        called = False
+
+        def fake_run() -> list[dict[str, Any]]:
+            nonlocal called
+            called = True
+            return [{"name": "case_a", "passed": True, "reason": ""}]
+
+        monkeypatch.setitem(settings_service._EVAL_SUITES, "summary", fake_run)
+
+        resp = lan_client.post("/api/settings/evals/summary/run")
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "settings writes are only allowed from localhost"
+        assert called is False

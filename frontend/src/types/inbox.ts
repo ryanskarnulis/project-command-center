@@ -31,7 +31,7 @@ export interface ReviewEdit {
   due_date?: string | null
   priority?: TaskPriority
   assignee_hint?: string | null
-  /** Override the matched project: an id, or null to file under no project. */
+  /** Override the matched project: an id, or null to file under General. */
   project_id?: number | null
 }
 

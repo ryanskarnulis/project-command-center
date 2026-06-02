@@ -181,6 +181,11 @@ All tables use **soft deletes** via a `deleted_at` column. Don't actually delete
 
 Tasks use a `status` enum rather than a separate `task_candidates` table. Candidates and real tasks live in the same table, distinguished by status. Simpler queries, no sync logic. Split later if it ever becomes painful.
 
+A protected `General` project is seeded with the stable system key `general`.
+Deleting any other project rehomes its active tasks to `General` before the
+project is soft-deleted, and the top-level `/tasks` view lists accepted work
+across projects so dashboard counts always point to reachable tasks.
+
 ### The most important table
 
 ```
@@ -306,10 +311,16 @@ Sprint 5:  [DONE] Dashboard — GET /api/dashboard (instant counts) +
            Settings UI — edit model profiles (write to gitignored profiles.local.yaml,
            deep-merged over the committed profiles.yaml; reload, no restart), edit
            ai/prompts/*.md on disk, and trigger eval runs (synchronous, pass/fail counts).
-Sprint 6:  [IN PROGRESS] Hardening — append-only activity_events log (project/task
+Sprint 6:  [DONE] Hardening — append-only activity_events log (project/task
            changes, surfaced as a per-project ActivityFeed on the tasks page);
            nightly SQLite backup script (scripts/backup_db.sh + cron); extraction
-           eval suite expanded to 20 cases. docker-compose deferred (one open box).
+           eval suite expanded to 20 cases; atomic workflow commits; DB-backed
+           inbox idempotency (partial unique index); General project (protected,
+           rehomes tasks on project delete); global GET /api/tasks + /tasks UI;
+           settings writes localhost-only; server-side pending inbox endpoint;
+           dashboard grouped aggregate queries; blank-string input validation;
+           Discord processing matches web inbox (project matching included);
+           frontend Vitest smoke tests. docker-compose deferred.
 Sprint 7+: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
 ```
 
@@ -354,6 +365,11 @@ cache is cleared on each save, so changes take effect without a restart.
 
 This pays for itself the first time you tune a prompt.
 
+Settings mutation routes are intentionally localhost-only: profile saves,
+prompt saves, and eval runs mutate local files or run local model work, so LAN
+clients receive `403` for those writes. Read-only Settings routes can still be
+used from another device when the API is bound to `0.0.0.0`.
+
 ## Do not build yet
 
 ```
@@ -380,6 +396,9 @@ cd backend && python -m app.ai.evals.run_match_evals   # project_matching eval c
 cd backend && python -m app.ai.evals.run_summary_evals # project summary eval cases (needs Ollama)
 ./scripts/backup_db.sh                                 # snapshot data/app.db → data/backups/
 ```
+
+When `API_HOST=0.0.0.0`, LAN clients can reach read APIs, but Settings writes
+remain localhost-only and return `403` from non-loopback clients.
 
 ### Backups (Sprint 6)
 

@@ -57,6 +57,8 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db)) -> Projec
     project = projects_service.create_project(
         db, name=data.name, description=data.description
     )
+    db.commit()
+    db.refresh(project)
     logger.info("project_created", project_id=project.id)
     return project
 
@@ -69,6 +71,8 @@ def update_project(
     updated = projects_service.update_project(
         db, project, data.model_dump(exclude_unset=True)
     )
+    db.commit()
+    db.refresh(updated)
     logger.info("project_updated", project_id=updated.id)
     return updated
 
@@ -76,7 +80,11 @@ def update_project(
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(project_id: int, db: Session = Depends(get_db)) -> None:
     project = _get_or_404(db, project_id)
-    projects_service.soft_delete_project(db, project)
+    try:
+        projects_service.soft_delete_project(db, project)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    db.commit()
     logger.info("project_deleted", project_id=project_id)
 
 
@@ -106,6 +114,8 @@ def create_alias(
 ) -> ProjectAlias:
     _get_or_404(db, project_id)
     alias = projects_service.create_alias(db, project_id=project_id, alias=data.alias)
+    db.commit()
+    db.refresh(alias)
     logger.info("project_alias_created", project_id=project_id, alias_id=alias.id)
     return alias
 
@@ -118,4 +128,5 @@ def delete_alias(
 ) -> None:
     alias = _get_alias_or_404(db, project_id, alias_id)
     projects_service.soft_delete_alias(db, alias)
+    db.commit()
     logger.info("project_alias_deleted", project_id=project_id, alias_id=alias_id)

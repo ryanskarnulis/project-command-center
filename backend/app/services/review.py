@@ -24,20 +24,20 @@ _MATCH_PROFILE = "project_matching"
 
 def _resolve_project_id(
     db: Session, project_id: int | None, *, explicit: bool
-) -> int | None:
+) -> int:
     """Validate the project a task is being accepted into.
 
-    ``None`` stays ``None``. An explicit edit to a non-existent project is a user
-    error (``ValueError`` → 400). A stale *suggestion* (project soft-deleted
-    between matching and review) is dropped silently — the task is still accepted,
-    just unfiled.
+    Accepted tasks are always filed: ``None`` and stale non-explicit suggestions
+    fall back to the protected ``General`` project. An explicit edit to a
+    non-existent project is still a user error (``ValueError`` → 400).
     """
+    default_project_id = projects_service.ensure_default_project_id(db)
     if project_id is None:
-        return None
+        return default_project_id
     if projects_service.get_project(db, project_id) is None:
         if explicit:
             raise ValueError(f"project {project_id} does not exist")
-        return None
+        return default_project_id
     return project_id
 
 
@@ -91,92 +91,99 @@ def review_inbox(
             f"inbox item {item.id} was already reviewed at {item.reviewed_at.isoformat()}"
         )
 
-    candidates = {t.id: t for t in inbox_service.list_candidates(db, item.id)}
+    try:
+        candidates = {t.id: t for t in inbox_service.list_candidates(db, item.id)}
 
-    accepted: list[Task] = []
-    rejected_count = 0
-    for decision in decisions:
-        task = candidates.get(decision.task_id)
-        if task is None:
-            raise ValueError(
-                f"task {decision.task_id} is not a candidate of inbox item {item.id}"
-            )
-        if decision.action == "accept":
-            task.status = TaskStatus.accepted
-            edits = (
-                decision.edits.model_dump(exclude_unset=True)
-                if decision.edits is not None
-                else {}
-            )
-            # project_id is resolved separately (guarded); the rest are plain sets.
-            explicit_project = "project_id" in edits
-            chosen_project = edits.pop("project_id", item.suggested_project_id)
-            for key, value in edits.items():
-                setattr(task, key, value)
-            task.project_id = _resolve_project_id(
-                db, chosen_project, explicit=explicit_project
-            )
-            accepted.append(task)
-        else:
-            task.status = TaskStatus.rejected
-            rejected_count += 1
+        accepted: list[Task] = []
+        rejected_count = 0
+        for decision in decisions:
+            task = candidates.get(decision.task_id)
+            if task is None:
+                raise ValueError(
+                    f"task {decision.task_id} is not a candidate of inbox item {item.id}"
+                )
+            if decision.action == "accept":
+                task.status = TaskStatus.accepted
+                edits = (
+                    decision.edits.model_dump(exclude_unset=True)
+                    if decision.edits is not None
+                    else {}
+                )
+                # project_id is resolved separately (guarded); the rest are plain sets.
+                explicit_project = "project_id" in edits
+                chosen_project = edits.pop("project_id", item.suggested_project_id)
+                for key, value in edits.items():
+                    setattr(task, key, value)
+                task.project_id = _resolve_project_id(
+                    db, chosen_project, explicit=explicit_project
+                )
+                accepted.append(task)
+            else:
+                task.status = TaskStatus.rejected
+                rejected_count += 1
 
-    item.reviewed_at = datetime.now(UTC)
-    db.commit()
-    for task in accepted:
-        db.refresh(task)
+        item.reviewed_at = datetime.now(UTC)
+        db.flush()
+        for task in accepted:
+            db.refresh(task)
 
-    # Activity feed: an accepted candidate is the task's first appearance in a
-    # project, so log it as "created" (matching a directly-created task). Review
-    # mutates and commits tasks in bulk here rather than via tasks_service, so the
-    # logging hook in that service doesn't fire — emit explicitly. Unfiled
-    # (project_id is None) and rejected tasks produce nothing.
-    for task in accepted:
-        if task.project_id is not None:
-            activity_service.record_event(
-                db,
-                project_id=task.project_id,
-                entity_type="task",
-                entity_id=task.id,
-                action="created",
-                summary=f'Task "{task.title}" created',
-            )
+        # Activity feed: an accepted candidate is the task's first appearance in a
+        # project, so log it as "created" (matching a directly-created task). Review
+        # mutates tasks in bulk here rather than via tasks_service, so the logging
+        # hook in that service doesn't fire — emit explicitly. Rejected tasks
+        # produce nothing.
+        for task in accepted:
+            if task.project_id is not None:
+                activity_service.record_event(
+                    db,
+                    project_id=task.project_id,
+                    entity_type="task",
+                    entity_id=task.id,
+                    action="created",
+                    summary=f'Task "{task.title}" created',
+                )
 
-    corrected = {
-        "summary": item.summary,
-        "project_hint": item.project_hint,
-        "tasks": [_corrected_task(t) for t in accepted],
-        "needs_review": False,
-    }
-    example: AITrainingExample = record_example(
-        db,
-        task_name=_PROFILE,
-        input_text=item.raw_text,
-        model_output_json=item.model_output_json or "",
-        corrected_output_json=json.dumps(corrected),
-        accepted=bool(accepted),
-        model_profile=_PROFILE,
-        model_name=item.model_name or gateway.get_profile(_PROFILE).model,
-    )
-
-    # Capture a project_matching correction too — but only when the *model* made
-    # the suggestion (match_output_json set; deterministic alias hits have no
-    # model output to train on) and at least one task was accepted to file. The
-    # corrected output is where the user actually filed the accepted tasks.
-    match_example_id: int | None = None
-    if item.match_output_json is not None and accepted:
-        corrected_project_id = _modal_project_id(accepted)
-        match_example = record_example(
+        corrected = {
+            "summary": item.summary,
+            "project_hint": item.project_hint,
+            "tasks": [_corrected_task(t) for t in accepted],
+            "needs_review": False,
+        }
+        example: AITrainingExample = record_example(
             db,
-            task_name=_MATCH_PROFILE,
-            input_text=item.match_input_text or "",
-            model_output_json=item.match_output_json,
-            corrected_output_json=json.dumps({"project_id": corrected_project_id}),
-            accepted=item.suggested_project_id == corrected_project_id,
-            model_profile=_MATCH_PROFILE,
-            model_name=item.match_model_name or gateway.get_profile(_MATCH_PROFILE).model,
+            task_name=_PROFILE,
+            input_text=item.raw_text,
+            model_output_json=item.model_output_json or "",
+            corrected_output_json=json.dumps(corrected),
+            accepted=bool(accepted),
+            model_profile=_PROFILE,
+            model_name=item.model_name or gateway.get_profile(_PROFILE).model,
         )
-        match_example_id = match_example.id
+
+        # Capture a project_matching correction too — but only when the *model* made
+        # the suggestion (match_output_json set; deterministic alias hits have no
+        # model output to train on) and at least one task was accepted to file. The
+        # corrected output is where the user actually filed the accepted tasks.
+        match_example_id: int | None = None
+        if item.match_output_json is not None and accepted:
+            corrected_project_id = _modal_project_id(accepted)
+            match_example = record_example(
+                db,
+                task_name=_MATCH_PROFILE,
+                input_text=item.match_input_text or "",
+                model_output_json=item.match_output_json,
+                corrected_output_json=json.dumps({"project_id": corrected_project_id}),
+                accepted=item.suggested_project_id == corrected_project_id,
+                model_profile=_MATCH_PROFILE,
+                model_name=(
+                    item.match_model_name or gateway.get_profile(_MATCH_PROFILE).model
+                ),
+            )
+            match_example_id = match_example.id
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     logger.info(
         "inbox_review_recorded",

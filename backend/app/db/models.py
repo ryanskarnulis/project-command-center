@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 from datetime import date, datetime
 
-from sqlalchemy import ForeignKey, func
+from sqlalchemy import ForeignKey, Index, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -47,9 +47,14 @@ class Project(Base, TimestampMixin, SoftDeleteMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str]
     description: Mapped[str | None] = mapped_column(default=None)
+    system_key: Mapped[str | None] = mapped_column(default=None, unique=True)
 
     tasks: Mapped[list[Task]] = relationship(back_populates="project")
     aliases: Mapped[list[ProjectAlias]] = relationship(back_populates="project")
+
+    @property
+    def is_protected(self) -> bool:
+        return self.system_key is not None
 
 
 class ProjectAlias(Base, TimestampMixin, SoftDeleteMixin):
@@ -93,10 +98,18 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
 
 class InboxItem(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "inbox_items"
+    __table_args__ = (
+        Index(
+            "uq_inbox_items_active_input_hash",
+            "input_hash",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     raw_text: Mapped[str]
-    input_hash: Mapped[str] = mapped_column(index=True)
+    input_hash: Mapped[str]
     source: Mapped[InboxSource] = mapped_column(default=InboxSource.web)
     summary: Mapped[str | None] = mapped_column(default=None)
     project_hint: Mapped[str | None] = mapped_column(default=None)

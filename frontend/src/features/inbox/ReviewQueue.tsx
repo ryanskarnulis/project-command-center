@@ -18,8 +18,9 @@ interface RowState {
 interface ReviewQueueProps {
   candidates: Task[]
   projects: Project[]
-  /** Project the note was matched to; rows default to it, overridable per task. */
+  /** Active project the note was matched to; rows default to it, then General. */
   suggestedProjectId: number | null
+  defaultProjectId: number | null
   submitting: boolean
   onSubmitReview: (decisions: ReviewDecision[]) => void
 }
@@ -33,7 +34,9 @@ function orNull(value: string): string | null {
 function initialRows(
   candidates: Task[],
   suggestedProjectId: number | null,
+  defaultProjectId: number | null,
 ): Record<number, RowState> {
+  const effectiveProjectId = suggestedProjectId ?? defaultProjectId
   const rows: Record<number, RowState> = {}
   for (const c of candidates) {
     rows[c.id] = {
@@ -43,7 +46,7 @@ function initialRows(
       due_date: c.due_date ?? '',
       priority: c.priority,
       assignee_hint: c.assignee_hint ?? '',
-      projectId: c.project_id ?? suggestedProjectId,
+      projectId: c.project_id ?? effectiveProjectId,
     }
   }
   return rows
@@ -51,14 +54,17 @@ function initialRows(
 
 /** Build an edits object containing only fields the user changed from the candidate.
  *
- * The project baseline is the note's suggestion (what the backend applies when no
- * override is sent), not the candidate's own project_id, which is null pre-accept.
+ * The project baseline is the active suggestion or General fallback (what the
+ * backend applies when no override is sent), not the candidate's own project_id,
+ * which is null pre-accept.
  */
 function diffEdits(
   candidate: Task,
   row: RowState,
   suggestedProjectId: number | null,
+  defaultProjectId: number | null,
 ): ReviewEdit | undefined {
+  const effectiveProjectId = suggestedProjectId ?? defaultProjectId
   const edits: ReviewEdit = {}
   if (row.title.trim() !== candidate.title) edits.title = row.title.trim()
   if (orNull(row.description) !== candidate.description) {
@@ -71,7 +77,7 @@ function diffEdits(
   if (orNull(row.assignee_hint) !== candidate.assignee_hint) {
     edits.assignee_hint = orNull(row.assignee_hint)
   }
-  if (row.projectId !== suggestedProjectId) edits.project_id = row.projectId
+  if (row.projectId !== effectiveProjectId) edits.project_id = row.projectId
   return Object.keys(edits).length > 0 ? edits : undefined
 }
 
@@ -79,11 +85,12 @@ export function ReviewQueue({
   candidates,
   projects,
   suggestedProjectId,
+  defaultProjectId,
   submitting,
   onSubmitReview,
 }: ReviewQueueProps) {
   const [rows, setRows] = useState<Record<number, RowState>>(() =>
-    initialRows(candidates, suggestedProjectId),
+    initialRows(candidates, suggestedProjectId, defaultProjectId),
   )
 
   function update(taskId: number, patch: Partial<RowState>) {
@@ -96,7 +103,7 @@ export function ReviewQueue({
       if (row.action === 'reject') {
         return { task_id: c.id, action: 'reject' }
       }
-      const edits = diffEdits(c, row, suggestedProjectId)
+      const edits = diffEdits(c, row, suggestedProjectId, defaultProjectId)
       return edits
         ? { task_id: c.id, action: 'accept', edits }
         : { task_id: c.id, action: 'accept' }
@@ -120,6 +127,7 @@ export function ReviewQueue({
                 <label>
                   <input
                     type="checkbox"
+                    aria-label={`Review action for ${c.title}`}
                     checked={row.action === 'accept'}
                     onChange={(e) =>
                       update(c.id, {
@@ -137,12 +145,14 @@ export function ReviewQueue({
               </div>
 
               <input
+                aria-label={`Title for ${c.title}`}
                 value={row.title}
                 disabled={rejected}
                 onChange={(e) => update(c.id, { title: e.target.value })}
                 placeholder="Title"
               />
               <textarea
+                aria-label={`Description for ${c.title}`}
                 value={row.description}
                 disabled={rejected}
                 onChange={(e) => update(c.id, { description: e.target.value })}
@@ -151,12 +161,14 @@ export function ReviewQueue({
               />
               <div className="review-row-meta">
                 <input
+                  aria-label={`Due date for ${c.title}`}
                   type="date"
                   value={row.due_date}
                   disabled={rejected}
                   onChange={(e) => update(c.id, { due_date: e.target.value })}
                 />
                 <select
+                  aria-label={`Priority for ${c.title}`}
                   value={row.priority}
                   disabled={rejected}
                   onChange={(e) =>
@@ -170,6 +182,7 @@ export function ReviewQueue({
                   ))}
                 </select>
                 <input
+                  aria-label={`Assignee for ${c.title}`}
                   value={row.assignee_hint}
                   disabled={rejected}
                   onChange={(e) =>
@@ -178,7 +191,7 @@ export function ReviewQueue({
                   placeholder="Assignee (optional)"
                 />
                 <select
-                  aria-label="Project"
+                  aria-label={`Project for ${c.title}`}
                   value={row.projectId === null ? '' : String(row.projectId)}
                   disabled={rejected}
                   onChange={(e) =>
@@ -187,7 +200,11 @@ export function ReviewQueue({
                     })
                   }
                 >
-                  <option value="">— no project —</option>
+                  {row.projectId === null && (
+                    <option value="" disabled>
+                      General
+                    </option>
+                  )}
                   {projects.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}

@@ -52,7 +52,11 @@ export function ProjectsPage() {
           <li key={p.id}>
             <Link to={`/projects/${p.id}/tasks`}>{p.name}</Link>
             {p.description && <span> — {p.description}</span>}{' '}
-            <button onClick={() => void remove(p.id)}>Delete</button>
+            {p.is_protected ? (
+              <span>Protected</span>
+            ) : (
+              <button onClick={() => void remove(p.id)}>Delete</button>
+            )}
           </li>
         ))}
       </ul>

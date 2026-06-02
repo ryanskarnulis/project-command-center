@@ -5,19 +5,20 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict
 
 from app.db.models import TaskPriority, TaskStatus
+from app.schemas.common import NonBlankStr, OptionalStrippedStr
 
 
 class TaskCreate(BaseModel):
-    title: str
-    description: str | None = None
+    title: NonBlankStr
+    description: OptionalStrippedStr = None
     status: TaskStatus = TaskStatus.accepted
     priority: TaskPriority = TaskPriority.medium
     due_date: date | None = None
 
 
 class TaskUpdate(BaseModel):
-    title: str | None = None
-    description: str | None = None
+    title: NonBlankStr | None = None
+    description: OptionalStrippedStr = None
     status: TaskStatus | None = None
     priority: TaskPriority | None = None
     due_date: date | None = None
