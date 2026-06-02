@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import InboxItem, InboxSource, Task
-from app.services.common import active
+from app.services.common import active, soft_delete
 
 
 def hash_text(text: str) -> str:
@@ -75,6 +75,19 @@ def list_pending_review_items(
         .scalars()
         .all()
     )
+
+
+def dismiss_inbox_item(db: Session, item: InboxItem) -> None:
+    """Soft-delete an inbox item (clear it from the capture/review queue).
+
+    This only hides the inbox row. Its ``ai_training_examples`` are accounting
+    data with no FK back to the item, so they are deliberately left untouched
+    (prime directive #4). Soft-deleting also frees the ``input_hash`` from the
+    active partial unique index, so the same text can be re-submitted later.
+    The caller is responsible for committing.
+    """
+    soft_delete(item)
+    db.flush()
 
 
 def list_candidates(db: Session, inbox_item_id: int) -> Sequence[Task]:

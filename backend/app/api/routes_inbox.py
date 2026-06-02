@@ -59,6 +59,14 @@ def get_inbox(inbox_item_id: int, db: Session = Depends(get_db)) -> InboxItem:
     return _get_inbox_or_404(db, inbox_item_id)
 
 
+@router.delete("/{inbox_item_id}", status_code=status.HTTP_204_NO_CONTENT)
+def dismiss_inbox(inbox_item_id: int, db: Session = Depends(get_db)) -> None:
+    item = _get_inbox_or_404(db, inbox_item_id)
+    inbox_service.dismiss_inbox_item(db, item)
+    db.commit()
+    logger.info("inbox_dismissed", inbox_item_id=inbox_item_id)
+
+
 @router.post("/{inbox_item_id}/process", response_model=list[TaskRead])
 def process_inbox(
     inbox_item_id: int, db: Session = Depends(get_db)

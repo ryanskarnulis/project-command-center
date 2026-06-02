@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { ApiError } from '../../api/client'
 import {
   createInbox,
+  dismissInbox,
   getCandidates,
   getInbox,
   listPendingInbox,
@@ -24,6 +25,7 @@ interface UseInbox {
   notice: string | null
   submit: (rawText: string) => Promise<void>
   review: (decisions: ReviewDecision[]) => Promise<void>
+  dismiss: (id: number) => Promise<void>
   loadPending: () => Promise<void>
   loadProjects: () => Promise<void>
   selectItem: (item: InboxItem) => Promise<void>
@@ -115,6 +117,21 @@ export function useInbox(): UseInbox {
     }
   }, [])
 
+  // Clear a pending item from the queue without reviewing it (soft-delete on the
+  // backend). Its training examples are kept — they have no FK to the inbox row.
+  const dismiss = useCallback(
+    async (id: number) => {
+      try {
+        await dismissInbox(id)
+        if (inboxItem?.id === id) reset()
+        void loadPending()
+      } catch (e: unknown) {
+        setError(messageFor(e, 'Failed to dismiss inbox item'))
+      }
+    },
+    [inboxItem, loadPending, reset],
+  )
+
   const review = useCallback(
     async (decisions: ReviewDecision[]) => {
       if (inboxItem === null) return
@@ -150,6 +167,7 @@ export function useInbox(): UseInbox {
     notice,
     submit,
     review,
+    dismiss,
     loadPending,
     loadProjects,
     selectItem,

@@ -98,6 +98,42 @@ def test_inbox_process_review_e2e(
     assert corrected["tasks"][0]["title"] == "Email Q2 budget to Sarah"
 
 
+def test_dismiss_inbox_hides_item_but_keeps_training_data(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
+
+    inbox_id = client.post("/api/inbox", json={"raw_text": "dismiss me"}).json()["id"]
+    candidates = client.post(f"/api/inbox/{inbox_id}/process").json()
+    # Review records a training example before we dismiss.
+    client.post(
+        f"/api/inbox/{inbox_id}/review",
+        json={"decisions": [{"task_id": c["id"], "action": "accept"} for c in candidates]},
+    )
+    assert db_session.execute(active(AITrainingExample)).scalars().all()
+
+    # Dismiss soft-deletes the inbox row.
+    dismissed = client.delete(f"/api/inbox/{inbox_id}")
+    assert dismissed.status_code == 204
+
+    # It is gone from reads and from the pending set.
+    assert client.get(f"/api/inbox/{inbox_id}").status_code == 404
+    assert inbox_id not in {item["id"] for item in client.get("/api/inbox/pending").json()}
+    assert inbox_id not in {item["id"] for item in client.get("/api/inbox").json()}
+
+    # The training example survives — accounting data is never cascade-deleted.
+    assert len(db_session.execute(active(AITrainingExample)).scalars().all()) == 1
+
+    # The freed input_hash lets the same text be re-submitted as a new item.
+    again = client.post("/api/inbox", json={"raw_text": "dismiss me"})
+    assert again.status_code == 201
+    assert again.json()["id"] != inbox_id
+
+
+def test_dismiss_unknown_inbox_404(client: TestClient) -> None:
+    assert client.delete("/api/inbox/424242").status_code == 404
+
+
 def test_create_inbox_strips_raw_text_and_rejects_blank(client: TestClient) -> None:
     created = client.post("/api/inbox", json={"raw_text": "  messy notes  "})
     assert created.status_code == 201

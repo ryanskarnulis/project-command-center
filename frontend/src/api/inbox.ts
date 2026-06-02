@@ -41,6 +41,10 @@ export async function getCandidates(id: number): Promise<Task[]> {
   return (await res.json()) as Task[]
 }
 
+export async function dismissInbox(id: number): Promise<void> {
+  await apiClient(`/api/inbox/${id}`, { method: 'DELETE' })
+}
+
 export async function reviewInbox(
   id: number,
   data: ReviewRequest,

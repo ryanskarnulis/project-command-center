@@ -333,6 +333,9 @@ Sprint 7:  [WIP] Daily-use & polish. Done: daily-use slice (global task view,
            (read-only GET /api/training-examples + /stats, /training page) and
            eval-run history (append-only eval_runs table, persisted on each Settings
            eval run, GET /api/settings/evals/runs, shown on the Settings page).
+           Capture-hygiene (in progress): dismiss/clear inbox items
+           (DELETE /api/inbox/{id} soft-delete + per-item Dismiss button; training
+           examples preserved, no migration).
 Sprint 8:  Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

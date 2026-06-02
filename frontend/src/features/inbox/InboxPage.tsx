@@ -14,6 +14,7 @@ export function InboxPage() {
     notice,
     submit,
     review,
+    dismiss,
     loadPending,
     loadProjects,
     selectItem,
@@ -86,6 +87,14 @@ export function InboxPage() {
                 >
                   <span>[{item.source}]</span>{' '}
                   {item.summary ?? item.raw_text.slice(0, 60)}
+                </button>
+                <button
+                  type="button"
+                  disabled={loading}
+                  aria-label={`Dismiss ${item.summary ?? item.raw_text.slice(0, 60)}`}
+                  onClick={() => void dismiss(item.id)}
+                >
+                  Dismiss
                 </button>
               </li>
             ))}

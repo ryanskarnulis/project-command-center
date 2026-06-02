@@ -1,7 +1,8 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  dismissInbox,
   getCandidates,
   listPendingInbox,
   reviewInbox,
@@ -14,6 +15,7 @@ import { InboxPage } from './InboxPage'
 
 vi.mock('../../api/inbox', () => ({
   createInbox: vi.fn(),
+  dismissInbox: vi.fn(),
   getCandidates: vi.fn(),
   getInbox: vi.fn(),
   listInbox: vi.fn(),
@@ -26,6 +28,7 @@ vi.mock('../../api/projects', () => ({
   listProjects: vi.fn(),
 }))
 
+const mockDismissInbox = vi.mocked(dismissInbox)
 const mockGetCandidates = vi.mocked(getCandidates)
 const mockListPendingInbox = vi.mocked(listPendingInbox)
 const mockListProjects = vi.mocked(listProjects)
@@ -107,6 +110,7 @@ describe('InboxPage', () => {
       .mockResolvedValueOnce([])
     mockListProjects.mockResolvedValue(projects)
     mockGetCandidates.mockResolvedValue(candidates)
+    mockDismissInbox.mockResolvedValue(undefined)
     mockReviewInbox.mockResolvedValue({
       accepted: 1,
       rejected: 1,
@@ -193,6 +197,29 @@ describe('InboxPage', () => {
     expect(
       screen.queryByRole('heading', { name: 'Review candidates (2)' }),
     ).not.toBeInTheDocument()
+    expect(mockListPendingInbox).toHaveBeenCalledTimes(2)
+  })
+
+  it('dismisses a pending inbox item from the queue', async () => {
+    const user = userEvent.setup()
+
+    render(<InboxPage />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Awaiting review (1)' }),
+    ).toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: /Dismiss Kickoff and expenses/ }),
+    )
+
+    expect(mockDismissInbox).toHaveBeenCalledWith(pendingItem.id)
+    // The queue reloads (now empty) and the item drops out of the list.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('heading', { name: 'Awaiting review (1)' }),
+      ).not.toBeInTheDocument(),
+    )
     expect(mockListPendingInbox).toHaveBeenCalledTimes(2)
   })
 })

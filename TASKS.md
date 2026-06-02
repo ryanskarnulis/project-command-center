@@ -213,9 +213,11 @@ Hardening additions (Codex review pass):
       (modal dialog; `updateProject()` wired via `useProjects.update()`)
 
 ### Capture-hygiene slice
-- [ ] Clear / dismiss items from the recent inbox view — soft-delete on `inbox_items`
-      (DELETE route + UI). MUST NOT cascade-delete the item's `ai_training_examples`
-      rows — those are accounting data; just hide the inbox row.
+- [x] Clear / dismiss items from the recent inbox view — soft-delete on `inbox_items`
+      (`DELETE /api/inbox/{id}` + per-item Dismiss button on the Awaiting-review list).
+      `ai_training_examples` are kept (no FK/cascade); freeing the active `input_hash`
+      lets the same text be re-captured later. `dismiss_inbox_item` service +
+      `useInbox.dismiss`; backend + Vitest tests.
 - [ ] Trash / restore view — surface the soft-delete safety net in the UI
       (recently deleted projects/tasks → restore)
 - [ ] Alias management UI — add/remove aliases on the project edit page over the
