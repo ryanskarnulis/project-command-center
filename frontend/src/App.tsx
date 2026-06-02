@@ -10,6 +10,7 @@ function App() {
         <NavLink to="/tasks">Tasks</NavLink>
         <NavLink to="/projects">Projects</NavLink>
         <NavLink to="/training">Training</NavLink>
+        <NavLink to="/trash">Trash</NavLink>
         <NavLink to="/settings">Settings</NavLink>
       </nav>
       <AppRoutes />

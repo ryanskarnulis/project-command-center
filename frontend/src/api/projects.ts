@@ -43,6 +43,11 @@ export async function deleteProject(id: number): Promise<void> {
   await apiClient(`/api/projects/${id}`, { method: 'DELETE' })
 }
 
+export async function restoreProject(id: number): Promise<Project> {
+  const res = await apiClient(`/api/projects/${id}/restore`, { method: 'POST' })
+  return (await res.json()) as Project
+}
+
 export async function listAliases(projectId: number): Promise<ProjectAlias[]> {
   const res = await apiClient(`/api/projects/${projectId}/aliases`)
   return (await res.json()) as ProjectAlias[]

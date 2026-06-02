@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Project, ProjectAlias, Task
 from app.services import activity
-from app.services.common import active, soft_delete
+from app.services.common import active, deleted, restore, soft_delete
 
 DEFAULT_PROJECT_NAME = "General"
 DEFAULT_PROJECT_DESCRIPTION = "Default project for unfiled tasks"
@@ -115,6 +115,39 @@ def soft_delete_project(db: Session, project: Project) -> None:
         action="deleted",
         summary=f'Project "{project.name}" deleted',
     )
+
+
+# --- Trash / restore (Sprint 7) --------------------------------------------
+
+
+def list_deleted_projects(db: Session, *, limit: int = 50) -> Sequence[Project]:
+    """Soft-deleted projects, most-recently-deleted first."""
+    return (
+        db.execute(deleted(Project).order_by(Project.deleted_at.desc()).limit(limit))
+        .scalars()
+        .all()
+    )
+
+
+def get_deleted_project(db: Session, project_id: int) -> Project | None:
+    return db.execute(
+        deleted(Project).where(Project.id == project_id)
+    ).scalar_one_or_none()
+
+
+def restore_project(db: Session, project: Project) -> Project:
+    restore(project)
+    db.flush()
+    db.refresh(project)
+    activity.record_event(
+        db,
+        project_id=project.id,
+        entity_type="project",
+        entity_id=project.id,
+        action="restored",
+        summary=f'Project "{project.name}" restored',
+    )
+    return project
 
 
 # --- Aliases & deterministic project matching (Sprint 4) -------------------

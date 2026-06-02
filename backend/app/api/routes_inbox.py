@@ -67,6 +67,27 @@ def dismiss_inbox(inbox_item_id: int, db: Session = Depends(get_db)) -> None:
     logger.info("inbox_dismissed", inbox_item_id=inbox_item_id)
 
 
+@router.post("/{inbox_item_id}/restore", response_model=InboxRead)
+def restore_inbox(inbox_item_id: int, db: Session = Depends(get_db)) -> InboxItem:
+    item = inbox_service.get_deleted_inbox_item(db, inbox_item_id)
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No dismissed inbox item with that id",
+        )
+    try:
+        restored = inbox_service.restore_inbox_item(db, item)
+    except inbox_service.RestoreConflictError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    db.commit()
+    db.refresh(restored)
+    logger.info("inbox_restored", inbox_item_id=restored.id)
+    return restored
+
+
 @router.post("/{inbox_item_id}/process", response_model=list[TaskRead])
 def process_inbox(
     inbox_item_id: int, db: Session = Depends(get_db)

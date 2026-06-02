@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Task, TaskPriority, TaskStatus
 from app.services import activity
 from app.services import projects as projects_service
-from app.services.common import active, soft_delete
+from app.services.common import active, deleted, restore, soft_delete
 
 
 _FILED_STATUSES = {TaskStatus.accepted, TaskStatus.done}
@@ -116,3 +116,36 @@ def soft_delete_task(db: Session, task: Task) -> None:
     soft_delete(task)
     db.flush()
     _log_task_event(db, task, "deleted")
+
+
+# --- Trash / restore (Sprint 7) --------------------------------------------
+
+
+def list_deleted_tasks(db: Session, *, limit: int = 50) -> Sequence[Task]:
+    """Soft-deleted tasks, most-recently-deleted first."""
+    return (
+        db.execute(deleted(Task).order_by(Task.deleted_at.desc()).limit(limit))
+        .scalars()
+        .all()
+    )
+
+
+def get_deleted_task(db: Session, task_id: int) -> Task | None:
+    return db.execute(
+        deleted(Task).where(Task.id == task_id)
+    ).scalar_one_or_none()
+
+
+def restore_task(db: Session, task: Task) -> Task:
+    # A restored task may point at a since-deleted project; rehome it to General
+    # so it stays reachable, mirroring the project-delete rehoming rule.
+    if (
+        task.project_id is not None
+        and projects_service.get_project(db, task.project_id) is None
+    ):
+        task.project_id = projects_service.ensure_default_project_id(db)
+    restore(task)
+    db.flush()
+    db.refresh(task)
+    _log_task_event(db, task, "restored")
+    return task

@@ -7,7 +7,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import InboxItem, InboxSource, Task
-from app.services.common import active, soft_delete
+from app.services.common import active, deleted, restore, soft_delete
+
+
+class RestoreConflictError(Exception):
+    """Restoring a dismissed inbox item whose text was re-captured since.
+
+    The active partial unique index on ``input_hash`` would be violated, so the
+    restore is refused (the caller surfaces a 409). The re-captured active item
+    already represents this note.
+    """
 
 
 def hash_text(text: str) -> str:
@@ -88,6 +97,47 @@ def dismiss_inbox_item(db: Session, item: InboxItem) -> None:
     """
     soft_delete(item)
     db.flush()
+
+
+# --- Trash / restore (Sprint 7) --------------------------------------------
+
+
+def list_deleted_inbox_items(db: Session, *, limit: int = 50) -> Sequence[InboxItem]:
+    """Soft-deleted (dismissed) inbox items, most-recently-deleted first."""
+    return (
+        db.execute(
+            deleted(InboxItem).order_by(InboxItem.deleted_at.desc()).limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+
+
+def get_deleted_inbox_item(db: Session, inbox_item_id: int) -> InboxItem | None:
+    return db.execute(
+        deleted(InboxItem).where(InboxItem.id == inbox_item_id)
+    ).scalar_one_or_none()
+
+
+def restore_inbox_item(db: Session, item: InboxItem) -> InboxItem:
+    """Un-dismiss an inbox item.
+
+    Fails with ``RestoreConflictError`` if its ``input_hash`` now collides with an
+    active item (the same text was re-captured after dismissal) — the active
+    partial unique index would reject it.
+    """
+    existing = db.execute(
+        active(InboxItem).where(InboxItem.input_hash == item.input_hash)
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise RestoreConflictError(
+            "This note was re-captured after it was dismissed; the active copy "
+            "already represents it."
+        )
+    restore(item)
+    db.flush()
+    db.refresh(item)
+    return item
 
 
 def list_candidates(db: Session, inbox_item_id: int) -> Sequence[Task]:

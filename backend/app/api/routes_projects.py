@@ -88,6 +88,21 @@ def delete_project(project_id: int, db: Session = Depends(get_db)) -> None:
     logger.info("project_deleted", project_id=project_id)
 
 
+@router.post("/{project_id}/restore", response_model=ProjectRead)
+def restore_project(project_id: int, db: Session = Depends(get_db)) -> Project:
+    project = projects_service.get_deleted_project(db, project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No deleted project with that id",
+        )
+    restored = projects_service.restore_project(db, project)
+    db.commit()
+    db.refresh(restored)
+    logger.info("project_restored", project_id=restored.id)
+    return restored
+
+
 @router.get("/{project_id}/activity", response_model=list[ActivityEventRead])
 def list_activity(
     project_id: int, limit: int = 50, db: Session = Depends(get_db)

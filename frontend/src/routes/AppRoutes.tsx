@@ -5,6 +5,7 @@ import { ProjectsPage } from '../features/projects/ProjectsPage'
 import { SettingsPage } from '../features/settings/SettingsPage'
 import { TasksPage } from '../features/tasks/TasksPage'
 import { TrainingPage } from '../features/training/TrainingPage'
+import { TrashPage } from '../features/trash/TrashPage'
 
 export function AppRoutes() {
   return (
@@ -16,6 +17,7 @@ export function AppRoutes() {
       <Route path="/projects" element={<ProjectsPage />} />
       <Route path="/projects/:projectId/tasks" element={<TasksPage />} />
       <Route path="/training" element={<TrainingPage />} />
+      <Route path="/trash" element={<TrashPage />} />
       <Route path="/settings" element={<SettingsPage />} />
     </Routes>
   )

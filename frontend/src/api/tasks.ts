@@ -54,3 +54,8 @@ export async function markTaskDone(id: number): Promise<Task> {
 export async function deleteTask(id: number): Promise<void> {
   await apiClient(`/api/tasks/${id}`, { method: 'DELETE' })
 }
+
+export async function restoreTask(id: number): Promise<Task> {
+  const res = await apiClient(`/api/tasks/${id}/restore`, { method: 'POST' })
+  return (await res.json()) as Task
+}

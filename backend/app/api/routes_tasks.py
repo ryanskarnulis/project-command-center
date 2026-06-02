@@ -121,3 +121,18 @@ def delete_task(task_id: int, db: Session = Depends(get_db)) -> None:
     tasks_service.soft_delete_task(db, task)
     db.commit()
     logger.info("task_deleted", task_id=task_id)
+
+
+@router.post("/tasks/{task_id}/restore", response_model=TaskRead)
+def restore_task(task_id: int, db: Session = Depends(get_db)) -> Task:
+    task = tasks_service.get_deleted_task(db, task_id)
+    if task is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No deleted task with that id",
+        )
+    restored = tasks_service.restore_task(db, task)
+    db.commit()
+    db.refresh(restored)
+    logger.info("task_restored", task_id=restored.id)
+    return restored

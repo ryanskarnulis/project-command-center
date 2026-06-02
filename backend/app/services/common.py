@@ -15,6 +15,19 @@ def active(model: type[ModelT]) -> Select[tuple[ModelT]]:
     return select(model).where(model.deleted_at.is_(None))
 
 
+def deleted(model: type[ModelT]) -> Select[tuple[ModelT]]:
+    """Select soft-deleted rows of ``model`` (``deleted_at IS NOT NULL``).
+
+    The complement of ``active`` — used by the trash/restore views.
+    """
+    return select(model).where(model.deleted_at.is_not(None))
+
+
 def soft_delete(obj: SoftDeleteMixin) -> None:
     """Mark a row deleted. Caller is responsible for committing."""
     obj.deleted_at = datetime.now(UTC)
+
+
+def restore(obj: SoftDeleteMixin) -> None:
+    """Clear a row's soft-delete mark. Caller is responsible for committing."""
+    obj.deleted_at = None

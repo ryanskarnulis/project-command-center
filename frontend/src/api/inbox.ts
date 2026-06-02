@@ -45,6 +45,11 @@ export async function dismissInbox(id: number): Promise<void> {
   await apiClient(`/api/inbox/${id}`, { method: 'DELETE' })
 }
 
+export async function restoreInbox(id: number): Promise<InboxItem> {
+  const res = await apiClient(`/api/inbox/${id}/restore`, { method: 'POST' })
+  return (await res.json()) as InboxItem
+}
+
 export async function reviewInbox(
   id: number,
   data: ReviewRequest,

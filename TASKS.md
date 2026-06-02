@@ -218,8 +218,15 @@ Hardening additions (Codex review pass):
       `ai_training_examples` are kept (no FK/cascade); freeing the active `input_hash`
       lets the same text be re-captured later. `dismiss_inbox_item` service +
       `useInbox.dismiss`; backend + Vitest tests.
-- [ ] Trash / restore view — surface the soft-delete safety net in the UI
-      (recently deleted projects/tasks → restore)
+- [x] Trash / restore view — surface the soft-delete safety net in the UI.
+      Aggregate `GET /api/trash` (recently-deleted projects/tasks/inbox, newest
+      first) + per-entity `POST .../restore` routes; `/trash` page with Restore
+      buttons. `deleted()`/`restore()` helpers in `services/common.py`;
+      `list_deleted_*`/`get_deleted_*`/`restore_*` per service. Restoring a
+      dismissed inbox item whose text was re-captured since returns `409`
+      (`RestoreConflictError`, active `input_hash` index would reject it); a
+      restored task whose project is gone is rehomed to General. Backend + Vitest
+      tests. No migration (`deleted_at` already exists).
 - [x] Alias management UI — add/remove aliases in the project edit modal over the
       existing Sprint 4 alias CRUD endpoints (`GET/POST/DELETE
       /api/projects/{id}/aliases`); directly feeds match accuracy. Frontend-only
