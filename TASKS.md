@@ -234,11 +234,14 @@ Hardening additions (Codex review pass):
       `ProjectEditModal`, managed independently of name/description Save); Vitest test.
 
 ### Task-model slice (separate PRs — do not bundle)
-- [ ] Task nesting — nullable `parent_task_id` FK on `tasks` + Alembic migration;
-      `list_subtasks()` helper in `services/tasks.py`; cycle-detection guard (no A→B→A);
-      nested display in task list with indent; create-subtask from parent task context
-- [ ] Task duration estimate — nullable `estimated_days` integer column + migration;
-      UI shows human labels (1 day / 3 days / 1 week / 2 weeks); feeds task-dependency
+- [x] Task nesting — nullable `parent_task_id` FK on `tasks` + Alembic migration
+      (`f83c22ab757c`); `list_subtasks()` helper + `_assert_no_parent_cycle` guard
+      (no A→B→A, no self-parent → `TaskCycleError` → 409) in `services/tasks.py`;
+      `soft_delete_task` cascade-soft-deletes the subtree (restore stays per-task);
+      nested/indented display (`.task-children`) with per-row "Add subtask" composer
+      and a Parent-task dropdown (self+descendants excluded) in the edit modal.
+- [ ] Task duration estimate — nullable `estimated_minutes` integer column + migration;
+      UI shows human labels (5 minutes / 30 minutes / 1 hour / 4 hours / 1 day / 3 days / 1 week / 2 weeks / 1 month / etc); feeds task-dependency
       scheduling and future kanban / calendar auto-layout (do not build those yet)
 - [ ] Task dependencies — self-referential `task_dependencies` table + migration
       + Python cycle-detection guard (prime directive #1: app owns the logic, no

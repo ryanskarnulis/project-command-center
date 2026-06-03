@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
-import { listAllTasks, updateTask } from '../../api/tasks'
+import { createUnscopedTask, listAllTasks, updateTask } from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { TasksPage } from './TasksPage'
@@ -29,11 +29,13 @@ vi.mock('../../api/projects', () => ({
 const mockListAllTasks = vi.mocked(listAllTasks)
 const mockUpdateTask = vi.mocked(updateTask)
 const mockListProjects = vi.mocked(listProjects)
+const mockCreateUnscopedTask = vi.mocked(createUnscopedTask)
 
 const baseTask: Task = {
   id: 1,
   project_id: null,
   inbox_item_id: null,
+  parent_task_id: null,
   title: 'Fix the VPN',
   description: null,
   status: 'accepted',
@@ -159,6 +161,41 @@ describe('TasksPage', () => {
     expect(mockUpdateTask).toHaveBeenCalledWith(
       1,
       expect.objectContaining({ project_id: 42 }),
+    )
+  })
+
+  it('renders a subtask nested under its parent', async () => {
+    mockListAllTasks.mockResolvedValue([
+      baseTask,
+      { ...baseTask, id: 2, parent_task_id: 1, title: 'Rotate the keys' },
+    ])
+    renderGlobal()
+
+    const child = await screen.findByText('Rotate the keys')
+    // The child lives inside the nested .task-children list, not the root list.
+    expect(child.closest('ul.task-children')).not.toBeNull()
+  })
+
+  it('creates a subtask with the parent_task_id when Add subtask is used', async () => {
+    const user = userEvent.setup()
+    mockCreateUnscopedTask.mockResolvedValue({
+      ...baseTask,
+      id: 2,
+      parent_task_id: 1,
+      title: 'Rotate the keys',
+    })
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.click(screen.getByRole('button', { name: 'Add subtask' }))
+    await user.type(
+      screen.getByPlaceholderText('Subtask title'),
+      'Rotate the keys',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    expect(mockCreateUnscopedTask).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Rotate the keys', parent_task_id: 1 }),
     )
   })
 })

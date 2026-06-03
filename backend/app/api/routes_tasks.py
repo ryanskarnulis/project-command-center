@@ -33,6 +33,10 @@ def _ensure_project(db: Session, project_id: int) -> None:
         )
 
 
+def _cycle_409(exc: tasks_service.TaskCycleError) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+
+
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskRead])
 def list_tasks(project_id: int, db: Session = Depends(get_db)) -> Sequence[Task]:
     _ensure_project(db, project_id)
@@ -49,15 +53,19 @@ def list_all_tasks(
 
 @router.post("/tasks", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
 def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db)) -> Task:
-    task = tasks_service.create_task(
-        db,
-        project_id=None,
-        title=data.title,
-        description=data.description,
-        status=data.status,
-        priority=data.priority,
-        due_date=data.due_date,
-    )
+    try:
+        task = tasks_service.create_task(
+            db,
+            project_id=None,
+            title=data.title,
+            description=data.description,
+            status=data.status,
+            priority=data.priority,
+            due_date=data.due_date,
+            parent_task_id=data.parent_task_id,
+        )
+    except tasks_service.TaskCycleError as exc:
+        raise _cycle_409(exc) from exc
     db.commit()
     db.refresh(task)
     logger.info("task_created", task_id=task.id, project_id=task.project_id)
@@ -73,15 +81,19 @@ def create_task(
     project_id: int, data: TaskCreate, db: Session = Depends(get_db)
 ) -> Task:
     _ensure_project(db, project_id)
-    task = tasks_service.create_task(
-        db,
-        project_id=project_id,
-        title=data.title,
-        description=data.description,
-        status=data.status,
-        priority=data.priority,
-        due_date=data.due_date,
-    )
+    try:
+        task = tasks_service.create_task(
+            db,
+            project_id=project_id,
+            title=data.title,
+            description=data.description,
+            status=data.status,
+            priority=data.priority,
+            due_date=data.due_date,
+            parent_task_id=data.parent_task_id,
+        )
+    except tasks_service.TaskCycleError as exc:
+        raise _cycle_409(exc) from exc
     db.commit()
     db.refresh(task)
     logger.info("task_created", task_id=task.id, project_id=project_id)
@@ -98,7 +110,12 @@ def update_task(
     task_id: int, data: TaskUpdate, db: Session = Depends(get_db)
 ) -> Task:
     task = _get_task_or_404(db, task_id)
-    updated = tasks_service.update_task(db, task, data.model_dump(exclude_unset=True))
+    try:
+        updated = tasks_service.update_task(
+            db, task, data.model_dump(exclude_unset=True)
+        )
+    except tasks_service.TaskCycleError as exc:
+        raise _cycle_409(exc) from exc
     db.commit()
     db.refresh(updated)
     logger.info("task_updated", task_id=updated.id)

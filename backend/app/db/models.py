@@ -84,6 +84,12 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     inbox_item_id: Mapped[int | None] = mapped_column(
         ForeignKey("inbox_items.id"), default=None
     )
+    # Self-referential nesting (Sprint 7 task-model slice). A null parent is a
+    # top-level task; cycle prevention (no A->B->A) lives in services/tasks.py,
+    # not the DB. Soft-deleting a parent cascade-soft-deletes its subtree.
+    parent_task_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tasks.id"), default=None
+    )
     title: Mapped[str]
     description: Mapped[str | None] = mapped_column(default=None)
     status: Mapped[TaskStatus] = mapped_column(default=TaskStatus.accepted)
@@ -94,6 +100,10 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
 
     project: Mapped[Project | None] = relationship(back_populates="tasks")
     inbox_item: Mapped[InboxItem | None] = relationship(back_populates="candidates")
+    parent: Mapped[Task | None] = relationship(
+        back_populates="subtasks", remote_side=[id]
+    )
+    subtasks: Mapped[list[Task]] = relationship(back_populates="parent")
 
 
 class InboxItem(Base, TimestampMixin, SoftDeleteMixin):

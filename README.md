@@ -166,7 +166,8 @@ Tables:
 ```
 projects
 project_aliases
-tasks                  (includes status: candidate | accepted | rejected | done)
+tasks                  (includes status: candidate | accepted | rejected | done;
+                        nullable parent_task_id self-FK for subtask nesting)
 inbox_items            (includes input_hash for idempotency)
 activity_events
 eval_runs
@@ -333,14 +334,17 @@ Sprint 7:  [WIP] Daily-use & polish. Done: daily-use slice (global task view,
            (read-only GET /api/training-examples + /stats, /training page) and
            eval-run history (append-only eval_runs table, persisted on each Settings
            eval run, GET /api/settings/evals/runs, shown on the Settings page).
-           Capture-hygiene (in progress): dismiss/clear inbox items
+           Capture-hygiene slice: dismiss/clear inbox items
            (DELETE /api/inbox/{id} soft-delete + per-item Dismiss button; training
            examples preserved, no migration); alias management UI (add/remove
            aliases in the project edit modal over the Sprint 4 alias endpoints,
            frontend-only); trash/restore (aggregate GET /api/trash + per-entity
            POST .../restore for projects/tasks/inbox, /trash page; inbox restore
            409s on a re-captured-hash collision; restored tasks rehome to General;
-           no migration).
+           no migration). Task-model slice (separate PRs): task nesting —
+           self-referential tasks.parent_task_id (migration f83c22ab757c),
+           Python cycle guard (no A→B→A → 409), cascade soft-delete of the
+           subtree, indented subtask display + Parent-task dropdown.
 Sprint 8:  Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

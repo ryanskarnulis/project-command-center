@@ -14,6 +14,7 @@ class TaskCreate(BaseModel):
     status: TaskStatus = TaskStatus.accepted
     priority: TaskPriority = TaskPriority.medium
     due_date: date | None = None
+    parent_task_id: int | None = None
 
 
 class TaskUpdate(BaseModel):
@@ -23,6 +24,7 @@ class TaskUpdate(BaseModel):
     priority: TaskPriority | None = None
     due_date: date | None = None
     project_id: int | None = None
+    parent_task_id: int | None = None
 
 
 class TaskRead(BaseModel):
@@ -31,6 +33,7 @@ class TaskRead(BaseModel):
     id: int
     project_id: int | None
     inbox_item_id: int | None
+    parent_task_id: int | None
     title: str
     description: str | None
     status: TaskStatus

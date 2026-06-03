@@ -5,6 +5,7 @@ export interface Task {
   id: number
   project_id: number | null
   inbox_item_id: number | null
+  parent_task_id: number | null
   title: string
   description: string | null
   status: TaskStatus
@@ -22,6 +23,7 @@ export interface TaskCreate {
   status?: TaskStatus
   priority?: TaskPriority
   due_date?: string | null
+  parent_task_id?: number | null
 }
 
 export interface TaskUpdate {
@@ -31,4 +33,5 @@ export interface TaskUpdate {
   priority?: TaskPriority
   due_date?: string | null
   project_id?: number | null
+  parent_task_id?: number | null
 }
