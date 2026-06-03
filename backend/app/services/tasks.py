@@ -120,6 +120,7 @@ def create_task(
     confidence: float | None = None,
     assignee_hint: str | None = None,
     parent_task_id: int | None = None,
+    estimated_minutes: int | None = None,
 ) -> Task:
     project_id = _default_project_id_for_status(db, project_id, status)
     if parent_task_id is not None:
@@ -135,6 +136,7 @@ def create_task(
         confidence=confidence,
         assignee_hint=assignee_hint,
         parent_task_id=parent_task_id,
+        estimated_minutes=estimated_minutes,
     )
     db.add(task)
     db.flush()

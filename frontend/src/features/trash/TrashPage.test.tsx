@@ -36,6 +36,7 @@ const trash: Trash = {
       project_id: null,
       inbox_item_id: null,
       parent_task_id: null,
+      estimated_minutes: null,
       title: 'Pay invoice',
       description: null,
       status: 'accepted',

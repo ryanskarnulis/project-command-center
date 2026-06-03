@@ -95,6 +95,9 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     status: Mapped[TaskStatus] = mapped_column(default=TaskStatus.accepted)
     priority: Mapped[TaskPriority] = mapped_column(default=TaskPriority.medium)
     due_date: Mapped[date | None] = mapped_column(default=None)
+    # Rough effort estimate (Sprint 7 task-model slice). Stored as whole minutes;
+    # the UI maps it to human labels. Feeds future scheduling/kanban (not built).
+    estimated_minutes: Mapped[int | None] = mapped_column(default=None)
     confidence: Mapped[float | None] = mapped_column(default=None)
     assignee_hint: Mapped[str | None] = mapped_column(default=None)
 

@@ -167,7 +167,8 @@ Tables:
 projects
 project_aliases
 tasks                  (includes status: candidate | accepted | rejected | done;
-                        nullable parent_task_id self-FK for subtask nesting)
+                        nullable parent_task_id self-FK for subtask nesting;
+                        nullable estimated_minutes effort estimate)
 inbox_items            (includes input_hash for idempotency)
 activity_events
 eval_runs
@@ -344,7 +345,9 @@ Sprint 7:  [WIP] Daily-use & polish. Done: daily-use slice (global task view,
            no migration). Task-model slice (separate PRs): task nesting —
            self-referential tasks.parent_task_id (migration f83c22ab757c),
            Python cycle guard (no A→B→A → 409), cascade soft-delete of the
-           subtree, indented subtask display + Parent-task dropdown.
+           subtree, indented subtask display + Parent-task dropdown. Task duration
+           estimate — nullable tasks.estimated_minutes (migration d036d1c48a82,
+           Pydantic gt=0), human-label dropdown + list badge via utils/duration.ts.
 Sprint 8:  Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

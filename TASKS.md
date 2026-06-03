@@ -240,9 +240,11 @@ Hardening additions (Codex review pass):
       `soft_delete_task` cascade-soft-deletes the subtree (restore stays per-task);
       nested/indented display (`.task-children`) with per-row "Add subtask" composer
       and a Parent-task dropdown (self+descendants excluded) in the edit modal.
-- [ ] Task duration estimate — nullable `estimated_minutes` integer column + migration;
-      UI shows human labels (5 minutes / 30 minutes / 1 hour / 4 hours / 1 day / 3 days / 1 week / 2 weeks / 1 month / etc); feeds task-dependency
-      scheduling and future kanban / calendar auto-layout (do not build those yet)
+- [x] Task duration estimate — nullable `estimated_minutes` integer column + migration
+      (`d036d1c48a82`); Pydantic `gt=0` guard (0/negative → 422). UI shows human labels
+      via `utils/duration.ts` (5/15/30 min, 1/2/4 hr, 1/3 day, 1/2 wk, 1 mo) — an
+      "Estimate" dropdown in the edit modal + a `~label` badge in the task list. Feeds
+      future task-dependency scheduling and kanban / calendar auto-layout (not built yet).
 - [ ] Task dependencies — self-referential `task_dependencies` table + migration
       + Python cycle-detection guard (prime directive #1: app owns the logic, no
       "blocked" status without a guard preventing A→B→A cycles)

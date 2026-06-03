@@ -4,6 +4,7 @@ import { listProjects } from '../../api/projects'
 import type { Project } from '../../types/project'
 import type { Task, TaskPriority } from '../../types/task'
 import { compareByDue, dueStatus, formatDueDate } from '../../utils/dates'
+import { formatDuration } from '../../utils/duration'
 import { ActivityFeed } from '../projects/ActivityFeed'
 import { TaskEditModal } from './TaskEditModal'
 import { useTasks } from './useTasks'
@@ -84,6 +85,9 @@ export function TasksPage() {
           <span className={`due due-${dueStatus(t.due_date)}`}>
             Due {formatDueDate(t.due_date)}
           </span>
+        )}{' '}
+        {t.estimated_minutes !== null && (
+          <span className="estimate">~{formatDuration(t.estimated_minutes)}</span>
         )}{' '}
         {isGlobal && t.project_id !== null && (
           <Link to={`/projects/${t.project_id}/tasks`}>Project #{t.project_id}</Link>

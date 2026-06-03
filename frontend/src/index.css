@@ -412,6 +412,12 @@ code {
   border: 1px solid currentColor;
 }
 
+.estimate {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
+}
+
 .due-overdue {
   color: #c0392b;
 }

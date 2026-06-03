@@ -2,6 +2,7 @@ import { type FormEvent, useMemo, useState } from 'react'
 import { Modal } from '../../components/Modal'
 import type { Project } from '../../types/project'
 import type { Task, TaskPriority, TaskStatus, TaskUpdate } from '../../types/task'
+import { DURATION_OPTIONS } from '../../utils/duration'
 
 const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
 const STATUSES: TaskStatus[] = ['candidate', 'accepted', 'rejected', 'done']
@@ -46,6 +47,7 @@ export function TaskEditModal({ task, tasks, projects, onClose, onSave }: Props)
   const [dueDate, setDueDate] = useState(task.due_date ?? '')
   const [projectId, setProjectId] = useState(task.project_id !== null ? String(task.project_id) : '')
   const [parentId, setParentId] = useState(task.parent_task_id !== null ? String(task.parent_task_id) : '')
+  const [estimate, setEstimate] = useState(task.estimated_minutes !== null ? String(task.estimated_minutes) : '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -67,6 +69,7 @@ export function TaskEditModal({ task, tasks, projects, onClose, onSave }: Props)
         due_date: dueDate || null,
         project_id: projectId === '' ? null : Number(projectId),
         parent_task_id: parentId === '' ? null : Number(parentId),
+        estimated_minutes: estimate === '' ? null : Number(estimate),
       })
       onClose()
     } catch (e: unknown) {
@@ -151,6 +154,20 @@ export function TaskEditModal({ task, tasks, projects, onClose, onSave }: Props)
           {parentOptions.map((t) => (
             <option key={t.id} value={String(t.id)}>
               {t.title}
+            </option>
+          ))}
+        </select>
+
+        <label htmlFor="te-estimate">Estimate</label>
+        <select
+          id="te-estimate"
+          value={estimate}
+          onChange={(e) => setEstimate(e.target.value)}
+        >
+          <option value="">— none —</option>
+          {DURATION_OPTIONS.map((o) => (
+            <option key={o.minutes} value={String(o.minutes)}>
+              {o.label}
             </option>
           ))}
         </select>

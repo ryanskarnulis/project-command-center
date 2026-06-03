@@ -11,6 +11,7 @@ export interface Task {
   status: TaskStatus
   priority: TaskPriority
   due_date: string | null
+  estimated_minutes: number | null
   confidence: number | null
   assignee_hint: string | null
   created_at: string
@@ -24,6 +25,7 @@ export interface TaskCreate {
   priority?: TaskPriority
   due_date?: string | null
   parent_task_id?: number | null
+  estimated_minutes?: number | null
 }
 
 export interface TaskUpdate {
@@ -34,4 +36,5 @@ export interface TaskUpdate {
   due_date?: string | null
   project_id?: number | null
   parent_task_id?: number | null
+  estimated_minutes?: number | null
 }

@@ -41,6 +41,7 @@ const baseTask: Task = {
   status: 'accepted',
   priority: 'medium',
   due_date: null,
+  estimated_minutes: null,
   confidence: null,
   assignee_hint: null,
   created_at: '2026-06-01T10:00:00Z',
@@ -161,6 +162,28 @@ describe('TasksPage', () => {
     expect(mockUpdateTask).toHaveBeenCalledWith(
       1,
       expect.objectContaining({ project_id: 42 }),
+    )
+  })
+
+  it('shows a human duration label when estimated_minutes is set', async () => {
+    mockListAllTasks.mockResolvedValue([{ ...baseTask, estimated_minutes: 60 }])
+    renderGlobal()
+    expect(await screen.findByText('~1 hour')).toBeInTheDocument()
+  })
+
+  it('calls updateTask with the chosen estimate', async () => {
+    const user = userEvent.setup()
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+
+    await user.selectOptions(screen.getByLabelText('Estimate'), '30 minutes')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(mockUpdateTask).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ estimated_minutes: 30 }),
     )
   })
 

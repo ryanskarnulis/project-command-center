@@ -193,6 +193,36 @@ def test_soft_delete_cascades_to_subtasks(db_session: Session) -> None:
     assert tasks_service.get_task(db_session, grandchild.id) is None
 
 
+def test_estimated_minutes_round_trips_and_rejects_non_positive(
+    client: TestClient,
+) -> None:
+    created = client.post(
+        "/api/tasks", json={"title": "write runbook", "estimated_minutes": 60}
+    )
+    assert created.status_code == 201
+    task_id = created.json()["id"]
+    assert created.json()["estimated_minutes"] == 60
+
+    cleared = client.patch(
+        f"/api/tasks/{task_id}", json={"estimated_minutes": None}
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["estimated_minutes"] is None
+
+    assert (
+        client.post(
+            "/api/tasks", json={"title": "bad", "estimated_minutes": 0}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/tasks", json={"title": "bad", "estimated_minutes": -5}
+        ).status_code
+        == 422
+    )
+
+
 def test_task_routes_strip_and_reject_blank_text(client: TestClient) -> None:
     created = client.post(
         "/api/tasks",
