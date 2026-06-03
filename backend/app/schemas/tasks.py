@@ -50,3 +50,7 @@ class TaskRead(BaseModel):
     assignee_hint: str | None
     created_at: datetime
     updated_at: datetime
+    # Derived (not stored): true while any dependency is unfinished. Defaults to
+    # False so an ORM Task lacking the attribute (e.g. a freshly created task with
+    # no dependencies) serializes cleanly; list/detail routes populate it.
+    is_blocked: bool = False

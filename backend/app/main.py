@@ -15,6 +15,7 @@ from app.api import (
     routes_inbox,
     routes_projects,
     routes_settings,
+    routes_task_dependencies,
     routes_tasks,
     routes_training,
     routes_trash,
@@ -27,6 +28,7 @@ logger = structlog.get_logger(__name__)
 api_router = APIRouter()
 api_router.include_router(routes_projects.router)
 api_router.include_router(routes_tasks.router)
+api_router.include_router(routes_task_dependencies.router)
 api_router.include_router(routes_inbox.router)
 api_router.include_router(routes_discord.router)
 api_router.include_router(routes_ai.router)

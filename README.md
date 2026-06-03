@@ -169,6 +169,7 @@ project_aliases
 tasks                  (includes status: candidate | accepted | rejected | done;
                         nullable parent_task_id self-FK for subtask nesting;
                         nullable estimated_minutes effort estimate)
+task_dependencies      ("A depends_on B" edges; B must be done before A starts)
 inbox_items            (includes input_hash for idempotency)
 activity_events
 eval_runs
@@ -348,6 +349,11 @@ Sprint 7:  [WIP] Daily-use & polish. Done: daily-use slice (global task view,
            subtree, indented subtask display + Parent-task dropdown. Task duration
            estimate — nullable tasks.estimated_minutes (migration d036d1c48a82,
            Pydantic gt=0), human-label dropdown + list badge via utils/duration.ts.
+           Task dependencies — task_dependencies table (migration 3263531ae531,
+           "A depends_on B" = B done before A starts), Python DFS cycle guard
+           (self/dup/A→B→A → 409), derived is_blocked (no status column; bulk
+           query, no N+1), GET/POST/DELETE /api/tasks/{id}/dependencies, "Depends
+           on" modal section + red Blocked badge.
 Sprint 8:  Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

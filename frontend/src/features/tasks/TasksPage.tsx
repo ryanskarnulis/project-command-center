@@ -81,6 +81,9 @@ export function TasksPage() {
       <li key={t.id}>
         <span>{t.title}</span> <span>[{t.status}]</span>{' '}
         <span>({t.priority})</span>{' '}
+        {t.is_blocked && t.status !== 'done' && (
+          <span className="blocked">Blocked</span>
+        )}{' '}
         {t.due_date && t.status !== 'done' && (
           <span className={`due due-${dueStatus(t.due_date)}`}>
             Due {formatDueDate(t.due_date)}

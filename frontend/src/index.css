@@ -418,6 +418,34 @@ code {
   color: var(--text-muted, #6b7280);
 }
 
+.blocked {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: #fff;
+  background: #c0392b;
+}
+
+.task-dependencies {
+  margin-top: 1rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+
+.task-dependencies ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+.dep-done {
+  color: #16a34a;
+}
+
+.dep-pending {
+  color: #d97706;
+}
+
 .due-overdue {
   color: #c0392b;
 }

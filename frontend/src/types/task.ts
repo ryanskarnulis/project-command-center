@@ -16,6 +16,17 @@ export interface Task {
   assignee_hint: string | null
   created_at: string
   updated_at: string
+  // Derived server-side: true while any dependency is unfinished.
+  is_blocked: boolean
+}
+
+export interface TaskDependency {
+  id: number
+  task_id: number
+  depends_on_task_id: number
+  depends_on_title: string
+  depends_on_status: TaskStatus
+  depends_on_done: boolean
 }
 
 export interface TaskCreate {

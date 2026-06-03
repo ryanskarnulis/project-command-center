@@ -3,6 +3,7 @@ import { Modal } from '../../components/Modal'
 import type { Project } from '../../types/project'
 import type { Task, TaskPriority, TaskStatus, TaskUpdate } from '../../types/task'
 import { DURATION_OPTIONS } from '../../utils/duration'
+import { TaskDependencies } from './TaskDependencies'
 
 const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
 const STATUSES: TaskStatus[] = ['candidate', 'accepted', 'rejected', 'done']
@@ -183,6 +184,8 @@ export function TaskEditModal({ task, tasks, projects, onClose, onSave }: Props)
           </button>
         </div>
       </form>
+
+      <TaskDependencies task={task} tasks={tasks} />
     </Modal>
   )
 }

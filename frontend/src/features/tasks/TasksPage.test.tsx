@@ -3,6 +3,10 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
+import {
+  addDependency,
+  listDependencies,
+} from '../../api/taskDependencies'
 import { createUnscopedTask, listAllTasks, updateTask } from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
@@ -26,10 +30,18 @@ vi.mock('../../api/projects', () => ({
   updateProject: vi.fn(),
 }))
 
+vi.mock('../../api/taskDependencies', () => ({
+  listDependencies: vi.fn(),
+  addDependency: vi.fn(),
+  removeDependency: vi.fn(),
+}))
+
 const mockListAllTasks = vi.mocked(listAllTasks)
 const mockUpdateTask = vi.mocked(updateTask)
 const mockListProjects = vi.mocked(listProjects)
 const mockCreateUnscopedTask = vi.mocked(createUnscopedTask)
+const mockListDependencies = vi.mocked(listDependencies)
+const mockAddDependency = vi.mocked(addDependency)
 
 const baseTask: Task = {
   id: 1,
@@ -46,6 +58,7 @@ const baseTask: Task = {
   assignee_hint: null,
   created_at: '2026-06-01T10:00:00Z',
   updated_at: '2026-06-01T10:00:00Z',
+  is_blocked: false,
 }
 
 const baseProject: Project = {
@@ -64,6 +77,15 @@ describe('TasksPage', () => {
     mockListAllTasks.mockResolvedValue([baseTask])
     mockUpdateTask.mockResolvedValue({ ...baseTask, priority: 'urgent' })
     mockListProjects.mockResolvedValue([baseProject])
+    mockListDependencies.mockResolvedValue([])
+    mockAddDependency.mockResolvedValue({
+      id: 1,
+      task_id: 1,
+      depends_on_task_id: 2,
+      depends_on_title: 'Rotate the keys',
+      depends_on_status: 'accepted',
+      depends_on_done: false,
+    })
   })
 
   afterEach(() => {
@@ -185,6 +207,32 @@ describe('TasksPage', () => {
       1,
       expect.objectContaining({ estimated_minutes: 30 }),
     )
+  })
+
+  it('shows a Blocked badge for a task with an unfinished dependency', async () => {
+    mockListAllTasks.mockResolvedValue([{ ...baseTask, is_blocked: true }])
+    renderGlobal()
+    expect(await screen.findByText('Blocked')).toBeInTheDocument()
+  })
+
+  it('adds a dependency from the edit modal', async () => {
+    const user = userEvent.setup()
+    mockListAllTasks.mockResolvedValue([
+      baseTask,
+      { ...baseTask, id: 2, title: 'Rotate the keys' },
+    ])
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.click(screen.getAllByRole('button', { name: 'Edit' })[0])
+
+    await user.selectOptions(
+      screen.getByLabelText('Add dependency'),
+      'Rotate the keys',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    expect(mockAddDependency).toHaveBeenCalledWith(1, 2)
   })
 
   it('renders a subtask nested under its parent', async () => {

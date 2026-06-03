@@ -109,6 +109,34 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     subtasks: Mapped[list[Task]] = relationship(back_populates="parent")
 
 
+class TaskDependency(Base, TimestampMixin, SoftDeleteMixin):
+    """A 'must finish first' edge between tasks (Sprint 7 task-model slice).
+
+    ``task_id depends_on depends_on_task_id`` means the depended-on task must be
+    ``done`` before this task can be started; a task is "blocked" (a derived state,
+    computed in Python — there is no ``blocked`` status column) while any of its
+    dependencies is unfinished. Cycle prevention (no A->B->A) lives in
+    ``services/task_dependencies.py``, never in the DB. The partial unique index
+    keeps one active edge per ordered pair while allowing a soft-deleted edge to be
+    re-added later (mirrors the inbox ``input_hash`` index).
+    """
+
+    __tablename__ = "task_dependencies"
+    __table_args__ = (
+        Index(
+            "uq_task_dependencies_active_edge",
+            "task_id",
+            "depends_on_task_id",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"))
+    depends_on_task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"))
+
+
 class InboxItem(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "inbox_items"
     __table_args__ = (

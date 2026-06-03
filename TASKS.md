@@ -245,9 +245,16 @@ Hardening additions (Codex review pass):
       via `utils/duration.ts` (5/15/30 min, 1/2/4 hr, 1/3 day, 1/2 wk, 1 mo) — an
       "Estimate" dropdown in the edit modal + a `~label` badge in the task list. Feeds
       future task-dependency scheduling and kanban / calendar auto-layout (not built yet).
-- [ ] Task dependencies — self-referential `task_dependencies` table + migration
-      + Python cycle-detection guard (prime directive #1: app owns the logic, no
-      "blocked" status without a guard preventing A→B→A cycles)
+- [x] Task dependencies — `task_dependencies` table (two FKs to `tasks`, partial
+      unique active-edge index) + migration (`3263531ae531`). Edge `A depends_on B`
+      = B must be `done` before A starts; `services/task_dependencies.py` owns the
+      logic: `add/remove/list_dependencies/list_dependents`, DFS cycle guard
+      (self/duplicate/A→B→A → `DependencyError` → 409), `is_blocked` + bulk
+      `blocked_task_ids`. "Blocked" is derived (no status column): `TaskRead.is_blocked`
+      populated by the list/detail routes (one query, no N+1). Routes
+      `GET/POST/DELETE /api/tasks/{id}/dependencies`. Frontend: `api/taskDependencies.ts`,
+      `useTaskDependencies` hook, "Depends on" section in the edit modal (add/remove +
+      done/pending state, inline 409 error), red **Blocked** badge in the task list.
 
 ### Default "General" project
 - [x] Seed a default "General" project (idempotent migration, stable slug not id)

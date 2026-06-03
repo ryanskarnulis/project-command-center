@@ -10,6 +10,7 @@ from app.db.models import Task, TaskStatus
 from app.db.session import get_db
 from app.schemas.tasks import TaskCreate, TaskRead, TaskUpdate
 from app.services import projects as projects_service
+from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
 
 logger = structlog.get_logger(__name__)
@@ -37,18 +38,36 @@ def _cycle_409(exc: tasks_service.TaskCycleError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
+def _read_with_blocked(db: Session, task: Task) -> TaskRead:
+    """A single task's read model with its derived ``is_blocked`` populated."""
+    return TaskRead.model_validate(task).model_copy(
+        update={"is_blocked": deps_service.is_blocked(db, task.id)}
+    )
+
+
+def _reads_with_blocked(db: Session, tasks: Sequence[Task]) -> list[TaskRead]:
+    """A task list with ``is_blocked`` resolved in one query (no N+1)."""
+    blocked = deps_service.blocked_task_ids(db, [t.id for t in tasks])
+    return [
+        TaskRead.model_validate(t).model_copy(
+            update={"is_blocked": t.id in blocked}
+        )
+        for t in tasks
+    ]
+
+
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskRead])
-def list_tasks(project_id: int, db: Session = Depends(get_db)) -> Sequence[Task]:
+def list_tasks(project_id: int, db: Session = Depends(get_db)) -> list[TaskRead]:
     _ensure_project(db, project_id)
-    return tasks_service.list_tasks(db, project_id)
+    return _reads_with_blocked(db, tasks_service.list_tasks(db, project_id))
 
 
 @router.get("/tasks", response_model=list[TaskRead])
 def list_all_tasks(
     status_filter: TaskStatus | None = Query(default=TaskStatus.accepted, alias="status"),
     db: Session = Depends(get_db),
-) -> Sequence[Task]:
-    return tasks_service.list_tasks(db, status=status_filter)
+) -> list[TaskRead]:
+    return _reads_with_blocked(db, tasks_service.list_tasks(db, status=status_filter))
 
 
 @router.post("/tasks", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
@@ -103,14 +122,14 @@ def create_task(
 
 
 @router.get("/tasks/{task_id}", response_model=TaskRead)
-def get_task(task_id: int, db: Session = Depends(get_db)) -> Task:
-    return _get_task_or_404(db, task_id)
+def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
+    return _read_with_blocked(db, _get_task_or_404(db, task_id))
 
 
 @router.patch("/tasks/{task_id}", response_model=TaskRead)
 def update_task(
     task_id: int, data: TaskUpdate, db: Session = Depends(get_db)
-) -> Task:
+) -> TaskRead:
     task = _get_task_or_404(db, task_id)
     try:
         updated = tasks_service.update_task(
@@ -121,17 +140,17 @@ def update_task(
     db.commit()
     db.refresh(updated)
     logger.info("task_updated", task_id=updated.id)
-    return updated
+    return _read_with_blocked(db, updated)
 
 
 @router.post("/tasks/{task_id}/done", response_model=TaskRead)
-def mark_task_done(task_id: int, db: Session = Depends(get_db)) -> Task:
+def mark_task_done(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     task = _get_task_or_404(db, task_id)
     updated = tasks_service.mark_done(db, task)
     db.commit()
     db.refresh(updated)
     logger.info("task_marked_done", task_id=updated.id)
-    return updated
+    return _read_with_blocked(db, updated)
 
 
 @router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
