@@ -133,15 +133,13 @@ the task edit form (currently `TaskEditModal.tsx`; may live in the shared form a
 **Files:** `frontend/src/features/tasks/TasksPage.tsx` (+ a small `TaskFilters.tsx` if it grows),
 `TasksPage.test.tsx`.
 
-- [ ] Filter controls above the list: **status**, **priority**, **project** (global view only, from
-      loaded `projects`), and toggles for **overdue / due-soon / blocked**. State held in
-      `TasksPage`; filtering is client-side over the already-loaded `tasks`.
-- [ ] Preserve nesting: filter the flat list first, then rebuild `roots`/`childrenOf`. Decide +
-      document the rule for a child that matches while its parent doesn't (recommended: show the
-      matching child promoted to root rather than hiding it — same fallback the tree-builder
-      already uses for orphaned parents).
-- [ ] "Clear filters" affordance; empty-result state distinct from "no tasks yet".
-- [ ] Test: set a status/priority filter → only matching cards render.
+- [x] Filter controls above the list: **status**, **priority**, **project** (global only),
+      toggles for **overdue / due-soon / blocked**. State held in `TasksPage`; client-side filtering.
+- [x] Filter flat list first, then rebuild `roots`/`childrenOf`. A matching child whose parent
+      doesn't match is promoted to root (same orphaned-parent fallback the tree-builder already uses).
+- [x] "Clear filters" button (shown only when active); empty-filter state shows distinct message
+      "No tasks match the current filters." vs. "No tasks yet."
+- [x] Tests: filter by status, filter by priority, Clear filters restores all tasks, empty-result message.
 
 ## Slice 8 — Inbox = review-only, per-candidate approval  *(BE + FE)*
 

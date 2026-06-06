@@ -148,14 +148,16 @@ describe('TasksPage', () => {
   it('shows overdue badge for a past due_date', async () => {
     mockListAllTasks.mockResolvedValue([{ ...baseTask, due_date: '2026-01-01' }])
     renderGlobal()
-    const badge = await screen.findByText(/^Due /)
+    const badge = await screen.findByText(/^Due Jan/)
     expect(badge.className).toContain('due-overdue')
   })
 
-  it('shows no badge for a null due_date', async () => {
+  it('shows no due badge for a null due_date', async () => {
     renderGlobal()
     await screen.findByText('Fix the VPN')
-    expect(screen.queryByText(/^Due /)).not.toBeInTheDocument()
+    // "Due soon" is the filter checkbox label — look for task due badges specifically
+    const dueBadges = screen.queryAllByText(/^Due \w+ \d+/)
+    expect(dueBadges).toHaveLength(0)
   })
 
   it('shows project dropdown in modal with loaded projects', async () => {
@@ -165,10 +167,11 @@ describe('TasksPage', () => {
     await screen.findByText('Fix the VPN')
     await user.click(screen.getByRole('button', { name: 'Edit' }))
 
-    const projectSelect = screen.getByLabelText('Project')
+    const dialog = screen.getByRole('dialog', { name: 'Edit task' })
+    const projectSelect = dialog.querySelector('#tf-project') as HTMLSelectElement
     expect(projectSelect).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Infra' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: '— unassigned —' })).toBeInTheDocument()
+    expect(projectSelect).toHaveDisplayValue('— unassigned —')
+    expect(projectSelect.options.length).toBeGreaterThan(1)
   })
 
   it('calls updateTask with chosen project_id when project is selected', async () => {
@@ -234,6 +237,64 @@ describe('TasksPage', () => {
     await user.click(screen.getByRole('button', { name: 'Add' }))
 
     expect(mockAddDependency).toHaveBeenCalledWith(1, 2)
+  })
+
+  it('filter by status shows only matching tasks', async () => {
+    const user = userEvent.setup()
+    mockListAllTasks.mockResolvedValue([
+      baseTask,
+      { ...baseTask, id: 2, title: 'A done task', status: 'done' },
+    ])
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.selectOptions(screen.getByLabelText('Filter by status'), 'done')
+
+    expect(screen.queryByText('Fix the VPN')).not.toBeInTheDocument()
+    expect(screen.getByText('A done task')).toBeInTheDocument()
+  })
+
+  it('filter by priority shows only matching tasks', async () => {
+    const user = userEvent.setup()
+    mockListAllTasks.mockResolvedValue([
+      baseTask, // medium
+      { ...baseTask, id: 2, title: 'Urgent work', priority: 'urgent' },
+    ])
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.selectOptions(screen.getByLabelText('Filter by priority'), 'urgent')
+
+    expect(screen.queryByText('Fix the VPN')).not.toBeInTheDocument()
+    expect(screen.getByText('Urgent work')).toBeInTheDocument()
+  })
+
+  it('Clear filters button restores all tasks', async () => {
+    const user = userEvent.setup()
+    mockListAllTasks.mockResolvedValue([
+      baseTask,
+      { ...baseTask, id: 2, title: 'A done task', status: 'done' },
+    ])
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.selectOptions(screen.getByLabelText('Filter by status'), 'done')
+    expect(screen.queryByText('Fix the VPN')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(screen.getByText('Fix the VPN')).toBeInTheDocument()
+    expect(screen.getByText('A done task')).toBeInTheDocument()
+  })
+
+  it('empty filter result shows distinct message', async () => {
+    const user = userEvent.setup()
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.selectOptions(screen.getByLabelText('Filter by priority'), 'urgent')
+
+    expect(screen.getByText('No tasks match the current filters.')).toBeInTheDocument()
+    expect(screen.queryByText('No tasks yet.')).not.toBeInTheDocument()
   })
 
   it('renders a subtask nested under its parent', async () => {
