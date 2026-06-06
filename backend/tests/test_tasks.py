@@ -223,6 +223,30 @@ def test_estimated_minutes_round_trips_and_rejects_non_positive(
     )
 
 
+def test_list_subtasks_route_returns_direct_children(
+    client: TestClient, db_session: Session
+) -> None:
+    parent = tasks_service.create_task(db_session, project_id=None, title="parent")
+    child_a = tasks_service.create_task(
+        db_session, project_id=None, title="child a", parent_task_id=parent.id
+    )
+    child_b = tasks_service.create_task(
+        db_session, project_id=None, title="child b", parent_task_id=parent.id
+    )
+    tasks_service.create_task(db_session, project_id=None, title="unrelated")
+    db_session.commit()
+
+    resp = client.get(f"/api/tasks/{parent.id}/subtasks")
+    assert resp.status_code == 200
+    ids = [t["id"] for t in resp.json()]
+    assert ids == [child_a.id, child_b.id]
+
+
+def test_list_subtasks_route_404_for_missing_task(client: TestClient) -> None:
+    resp = client.get("/api/tasks/999999/subtasks")
+    assert resp.status_code == 404
+
+
 def test_subtask_inherits_parent_project_when_none_given(db_session: Session) -> None:
     project = projects_service.create_project(db_session, name="HomeNetwork")
     db_session.commit()

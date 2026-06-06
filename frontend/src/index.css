@@ -1502,6 +1502,84 @@ kbd {
   border-left-color: var(--green);
 }
 
+.task-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  text-decoration: none;
+  color: var(--text-h);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+.task-card:hover {
+  box-shadow: 0 3px 8px rgba(0,0,0,0.1);
+  border-color: var(--blue);
+}
+
+.task-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.task-card-title {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.task-card-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.priority-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1;
+  padding: 5px 8px;
+  background: var(--neutral-soft);
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+
+.priority-pill.priority-urgent { background: #fef2f2; color: #dc2626; }
+.priority-pill.priority-high   { background: #fff7ed; color: #ea580c; }
+.priority-pill.priority-medium { background: var(--neutral-soft); color: var(--text-muted); }
+.priority-pill.priority-low    { background: var(--neutral-soft); color: var(--text-muted); }
+
+.status-pill.status-candidate { background: var(--neutral-soft); color: var(--text-muted); }
+.status-pill.status-accepted  { background: var(--blue-soft); color: #0b55d9; }
+.status-pill.status-done      { background: #f0fdf4; color: #16a34a; }
+.status-pill.status-rejected  { background: #fef2f2; color: #dc2626; }
+
+@media (prefers-color-scheme: dark) {
+  .priority-pill.priority-urgent { background: #3f1212; color: #f87171; }
+  .priority-pill.priority-high   { background: #3f1f0a; color: #fb923c; }
+  .status-pill.status-accepted   { background: #0f2a5e; color: #93c5fd; }
+  .status-pill.status-done       { background: #052e16; color: #4ade80; }
+  .status-pill.status-rejected   { background: #3f1212; color: #f87171; }
+}
+
 .task-children {
   margin: 10px 0 0 20px;
   border-left: 2px solid var(--border);

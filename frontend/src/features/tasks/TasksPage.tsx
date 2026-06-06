@@ -2,14 +2,12 @@ import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { listProjects } from '../../api/projects'
 import type { Project } from '../../types/project'
-import type { Task, TaskPriority } from '../../types/task'
-import { compareTasks, dueStatus, formatDueDate } from '../../utils/dates'
-import { formatDuration } from '../../utils/duration'
+import type { Task } from '../../types/task'
+import { compareTasks } from '../../utils/dates'
 import { ActivityFeed } from '../projects/ActivityFeed'
-import { TaskEditModal } from './TaskEditModal'
+import { TaskCard } from './TaskCard'
+import { TaskFormModal } from './TaskFormModal'
 import { useTasks } from './useTasks'
-
-const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
 
 export function TasksPage() {
   const { projectId } = useParams()
@@ -17,9 +15,7 @@ export function TasksPage() {
   const isGlobal = id === undefined
   const { tasks, loading, error, create, update, markDone, remove } = useTasks(id)
 
-  const [title, setTitle] = useState('')
-  const [priority, setPriority] = useState<TaskPriority>('medium')
-  const [submitting, setSubmitting] = useState(false)
+  const [addingTask, setAddingTask] = useState(false)
   const [editing, setEditing] = useState<Task | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
 
@@ -30,12 +26,10 @@ export function TasksPage() {
   useEffect(() => {
     listProjects().then(setProjects).catch(() => {})
   }, [])
-  // Bumped after any task mutation so the ActivityFeed re-fetches.
   const [activityKey, setActivityKey] = useState(0)
   const bumpActivity = () => setActivityKey((k) => k + 1)
 
-  // Group tasks by parent so we can render the tree. A task whose parent isn't in
-  // the current (filtered) set — e.g. a since-deleted parent — renders at the root.
+  // Group tasks by parent. A task whose parent isn't in the current set renders at root.
   const { roots, childrenOf } = useMemo(() => {
     const ids = new Set(tasks.map((t) => t.id))
     const childrenOf = new Map<number, Task[]>()
@@ -52,20 +46,6 @@ export function TasksPage() {
     return { roots, childrenOf }
   }, [tasks])
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    if (!title.trim()) return
-    setSubmitting(true)
-    try {
-      await create({ title: title.trim(), priority })
-      setTitle('')
-      setPriority('medium')
-      bumpActivity()
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
   async function handleAddSubtask(e: FormEvent<HTMLFormElement>, parentId: number) {
     e.preventDefault()
     if (!subtaskTitle.trim()) return
@@ -77,27 +57,9 @@ export function TasksPage() {
 
   function renderTask(t: Task) {
     const kids = [...(childrenOf.get(t.id) ?? [])].sort(compareTasks)
-    return (
-      <li key={t.id}>
-        <span>{t.title}</span> <span>[{t.status}]</span>{' '}
-        <span>({t.priority})</span>{' '}
-        {t.is_blocked && t.status !== 'done' && (
-          <span className="blocked">Blocked</span>
-        )}{' '}
-        {t.due_date && t.status !== 'done' && (
-          <span className={`due due-${dueStatus(t.due_date)}`}>
-            Due {formatDueDate(t.due_date)}
-          </span>
-        )}{' '}
-        {t.estimated_minutes !== null && (
-          <span className="estimate">~{formatDuration(t.estimated_minutes)}</span>
-        )}{' '}
-        {isGlobal && t.project_id !== null && (
-          <Link to={`/projects/${t.project_id}/tasks`}>
-            {projects.find((p) => p.id === t.project_id)?.name ?? 'Project'}
-          </Link>
-        )}{' '}
-        <button onClick={() => setEditing(t)}>Edit</button>{' '}
+    const actions = (
+      <>
+        <button onClick={() => setEditing(t)}>Edit</button>
         <button
           onClick={() => {
             setSubtaskParentId(t.id)
@@ -105,13 +67,22 @@ export function TasksPage() {
           }}
         >
           Add subtask
-        </button>{' '}
+        </button>
         {t.status !== 'done' && (
           <button onClick={() => void markDone(t.id).then(bumpActivity)}>
             Mark done
           </button>
-        )}{' '}
+        )}
         <button onClick={() => void remove(t.id).then(bumpActivity)}>Delete</button>
+      </>
+    )
+    return (
+      <li key={t.id}>
+        <TaskCard
+          task={t}
+          projects={isGlobal ? projects : undefined}
+          actions={actions}
+        />
         {subtaskParentId === t.id && (
           <form onSubmit={(e) => void handleAddSubtask(e, t.id)}>
             <input
@@ -144,26 +115,7 @@ export function TasksPage() {
       )}
       <h1>{isGlobal ? 'Open Tasks' : 'Tasks'}</h1>
 
-      <form onSubmit={handleSubmit}>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Task title"
-        />
-        <select
-          value={priority}
-          onChange={(e) => setPriority(e.target.value as TaskPriority)}
-        >
-          {PRIORITIES.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
-        <button type="submit" disabled={submitting || !title.trim()}>
-          Add task
-        </button>
-      </form>
+      <button type="button" onClick={() => setAddingTask(true)}>Add task</button>
 
       {loading && <p>Loading…</p>}
       {error && <p role="alert">{error}</p>}
@@ -174,8 +126,22 @@ export function TasksPage() {
 
       {!isGlobal && <ActivityFeed projectId={id} refreshKey={activityKey} />}
 
+      {addingTask && (
+        <TaskFormModal
+          mode="create"
+          tasks={tasks}
+          projects={projects}
+          onClose={() => setAddingTask(false)}
+          onSave={async (data) => {
+            await create(data)
+            bumpActivity()
+          }}
+        />
+      )}
+
       {editing && (
-        <TaskEditModal
+        <TaskFormModal
+          mode="edit"
           task={editing}
           tasks={tasks}
           projects={projects}

@@ -200,7 +200,8 @@ describe('TasksPage', () => {
     await screen.findByText('Fix the VPN')
     await user.click(screen.getByRole('button', { name: 'Edit' }))
 
-    await user.selectOptions(screen.getByLabelText('Estimate'), '30 minutes')
+    await user.clear(screen.getByLabelText('Estimate'))
+    await user.type(screen.getByLabelText('Estimate'), '30')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(mockUpdateTask).toHaveBeenCalledWith(

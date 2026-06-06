@@ -126,6 +126,13 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     return _read_with_blocked(db, _get_task_or_404(db, task_id))
 
 
+@router.get("/tasks/{task_id}/subtasks", response_model=list[TaskRead])
+def list_subtasks(task_id: int, db: Session = Depends(get_db)) -> list[TaskRead]:
+    """Direct active children of a task, including candidates and done (unlike GET /api/tasks)."""
+    _get_task_or_404(db, task_id)
+    return _reads_with_blocked(db, tasks_service.list_subtasks(db, task_id))
+
+
 @router.patch("/tasks/{task_id}", response_model=TaskRead)
 def update_task(
     task_id: int, data: TaskUpdate, db: Session = Depends(get_db)

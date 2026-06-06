@@ -2,7 +2,7 @@ import { type FormEvent, useMemo, useState } from 'react'
 import { Modal } from '../../components/Modal'
 import type { Project } from '../../types/project'
 import type { Task, TaskPriority, TaskStatus, TaskUpdate } from '../../types/task'
-import { DURATION_OPTIONS } from '../../utils/duration'
+import { DURATION_UNITS, splitDuration, toMinutes } from '../../utils/duration'
 import { TaskDependencies } from './TaskDependencies'
 
 const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
@@ -48,7 +48,9 @@ export function TaskEditModal({ task, tasks, projects, onClose, onSave }: Props)
   const [dueDate, setDueDate] = useState(task.due_date ?? '')
   const [projectId, setProjectId] = useState(task.project_id !== null ? String(task.project_id) : '')
   const [parentId, setParentId] = useState(task.parent_task_id !== null ? String(task.parent_task_id) : '')
-  const [estimate, setEstimate] = useState(task.estimated_minutes !== null ? String(task.estimated_minutes) : '')
+  const initialSplit = task.estimated_minutes !== null ? splitDuration(task.estimated_minutes) : null
+  const [estimateValue, setEstimateValue] = useState(initialSplit ? String(initialSplit.value) : '')
+  const [estimateUnit, setEstimateUnit] = useState<'minutes' | 'hours' | 'days' | 'weeks'>(initialSplit?.unit ?? 'minutes')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -70,7 +72,7 @@ export function TaskEditModal({ task, tasks, projects, onClose, onSave }: Props)
         due_date: dueDate || null,
         project_id: projectId === '' ? null : Number(projectId),
         parent_task_id: parentId === '' ? null : Number(parentId),
-        estimated_minutes: estimate === '' ? null : Number(estimate),
+        estimated_minutes: estimateValue === '' ? null : toMinutes(Number(estimateValue), estimateUnit),
       })
       onClose()
     } catch (e: unknown) {
@@ -159,19 +161,28 @@ export function TaskEditModal({ task, tasks, projects, onClose, onSave }: Props)
           ))}
         </select>
 
-        <label htmlFor="te-estimate">Estimate</label>
-        <select
-          id="te-estimate"
-          value={estimate}
-          onChange={(e) => setEstimate(e.target.value)}
-        >
-          <option value="">— none —</option>
-          {DURATION_OPTIONS.map((o) => (
-            <option key={o.minutes} value={String(o.minutes)}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        <label htmlFor="te-estimate-value">Estimate</label>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <input
+            id="te-estimate-value"
+            type="number"
+            min={1}
+            placeholder="none"
+            value={estimateValue}
+            onChange={(e) => setEstimateValue(e.target.value)}
+            style={{ width: '5rem' }}
+          />
+          <select
+            id="te-estimate-unit"
+            value={estimateUnit}
+            onChange={(e) => setEstimateUnit(e.target.value as typeof estimateUnit)}
+            disabled={estimateValue === ''}
+          >
+            {DURATION_UNITS.map((u) => (
+              <option key={u} value={u}>{u}</option>
+            ))}
+          </select>
+        </div>
 
         {error && <p role="alert">{error}</p>}
 

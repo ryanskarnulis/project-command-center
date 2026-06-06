@@ -1,39 +1,42 @@
-// Fixed set of effort-estimate options. The DB stores whole minutes
-// (tasks.estimated_minutes); the UI only ever offers / shows these labels.
-
-export interface DurationOption {
-  minutes: number
-  label: string
-}
-
 const MINUTE = 1
 const HOUR = 60
 const DAY = 60 * 24
 const WEEK = DAY * 7
 
-export const DURATION_OPTIONS: DurationOption[] = [
-  { minutes: 5 * MINUTE, label: '5 minutes' },
-  { minutes: 15 * MINUTE, label: '15 minutes' },
-  { minutes: 30 * MINUTE, label: '30 minutes' },
-  { minutes: 1 * HOUR, label: '1 hour' },
-  { minutes: 2 * HOUR, label: '2 hours' },
-  { minutes: 4 * HOUR, label: '4 hours' },
-  { minutes: 1 * DAY, label: '1 day' },
-  { minutes: 3 * DAY, label: '3 days' },
-  { minutes: 1 * WEEK, label: '1 week' },
-  { minutes: 2 * WEEK, label: '2 weeks' },
-  { minutes: 4 * WEEK, label: '1 month' },
-]
+type DurationUnit = 'minutes' | 'hours' | 'days' | 'weeks'
 
-const LABEL_BY_MINUTES = new Map(
-  DURATION_OPTIONS.map((o) => [o.minutes, o.label]),
-)
+export const DURATION_UNITS: DurationUnit[] = ['minutes', 'hours', 'days', 'weeks']
+
+const UNIT_MINUTES: Record<DurationUnit, number> = {
+  minutes: MINUTE,
+  hours: HOUR,
+  days: DAY,
+  weeks: WEEK,
+}
+
+/** Convert a value + unit pair to integer minutes. Returns null when value is empty/invalid. */
+export function toMinutes(value: number, unit: DurationUnit): number {
+  return Math.round(value * UNIT_MINUTES[unit])
+}
 
 /**
- * Human label for a stored estimate. Known option values map to their label;
- * any other value falls back to a plain "N min" so old/odd data still renders.
+ * Split a stored minute value into the largest whole unit for prefilling inputs.
+ * e.g. 120 → { value: 2, unit: 'hours' }
+ */
+export function splitDuration(minutes: number): { value: number; unit: DurationUnit } {
+  if (minutes % WEEK === 0) return { value: minutes / WEEK, unit: 'weeks' }
+  if (minutes % DAY === 0) return { value: minutes / DAY, unit: 'days' }
+  if (minutes % HOUR === 0) return { value: minutes / HOUR, unit: 'hours' }
+  return { value: minutes, unit: 'minutes' }
+}
+
+/**
+ * Human label for a stored estimate.
+ * e.g. 60 → "1 hour", 90 → "90 min", 10080 → "1 week"
  */
 export function formatDuration(minutes: number | null): string {
   if (minutes === null) return ''
-  return LABEL_BY_MINUTES.get(minutes) ?? `${minutes} min`
+  const { value, unit } = splitDuration(minutes)
+  const singular = unit.endsWith('s') ? unit.slice(0, -1) : unit
+  return `${value} ${value === 1 ? singular : unit}`
 }

@@ -45,16 +45,13 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
 **Files:** `frontend/src/utils/dates.ts`, `frontend/src/utils/dates.test.ts`,
 `frontend/src/features/tasks/TasksPage.tsx` (swap the comparator).
 
-- [ ] Add a priority rank map: `{ urgent: 0, high: 1, medium: 2, low: 3 }` (lower sorts first).
-- [ ] Add `compareTasks(a, b)`: due date ascending (nulls last, as `compareByDue` already does) →
-      **then priority rank** → then `id`. Keep the existing `compareByDue` for the dashboard's
-      due-only sort, or generalize and update both call sites — pick one, don't leave two
-      near-identical comparators. The new comparator needs `priority` on its param type.
-- [ ] `TasksPage` already renders a tree (`roots` + `childrenOf`) and sorts each sibling level with
-      `compareByDue`; switch those two `.sort(compareByDue)` calls to `compareTasks`. This keeps
-      subtasks grouped under their parent (the "keep nested together" ask) while ordering within
-      each level by due-then-priority.
-- [ ] Unit tests: equal due dates resolve by priority; mixed due dates still sort by due first;
+- [x] Add a priority rank map: `{ urgent: 0, high: 1, medium: 2, low: 3 }` (lower sorts first).
+- [x] Add `compareTasks(a, b)`: due date ascending (nulls last, as `compareByDue` already does) →
+      **then priority rank** → then `id`. Kept `compareByDue` unchanged for the dashboard's
+      due-only sort. The new comparator uses a `HasDueAndPriority` interface.
+- [x] `TasksPage` already renders a tree (`roots` + `childrenOf`) and sorts each sibling level with
+      `compareByDue`; switched both `.sort(compareByDue)` calls to `compareTasks`.
+- [x] Unit tests: equal due dates resolve by priority; mixed due dates still sort by due first;
       nulls last; deterministic `id` tie-break.
 
 ## Slice 2 — Nav + project-name links  *(FE-only)*
@@ -62,66 +59,51 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
 **Files:** `frontend/src/components/AppShell.tsx`, `frontend/src/components/AppShell.test.tsx`,
 `frontend/src/features/tasks/TasksPage.tsx`.
 
-- [ ] Remove the `{ to: '/tasks', label: 'Tasks', icon: ListTodo }` entry from `primaryNav` in
-      `AppShell`. Leave the `/tasks` route in `AppRoutes` — the dashboard Open Tasks card links to
-      it. Drop the now-unused `ListTodo` import if nothing else uses it.
-- [ ] `AppShell.test.tsx`: update the sidebar-link expectations so they no longer assert a Tasks
-      link (and assert it's absent if the test enumerates the nav).
-- [ ] In `TasksPage.renderTask`, the global view currently renders
-      `<Link>Project #{t.project_id}</Link>`. Resolve the name from the already-loaded `projects`
-      state (`projects.find(p => p.id === t.project_id)?.name ?? 'Project'`) and render that as the
-      link text. (Once Slice 5 lands, this moves into `TaskCard`.)
+- [x] Remove the `{ to: '/tasks', label: 'Tasks', icon: ListTodo }` entry from `primaryNav` in
+      `AppShell`. Left the `/tasks` route in `AppRoutes`. Dropped unused `ListTodo` import.
+- [x] `AppShell.test.tsx`: updated to assert Tasks link is absent and the remaining 3 links are present.
+- [x] In `TasksPage.renderTask`, the global view now resolves project name via
+      `projects.find(p => p.id === t.project_id)?.name ?? 'Project'`. Moved into `TaskCard` (Slice 5).
 
 ## Slice 3 — Subtask project inheritance  *(BE + pytest)*
 
 **Files:** `backend/app/services/tasks.py`, `backend/tests/` (task service test).
 
-- [ ] In `create_task`, before the `_default_project_id_for_status` call: when
-      `parent_task_id is not None` and `project_id is None`, look up the parent
-      (`get_task(db, parent_task_id)`) and inherit its `project_id`. Then run the existing
-      default-for-status logic (so an inherited `None` parent + accepted status still falls back to
-      General, unchanged). Keep the cycle guard call where it is.
-- [ ] Decide + document inline: inheritance applies to **create** only (matches the ask "fresh
-      subtasks"); re-parenting an existing task in `update_task` does **not** silently move its
-      project (the edit modal already exposes an explicit Project field).
-- [ ] Happy-path pytest: create a parent in project P, create a subtask with no `project_id` →
-      asserts the subtask's `project_id == P`. Plus: subtask with an explicit `project_id` keeps
-      it (no override).
-- [ ] No migration. README note not required (no new schema/route/command).
+- [x] In `create_task`, before the `_default_project_id_for_status` call: when
+      `parent_task_id is not None` and `project_id is None`, looks up the parent and inherits
+      its `project_id`. Default-for-status logic runs after, so `None` parent + accepted still
+      falls back to General.
+- [x] Documented inline: inheritance applies to **create** only; `update_task` unchanged.
+- [x] Happy-path pytest: `test_subtask_inherits_parent_project_when_none_given` and
+      `test_subtask_keeps_explicit_project_when_given` — both pass.
+- [x] No migration. README note not required.
 
 ## Slice 4 — Customizable estimate input  *(FE-only)*
 
 **Files:** `frontend/src/utils/duration.ts` (add a minutes→{value,unit} split + parse helper),
 the task edit form (currently `TaskEditModal.tsx`; may live in the shared form after Slice 6).
 
-- [ ] Replace the `DURATION_OPTIONS` `<select>` with a free **number input + unit `<select>`**
-      (minutes / hours / days / weeks) that converts to integer minutes on change. Empty value →
-      `null` (no estimate). Reject `0`/negative client-side too (backend already 422s on `<= 0`).
-- [ ] Keep `formatDuration(minutes)` for the read-only badge in the list/card. Add
-      `splitDuration(minutes)` (→ largest whole unit for prefilling the inputs) and
-      `toMinutes(value, unit)`.
-- [ ] If `DURATION_OPTIONS` is now unused, remove it; don't leave dead exports.
-- [ ] Vitest for `toMinutes` / `splitDuration` round-trips.
+- [x] Replaced the `DURATION_OPTIONS` `<select>` with a free **number input + unit `<select>`**
+      (minutes / hours / days / weeks). Empty value → `null`. Client rejects `min={1}`.
+- [x] `formatDuration` updated to use `splitDuration` internally; `splitDuration` and `toMinutes`
+      added. `DURATION_OPTIONS` removed (was unused after the change).
+- [x] Vitest for `toMinutes` / `splitDuration` round-trips — `duration.test.ts` (20 cases).
 
 ## Slice 5 — Shared `TaskCard` component  *(FE-only, foundational — do before 6 & 8)*
 
 **Files (new):** `frontend/src/features/tasks/TaskCard.tsx`, `TaskCard.test.tsx`.
 **Files (modify):** `frontend/src/features/tasks/TasksPage.tsx`, `frontend/src/index.css`.
 
-- [ ] `TaskCard` props: `task: Task`, `projects?: Project[]` (to resolve the project name), and an
-      `onOpen?: (task) => void` **or** it renders a `<Link to={`/tasks/${task.id}`}>` wrapper —
-      pick the link form so it works the same in every context. Render: title, status, priority,
-      due badge (`dueStatus`/`formatDueDate`), estimate badge (`formatDuration`), **Blocked** badge,
-      and project name when in the global/inbox context.
-- [ ] Keep row actions (Mark done / Add subtask / Delete) **out** of the card body or in a footer
-      that doesn't trigger card navigation (stop propagation) — clicking the card opens detail,
-      clicking an action doesn't.
-- [ ] Swap `TasksPage.renderTask`'s inline `<li>` markup to render a `TaskCard` (the tree/indent
-      structure and the per-row subtask composer stay in `TasksPage`).
-- [ ] CSS: `.task-card` (border, radius, padding, hover affordance, shadow var), badge styles reuse
-      existing `.due`, `.estimate`, `.blocked`. Respect the dark-mode media block.
-- [ ] Test: card shows title + badges; clicking navigates to `/tasks/:id` (render in `MemoryRouter`,
-      assert the link target).
+- [x] `TaskCard` props: `task: Task`, `projects?: Project[]`, `actions?: ReactNode`. Uses the link
+      form (`<Link to="/tasks/:id">`). Renders: title, status-pill, priority-pill, due badge,
+      estimate badge, Blocked badge, project name (when `projects` provided).
+- [x] Row actions passed via `actions` prop into `.task-card-actions` with `e.preventDefault()`
+      so clicking an action doesn't trigger card navigation.
+- [x] Swapped `TasksPage.renderTask`'s inline `<li>` markup to render `TaskCard`. Tree/indent
+      and per-row subtask composer stay in `TasksPage` (kept inline — simpler than opening a modal).
+- [x] CSS: `.task-card`, `.task-card-body`, `.task-card-badges`, `.task-card-actions`,
+      `.priority-pill.*`, `.status-pill.*` added. Dark-mode overrides in media block.
+- [x] `TaskCard.test.tsx`: 9 tests — title, link target, badges, blocked/done, estimate, project name.
 
 ## Slice 6 — Task detail view + add/edit modal unification  *(FE + small BE)*
 
@@ -131,25 +113,20 @@ the task edit form (currently `TaskEditModal.tsx`; may live in the shared form a
 **Files (FE, modify):** `frontend/src/routes/AppRoutes.tsx`, `TasksPage.tsx`,
 `frontend/src/api/tasks.ts` (+ `getSubtasks`), `frontend/src/features/tasks/useTasks.ts`.
 
-- [ ] **BE:** add `GET /api/tasks/{id}/subtasks` → `TaskRead[]` (thin wrapper over
-      `tasks_service.list_subtasks`, `is_blocked` resolved with `_reads_with_blocked`). The global
-      `GET /api/tasks` is accepted-only, so a detail view can't get a task's children (incl.
-      candidates/done) from it — this route fills that gap. pytest for the route.
-- [ ] **FE route** `/tasks/:taskId` → `TaskDetailPage`: fetch the task (`getTask`) + its subtasks
-      (`getSubtasks`); show editable fields inline (reuse the task form), render subtasks as
-      `TaskCard`s (each links to its own `/tasks/:id`), and mount `TaskDependencies`. A back link to
-      the originating list. Loading / not-found / error states.
-- [ ] **Click-through:** `TaskCard` already links to `/tasks/:id` (Slice 5), so task-in-list,
-      subtask, and task-in-project all open the same detail view for free.
-- [ ] **Add-task modal:** extract the task form into `TaskFormModal` usable in **create** and
-      **edit** modes (create posts via `useTasks.create`, edit patches via `update`). Replace the
-      inline add-task `<form>` on `TasksPage` with an **Add task** button that opens it. The
-      per-row "Add subtask" composer can switch to the same modal (prefilled `parent_task_id`) or
-      stay inline — note which you chose.
-- [ ] **Projects "same style":** the scoped `/projects/:id/tasks` view reuses `TaskCard` (from
-      Slice 5) and the same Add-task modal, so a project's tasks look and click-through identically.
-      No separate ProjectDetailPage needed unless you want one — note the decision.
-- [ ] Update any test that relied on the old inline add-task form / `TaskEditModal` name.
+- [x] **BE:** `GET /api/tasks/{id}/subtasks` → `TaskRead[]` added to `routes_tasks.py`.
+      `is_blocked` resolved with `_reads_with_blocked`. 404 if parent task missing.
+      pytest: `test_list_subtasks_route_returns_direct_children` + `test_list_subtasks_route_404_for_missing_task`.
+- [x] **FE route** `/tasks/:taskId` → `TaskDetailPage`: `TaskDetailPage.tsx` created; fetches
+      task + subtasks + projects; renders subtasks as `TaskCard`s + `TaskDependencies`; back link;
+      loading/error/404 states. Route added to `AppRoutes.tsx`. `getSubtasks` added to `src/api/tasks.ts`.
+- [x] **Click-through:** `TaskCard` already links to `/tasks/:id` (Slice 5) — free.
+- [x] **Add-task modal:** `TaskFormModal.tsx` created — create + edit modes. `TasksPage` now
+      uses `TaskFormModal` for both add and edit. Inline add-task `<form>` replaced with
+      **Add task** button. Per-row subtask composer stays inline (chosen over modal — preserves
+      quick inline flow without an extra overlay).
+- [x] **Projects "same style":** `TasksPage` (scoped) already uses `TaskCard` from Slice 5.
+      No separate ProjectDetailPage — `/projects/:id/tasks` reuses `TasksPage` unchanged.
+- [x] All existing tests still pass (72 FE, 143 BE); no test relied on the old inline form shape.
 
 ## Slice 7 — Task filter  *(FE-only)*
 

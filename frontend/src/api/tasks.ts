@@ -59,3 +59,8 @@ export async function restoreTask(id: number): Promise<Task> {
   const res = await apiClient(`/api/tasks/${id}/restore`, { method: 'POST' })
   return (await res.json()) as Task
 }
+
+export async function getSubtasks(id: number): Promise<Task[]> {
+  const res = await apiClient(`/api/tasks/${id}/subtasks`)
+  return (await res.json()) as Task[]
+}
