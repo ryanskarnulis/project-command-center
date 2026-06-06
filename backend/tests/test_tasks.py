@@ -223,6 +223,37 @@ def test_estimated_minutes_round_trips_and_rejects_non_positive(
     )
 
 
+def test_subtask_inherits_parent_project_when_none_given(db_session: Session) -> None:
+    project = projects_service.create_project(db_session, name="HomeNetwork")
+    db_session.commit()
+
+    parent = tasks_service.create_task(db_session, project_id=project.id, title="parent task")
+    db_session.commit()
+
+    subtask = tasks_service.create_task(
+        db_session, project_id=None, title="child task", parent_task_id=parent.id
+    )
+    db_session.commit()
+
+    assert subtask.project_id == project.id
+
+
+def test_subtask_keeps_explicit_project_when_given(db_session: Session) -> None:
+    project_a = projects_service.create_project(db_session, name="Alpha")
+    project_b = projects_service.create_project(db_session, name="Beta")
+    db_session.commit()
+
+    parent = tasks_service.create_task(db_session, project_id=project_a.id, title="parent in A")
+    db_session.commit()
+
+    subtask = tasks_service.create_task(
+        db_session, project_id=project_b.id, title="child in B", parent_task_id=parent.id
+    )
+    db_session.commit()
+
+    assert subtask.project_id == project_b.id
+
+
 def test_task_routes_strip_and_reject_blank_text(client: TestClient) -> None:
     created = client.post(
         "/api/tasks",

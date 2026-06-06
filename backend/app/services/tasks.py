@@ -122,6 +122,13 @@ def create_task(
     parent_task_id: int | None = None,
     estimated_minutes: int | None = None,
 ) -> Task:
+    # Inherit project from parent on create only. Re-parenting an existing task
+    # does not silently move its project — the edit modal exposes an explicit
+    # Project field for that.
+    if parent_task_id is not None and project_id is None:
+        parent = get_task(db, parent_task_id)
+        if parent is not None:
+            project_id = parent.project_id
     project_id = _default_project_id_for_status(db, project_id, status)
     if parent_task_id is not None:
         _assert_no_parent_cycle(db, None, parent_task_id)

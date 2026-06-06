@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { listProjects } from '../../api/projects'
 import type { Project } from '../../types/project'
 import type { Task, TaskPriority } from '../../types/task'
-import { compareByDue, dueStatus, formatDueDate } from '../../utils/dates'
+import { compareTasks, dueStatus, formatDueDate } from '../../utils/dates'
 import { formatDuration } from '../../utils/duration'
 import { ActivityFeed } from '../projects/ActivityFeed'
 import { TaskEditModal } from './TaskEditModal'
@@ -76,7 +76,7 @@ export function TasksPage() {
   }
 
   function renderTask(t: Task) {
-    const kids = [...(childrenOf.get(t.id) ?? [])].sort(compareByDue)
+    const kids = [...(childrenOf.get(t.id) ?? [])].sort(compareTasks)
     return (
       <li key={t.id}>
         <span>{t.title}</span> <span>[{t.status}]</span>{' '}
@@ -93,7 +93,9 @@ export function TasksPage() {
           <span className="estimate">~{formatDuration(t.estimated_minutes)}</span>
         )}{' '}
         {isGlobal && t.project_id !== null && (
-          <Link to={`/projects/${t.project_id}/tasks`}>Project #{t.project_id}</Link>
+          <Link to={`/projects/${t.project_id}/tasks`}>
+            {projects.find((p) => p.id === t.project_id)?.name ?? 'Project'}
+          </Link>
         )}{' '}
         <button onClick={() => setEditing(t)}>Edit</button>{' '}
         <button
@@ -166,7 +168,7 @@ export function TasksPage() {
       {loading && <p>Loading…</p>}
       {error && <p role="alert">{error}</p>}
 
-      <ul>{[...roots].sort(compareByDue).map(renderTask)}</ul>
+      <ul>{[...roots].sort(compareTasks).map(renderTask)}</ul>
 
       {!loading && tasks.length === 0 && <p>No tasks yet.</p>}
 

@@ -11,7 +11,6 @@ import {
   HelpCircle,
   LayoutDashboard,
   Library,
-  ListTodo,
   Search,
   Settings,
   ShieldCheck,
@@ -28,7 +27,6 @@ interface AppShellProps {
 const primaryNav = [
   { to: '/dashboard', label: 'Command Center', icon: LayoutDashboard },
   { to: '/projects', label: 'Projects', icon: FolderKanban },
-  { to: '/tasks', label: 'Tasks', icon: ListTodo },
   { to: '/training', label: 'Training', icon: ClipboardCheck },
 ]
 

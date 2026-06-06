@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { compareByDue, dueStatus, formatDueDate } from './dates'
+import { compareByDue, compareTasks, dueStatus, formatDueDate } from './dates'
 
 describe('dueStatus', () => {
   beforeEach(() => {
@@ -52,6 +52,40 @@ describe('formatDueDate', () => {
     const result = formatDueDate('2026-06-15')
     expect(result).toContain('15')
     expect(result.length).toBeGreaterThan(2)
+  })
+})
+
+describe('compareTasks', () => {
+  const t = (id: number, due_date: string | null, priority: string) => ({ id, due_date, priority })
+
+  it('sorts earlier due dates before later ones regardless of priority', () => {
+    const tasks = [t(1, '2026-06-10', 'low'), t(2, '2026-06-05', 'urgent')]
+    expect([...tasks].sort(compareTasks).map((x) => x.id)).toEqual([2, 1])
+  })
+
+  it('sorts tasks without a due date last', () => {
+    const tasks = [t(1, null, 'urgent'), t(2, '2026-06-01', 'low')]
+    expect([...tasks].sort(compareTasks).map((x) => x.id)).toEqual([2, 1])
+  })
+
+  it('breaks equal due dates by priority (urgent before low)', () => {
+    const tasks = [t(1, '2026-06-01', 'low'), t(2, '2026-06-01', 'urgent')]
+    expect([...tasks].sort(compareTasks).map((x) => x.id)).toEqual([2, 1])
+  })
+
+  it('priority order: urgent < high < medium < low', () => {
+    const tasks = [t(4, '2026-06-01', 'low'), t(3, '2026-06-01', 'medium'), t(2, '2026-06-01', 'high'), t(1, '2026-06-01', 'urgent')]
+    expect([...tasks].sort(compareTasks).map((x) => x.id)).toEqual([1, 2, 3, 4])
+  })
+
+  it('breaks equal due + priority ties by id', () => {
+    const tasks = [t(5, '2026-06-01', 'medium'), t(2, '2026-06-01', 'medium')]
+    expect([...tasks].sort(compareTasks).map((x) => x.id)).toEqual([2, 5])
+  })
+
+  it('null-vs-null breaks by priority then id', () => {
+    const tasks = [t(2, null, 'low'), t(1, null, 'urgent')]
+    expect([...tasks].sort(compareTasks).map((x) => x.id)).toEqual([1, 2])
   })
 })
 

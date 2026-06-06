@@ -1,5 +1,7 @@
 export type DueStatus = 'overdue' | 'today' | 'soon' | 'none'
 
+const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 }
+
 function parseLocalDate(s: string): Date {
   const [y, m, d] = s.split('-').map(Number)
   return new Date(y, m - 1, d)
@@ -27,6 +29,10 @@ interface HasDue {
   due_date: string | null
 }
 
+interface HasDueAndPriority extends HasDue {
+  priority: string
+}
+
 /**
  * Sort by due date ascending (most overdue / soonest first). Tasks without a
  * due date sort last. Ties (including null-vs-null) break by `id` so order is
@@ -40,5 +46,22 @@ export function compareByDue(a: HasDue, b: HasDue): number {
   } else if (b.due_date) {
     return 1
   }
+  return a.id - b.id
+}
+
+/**
+ * Sort by due date ascending (nulls last), then priority (urgent→high→medium→low),
+ * then id for a fully deterministic order.
+ */
+export function compareTasks(a: HasDueAndPriority, b: HasDueAndPriority): number {
+  if (a.due_date && b.due_date) {
+    if (a.due_date !== b.due_date) return a.due_date < b.due_date ? -1 : 1
+  } else if (a.due_date) {
+    return -1
+  } else if (b.due_date) {
+    return 1
+  }
+  const pr = (PRIORITY_RANK[a.priority] ?? 99) - (PRIORITY_RANK[b.priority] ?? 99)
+  if (pr !== 0) return pr
   return a.id - b.id
 }
