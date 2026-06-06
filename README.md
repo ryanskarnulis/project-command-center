@@ -15,6 +15,7 @@ Bad:   AI decides everything and directly edits the database
 
 ```
 Frontend:      React + Vite + TypeScript
+Icons:         lucide-react
 Backend:       FastAPI
 Database:      SQLite
 ORM:           SQLAlchemy 2.0 (typed syntax)
@@ -195,6 +196,17 @@ Deleting any other project rehomes its active tasks to `General` before the
 project is soft-deleted, and the top-level `/tasks` view lists accepted work
 across projects so dashboard counts always point to reachable tasks.
 
+Tasks nest via a nullable self-referential `parent_task_id` (a tree, not a graph:
+a self-/ancestor-cycle is refused with a `409`, guarded in `services/tasks.py`).
+Soft-deleting a parent **cascade-soft-deletes its whole subtree**; restore is
+per-task (restoring a parent does not auto-restore children — each is restorable
+from `/trash`). Ordering tasks is separate from nesting: `task_dependencies` holds
+`A depends_on B` edges meaning **B must be `done` before A can start**. "Blocked"
+is never a stored status — it's derived in Python from the active edges and the
+depended-on tasks' status (`TaskRead.is_blocked`, resolved in one bulk query), and
+the same `services/task_dependencies.py` cycle guard refuses any edge that would
+create an `A→B→A` deadlock (prime directive #1: the app owns the logic).
+
 ### The most important table
 
 ```
@@ -353,8 +365,15 @@ Sprint 7:  [WIP] Daily-use & polish. Done: daily-use slice (global task view,
            "A depends_on B" = B done before A starts), Python DFS cycle guard
            (self/dup/A→B→A → 409), derived is_blocked (no status column; bulk
            query, no N+1), GET/POST/DELETE /api/tasks/{id}/dependencies, "Depends
-           on" modal section + red Blocked badge.
-Sprint 8:  Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
+           on" modal section + red Blocked badge. UI refresh: persistent command
+           center shell with lucide icons, dashboard focus cards, contextual plus
+           controls for adding tasks/projects, and a reusable messy-text
+           capture/review panel embedded at the top of the dashboard and reused
+           by `/inbox`; the old Quick Actions card was removed (no new backend routes).
+Sprint 8:  UI polish — remaining empty/loading/error states, success/failure
+           toasts, and a shared Button/Card/Badge component layer. (The Sprint 7
+           revamp landed the command-center shell, dashboard, and capture panel.)
+Sprint 9:  Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```
 
@@ -363,13 +382,13 @@ Sprint 8:  Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
 Build this end-to-end before anything else:
 
 ```
-React inbox page
+React command center or inbox page
 POST /api/inbox                    (creates inbox_item)
 POST /api/inbox/{id}/process       (runs extraction workflow)
 Ollama call through ModelGateway
 Pydantic validation
 Task rows saved with status="candidate"
-Review UI lists candidates
+Review UI lists candidates directly under the messy-text capture box
 Accept candidate → status="accepted"
 Diff saved to ai_training_examples
 ```

@@ -275,17 +275,102 @@ Hardening additions (Codex review pass):
       history shown per suite on the Settings page so prompt/profile edits can be seen
       to help or regress over time.
 
-### UI polish (split into small PRs, not one redesign)
-- [ ] Real top-level navigation — sidebar or top nav linking Dashboard / Inbox / Projects / Tasks / Settings
-- [ ] Consistent empty / loading / error states across pages
-- [ ] Toasts for success / failure
-- [ ] Shared component layer in `src/components/` — Button, Card, Badge, Modal
-- [ ] Visual hierarchy — card-based layout, readable type scale, subtle color accents for status/priority
-- [ ] Mobile-responsive layout (accessed from LAN devices)
+### UI refresh slice
+- [x] Command-center shell — persistent sidebar/topbar layout in `AppShell`, lucide icons,
+      responsive command-center styling, and disabled placeholders for not-yet-built tools
+      (AI command search, timer, calendar) without adding backend scope.
+- [x] Dashboard redesign — Focus Now cards for open tasks, awaiting review, blocked tasks,
+      and due-soon work; project overview, AI insights, and calendar placeholder
+      use existing API data only.
+- [x] Contextual creation controls — removed the Quick Actions card; Open Tasks carries
+      the add-task plus affordance, and Projects Overview carries the create-project
+      plus affordance.
+- [x] Dashboard capture workflow — reusable `InboxCapturePanel` embeds messy-text AI task
+      extraction at the top of the command center; extracted candidates render immediately
+      underneath for accept/reject/edit approval. `/inbox` reuses the same panel.
+- [x] Training progress stays separate on `/training`; no training-progress widget in
+      Focus Now.
+- [x] UI test coverage — dashboard capture flow, disabled placeholders, and sidebar
+      navigation expectations covered with Vitest.
+
 
 ---
 
-## Sprint 8 — Custom Model Training
+## Sprint 8 — UI Polish
+> Split into small PRs, not one redesign. The Sprint 7 command-center revamp landed
+> the shell, dashboard, and capture panel; this sprint finishes the remaining polish.
+
+- [x] Real top-level navigation — command-center sidebar/topbar linking Dashboard / Projects / Tasks / Training / Trash / Settings; Inbox remains a route and is embedded as the dashboard capture workflow
+- [x] Visual hierarchy — card-based layout, readable type scale, subtle color accents for status/priority
+- [x] Replace generic quick actions with contextual section controls for adding tasks and projects
+- [x] Mobile-responsive layout (accessed from LAN devices)
+- [~] Consistent empty / loading / error states across pages
+- [ ] Toasts for success / failure
+- [~] Shared component layer in `src/components/` — `AppShell` added; reusable inbox capture panel lives in `features/inbox`; primitive Button/Card/Badge still implicit in CSS
+
+Revamp follow-up fixes (from review of the Sprint 7 revamp):
+- [x] Dashboard: drop the duplicate pending-inbox fetch in `useDashboard` — the capture panel already loads pending items and reports the count via `onPendingCountChange`
+- [x] Dashboard: replace the local `weekDistance` helper with the shared `dueStatus(due, 7)` from `utils/dates` (no duplicated date math)
+- [x] Dashboard: remove the dead `status !== 'done'` guard on blocked tasks — `GET /api/tasks` returns accepted-only, so it never filtered anything
+- [x] Dashboard: time-aware hero greeting (morning / afternoon / evening) instead of a hardcoded "Good morning"
+
+### Task & Inbox UX overhaul (added — 8 small slices, ship as separate PRs)
+> Goal: clickable task/project detail views built on a shared task card, smarter ordering,
+> a task filter, customizable estimates, and an inbox that is review-only with per-candidate
+> approval. Detailed working steps live in `TASKS_SPRINT.md`. Slices 5→6→8 are ordered (the
+> shared card and detail view are prerequisites for the inbox rework). Backend touches only
+> Slices 3 and 8; **no schema/migration** in any slice.
+
+- [ ] **Slice 1 — Ordering + nesting integrity** (FE-only): sort tasks by due date, then by
+      priority (`urgent` > `high` > `medium` > `low`) as the tie-breaker; keep subtasks grouped
+      under their parent at every level. Extend `utils/dates.compareByDue` → `compareTasks`
+      (priority rank as secondary key, `id` last) + unit tests. _Requests: order-by-priority,
+      keep-nested-together._
+- [ ] **Slice 2 — Nav + project-name links** (FE-only): remove **Tasks** from the `AppShell`
+      sidebar `primaryNav` (the dashboard Open Tasks card already links to `/tasks`; the route
+      stays); in the global task view render the real project **name** (from the already-loaded
+      `projects`) instead of `Project #{id}`. Update `AppShell.test.tsx`. _Requests: drop Tasks
+      tab, real project names._
+- [ ] **Slice 3 — Subtask project inheritance** (BE + pytest): in `services/tasks.create_task`,
+      when `parent_task_id` is set and `project_id is None`, inherit the parent task's
+      `project_id` (before the accepted→General fallback). Owns the logic in Python (prime
+      directive #1). Happy-path pytest. No migration. _Request: fresh subtasks inherit parent
+      project._
+- [ ] **Slice 4 — Customizable estimate input** (FE-only): replace the fixed `DURATION_OPTIONS`
+      dropdown in the task edit form with a free value + unit input (min/hr/day/wk → minutes);
+      backend already enforces `estimated_minutes > 0`. Keep `formatDuration` for the list/card
+      badge. _Request: fully-customizable time estimate._
+- [ ] **Slice 5 — Shared `TaskCard` component** (FE-only, foundational): `features/tasks/TaskCard.tsx`
+      — a clickable card rendering title / status / priority / due badge / estimate / Blocked /
+      project, navigating to the task detail view on click. Used by the task list, project view,
+      and inbox. CSS in `index.css`. _Request: better-looking clickable card (shared)._
+- [ ] **Slice 6 — Task detail view + add/edit modal unification** (FE + small BE): route
+      `/tasks/:taskId` → `TaskDetailPage` showing the task's editable fields, its subtasks (as
+      `TaskCard`s, each click-through to its own detail view), and dependencies; clicking a task
+      in a project opens the same view. Add **`GET /api/tasks/{id}/subtasks`** (BE, thin wrapper
+      over `list_subtasks`) so a detail view can load its direct children regardless of status.
+      Make the **Add task** button open a modal that reuses the task form (create mode). _Requests:
+      special task view + subtasks, subtask/project-task click-through, projects similar style,
+      add-task modal._
+- [ ] **Slice 7 — Task filter** (FE-only): a filter bar on the task view (status, priority,
+      project [global view], plus due-soon/overdue/blocked toggles), filtering client-side over
+      loaded tasks while preserving parent→child grouping. _Request: filter for tasks view._
+- [ ] **Slice 8 — Inbox = review-only, per-candidate approval** (BE + FE): drop the capture panel
+      from `/inbox` (capture stays on the dashboard); show notes awaiting review with their
+      candidates rendered as the **same `TaskCard`s**; open a candidate → edit it → **Submit**
+      (approve that one) or **Dismiss** (reject it). Backend: refactor `services/review.py` into a
+      per-candidate decision (approve = status→`accepted` + project resolve via existing
+      `PATCH /api/tasks/{id}` for edits; dismiss = status→`rejected`) that **finalizes the note**
+      — sets `reviewed_at` and writes the single `ai_training_examples` row (+ the
+      `project_matching` row) — only when no `candidate`-status tasks remain, preserving the
+      one-row-per-note invariant (prime directive #4). No schema/migration (drives off the
+      existing `status` enum + `reviewed_at`). pytest for per-candidate + finalization; Vitest for
+      the inbox cards. _Requests: inbox shows only awaiting-approval as task cards, approve one at
+      a time._
+
+---
+
+## Sprint 9 — Custom Model Training
 > Do not start until you have 200+ rows in `ai_training_examples`.
 
 - [ ] Export `ai_training_examples` to JSONL training format

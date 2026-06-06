@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getDashboard, getProjectSummary } from '../../api/dashboard'
+import { listAllTasks } from '../../api/tasks'
 import type { DashboardOverview, ProjectSummary } from '../../types/dashboard'
+import type { Task } from '../../types/task'
 import { ApiError } from '../../api/client'
 
 interface SummaryState {
@@ -11,6 +13,7 @@ interface SummaryState {
 
 interface UseDashboard {
   overview: DashboardOverview | null
+  tasks: Task[]
   loading: boolean
   error: string | null
   summaries: Record<number, SummaryState>
@@ -19,17 +22,30 @@ interface UseDashboard {
 
 export function useDashboard(): UseDashboard {
   const [overview, setOverview] = useState<DashboardOverview | null>(null)
+  const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [summaries, setSummaries] = useState<Record<number, SummaryState>>({})
 
   useEffect(() => {
-    getDashboard()
-      .then(setOverview)
-      .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : 'Failed to load dashboard')
+    let active = true
+    Promise.all([getDashboard(), listAllTasks()])
+      .then(([overview, tasks]) => {
+        if (!active) return
+        setOverview(overview)
+        setTasks(tasks)
       })
-      .finally(() => setLoading(false))
+      .catch((err: unknown) => {
+        if (active) {
+          setError(err instanceof Error ? err.message : 'Failed to load dashboard')
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
   }, [])
 
   const summarize = useCallback((projectId: number) => {
@@ -58,5 +74,12 @@ export function useDashboard(): UseDashboard {
       })
   }, [])
 
-  return { overview, loading, error, summaries, summarize }
+  return {
+    overview,
+    tasks,
+    loading,
+    error,
+    summaries,
+    summarize,
+  }
 }

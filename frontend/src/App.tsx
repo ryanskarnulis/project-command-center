@@ -1,19 +1,13 @@
-import { BrowserRouter, NavLink } from 'react-router-dom'
+import { BrowserRouter } from 'react-router-dom'
+import { AppShell } from './components/AppShell'
 import { AppRoutes } from './routes/AppRoutes'
 
 function App() {
   return (
     <BrowserRouter>
-      <nav className="app-nav">
-        <NavLink to="/dashboard">Dashboard</NavLink>
-        <NavLink to="/inbox">Inbox</NavLink>
-        <NavLink to="/tasks">Tasks</NavLink>
-        <NavLink to="/projects">Projects</NavLink>
-        <NavLink to="/training">Training</NavLink>
-        <NavLink to="/trash">Trash</NavLink>
-        <NavLink to="/settings">Settings</NavLink>
-      </nav>
-      <AppRoutes />
+      <AppShell>
+        <AppRoutes />
+      </AppShell>
     </BrowserRouter>
   )
 }
