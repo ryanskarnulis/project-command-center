@@ -485,6 +485,89 @@ class _CaptureHandler(logging.Handler):
         self.records.append(record)
 
 
+def test_per_candidate_approve_one_does_not_finalize(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Approving the first of two candidates should not finalize the inbox item."""
+    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
+
+    inbox_id = client.post("/api/inbox", json={"raw_text": "two tasks here"}).json()["id"]
+    candidates = client.post(f"/api/inbox/{inbox_id}/process").json()
+    assert len(candidates) == 2
+    first_id, second_id = candidates[0]["id"], candidates[1]["id"]
+
+    resp = client.post(
+        f"/api/inbox/{inbox_id}/candidates/{first_id}",
+        json={"action": "approve"},
+    )
+    assert resp.status_code == 200
+    result = resp.json()
+    assert result["action"] == "approved"
+    assert result["finalized"] is False
+    assert result["training_example_id"] is None
+
+    # Item not yet finalized.
+    assert client.get(f"/api/inbox/{inbox_id}").json()["reviewed_at"] is None
+    # No training row yet.
+    examples = db_session.execute(active(AITrainingExample)).scalars().all()
+    assert len(examples) == 0
+
+    _ = second_id  # second candidate still pending
+
+
+def test_per_candidate_decide_last_finalizes_with_one_training_row(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deciding the last candidate finalizes the item and writes exactly one training row."""
+    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
+
+    inbox_id = client.post("/api/inbox", json={"raw_text": "finalize me"}).json()["id"]
+    candidates = client.post(f"/api/inbox/{inbox_id}/process").json()
+    first_id, second_id = candidates[0]["id"], candidates[1]["id"]
+
+    # Approve first (not finalized yet).
+    client.post(f"/api/inbox/{inbox_id}/candidates/{first_id}", json={"action": "approve"})
+
+    # Dismiss second → finalizes.
+    resp = client.post(
+        f"/api/inbox/{inbox_id}/candidates/{second_id}",
+        json={"action": "dismiss"},
+    )
+    assert resp.status_code == 200
+    result = resp.json()
+    assert result["finalized"] is True
+    assert result["training_example_id"] is not None
+
+    # Exactly one training row covering both outcomes.
+    examples = db_session.execute(active(AITrainingExample)).scalars().all()
+    assert len(examples) == 1
+    corrected = json.loads(examples[0].corrected_output_json)
+    assert len(corrected["tasks"]) == 1  # only the approved task
+
+    # Item is finalized.
+    assert client.get(f"/api/inbox/{inbox_id}").json()["reviewed_at"] is not None
+
+
+def test_per_candidate_re_deciding_finalized_item_conflicts(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
+
+    inbox_id = client.post("/api/inbox", json={"raw_text": "already done"}).json()["id"]
+    candidates = client.post(f"/api/inbox/{inbox_id}/process").json()
+
+    # Decide all candidates.
+    for c in candidates:
+        client.post(f"/api/inbox/{inbox_id}/candidates/{c['id']}", json={"action": "dismiss"})
+
+    # Try to re-decide after finalization → 409.
+    resp = client.post(
+        f"/api/inbox/{inbox_id}/candidates/{candidates[0]['id']}",
+        json={"action": "approve"},
+    )
+    assert resp.status_code == 409
+
+
 def test_request_id_propagates_through_request(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -11,7 +11,14 @@ from app.ai.workflows import extract_tasks as extract_workflow
 from app.ai.workflows import match_project as match_workflow
 from app.db.models import InboxItem, Task
 from app.db.session import get_db
-from app.schemas.inbox import InboxCreate, InboxRead, ReviewRequest, ReviewResult
+from app.schemas.inbox import (
+    CandidateDecision,
+    CandidateResult,
+    InboxCreate,
+    InboxRead,
+    ReviewRequest,
+    ReviewResult,
+)
 from app.schemas.tasks import TaskRead
 from app.services import inbox as inbox_service
 from app.services import review as review_service
@@ -125,6 +132,38 @@ def list_candidates(
 ) -> Sequence[Task]:
     _get_inbox_or_404(db, inbox_item_id)
     return inbox_service.list_candidates(db, inbox_item_id)
+
+
+@router.post("/{inbox_item_id}/candidates/{task_id}", response_model=CandidateResult)
+def decide_candidate(
+    inbox_item_id: int,
+    task_id: int,
+    data: CandidateDecision,
+    db: Session = Depends(get_db),
+) -> CandidateResult:
+    """Approve or dismiss a single candidate task.
+
+    Finalizes the inbox item (writes training data) once the last candidate is decided.
+    """
+    from app.services import tasks as tasks_service  # local to avoid circular import
+
+    item = _get_inbox_or_404(db, inbox_item_id)
+    task = tasks_service.get_task(db, task_id)
+    if task is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
+        )
+    try:
+        result = review_service.decide_candidate(db, item, task, data)
+    except review_service.AlreadyReviewedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return result
 
 
 @router.post("/{inbox_item_id}/review", response_model=ReviewResult)

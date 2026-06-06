@@ -370,9 +370,19 @@ Sprint 7:  [WIP] Daily-use & polish. Done: daily-use slice (global task view,
            controls for adding tasks/projects, and a reusable messy-text
            capture/review panel embedded at the top of the dashboard and reused
            by `/inbox`; the old Quick Actions card was removed (no new backend routes).
-Sprint 8:  UI polish — remaining empty/loading/error states, success/failure
-           toasts, and a shared Button/Card/Badge component layer. (The Sprint 7
-           revamp landed the command-center shell, dashboard, and capture panel.)
+Sprint 8:  [DONE] Task & Inbox UX overhaul — 8 slices:
+           (1) compareTasks: due-then-priority sort at every tree level.
+           (2) Tasks tab removed from nav; project links show real name.
+           (3) Fresh subtasks inherit parent's project (BE + pytest).
+           (4) Free-form estimate input (number + unit) replacing the dropdown;
+               formatDuration/splitDuration/toMinutes in utils/duration.ts.
+           (5) Shared TaskCard component (link to /tasks/:id, badges, actions prop).
+           (6) TaskDetailPage (/tasks/:taskId) with subtask cards + edit modal;
+               GET /api/tasks/{id}/subtasks route; TaskFormModal (create + edit modes).
+           (7) Client-side task filter (status, priority, project, overdue/due-soon/blocked).
+           (8) Inbox = review-only (no capture textarea); candidates as TaskCards;
+               POST /api/inbox/{id}/candidates/{task_id} per-candidate approve/dismiss;
+               finalization + training row written once all candidates are decided.
 Sprint 9:  Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

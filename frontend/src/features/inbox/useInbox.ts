@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { ApiError } from '../../api/client'
 import {
   createInbox,
+  decideCandidate,
   dismissInbox,
   getCandidates,
   getInbox,
@@ -11,6 +12,7 @@ import {
 } from '../../api/inbox'
 import { listProjects } from '../../api/projects'
 import type { InboxItem, ReviewDecision } from '../../types/inbox'
+import type { CandidateDecision } from '../../types/inbox'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 
@@ -25,6 +27,7 @@ interface UseInbox {
   notice: string | null
   submit: (rawText: string) => Promise<void>
   review: (decisions: ReviewDecision[]) => Promise<void>
+  decide: (inboxId: number, taskId: number, decision: CandidateDecision) => Promise<void>
   dismiss: (id: number) => Promise<void>
   loadPending: () => Promise<void>
   loadProjects: () => Promise<void>
@@ -156,6 +159,29 @@ export function useInbox(): UseInbox {
     [inboxItem, loadPending],
   )
 
+  const decide = useCallback(
+    async (inboxId: number, taskId: number, decision: CandidateDecision) => {
+      setSubmitting(true)
+      setError(null)
+      try {
+        const res = await decideCandidate(inboxId, taskId, decision)
+        // Remove the decided candidate from local state immediately.
+        setCandidates((prev) => prev.filter((t) => t.id !== taskId))
+        if (res.finalized) {
+          setNotice(
+            `Note finalized — ${decision.action === 'approve' ? '1 task approved' : 'task dismissed'}.`,
+          )
+          void loadPending()
+        }
+      } catch (e: unknown) {
+        setError(messageFor(e, 'Failed to decide candidate'))
+      } finally {
+        setSubmitting(false)
+      }
+    },
+    [loadPending],
+  )
+
   return {
     inboxItem,
     candidates,
@@ -167,6 +193,7 @@ export function useInbox(): UseInbox {
     notice,
     submit,
     review,
+    decide,
     dismiss,
     loadPending,
     loadProjects,

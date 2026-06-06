@@ -51,3 +51,16 @@ export interface ReviewResult {
   training_example_id: number
   match_training_example_id: number | null
 }
+
+export interface CandidateDecision {
+  action: 'approve' | 'dismiss'
+  edits?: ReviewEdit
+}
+
+export interface CandidateResult {
+  task_id: number
+  action: 'approved' | 'dismissed'
+  finalized: boolean
+  training_example_id: number | null
+  match_training_example_id: number | null
+}

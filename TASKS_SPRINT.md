@@ -150,39 +150,27 @@ remove/retire `InboxCapturePanel` usage on `/inbox` and `ReviewQueue` (replaced 
 `InboxPage.test.tsx`.
 
 ### Backend — per-candidate decision + deferred finalization
-- [ ] Split review into a **per-candidate** operation:
-  - **Approve**: flip the candidate `status` → `accepted` and resolve its `project_id` (reuse the
-    `_resolve_project_id` guard). Field edits arrive first via the existing
-    `PATCH /api/tasks/{id}` from the detail/edit view, so approve mainly flips status + files it.
-  - **Dismiss**: flip `status` → `rejected`.
-- [ ] **Finalization (preserves prime directive #4):** after each decision, if **no
-      `candidate`-status tasks remain** for the inbox item, set `reviewed_at` and write the single
-      `ai_training_examples` row (corrected output = the note's `accepted` tasks, current values) +
-      the `project_matching` row (when `match_output_json` is set and ≥1 task accepted) — the same
-      payloads `review_inbox` builds today, just emitted at the end of the per-candidate flow
-      instead of from a batch call. Keep it atomic (flush within a try / rollback on error).
-- [ ] Keep `AlreadyReviewedError` semantics: a finalized note (reviewed_at set) rejects further
-      decisions. Decisions referencing a non-candidate task of the item still 4xx.
-- [ ] Route(s): add a per-candidate endpoint (e.g. `POST /api/inbox/{id}/candidates/{task_id}`
-      with `{action: "approve"|"dismiss"}`), or `POST /api/tasks/{id}/approve|dismiss` scoped to
-      candidate-status tasks — pick one and note it. The existing batch
-      `POST /api/inbox/{id}/review` can stay (dashboard capture panel still uses it) or be
-      expressed in terms of the new per-candidate path; don't break the dashboard flow.
-- [ ] pytest: approve one of two candidates → note **not** finalized, no training row yet; decide
-      the second → note finalized, exactly **one** training row with both outcomes reflected;
-      re-deciding a finalized note → `AlreadyReviewedError`.
+- [x] `POST /api/inbox/{id}/candidates/{task_id}` with `{action: "approve"|"dismiss"}` added to
+      `routes_inbox.py`. `CandidateDecision` / `CandidateResult` schemas in `schemas/inbox.py`.
+- [x] `decide_candidate` in `services/review.py`: flips candidate status, then if no candidates
+      remain calls `_finalize_inbox` which sets `reviewed_at` and writes both training rows atomically.
+- [x] `AlreadyReviewedError` raised if item already finalized. Non-candidate task → `ValueError` → 400.
+      Batch `POST /api/inbox/{id}/review` untouched — dashboard capture panel still uses it.
+- [x] pytest: `test_per_candidate_approve_one_does_not_finalize`,
+      `test_per_candidate_decide_last_finalizes_with_one_training_row`,
+      `test_per_candidate_re_deciding_finalized_item_conflicts` — all pass.
 
 ### Frontend — review-only inbox with task cards
-- [ ] `/inbox` (`InboxPage`) drops the capture textarea entirely (capture lives on the dashboard).
-      It lists notes awaiting review; each note's candidates render as **`TaskCard`s**.
-- [ ] Opening a candidate card → the task detail/edit view (Slice 6) where you edit fields, then
-      **Submit** (approve → per-candidate endpoint) or **Dismiss** (reject). After a decision,
-      refresh the pending list; when a note's last candidate is decided it drops out.
-- [ ] `useInbox`/`api/inbox`: add the per-candidate approve/dismiss calls; keep `loadPending`.
-      Retire `ReviewQueue` from `/inbox` (and `InboxCapturePanel` from `/inbox` — it stays on the
-      dashboard). Keep training-clean error messaging (the 409 already-reviewed copy).
-- [ ] Vitest: a pending note renders candidate cards; dismiss removes one; approving the last
-      finalizes (mock the API).
+- [x] `/inbox` (`InboxPage`) rewritten: no capture textarea. Lists pending notes; clicking a note
+      loads its candidates as `TaskCard`s with Approve/Dismiss action buttons.
+- [x] `decideCandidate` added to `api/inbox.ts`; `decide` callback added to `useInbox`.
+      After approve/dismiss the decided candidate is removed from local state immediately.
+      When `finalized=true`, a notice is shown and `loadPending` is called.
+- [x] `CandidateDecision` / `CandidateResult` types added to `types/inbox.ts`.
+- [x] `InboxCapturePanel` stays on the dashboard; retired from `/inbox`.
+      `ReviewQueue` no longer used on `/inbox`.
+- [x] Vitest: pending note renders, candidate cards shown on click, dismiss removes one,
+      approving the last candidate shows finalized notice — 5 new tests, all pass.
 
 ---
 

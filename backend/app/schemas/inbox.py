@@ -63,3 +63,20 @@ class ReviewResult(BaseModel):
     rejected: int
     training_example_id: int
     match_training_example_id: int | None = None
+
+
+class CandidateDecision(BaseModel):
+    """Per-candidate approve/dismiss for the new one-at-a-time review flow."""
+
+    action: Literal["approve", "dismiss"]
+    edits: ReviewEdit | None = None  # only used on approve
+
+
+class CandidateResult(BaseModel):
+    """Result of a single candidate decision."""
+
+    task_id: int
+    action: Literal["approved", "dismissed"]
+    finalized: bool
+    training_example_id: int | None = None
+    match_training_example_id: int | None = None

@@ -321,30 +321,30 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
 > shared card and detail view are prerequisites for the inbox rework). Backend touches only
 > Slices 3 and 8; **no schema/migration** in any slice.
 
-- [ ] **Slice 1 — Ordering + nesting integrity** (FE-only): sort tasks by due date, then by
+- [X] **Slice 1 — Ordering + nesting integrity** (FE-only): sort tasks by due date, then by
       priority (`urgent` > `high` > `medium` > `low`) as the tie-breaker; keep subtasks grouped
       under their parent at every level. Extend `utils/dates.compareByDue` → `compareTasks`
       (priority rank as secondary key, `id` last) + unit tests. _Requests: order-by-priority,
       keep-nested-together._
-- [ ] **Slice 2 — Nav + project-name links** (FE-only): remove **Tasks** from the `AppShell`
+- [X] **Slice 2 — Nav + project-name links** (FE-only): remove **Tasks** from the `AppShell`
       sidebar `primaryNav` (the dashboard Open Tasks card already links to `/tasks`; the route
       stays); in the global task view render the real project **name** (from the already-loaded
       `projects`) instead of `Project #{id}`. Update `AppShell.test.tsx`. _Requests: drop Tasks
       tab, real project names._
-- [ ] **Slice 3 — Subtask project inheritance** (BE + pytest): in `services/tasks.create_task`,
+- [X] **Slice 3 — Subtask project inheritance** (BE + pytest): in `services/tasks.create_task`,
       when `parent_task_id` is set and `project_id is None`, inherit the parent task's
       `project_id` (before the accepted→General fallback). Owns the logic in Python (prime
       directive #1). Happy-path pytest. No migration. _Request: fresh subtasks inherit parent
       project._
-- [ ] **Slice 4 — Customizable estimate input** (FE-only): replace the fixed `DURATION_OPTIONS`
+- [X] **Slice 4 — Customizable estimate input** (FE-only): replace the fixed `DURATION_OPTIONS`
       dropdown in the task edit form with a free value + unit input (min/hr/day/wk → minutes);
       backend already enforces `estimated_minutes > 0`. Keep `formatDuration` for the list/card
       badge. _Request: fully-customizable time estimate._
-- [ ] **Slice 5 — Shared `TaskCard` component** (FE-only, foundational): `features/tasks/TaskCard.tsx`
+- [X] **Slice 5 — Shared `TaskCard` component** (FE-only, foundational): `features/tasks/TaskCard.tsx`
       — a clickable card rendering title / status / priority / due badge / estimate / Blocked /
       project, navigating to the task detail view on click. Used by the task list, project view,
       and inbox. CSS in `index.css`. _Request: better-looking clickable card (shared)._
-- [ ] **Slice 6 — Task detail view + add/edit modal unification** (FE + small BE): route
+- [X] **Slice 6 — Task detail view + add/edit modal unification** (FE + small BE): route
       `/tasks/:taskId` → `TaskDetailPage` showing the task's editable fields, its subtasks (as
       `TaskCard`s, each click-through to its own detail view), and dependencies; clicking a task
       in a project opens the same view. Add **`GET /api/tasks/{id}/subtasks`** (BE, thin wrapper
@@ -352,10 +352,10 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
       Make the **Add task** button open a modal that reuses the task form (create mode). _Requests:
       special task view + subtasks, subtask/project-task click-through, projects similar style,
       add-task modal._
-- [ ] **Slice 7 — Task filter** (FE-only): a filter bar on the task view (status, priority,
+- [X] **Slice 7 — Task filter** (FE-only): a filter bar on the task view (status, priority,
       project [global view], plus due-soon/overdue/blocked toggles), filtering client-side over
       loaded tasks while preserving parent→child grouping. _Request: filter for tasks view._
-- [ ] **Slice 8 — Inbox = review-only, per-candidate approval** (BE + FE): drop the capture panel
+- [X] **Slice 8 — Inbox = review-only, per-candidate approval** (BE + FE): drop the capture panel
       from `/inbox` (capture stays on the dashboard); show notes awaiting review with their
       candidates rendered as the **same `TaskCard`s**; open a candidate → edit it → **Submit**
       (approve that one) or **Dismiss** (reject it). Backend: refactor `services/review.py` into a

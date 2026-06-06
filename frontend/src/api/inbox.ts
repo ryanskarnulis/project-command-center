@@ -1,5 +1,7 @@
 import { apiClient } from './client'
 import type {
+  CandidateDecision,
+  CandidateResult,
   InboxCreate,
   InboxItem,
   ReviewRequest,
@@ -60,4 +62,17 @@ export async function reviewInbox(
     body: JSON.stringify(data),
   })
   return (await res.json()) as ReviewResult
+}
+
+export async function decideCandidate(
+  inboxId: number,
+  taskId: number,
+  data: CandidateDecision,
+): Promise<CandidateResult> {
+  const res = await apiClient(`/api/inbox/${inboxId}/candidates/${taskId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  return (await res.json()) as CandidateResult
 }
