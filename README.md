@@ -393,6 +393,13 @@ Sprint 9:  [DONE] Task detail/status redesign — split task state into
            editable title/description/priority/due/project/parent/status/estimate,
            polished header, dependency rows, subtask section, and save/error states.
            Estimate entry is now natural text: 30m, 2h, 1 day, none.
+Sprint 9b: [DONE] Completed-task archive — done tasks leave the active list and
+           are reachable via the "Done" option in the /tasks status dropdown,
+           which swaps the list to the completed archive (lazily fetched from
+           GET /api/tasks?workflow_status=done and GET /api/projects/{id}/tasks?
+           workflow_status=done). POST /api/tasks/{id}/reopen sends a task back to
+           open. The same dropdown gained a "Blocked" filter (client-side over
+           is_blocked). Mirrors the trash/restore pattern.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

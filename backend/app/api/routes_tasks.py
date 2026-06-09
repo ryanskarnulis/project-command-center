@@ -57,7 +57,11 @@ def _reads_with_blocked(db: Session, tasks: Sequence[Task]) -> list[TaskRead]:
 
 
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskRead])
-def list_tasks(project_id: int, db: Session = Depends(get_db)) -> list[TaskRead]:
+def list_tasks(
+    project_id: int,
+    workflow_status: TaskWorkflowStatus | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> list[TaskRead]:
     _ensure_project(db, project_id)
     return _reads_with_blocked(
         db,
@@ -65,7 +69,8 @@ def list_tasks(project_id: int, db: Session = Depends(get_db)) -> list[TaskRead]
             db,
             project_id,
             review_status=TaskReviewStatus.accepted,
-            exclude_done=True,
+            workflow_status=workflow_status,
+            exclude_done=workflow_status is None,
         ),
     )
 
@@ -178,6 +183,16 @@ def mark_task_done(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     db.commit()
     db.refresh(updated)
     logger.info("task_marked_done", task_id=updated.id)
+    return _read_with_blocked(db, updated)
+
+
+@router.post("/tasks/{task_id}/reopen", response_model=TaskRead)
+def reopen_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
+    task = _get_task_or_404(db, task_id)
+    updated = tasks_service.reopen_task(db, task)
+    db.commit()
+    db.refresh(updated)
+    logger.info("task_reopened", task_id=updated.id)
     return _read_with_blocked(db, updated)
 
 

@@ -131,6 +131,42 @@ def test_global_tasks_route_creates_task_in_general(client: TestClient) -> None:
     assert body["project_id"] is not None
 
 
+def test_done_task_archives_and_reopens(
+    client: TestClient, db_session: Session
+) -> None:
+    project = projects_service.create_project(db_session, name="Firewall")
+    task = tasks_service.create_task(
+        db_session, project_id=project.id, title="patch box"
+    )
+    db_session.commit()
+
+    # Mark done: leaves the active list, appears under the completed query.
+    done = client.post(f"/api/tasks/{task.id}/done")
+    assert done.status_code == 200
+    assert done.json()["workflow_status"] == "done"
+
+    active = client.get(f"/api/projects/{project.id}/tasks")
+    assert [t["id"] for t in active.json()] == []
+
+    completed = client.get(
+        f"/api/projects/{project.id}/tasks", params={"workflow_status": "done"}
+    )
+    assert [t["id"] for t in completed.json()] == [task.id]
+
+    # Reopen: returns to the active list, gone from the completed query.
+    reopened = client.post(f"/api/tasks/{task.id}/reopen")
+    assert reopened.status_code == 200
+    assert reopened.json()["workflow_status"] == "open"
+
+    active_again = client.get(f"/api/projects/{project.id}/tasks")
+    assert [t["id"] for t in active_again.json()] == [task.id]
+
+    completed_again = client.get(
+        f"/api/projects/{project.id}/tasks", params={"workflow_status": "done"}
+    )
+    assert completed_again.json() == []
+
+
 def test_list_subtasks_returns_active_children(db_session: Session) -> None:
     parent = tasks_service.create_task(db_session, project_id=None, title="parent")
     child_a = tasks_service.create_task(

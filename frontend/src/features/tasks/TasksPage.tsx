@@ -16,39 +16,42 @@ import { compareTasks, dueStatus } from '../../utils/dates'
 import { ActivityFeed } from '../projects/ActivityFeed'
 import { TaskCard } from './TaskCard'
 import { TaskFormModal } from './TaskFormModal'
+import { useCompletedTasks } from './useCompletedTasks'
 import { useTasks } from './useTasks'
+
+// The status dropdown doubles as a view selector: the three workflow states plus
+// "Blocked" (a derived filter over active tasks) and "Done" (which swaps to the
+// completed archive as its data source).
+type StatusView = '' | TaskWorkflowStatus | 'blocked'
 
 interface Filters {
   search: string
-  workflowStatus: TaskWorkflowStatus | ''
+  status: StatusView
   priority: TaskPriority | ''
   projectId: number | ''
   overdue: boolean
   dueSoon: boolean
-  blocked: boolean
 }
 
 type SortMode = 'smart' | 'due_date' | 'priority' | 'project' | 'newest'
 
 const EMPTY_FILTERS: Filters = {
   search: '',
-  workflowStatus: '',
+  status: '',
   priority: '',
   projectId: '',
   overdue: false,
   dueSoon: false,
-  blocked: false,
 }
 
 function isActive(f: Filters): boolean {
   return (
     f.search.trim() !== '' ||
-    f.workflowStatus !== '' ||
+    f.status !== '' ||
     f.priority !== '' ||
     f.projectId !== '' ||
     f.overdue ||
-    f.dueSoon ||
-    f.blocked
+    f.dueSoon
   )
 }
 
@@ -60,14 +63,19 @@ function matchesFilters(t: Task, f: Filters): boolean {
   ) {
     return false
   }
-  if (f.workflowStatus && t.workflow_status !== f.workflowStatus) return false
+  // 'done' selects the completed data source, so it imposes no per-task status
+  // check here; the workflow values and 'blocked' filter the active list.
+  if (f.status === 'open' && t.workflow_status !== 'open') return false
+  if (f.status === 'in_progress' && t.workflow_status !== 'in_progress') {
+    return false
+  }
+  if (f.status === 'blocked' && !t.is_blocked) return false
   if (f.priority && t.priority !== f.priority) return false
   if (f.projectId !== '' && t.project_id !== f.projectId) return false
   if (f.overdue && dueStatus(t.due_date) !== 'overdue') return false
   if (f.dueSoon && !['today', 'soon'].includes(dueStatus(t.due_date))) {
     return false
   }
-  if (f.blocked && !t.is_blocked) return false
   return true
 }
 
@@ -124,11 +132,21 @@ export function TasksPage() {
   const { projectId } = useParams()
   const id = projectId === undefined ? undefined : Number(projectId)
   const isGlobal = id === undefined
-  const { tasks, loading, error, create, markDone, remove } = useTasks(id)
+  const { tasks, loading, error, create, markDone, remove, reload } =
+    useTasks(id)
 
   const [addingTask, setAddingTask] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
+
+  // "Done" swaps the displayed list to the completed archive (lazily fetched).
+  const showingCompleted = filters.status === 'done'
+  const {
+    tasks: completedTasks,
+    loading: completedLoading,
+    error: completedError,
+    reopen,
+  } = useCompletedTasks(id, showingCompleted)
   const [sortMode, setSortMode] = useState<SortMode>('smart')
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<number>>(
     () => new Set(),
@@ -165,15 +183,31 @@ export function TasksPage() {
     return { roots, childrenOf }
   }, [tasks, filters])
 
+  // Completed tasks are a flat archive — no tree, just filter + sort.
+  const completedVisible = useMemo(
+    () =>
+      sortTasks(
+        completedTasks.filter((t) => matchesFilters(t, filters)),
+        sortMode,
+        projects,
+      ),
+    [completedTasks, filters, sortMode, projects],
+  )
+
   const filtersActive = isActive(filters)
+  const hasNonStatusFilters =
+    filters.search.trim() !== '' ||
+    filters.priority !== '' ||
+    filters.projectId !== '' ||
+    filters.overdue ||
+    filters.dueSoon
   const activeFilterCount = [
     filters.search.trim() !== '',
-    filters.workflowStatus !== '',
+    filters.status !== '',
     filters.priority !== '',
     filters.projectId !== '',
     filters.overdue,
     filters.dueSoon,
-    filters.blocked,
   ].filter(Boolean).length
 
   function toggleExpanded(taskId: number) {
@@ -282,6 +316,28 @@ export function TasksPage() {
     )
   }
 
+  function renderCompletedTask(t: Task) {
+    // Reopen pulls the task out of the archive and back into the active list;
+    // reload() refreshes that list so it's there when the view switches back.
+    const actions = (
+      <button
+        className="task-action"
+        onClick={() => void reopen(t.id).then(reload)}
+      >
+        Reopen
+      </button>
+    )
+    return (
+      <li key={t.id}>
+        <TaskCard
+          task={t}
+          projects={isGlobal ? projects : undefined}
+          actions={actions}
+        />
+      </li>
+    )
+  }
+
   return (
     <main>
       {!isGlobal && (
@@ -335,17 +391,18 @@ export function TasksPage() {
             <span>Status</span>
             <select
               aria-label="Filter by status"
-              value={filters.workflowStatus}
+              value={filters.status}
               onChange={(e) =>
                 setFilters((f) => ({
                   ...f,
-                  workflowStatus: e.target.value as TaskWorkflowStatus | '',
+                  status: e.target.value as StatusView,
                 }))
               }
             >
               <option value="">All statuses</option>
               <option value="open">Open</option>
               <option value="in_progress">In progress</option>
+              <option value="blocked">Blocked</option>
               <option value="done">Done</option>
             </select>
           </label>
@@ -432,31 +489,43 @@ export function TasksPage() {
             />
             Due soon
           </label>
-
-          <label className={filters.blocked ? 'selected' : ''}>
-            <input
-              type="checkbox"
-              checked={filters.blocked}
-              onChange={(e) =>
-                setFilters((f) => ({ ...f, blocked: e.target.checked }))
-              }
-            />
-            Blocked
-          </label>
         </div>
       </div>
 
-      {loading && <p>Loading…</p>}
-      {error && <p role="alert">{error}</p>}
+      {showingCompleted ? (
+        <>
+          {completedLoading && <p>Loading…</p>}
+          {completedError && <p role="alert">{completedError}</p>}
 
-      <ul className="task-list">
-        {sortTasks(roots, sortMode, projects).map(renderTask)}
-      </ul>
+          <ul className="task-list">
+            {completedVisible.map(renderCompletedTask)}
+          </ul>
 
-      {!loading && roots.length === 0 && (
-        <p>
-          {filtersActive ? 'No tasks match the current filters.' : 'No tasks yet.'}
-        </p>
+          {!completedLoading && completedVisible.length === 0 && (
+            <p>
+              {hasNonStatusFilters
+                ? 'No completed tasks match the current filters.'
+                : 'No completed tasks.'}
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+          {loading && <p>Loading…</p>}
+          {error && <p role="alert">{error}</p>}
+
+          <ul className="task-list">
+            {sortTasks(roots, sortMode, projects).map(renderTask)}
+          </ul>
+
+          {!loading && roots.length === 0 && (
+            <p>
+              {filtersActive
+                ? 'No tasks match the current filters.'
+                : 'No tasks yet.'}
+            </p>
+          )}
+        </>
       )}
 
       {!isGlobal && <ActivityFeed projectId={id} refreshKey={activityKey} />}

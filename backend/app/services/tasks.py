@@ -188,6 +188,14 @@ def mark_done(db: Session, task: Task) -> Task:
     return task
 
 
+def reopen_task(db: Session, task: Task) -> Task:
+    task.workflow_status = TaskWorkflowStatus.open
+    db.flush()
+    db.refresh(task)
+    _log_task_event(db, task, "reopened")
+    return task
+
+
 def soft_delete_task(db: Session, task: Task) -> None:
     # Cascade: deleting a parent removes its whole subtree. Children are
     # soft-deleted depth-first first, so each still logs its own "deleted" event

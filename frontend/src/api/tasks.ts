@@ -11,6 +11,15 @@ export async function listAllTasks(): Promise<Task[]> {
   return (await res.json()) as Task[]
 }
 
+export async function listCompletedTasks(projectId?: number): Promise<Task[]> {
+  const path =
+    projectId === undefined
+      ? '/api/tasks?workflow_status=done'
+      : `/api/projects/${projectId}/tasks?workflow_status=done`
+  const res = await apiClient(path)
+  return (await res.json()) as Task[]
+}
+
 export async function createUnscopedTask(data: TaskCreate): Promise<Task> {
   const res = await apiClient('/api/tasks', {
     method: 'POST',
@@ -48,6 +57,11 @@ export async function updateTask(id: number, data: TaskUpdate): Promise<Task> {
 
 export async function markTaskDone(id: number): Promise<Task> {
   const res = await apiClient(`/api/tasks/${id}/done`, { method: 'POST' })
+  return (await res.json()) as Task
+}
+
+export async function reopenTask(id: number): Promise<Task> {
+  const res = await apiClient(`/api/tasks/${id}/reopen`, { method: 'POST' })
   return (await res.json()) as Task
 }
 
