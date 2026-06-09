@@ -7,14 +7,17 @@ import pytest
 
 from app.ai import gateway
 from app.ai.workflows.summarize_project import summarize_project_ai
-from app.db.models import TaskPriority, TaskStatus
+from app.db.models import TaskPriority, TaskWorkflowStatus
 
 
-def _make_task(title: str, status: TaskStatus = TaskStatus.accepted) -> SimpleNamespace:
-    """Minimal task-like object (the workflow only reads title/status/priority/due_date)."""
+def _make_task(
+    title: str,
+    workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open,
+) -> SimpleNamespace:
+    """Minimal task-like object for the summary workflow."""
     return SimpleNamespace(
         title=title,
-        status=status,
+        workflow_status=workflow_status,
         priority=TaskPriority.medium,
         due_date=None,
     )

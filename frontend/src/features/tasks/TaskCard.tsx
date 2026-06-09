@@ -14,18 +14,23 @@ interface Props {
 export function TaskCard({ task, projects, actions }: Props) {
   const due = dueStatus(task.due_date)
   const projectName = projects?.find((p) => p.id === task.project_id)?.name
+  const workflowLabel = task.workflow_status === 'in_progress'
+    ? 'In progress'
+    : task.workflow_status[0].toUpperCase() + task.workflow_status.slice(1)
 
   return (
     <Link to={`/tasks/${task.id}`} className="task-card" aria-label={task.title}>
       <div className="task-card-body">
         <span className="task-card-title">{task.title}</span>
         <div className="task-card-badges">
-          <span className={`status-pill status-${task.status}`}>{task.status}</span>
+          <span className={`status-pill workflow-${task.workflow_status}`}>
+            {workflowLabel}
+          </span>
           <span className={`priority-pill priority-${task.priority}`}>{task.priority}</span>
-          {task.is_blocked && task.status !== 'done' && (
+          {task.is_blocked && task.workflow_status !== 'done' && (
             <span className="blocked">Blocked</span>
           )}
-          {task.due_date && task.status !== 'done' && (
+          {task.due_date && task.workflow_status !== 'done' && (
             <span className={`due due-${due}`}>
               Due {formatDueDate(task.due_date)}
             </span>

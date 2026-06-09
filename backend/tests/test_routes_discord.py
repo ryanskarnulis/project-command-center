@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.ai import gateway
 from app.config import Settings, get_settings
-from app.db.models import AITrainingExample, InboxItem, InboxSource, TaskStatus
+from app.db.models import AITrainingExample, InboxItem, InboxSource, TaskReviewStatus
 from app.main import app
 from app.api import routes_discord
 from app.services.common import active
@@ -79,7 +79,7 @@ def test_discord_inbox_happy_path(
     ).scalar_one()
     assert item.source == InboxSource.discord
     candidates = client.get(f"/api/inbox/{item.id}/candidates").json()
-    assert {c["status"] for c in candidates} == {TaskStatus.candidate}
+    assert {c["review_status"] for c in candidates} == {TaskReviewStatus.candidate}
 
 
 def test_discord_inbox_strips_raw_text(
@@ -146,7 +146,7 @@ def test_discord_inbox_runs_project_matching(
     assert item.suggested_project_id == project_id
 
     candidates = client.get(f"/api/inbox/{item.id}/candidates").json()
-    assert {c["status"] for c in candidates} == {TaskStatus.candidate}
+    assert {c["review_status"] for c in candidates} == {TaskReviewStatus.candidate}
 
 
 def test_discord_inbox_match_failure_is_nonfatal(

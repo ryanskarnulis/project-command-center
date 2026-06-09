@@ -337,13 +337,15 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
       directive #1). Happy-path pytest. No migration. _Request: fresh subtasks inherit parent
       project._
 - [X] **Slice 4 — Customizable estimate input** (FE-only): replace the fixed `DURATION_OPTIONS`
-      dropdown in the task edit form with a free value + unit input (min/hr/day/wk → minutes);
-      backend already enforces `estimated_minutes > 0`. Keep `formatDuration` for the list/card
-      badge. _Request: fully-customizable time estimate._
+      dropdown in the task edit form with a custom estimate input; later upgraded in Sprint 9
+      to natural text parsing (`30m`, `2h`, `1 day`, `none`). Backend already enforces
+      `estimated_minutes > 0`. Keep `formatDuration` for the list/card badge.
+      _Request: fully-customizable time estimate._
 - [X] **Slice 5 — Shared `TaskCard` component** (FE-only, foundational): `features/tasks/TaskCard.tsx`
-      — a clickable card rendering title / status / priority / due badge / estimate / Blocked /
-      project, navigating to the task detail view on click. Used by the task list, project view,
-      and inbox. CSS in `index.css`. _Request: better-looking clickable card (shared)._
+      — a clickable card rendering title / workflow status / priority / due badge / estimate /
+      Blocked / project, navigating to the task detail view on click. Used by the task list,
+      project view, and inbox. CSS in `index.css`. _Request: better-looking clickable card
+      (shared)._
 - [X] **Slice 6 — Task detail view + add/edit modal unification** (FE + small BE): route
       `/tasks/:taskId` → `TaskDetailPage` showing the task's editable fields, its subtasks (as
       `TaskCard`s, each click-through to its own detail view), and dependencies; clicking a task
@@ -352,25 +354,67 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
       Make the **Add task** button open a modal that reuses the task form (create mode). _Requests:
       special task view + subtasks, subtask/project-task click-through, projects similar style,
       add-task modal._
-- [X] **Slice 7 — Task filter** (FE-only): a filter bar on the task view (status, priority,
-      project [global view], plus due-soon/overdue/blocked toggles), filtering client-side over
-      loaded tasks while preserving parent→child grouping. _Request: filter for tasks view._
+- [X] **Slice 7 — Task filter** (FE-only): a filter bar on the task view (workflow status,
+      priority, project [global view], plus due-soon/overdue/blocked toggles), filtering
+      client-side over loaded tasks while preserving parent→child grouping. _Request: filter
+      for tasks view._
 - [X] **Slice 8 — Inbox = review-only, per-candidate approval** (BE + FE): drop the capture panel
       from `/inbox` (capture stays on the dashboard); show notes awaiting review with their
       candidates rendered as the **same `TaskCard`s**; open a candidate → edit it → **Submit**
       (approve that one) or **Dismiss** (reject it). Backend: refactor `services/review.py` into a
-      per-candidate decision (approve = status→`accepted` + project resolve via existing
-      `PATCH /api/tasks/{id}` for edits; dismiss = status→`rejected`) that **finalizes the note**
+      per-candidate decision (approve = review_status→`accepted` + project resolve via existing
+      `PATCH /api/tasks/{id}` for edits; dismiss = review_status→`rejected`) that **finalizes the note**
       — sets `reviewed_at` and writes the single `ai_training_examples` row (+ the
       `project_matching` row) — only when no `candidate`-status tasks remain, preserving the
-      one-row-per-note invariant (prime directive #4). No schema/migration (drives off the
-      existing `status` enum + `reviewed_at`). pytest for per-candidate + finalization; Vitest for
+      one-row-per-note invariant (prime directive #4). pytest for per-candidate + finalization; Vitest for
       the inbox cards. _Requests: inbox shows only awaiting-approval as task cards, approve one at
       a time._
 
 ---
 
-## Sprint 9 — Custom Model Training
+## Sprint 9 — Task Detail Workspace & Status Split
+> Goal: stop leaking backend review lifecycle into normal task management, and make the
+> individual task page the primary place to edit task fields directly.
+
+### Backend state model
+- [x] Split task state into `review_status` (`candidate` / `accepted` / `rejected`) and
+      `workflow_status` (`open` / `in_progress` / `done`)
+- [x] Alembic migration `9b2c1d7e4a6f` — rename old `tasks.status` to `review_status`, add
+      `workflow_status`, migrate old `done` rows to `review_status=accepted` +
+      `workflow_status=done`, and upgrade the live SQLite DB to head
+- [x] Update schemas, task services, routes, dashboard counts, AI summaries, eval helper,
+      extraction, review, and dependency logic for the split
+- [x] Keep `blocked` derived from dependencies; dependency completion now checks
+      `workflow_status == done`
+- [x] Default task lists/dashboard counts to reviewed work that is not workflow-done
+
+### Task detail UI
+- [x] Remove the task detail page's full-width `Edit` button and modal-driven editing
+- [x] Rebuild `/tasks/:taskId` as an inline-editable workspace with:
+      title, description, workflow status, priority, due date, project, parent task, and estimate
+- [x] Add saving/saved/error feedback and client-side empty-title validation
+- [x] Hide backend-only `candidate` / `accepted` / `rejected` from normal task detail UI
+- [x] Add polished header actions: mark done/reopen and delete
+- [x] Upgrade dependencies into linked rows with done/pending chips and icon remove buttons
+- [x] Upgrade subtasks into a dedicated section with `TaskCard`s and inline add-subtask
+- [x] Add `TaskDetailPage.test.tsx` coverage artifact for no Edit button, hidden review status,
+      inline title save, workflow status save, and friendly estimate save
+
+### Friendly estimates
+- [x] Add `parseDurationInput` / `formatDurationInput` in `utils/duration.ts`
+- [x] Estimate inputs now accept natural text: `30m`, `45 min`, `2h`, `2 hours`, `1 day`,
+      `1 week`, plain numbers as minutes, and empty / `none` to clear
+- [x] Use the friendly estimate input in task detail, `TaskFormModal`, and the older
+      `TaskEditModal`
+- [x] Add duration parser test artifacts and update task UI test artifacts
+
+### Docs
+- [x] README documents `review_status`, `workflow_status`, derived blocked state, Sprint 9,
+      and the Alembic upgrade command
+
+---
+
+## Sprint 10 — Custom Model Training
 > Do not start until you have 200+ rows in `ai_training_examples`.
 
 - [ ] Export `ai_training_examples` to JSONL training format

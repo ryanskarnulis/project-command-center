@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.ai import gateway
-from app.db.models import AITrainingExample, TaskStatus
+from app.db.models import AITrainingExample, TaskReviewStatus
 from app.services import inbox as inbox_service
 from app.services.common import active
 
@@ -55,7 +55,7 @@ def test_inbox_process_review_e2e(
     assert processed.status_code == 200
     candidates = processed.json()
     assert len(candidates) == 2
-    assert all(c["status"] == TaskStatus.candidate for c in candidates)
+    assert all(c["review_status"] == TaskReviewStatus.candidate for c in candidates)
     accept_id, reject_id = candidates[0]["id"], candidates[1]["id"]
 
     # Review: accept first (with an edit), reject second.
@@ -80,9 +80,9 @@ def test_inbox_process_review_e2e(
     # Task statuses persisted, edit applied.
     candidates_after = client.get(f"/api/inbox/{inbox_id}/candidates").json()
     by_id = {c["id"]: c for c in candidates_after}
-    assert by_id[accept_id]["status"] == TaskStatus.accepted
+    assert by_id[accept_id]["review_status"] == TaskReviewStatus.accepted
     assert by_id[accept_id]["title"] == "Email Q2 budget to Sarah"
-    assert by_id[reject_id]["status"] == TaskStatus.rejected
+    assert by_id[reject_id]["review_status"] == TaskReviewStatus.rejected
 
     # Exactly one training row; corrected output holds only the accepted/edited task.
     examples = db_session.execute(active(AITrainingExample)).scalars().all()

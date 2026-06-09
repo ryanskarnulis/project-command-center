@@ -32,7 +32,7 @@ def summarize_project_ai(
     task_rows = [
         SummaryTaskRow(
             title=t.title,
-            status=t.status,
+            workflow_status=t.workflow_status,
             priority=t.priority,
             due_date=t.due_date,
         )

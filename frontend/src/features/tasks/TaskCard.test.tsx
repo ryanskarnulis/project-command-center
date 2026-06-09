@@ -14,7 +14,8 @@ const base: Task = {
   parent_task_id: null,
   title: 'Patch the router',
   description: null,
-  status: 'accepted',
+  review_status: 'accepted',
+  workflow_status: 'open',
   priority: 'high',
   due_date: null,
   estimated_minutes: null,
@@ -54,9 +55,9 @@ describe('TaskCard', () => {
     expect(screen.getByRole('link')).toHaveAttribute('href', '/tasks/7')
   })
 
-  it('shows the status badge', () => {
+  it('shows the workflow status badge', () => {
     render_card()
-    expect(screen.getByText('accepted')).toBeInTheDocument()
+    expect(screen.getByText('Open')).toBeInTheDocument()
   })
 
   it('shows priority badge', () => {
@@ -70,7 +71,7 @@ describe('TaskCard', () => {
   })
 
   it('hides Blocked badge when task is done', () => {
-    render_card({ is_blocked: true, status: 'done' })
+    render_card({ is_blocked: true, workflow_status: 'done' })
     expect(screen.queryByText('Blocked')).not.toBeInTheDocument()
   })
 

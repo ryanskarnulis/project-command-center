@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { X } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import type { Task } from '../../types/task'
 import { useTaskDependencies } from './useTaskDependencies'
 
@@ -35,41 +37,51 @@ export function TaskDependencies({ task, tasks }: Props) {
 
   return (
     <section className="task-dependencies">
-      <label>Depends on (must be done first)</label>
+      <div className="task-section-heading">
+        <h2>Dependencies</h2>
+        <span>Must be done first</span>
+      </div>
       {loading && <p>Loading…</p>}
       {error && <p role="alert">{error}</p>}
-      <ul>
+      <ul className="dependency-list">
         {dependencies.map((d) => (
           <li key={d.id}>
-            {d.depends_on_title}{' '}
+            <Link to={`/tasks/${d.depends_on_task_id}`}>{d.depends_on_title}</Link>
             {d.depends_on_done ? (
               <span className="dep-done">✓ done</span>
             ) : (
               <span className="dep-pending">pending</span>
-            )}{' '}
-            <button type="button" onClick={() => void remove(d.id)}>
-              Remove
+            )}
+            <button
+              type="button"
+              className="icon-button compact"
+              aria-label={`Remove dependency ${d.depends_on_title}`}
+              onClick={() => void remove(d.id)}
+            >
+              <X size={16} aria-hidden="true" />
             </button>
           </li>
         ))}
       </ul>
       {dependencies.length === 0 && !loading && <p>No dependencies.</p>}
 
-      <select
-        aria-label="Add dependency"
-        value={selected}
-        onChange={(e) => setSelected(e.target.value)}
-      >
-        <option value="">— add a dependency —</option>
-        {options.map((t) => (
-          <option key={t.id} value={String(t.id)}>
-            {t.title}
-          </option>
-        ))}
-      </select>{' '}
-      <button type="button" disabled={selected === ''} onClick={() => void handleAdd()}>
-        Add
-      </button>
+      <div className="dependency-add-row">
+        <select
+          aria-label="Add dependency"
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
+        >
+          <option value="">Add a dependency</option>
+          {options.map((t) => (
+            <option key={t.id} value={String(t.id)}>
+              {t.title}
+            </option>
+          ))}
+        </select>
+        <button type="button" disabled={selected === ''} onClick={() => void handleAdd()}>
+          Add
+        </button>
+      </div>
       {addError && <p role="alert">{addError}</p>}
     </section>
   )

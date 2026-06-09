@@ -6,7 +6,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.db.models import Task, TaskStatus
+from app.db.models import Task, TaskReviewStatus, TaskWorkflowStatus
 from app.db.session import get_db
 from app.schemas.tasks import TaskCreate, TaskRead, TaskUpdate
 from app.services import projects as projects_service
@@ -59,15 +59,34 @@ def _reads_with_blocked(db: Session, tasks: Sequence[Task]) -> list[TaskRead]:
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskRead])
 def list_tasks(project_id: int, db: Session = Depends(get_db)) -> list[TaskRead]:
     _ensure_project(db, project_id)
-    return _reads_with_blocked(db, tasks_service.list_tasks(db, project_id))
+    return _reads_with_blocked(
+        db,
+        tasks_service.list_tasks(
+            db,
+            project_id,
+            review_status=TaskReviewStatus.accepted,
+            exclude_done=True,
+        ),
+    )
 
 
 @router.get("/tasks", response_model=list[TaskRead])
 def list_all_tasks(
-    status_filter: TaskStatus | None = Query(default=TaskStatus.accepted, alias="status"),
+    review_status: TaskReviewStatus | None = Query(
+        default=TaskReviewStatus.accepted
+    ),
+    workflow_status: TaskWorkflowStatus | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[TaskRead]:
-    return _reads_with_blocked(db, tasks_service.list_tasks(db, status=status_filter))
+    return _reads_with_blocked(
+        db,
+        tasks_service.list_tasks(
+            db,
+            review_status=review_status,
+            workflow_status=workflow_status,
+            exclude_done=workflow_status is None,
+        ),
+    )
 
 
 @router.post("/tasks", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
@@ -78,7 +97,8 @@ def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db)) -> Tas
             project_id=None,
             title=data.title,
             description=data.description,
-            status=data.status,
+            review_status=data.review_status,
+            workflow_status=data.workflow_status,
             priority=data.priority,
             due_date=data.due_date,
             parent_task_id=data.parent_task_id,
@@ -107,7 +127,8 @@ def create_task(
             project_id=project_id,
             title=data.title,
             description=data.description,
-            status=data.status,
+            review_status=data.review_status,
+            workflow_status=data.workflow_status,
             priority=data.priority,
             due_date=data.due_date,
             parent_task_id=data.parent_task_id,

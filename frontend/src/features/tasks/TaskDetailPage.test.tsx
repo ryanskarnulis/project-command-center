@@ -1,0 +1,143 @@
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { listProjects } from '../../api/projects'
+import { listDependencies } from '../../api/taskDependencies'
+import { getSubtasks, getTask, listAllTasks, updateTask } from '../../api/tasks'
+import type { Project } from '../../types/project'
+import type { Task } from '../../types/task'
+import { TaskDetailPage } from './TaskDetailPage'
+
+vi.mock('../../api/tasks', () => ({
+  createUnscopedTask: vi.fn(),
+  deleteTask: vi.fn(),
+  getSubtasks: vi.fn(),
+  getTask: vi.fn(),
+  listAllTasks: vi.fn(),
+  updateTask: vi.fn(),
+}))
+
+vi.mock('../../api/projects', () => ({
+  listProjects: vi.fn(),
+}))
+
+vi.mock('../../api/taskDependencies', () => ({
+  addDependency: vi.fn(),
+  listDependencies: vi.fn(),
+  removeDependency: vi.fn(),
+}))
+
+const task: Task = {
+  id: 7,
+  project_id: 1,
+  inbox_item_id: null,
+  parent_task_id: null,
+  title: 'Patch the router',
+  description: null,
+  review_status: 'accepted',
+  workflow_status: 'open',
+  priority: 'high',
+  due_date: null,
+  estimated_minutes: null,
+  confidence: null,
+  assignee_hint: null,
+  created_at: '2026-06-01T00:00:00Z',
+  updated_at: '2026-06-01T00:00:00Z',
+  is_blocked: false,
+}
+
+const project: Project = {
+  id: 1,
+  name: 'Infra',
+  description: null,
+  system_key: null,
+  is_protected: false,
+  created_at: '2026-06-01T00:00:00Z',
+  updated_at: '2026-06-01T00:00:00Z',
+}
+
+const mockGetTask = vi.mocked(getTask)
+const mockGetSubtasks = vi.mocked(getSubtasks)
+const mockListAllTasks = vi.mocked(listAllTasks)
+const mockListProjects = vi.mocked(listProjects)
+const mockListDependencies = vi.mocked(listDependencies)
+const mockUpdateTask = vi.mocked(updateTask)
+
+function renderDetail() {
+  return render(
+    <MemoryRouter initialEntries={['/tasks/7']}>
+      <Routes>
+        <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+describe('TaskDetailPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetTask.mockResolvedValue(task)
+    mockGetSubtasks.mockResolvedValue([])
+    mockListAllTasks.mockResolvedValue([task])
+    mockListProjects.mockResolvedValue([project])
+    mockListDependencies.mockResolvedValue([])
+    mockUpdateTask.mockImplementation(async (_id, patch) => ({ ...task, ...patch }))
+  })
+
+  afterEach(cleanup)
+
+  it('renders inline fields without the old edit button or review status', async () => {
+    renderDetail()
+
+    expect(await screen.findByLabelText('Task title')).toHaveValue('Patch the router')
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+    expect(screen.queryByText('accepted')).not.toBeInTheDocument()
+    expect(screen.getByText('Open')).toBeInTheDocument()
+  })
+
+  it('saves title changes inline on blur', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+
+    const title = await screen.findByLabelText('Task title')
+    await user.clear(title)
+    await user.type(title, 'Patch the edge router')
+    await user.tab()
+
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({ title: 'Patch the edge router' }),
+      ),
+    )
+  })
+
+  it('saves workflow status changes inline', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+
+    await user.selectOptions(await screen.findByLabelText('Status'), 'in_progress')
+
+    expect(mockUpdateTask).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ workflow_status: 'in_progress' }),
+    )
+  })
+
+  it('saves friendly estimate text inline', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+
+    const estimate = await screen.findByLabelText('Estimate')
+    await user.type(estimate, '2h')
+    await user.tab()
+
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({ estimated_minutes: 120 }),
+      ),
+    )
+  })
+})

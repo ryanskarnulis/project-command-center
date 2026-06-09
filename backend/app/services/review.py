@@ -9,7 +9,7 @@ import structlog
 from sqlalchemy.orm import Session
 
 from app.ai import gateway
-from app.db.models import AITrainingExample, InboxItem, Task, TaskStatus
+from app.db.models import AITrainingExample, InboxItem, Task, TaskReviewStatus
 from app.schemas.inbox import CandidateDecision, CandidateResult, ReviewDecision, ReviewResult
 from app.services import activity as activity_service
 from app.services import inbox as inbox_service
@@ -50,7 +50,7 @@ def _modal_project_id(tasks: Sequence[Task]) -> int | None:
 class AlreadyReviewedError(Exception):
     """Raised when an already-reviewed inbox item is reviewed again.
 
-    Re-reviewing would re-flip task statuses and append a second, contradictory
+    Re-reviewing would re-flip task review statuses and append a second, contradictory
     ``ai_training_examples`` row for the same input — polluting the training set
     (prime directive #4). One inbox item gets exactly one review.
     """
@@ -103,7 +103,7 @@ def review_inbox(
                     f"task {decision.task_id} is not a candidate of inbox item {item.id}"
                 )
             if decision.action == "accept":
-                task.status = TaskStatus.accepted
+                task.review_status = TaskReviewStatus.accepted
                 edits = (
                     decision.edits.model_dump(exclude_unset=True)
                     if decision.edits is not None
@@ -119,7 +119,7 @@ def review_inbox(
                 )
                 accepted.append(task)
             else:
-                task.status = TaskStatus.rejected
+                task.review_status = TaskReviewStatus.rejected
                 rejected_count += 1
 
         item.reviewed_at = datetime.now(UTC)
@@ -213,7 +213,7 @@ def _finalize_inbox(
     """
     accepted = [
         t for t in inbox_service.list_candidates(db, item.id)
-        if t.status == TaskStatus.accepted
+        if t.review_status == TaskReviewStatus.accepted
     ]
     item.reviewed_at = datetime.now(UTC)
     db.flush()
@@ -274,7 +274,7 @@ def decide_candidate(
 ) -> CandidateResult:
     """Approve or dismiss a single candidate task.
 
-    After the decision, if no candidates remain (status == 'candidate'), the
+    After the decision, if no candidates remain (review_status == 'candidate'), the
     inbox item is finalized: ``reviewed_at`` is set and the training examples are
     written (prime directive #4 — exactly one row per inbox item, after all
     decisions are in).
@@ -287,7 +287,10 @@ def decide_candidate(
         raise AlreadyReviewedError(
             f"inbox item {item.id} was already reviewed at {item.reviewed_at.isoformat()}"
         )
-    if task.inbox_item_id != item.id or task.status != TaskStatus.candidate:
+    if (
+        task.inbox_item_id != item.id
+        or task.review_status != TaskReviewStatus.candidate
+    ):
         raise ValueError(
             f"task {task.id} is not a live candidate of inbox item {item.id}"
         )
@@ -306,9 +309,9 @@ def decide_candidate(
             task.project_id = _resolve_project_id(
                 db, chosen_project, explicit=explicit_project
             )
-            task.status = TaskStatus.accepted
+            task.review_status = TaskReviewStatus.accepted
         else:
-            task.status = TaskStatus.rejected
+            task.review_status = TaskReviewStatus.rejected
 
         db.flush()
         db.refresh(task)
@@ -316,7 +319,7 @@ def decide_candidate(
         # Check if any undecided candidates remain. If none, finalize.
         remaining = [
             t for t in inbox_service.list_candidates(db, item.id)
-            if t.status == TaskStatus.candidate and t.id != task.id
+            if t.review_status == TaskReviewStatus.candidate and t.id != task.id
         ]
         finalized = len(remaining) == 0
         training_example_id: int | None = None

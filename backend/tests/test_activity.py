@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db.models import AITrainingExample, InboxItem, TaskStatus
+from app.db.models import AITrainingExample, InboxItem, TaskReviewStatus
 from app.schemas.inbox import ReviewDecision, ReviewEdit
 from app.services import activity as activity_service
 from app.services import projects as projects_service
@@ -72,7 +72,7 @@ def test_task_lifecycle_emits_events_only_with_project(db_session: Session) -> N
         db_session,
         project_id=None,
         title="loose candidate",
-        status=TaskStatus.candidate,
+        review_status=TaskReviewStatus.candidate,
     )
     db_session.commit()
     assert candidate.project_id is None
@@ -127,7 +127,7 @@ def test_review_accept_emits_task_created_event(db_session: Session) -> None:
         db_session,
         project_id=None,
         title="from inbox",
-        status=TaskStatus.candidate,
+        review_status=TaskReviewStatus.candidate,
         inbox_item_id=item.id,
     )
     db_session.commit()
@@ -163,7 +163,7 @@ def test_review_accept_without_project_files_to_general(db_session: Session) -> 
         db_session,
         project_id=None,
         title="from inbox",
-        status=TaskStatus.candidate,
+        review_status=TaskReviewStatus.candidate,
         inbox_item_id=item.id,
     )
     db_session.commit()
@@ -189,7 +189,7 @@ def test_review_explicit_null_project_files_to_general(db_session: Session) -> N
         db_session,
         project_id=None,
         title="from inbox",
-        status=TaskStatus.candidate,
+        review_status=TaskReviewStatus.candidate,
         inbox_item_id=item.id,
     )
     db_session.commit()
@@ -226,7 +226,7 @@ def test_review_rolls_back_statuses_activity_and_training_on_failure(
         db_session,
         project_id=None,
         title="from inbox",
-        status=TaskStatus.candidate,
+        review_status=TaskReviewStatus.candidate,
         inbox_item_id=item.id,
     )
     db_session.commit()
@@ -257,7 +257,7 @@ def test_review_rolls_back_statuses_activity_and_training_on_failure(
     assert saved_item is not None
     assert saved_candidate is not None
     assert saved_item.reviewed_at is None
-    assert saved_candidate.status == TaskStatus.candidate
+    assert saved_candidate.review_status == TaskReviewStatus.candidate
     assert saved_candidate.project_id is None
     task_events = [
         e
@@ -279,7 +279,7 @@ def test_review_reject_emits_no_task_event(db_session: Session) -> None:
         db_session,
         project_id=None,
         title="rejected",
-        status=TaskStatus.candidate,
+        review_status=TaskReviewStatus.candidate,
         inbox_item_id=item.id,
     )
     db_session.commit()

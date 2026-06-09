@@ -4,7 +4,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.db.models import TaskDependency, TaskStatus
+from app.db.models import TaskDependency, TaskWorkflowStatus
 from app.db.session import get_db
 from app.schemas.task_dependencies import TaskDependencyCreate, TaskDependencyRead
 from app.services import task_dependencies as deps_service
@@ -27,14 +27,16 @@ def _to_read(db: Session, edge: TaskDependency) -> TaskDependencyRead:
     # The edge's FK target should always resolve to an active task, but guard so a
     # since-deleted target degrades gracefully rather than 500-ing.
     title = depended.title if depended is not None else "(deleted task)"
-    edge_status = depended.status if depended is not None else TaskStatus.done
+    edge_workflow_status = (
+        depended.workflow_status if depended is not None else TaskWorkflowStatus.done
+    )
     return TaskDependencyRead(
         id=edge.id,
         task_id=edge.task_id,
         depends_on_task_id=edge.depends_on_task_id,
         depends_on_title=title,
-        depends_on_status=edge_status,
-        depends_on_done=edge_status == TaskStatus.done,
+        depends_on_workflow_status=edge_workflow_status,
+        depends_on_done=edge_workflow_status == TaskWorkflowStatus.done,
     )
 
 

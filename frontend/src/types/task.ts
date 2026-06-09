@@ -1,4 +1,5 @@
-export type TaskStatus = 'candidate' | 'accepted' | 'rejected' | 'done'
+export type TaskReviewStatus = 'candidate' | 'accepted' | 'rejected'
+export type TaskWorkflowStatus = 'open' | 'in_progress' | 'done'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 
 export interface Task {
@@ -8,7 +9,8 @@ export interface Task {
   parent_task_id: number | null
   title: string
   description: string | null
-  status: TaskStatus
+  review_status: TaskReviewStatus
+  workflow_status: TaskWorkflowStatus
   priority: TaskPriority
   due_date: string | null
   estimated_minutes: number | null
@@ -25,14 +27,15 @@ export interface TaskDependency {
   task_id: number
   depends_on_task_id: number
   depends_on_title: string
-  depends_on_status: TaskStatus
+  depends_on_workflow_status: TaskWorkflowStatus
   depends_on_done: boolean
 }
 
 export interface TaskCreate {
   title: string
   description?: string | null
-  status?: TaskStatus
+  review_status?: TaskReviewStatus
+  workflow_status?: TaskWorkflowStatus
   priority?: TaskPriority
   due_date?: string | null
   parent_task_id?: number | null
@@ -42,7 +45,8 @@ export interface TaskCreate {
 export interface TaskUpdate {
   title?: string
   description?: string | null
-  status?: TaskStatus
+  review_status?: TaskReviewStatus
+  workflow_status?: TaskWorkflowStatus
   priority?: TaskPriority
   due_date?: string | null
   project_id?: number | null

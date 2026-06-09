@@ -7,7 +7,15 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from app.ai import gateway
-from app.db.models import InboxItem, InboxSource, Project, Task, TaskPriority, TaskStatus
+from app.db.models import (
+    InboxItem,
+    InboxSource,
+    Project,
+    Task,
+    TaskPriority,
+    TaskReviewStatus,
+    TaskWorkflowStatus,
+)
 from app.services import dashboard as dashboard_service
 from app.services import projects as projects_service
 from app.services.common import soft_delete
@@ -26,14 +34,16 @@ def _create_task(
     *,
     project_id: int | None,
     title: str,
-    status: TaskStatus,
+    review_status: TaskReviewStatus,
+    workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open,
     inbox_item_id: int | None = None,
 ) -> Task:
     t = Task(
         project_id=project_id,
         inbox_item_id=inbox_item_id,
         title=title,
-        status=status,
+        review_status=review_status,
+        workflow_status=workflow_status,
         priority=TaskPriority.medium,
     )
     db.add(t)
@@ -81,16 +91,22 @@ class TestGetDashboard:
             db_session,
             project_id=p.id,
             title="Deleted open task",
-            status=TaskStatus.accepted,
+            review_status=TaskReviewStatus.accepted,
         )
         soft_delete(deleted)
         db_session.commit()
         _create_task(
-            db_session, project_id=p.id, title="Open one", status=TaskStatus.accepted
+            db_session, project_id=p.id, title="Open one", review_status=TaskReviewStatus.accepted
         )
-        _create_task(db_session, project_id=p.id, title="Done one", status=TaskStatus.done)
-        _create_task(db_session, project_id=p.id, title="Candidate", status=TaskStatus.candidate)
-        _create_task(db_session, project_id=p.id, title="Rejected", status=TaskStatus.rejected)
+        _create_task(
+            db_session,
+            project_id=p.id,
+            title="Done one",
+            review_status=TaskReviewStatus.accepted,
+            workflow_status=TaskWorkflowStatus.done,
+        )
+        _create_task(db_session, project_id=p.id, title="Candidate", review_status=TaskReviewStatus.candidate)
+        _create_task(db_session, project_id=p.id, title="Rejected", review_status=TaskReviewStatus.rejected)
 
         resp = client.get("/api/dashboard")
         assert resp.status_code == 200
@@ -119,7 +135,7 @@ class TestGetDashboard:
             db_session,
             project_id=active_project.id,
             title="Open one",
-            status=TaskStatus.accepted,
+            review_status=TaskReviewStatus.accepted,
         )
 
         resp = client.get("/api/dashboard")
@@ -154,7 +170,7 @@ class TestGetDashboard:
             project_id=accepted.id,
             inbox_item_id=item.id,
             title="Accepted destination",
-            status=TaskStatus.accepted,
+            review_status=TaskReviewStatus.accepted,
         )
 
         resp = client.get("/api/dashboard")
@@ -194,7 +210,7 @@ class TestGetDashboard:
             project_id=project.id,
             inbox_item_id=item.id,
             title="Deleted accepted task",
-            status=TaskStatus.accepted,
+            review_status=TaskReviewStatus.accepted,
         )
         soft_delete(task)
         db_session.commit()
@@ -215,14 +231,14 @@ class TestGetDashboard:
             project_id=first_project.id,
             inbox_item_id=item.id,
             title="First task",
-            status=TaskStatus.accepted,
+            review_status=TaskReviewStatus.accepted,
         )
         _create_task(
             db_session,
             project_id=second_project.id,
             inbox_item_id=item.id,
             title="Second task",
-            status=TaskStatus.accepted,
+            review_status=TaskReviewStatus.accepted,
         )
 
         resp = client.get("/api/dashboard")
@@ -239,7 +255,7 @@ class TestGetDashboard:
                 db_session,
                 project_id=project.id,
                 title=f"Open {project.id}",
-                status=TaskStatus.accepted,
+                review_status=TaskReviewStatus.accepted,
             )
         for i in range(12):
             item = _create_inbox(db_session, f"note {i}")
@@ -250,7 +266,7 @@ class TestGetDashboard:
                     project_id=projects[(i + 1) % len(projects)].id,
                     inbox_item_id=item.id,
                     title=f"Reviewed {i}",
-                    status=TaskStatus.accepted,
+                    review_status=TaskReviewStatus.accepted,
                 )
             db_session.commit()
 
@@ -278,7 +294,7 @@ class TestGetDashboard:
         self, db_session: Session
     ) -> None:
         p = _create_project(db_session, "Alpha")
-        _create_task(db_session, project_id=p.id, title="Open one", status=TaskStatus.accepted)
+        _create_task(db_session, project_id=p.id, title="Open one", review_status=TaskReviewStatus.accepted)
 
         projects_service.soft_delete_project(db_session, p)
         db_session.commit()
@@ -302,7 +318,7 @@ class TestGetProjectSummary:
     ) -> None:
         monkeypatch.setattr(gateway, "complete", lambda **_: "Two tasks are in flight.")
         p = _create_project(db_session, "Beta")
-        _create_task(db_session, project_id=p.id, title="Task A", status=TaskStatus.accepted)
+        _create_task(db_session, project_id=p.id, title="Task A", review_status=TaskReviewStatus.accepted)
 
         resp = client.get(f"/api/projects/{p.id}/summary")
         assert resp.status_code == 200
@@ -340,8 +356,14 @@ class TestGetProjectSummary:
 
         monkeypatch.setattr(gateway, "complete", capture)
         p = _create_project(db_session, "Delta")
-        _create_task(db_session, project_id=p.id, title="Accepted task", status=TaskStatus.accepted)
-        _create_task(db_session, project_id=p.id, title="Done task", status=TaskStatus.done)
+        _create_task(db_session, project_id=p.id, title="Accepted task", review_status=TaskReviewStatus.accepted)
+        _create_task(
+            db_session,
+            project_id=p.id,
+            title="Done task",
+            review_status=TaskReviewStatus.accepted,
+            workflow_status=TaskWorkflowStatus.done,
+        )
 
         client.get(f"/api/projects/{p.id}/summary")
         assert seen_content, "gateway.complete was not called"

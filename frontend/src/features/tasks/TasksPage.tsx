@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { listProjects } from '../../api/projects'
 import type { Project } from '../../types/project'
-import type { Task, TaskPriority, TaskStatus } from '../../types/task'
+import type { Task, TaskPriority, TaskWorkflowStatus } from '../../types/task'
 import { compareTasks, dueStatus } from '../../utils/dates'
 import { ActivityFeed } from '../projects/ActivityFeed'
 import { TaskCard } from './TaskCard'
@@ -10,7 +10,7 @@ import { TaskFormModal } from './TaskFormModal'
 import { useTasks } from './useTasks'
 
 interface Filters {
-  status: TaskStatus | ''
+  workflowStatus: TaskWorkflowStatus | ''
   priority: TaskPriority | ''
   projectId: number | ''
   overdue: boolean
@@ -19,7 +19,7 @@ interface Filters {
 }
 
 const EMPTY_FILTERS: Filters = {
-  status: '',
+  workflowStatus: '',
   priority: '',
   projectId: '',
   overdue: false,
@@ -29,7 +29,7 @@ const EMPTY_FILTERS: Filters = {
 
 function isActive(f: Filters): boolean {
   return (
-    f.status !== '' ||
+    f.workflowStatus !== '' ||
     f.priority !== '' ||
     f.projectId !== '' ||
     f.overdue ||
@@ -39,7 +39,7 @@ function isActive(f: Filters): boolean {
 }
 
 function matchesFilters(t: Task, f: Filters): boolean {
-  if (f.status && t.status !== f.status) return false
+  if (f.workflowStatus && t.workflow_status !== f.workflowStatus) return false
   if (f.priority && t.priority !== f.priority) return false
   if (f.projectId !== '' && t.project_id !== f.projectId) return false
   if (f.overdue && dueStatus(t.due_date) !== 'overdue') return false
@@ -112,7 +112,7 @@ export function TasksPage() {
         >
           Add subtask
         </button>
-        {t.status !== 'done' && (
+        {t.workflow_status !== 'done' && (
           <button onClick={() => void markDone(t.id).then(bumpActivity)}>
             Mark done
           </button>
@@ -166,14 +166,18 @@ export function TasksPage() {
       <div className="task-filters" role="search" aria-label="Filter tasks">
         <select
           aria-label="Filter by status"
-          value={filters.status}
-          onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value as TaskStatus | '' }))}
+          value={filters.workflowStatus}
+          onChange={(e) =>
+            setFilters((f) => ({
+              ...f,
+              workflowStatus: e.target.value as TaskWorkflowStatus | '',
+            }))
+          }
         >
           <option value="">All statuses</option>
-          <option value="candidate">Candidate</option>
-          <option value="accepted">Accepted</option>
+          <option value="open">Open</option>
+          <option value="in_progress">In progress</option>
           <option value="done">Done</option>
-          <option value="rejected">Rejected</option>
         </select>
 
         <select

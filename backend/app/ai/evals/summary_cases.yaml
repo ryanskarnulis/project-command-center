@@ -11,7 +11,7 @@
   today: "2026-05-31"
   tasks:
     - title: Replace legacy ACL rules
-      status: accepted
+      workflow_status: open
       priority: high
       due_date: "2026-05-25"
   expect:
@@ -24,10 +24,10 @@
   today: "2026-05-31"
   tasks:
     - title: Write homepage copy
-      status: accepted
+      workflow_status: open
       priority: medium
     - title: Design hero banner
-      status: accepted
+      workflow_status: open
       priority: low
   expect:
     not_empty: true

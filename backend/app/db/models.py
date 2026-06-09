@@ -27,10 +27,15 @@ class InboxSource(enum.StrEnum):
     discord = "discord"
 
 
-class TaskStatus(enum.StrEnum):
+class TaskReviewStatus(enum.StrEnum):
     candidate = "candidate"
     accepted = "accepted"
     rejected = "rejected"
+
+
+class TaskWorkflowStatus(enum.StrEnum):
+    open = "open"
+    in_progress = "in_progress"
     done = "done"
 
 
@@ -92,7 +97,12 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     )
     title: Mapped[str]
     description: Mapped[str | None] = mapped_column(default=None)
-    status: Mapped[TaskStatus] = mapped_column(default=TaskStatus.accepted)
+    review_status: Mapped[TaskReviewStatus] = mapped_column(
+        default=TaskReviewStatus.accepted
+    )
+    workflow_status: Mapped[TaskWorkflowStatus] = mapped_column(
+        default=TaskWorkflowStatus.open
+    )
     priority: Mapped[TaskPriority] = mapped_column(default=TaskPriority.medium)
     due_date: Mapped[date | None] = mapped_column(default=None)
     # Rough effort estimate (Sprint 7 task-model slice). Stored as whole minutes;
@@ -113,9 +123,9 @@ class TaskDependency(Base, TimestampMixin, SoftDeleteMixin):
     """A 'must finish first' edge between tasks (Sprint 7 task-model slice).
 
     ``task_id depends_on depends_on_task_id`` means the depended-on task must be
-    ``done`` before this task can be started; a task is "blocked" (a derived state,
-    computed in Python — there is no ``blocked`` status column) while any of its
-    dependencies is unfinished. Cycle prevention (no A->B->A) lives in
+    workflow-``done`` before this task can be started; a task is "blocked" (a
+    derived state, computed in Python — there is no ``blocked`` status column)
+    while any of its dependencies is unfinished. Cycle prevention (no A->B->A) lives in
     ``services/task_dependencies.py``, never in the DB. The partial unique index
     keeps one active edge per ordered pair while allowing a soft-deleted edge to be
     re-added later (mirrors the inbox ``input_hash`` index).

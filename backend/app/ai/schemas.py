@@ -4,7 +4,7 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.models import TaskPriority, TaskStatus
+from app.db.models import TaskPriority, TaskWorkflowStatus
 
 
 class ExtractedTask(BaseModel):
@@ -110,7 +110,7 @@ class SummaryTaskRow(BaseModel):
     """One task row passed to the summarizer (read-only snapshot)."""
 
     title: str
-    status: TaskStatus
+    workflow_status: TaskWorkflowStatus
     priority: TaskPriority
     due_date: date | None = None
 

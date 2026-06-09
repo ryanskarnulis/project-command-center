@@ -18,7 +18,7 @@ from app.schemas.dashboard import (
 from app.services import dashboard as dashboard_service
 from app.services import projects as projects_service
 from app.services import tasks as tasks_service
-from app.db.models import TaskStatus
+from app.db.models import TaskReviewStatus, TaskWorkflowStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -72,7 +72,10 @@ def get_project_summary(
     open_tasks = [
         t
         for t in tasks_service.list_tasks(db, project_id)
-        if t.status == TaskStatus.accepted
+        if (
+            t.review_status == TaskReviewStatus.accepted
+            and t.workflow_status != TaskWorkflowStatus.done
+        )
     ]
 
     log = logger.bind(project_id=project_id)

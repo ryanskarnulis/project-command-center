@@ -6,15 +6,20 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import InboxItem, Project, Task, TaskStatus
+from app.db.models import InboxItem, Project, Task, TaskReviewStatus, TaskWorkflowStatus
 from app.services.common import active
 
 
 def _open_task_count(db: Session) -> int:
-    """Total accepted (non-done, non-rejected, non-candidate) tasks."""
+    """Total accepted tasks that are not workflow-done."""
     result = db.execute(
         select(func.count()).select_from(
-            active(Task).where(Task.status == TaskStatus.accepted).subquery()
+            active(Task)
+            .where(
+                Task.review_status == TaskReviewStatus.accepted,
+                Task.workflow_status != TaskWorkflowStatus.done,
+            )
+            .subquery()
         )
     ).scalar_one()
     return int(result)
@@ -29,7 +34,8 @@ def _per_project_open_counts(db: Session) -> Sequence[tuple[Project, int]]:
         )
         .where(
             Task.deleted_at.is_(None),
-            Task.status == TaskStatus.accepted,
+            Task.review_status == TaskReviewStatus.accepted,
+            Task.workflow_status != TaskWorkflowStatus.done,
             Task.project_id.is_not(None),
         )
         .group_by(Task.project_id)
@@ -67,7 +73,7 @@ def _resolved_project_ids(
         .where(
             Task.deleted_at.is_(None),
             Task.inbox_item_id.in_(inbox_ids),
-            Task.status == TaskStatus.accepted,
+            Task.review_status == TaskReviewStatus.accepted,
             Task.project_id.is_not(None),
         )
         .group_by(Task.inbox_item_id, Task.project_id)

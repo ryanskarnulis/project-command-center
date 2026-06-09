@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db.models import TaskPriority, TaskStatus
+from app.db.models import TaskPriority, TaskReviewStatus, TaskWorkflowStatus
 from app.services import projects as projects_service
 from app.services import tasks as tasks_service
 
@@ -17,14 +17,15 @@ def test_task_create_markdone_softdelete(db_session: Session) -> None:
     db_session.commit()
     assert task.id is not None
     assert task.project_id == project.id
-    assert task.status == TaskStatus.accepted
+    assert task.review_status == TaskReviewStatus.accepted
     assert task.priority == TaskPriority.medium
 
     assert task.id in [t.id for t in tasks_service.list_tasks(db_session, project.id)]
 
     done = tasks_service.mark_done(db_session, task)
     db_session.commit()
-    assert done.status == TaskStatus.done
+    assert done.review_status == TaskReviewStatus.accepted
+    assert done.workflow_status == TaskWorkflowStatus.done
 
     tasks_service.soft_delete_task(db_session, task)
     db_session.commit()
@@ -55,7 +56,7 @@ def test_candidate_without_project_stays_unfiled_until_review(
         db_session,
         project_id=None,
         title="candidate work",
-        status=TaskStatus.candidate,
+        review_status=TaskReviewStatus.candidate,
     )
     db_session.commit()
 
@@ -69,9 +70,9 @@ def test_candidate_updated_to_accepted_defaults_to_general(
         db_session,
         project_id=None,
         title="accepted later",
-        status=TaskStatus.candidate,
+        review_status=TaskReviewStatus.candidate,
     )
-    tasks_service.update_task(db_session, task, {"status": TaskStatus.accepted})
+    tasks_service.update_task(db_session, task, {"review_status": TaskReviewStatus.accepted})
     db_session.commit()
 
     general = projects_service.get_default_project(db_session)
@@ -90,7 +91,7 @@ def test_global_tasks_route_lists_accepted_tasks_across_projects(
         db_session,
         project_id=b.id,
         title="done already",
-        status=TaskStatus.done,
+        workflow_status=TaskWorkflowStatus.done,
     )
     db_session.commit()
 

@@ -1567,17 +1567,15 @@ kbd {
 .priority-pill.priority-medium { background: var(--neutral-soft); color: var(--text-muted); }
 .priority-pill.priority-low    { background: var(--neutral-soft); color: var(--text-muted); }
 
-.status-pill.status-candidate { background: var(--neutral-soft); color: var(--text-muted); }
-.status-pill.status-accepted  { background: var(--blue-soft); color: #0b55d9; }
-.status-pill.status-done      { background: #f0fdf4; color: #16a34a; }
-.status-pill.status-rejected  { background: #fef2f2; color: #dc2626; }
+.status-pill.workflow-open        { background: var(--blue-soft); color: #0b55d9; }
+.status-pill.workflow-in_progress { background: var(--purple-soft); color: var(--purple); }
+.status-pill.workflow-done        { background: #f0fdf4; color: #16a34a; }
 
 @media (prefers-color-scheme: dark) {
   .priority-pill.priority-urgent { background: #3f1212; color: #f87171; }
   .priority-pill.priority-high   { background: #3f1f0a; color: #fb923c; }
-  .status-pill.status-accepted   { background: #0f2a5e; color: #93c5fd; }
-  .status-pill.status-done       { background: #052e16; color: #4ade80; }
-  .status-pill.status-rejected   { background: #3f1212; color: #f87171; }
+  .status-pill.workflow-open      { background: #0f2a5e; color: #93c5fd; }
+  .status-pill.workflow-done      { background: #052e16; color: #4ade80; }
 }
 
 .task-filters {
@@ -1603,13 +1601,179 @@ kbd {
   margin-top: 14px;
 }
 
-.task-dependencies ul {
+.task-dependencies ul,
+.task-detail-list {
   list-style: none;
   padding-left: 0;
+  margin: 0;
 }
 
 .dep-pending {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  background: var(--orange-soft);
   color: #b45309;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1;
+  padding: 5px 8px;
+}
+
+.task-detail {
+  gap: 16px;
+}
+
+.task-detail-header,
+.task-detail-actions,
+.task-section-heading,
+.dependency-list li,
+.dependency-add-row,
+.inline-subtask-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-detail-header,
+.task-section-heading {
+  justify-content: space-between;
+}
+
+.task-detail-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.save-state {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.danger-action {
+  color: var(--red);
+}
+
+.task-hero,
+.task-detail-panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  padding: 16px;
+}
+
+.task-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.task-title-input {
+  width: 100%;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-h);
+  font-size: 26px;
+  font-weight: 760;
+  line-height: 1.2;
+  padding: 4px 0;
+}
+
+.task-title-input:focus {
+  border-color: transparent;
+}
+
+.task-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 14px;
+}
+
+.task-description-panel,
+.task-fields-panel,
+.task-detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.task-description-panel textarea {
+  min-height: 132px;
+  width: 100%;
+}
+
+.task-fields-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.task-fields-panel select,
+.task-fields-panel input,
+.inline-subtask-form input,
+.dependency-add-row select {
+  width: 100%;
+}
+
+.task-section-heading span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.task-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dependency-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dependency-list li {
+  justify-content: space-between;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 10px;
+}
+
+.dependency-list li a {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-h);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dependency-add-row {
+  align-items: stretch;
+}
+
+.dependency-add-row select {
+  min-width: 0;
+}
+
+.inline-subtask-form {
+  flex-wrap: wrap;
+}
+
+.inline-subtask-form input {
+  flex: 1 1 220px;
+}
+
+.icon-button.compact {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
 }
 
 .modal-overlay {
@@ -1679,6 +1843,10 @@ kbd {
 
   .dashboard-layout,
   .dashboard-main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .task-detail-grid {
     grid-template-columns: 1fr;
   }
 

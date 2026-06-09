@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db.models import TaskStatus
+from app.db.models import TaskWorkflowStatus
 from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
 
@@ -137,4 +137,4 @@ def test_done_dependency_is_not_blocking(client: TestClient) -> None:
 
     dep = client.get(f"/api/tasks/{a}/dependencies").json()[0]
     assert dep["depends_on_done"] is True
-    assert dep["depends_on_status"] == TaskStatus.done.value
+    assert dep["depends_on_workflow_status"] == TaskWorkflowStatus.done.value

@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session, aliased
 
-from app.db.models import Task, TaskDependency, TaskStatus
+from app.db.models import Task, TaskDependency, TaskWorkflowStatus
 from app.services.common import active, soft_delete
 from app.services.tasks import get_task
 
@@ -117,10 +117,10 @@ def remove_dependency(db: Session, edge: TaskDependency) -> None:
 
 
 def is_blocked(db: Session, task_id: int) -> bool:
-    """True if any active dependency's depended-on task is not yet ``done``."""
+    """True if any active dependency's depended-on task is not workflow-done."""
     for dep in list_dependencies(db, task_id):
         depended = get_task(db, dep.depends_on_task_id)
-        if depended is not None and depended.status != TaskStatus.done:
+        if depended is not None and depended.workflow_status != TaskWorkflowStatus.done:
             return True
     return False
 
@@ -129,7 +129,7 @@ def blocked_task_ids(db: Session, task_ids: Sequence[int]) -> set[int]:
     """The subset of ``task_ids`` that have an unfinished dependency.
 
     One query for the whole list (avoids N+1 on the task list): a task is blocked
-    if it has an active edge to an active, not-``done`` task.
+    if it has an active edge to an active, not workflow-``done`` task.
     """
     if not task_ids:
         return set()
@@ -141,7 +141,7 @@ def blocked_task_ids(db: Session, task_ids: Sequence[int]) -> set[int]:
             TaskDependency.deleted_at.is_(None),
             TaskDependency.task_id.in_(task_ids),
             depended.deleted_at.is_(None),
-            depended.status != TaskStatus.done,
+            depended.workflow_status != TaskWorkflowStatus.done,
         )
         .distinct()
     ).scalars()

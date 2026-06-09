@@ -9,7 +9,7 @@ import yaml
 
 from app.ai import gateway
 from app.ai.schemas import SummaryInput, SummaryTaskRow
-from app.db.models import TaskPriority, TaskStatus
+from app.db.models import TaskPriority, TaskWorkflowStatus
 
 _CASES_PATH = Path(__file__).parent / "summary_cases.yaml"
 _DEFAULT_PROFILE = "summary"
@@ -42,7 +42,7 @@ def _run_case(case: dict[str, Any], profile: str) -> tuple[bool, str]:
     task_rows = [
         SummaryTaskRow(
             title=t["title"],
-            status=TaskStatus(t["status"]),
+            workflow_status=TaskWorkflowStatus(t["workflow_status"]),
             priority=TaskPriority(t["priority"]),
             due_date=date.fromisoformat(t["due_date"]) if t.get("due_date") else None,
         )

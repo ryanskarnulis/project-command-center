@@ -167,7 +167,8 @@ Tables:
 ```
 projects
 project_aliases
-tasks                  (includes status: candidate | accepted | rejected | done;
+tasks                  (includes review_status: candidate | accepted | rejected;
+                        workflow_status: open | in_progress | done;
                         nullable parent_task_id self-FK for subtask nesting;
                         nullable estimated_minutes effort estimate)
 task_dependencies      ("A depends_on B" edges; B must be done before A starts)
@@ -189,7 +190,7 @@ All tables use **soft deletes** via a `deleted_at` column. Don't actually delete
 > `deleted_at`. It lets prompt/profile edits be judged as helping or regressing over
 > time; surfaced as run history on the Settings page.
 
-Tasks use a `status` enum rather than a separate `task_candidates` table. Candidates and real tasks live in the same table, distinguished by status. Simpler queries, no sync logic. Split later if it ever becomes painful.
+Tasks use `review_status` rather than a separate `task_candidates` table. Candidates and real tasks live in the same table, distinguished by review lifecycle. User-facing progress lives in `workflow_status` (`open`, `in_progress`, `done`) so training/review state does not leak into normal task management.
 
 A protected `General` project is seeded with the stable system key `general`.
 Deleting any other project rehomes its active tasks to `General` before the
@@ -201,9 +202,9 @@ a self-/ancestor-cycle is refused with a `409`, guarded in `services/tasks.py`).
 Soft-deleting a parent **cascade-soft-deletes its whole subtree**; restore is
 per-task (restoring a parent does not auto-restore children — each is restorable
 from `/trash`). Ordering tasks is separate from nesting: `task_dependencies` holds
-`A depends_on B` edges meaning **B must be `done` before A can start**. "Blocked"
-is never a stored status — it's derived in Python from the active edges and the
-depended-on tasks' status (`TaskRead.is_blocked`, resolved in one bulk query), and
+`A depends_on B` edges meaning **B must be workflow-`done` before A can start**.
+"Blocked" is never a stored status — it's derived in Python from the active edges
+and the depended-on tasks' workflow status (`TaskRead.is_blocked`, resolved in one bulk query), and
 the same `services/task_dependencies.py` cycle guard refuses any edge that would
 create an `A→B→A` deadlock (prime directive #1: the app owns the logic).
 
@@ -283,9 +284,9 @@ Raw inbox text
 → save inbox item
 → call task extraction model via gateway
 → validate JSON with Pydantic
-→ create task rows with status="candidate"
+→ create task rows with review_status="candidate"
 → user reviews in UI
-→ accepted candidates flip status to "accepted"
+→ accepted candidates flip review_status to "accepted"
 → correction (original vs final) saved to ai_training_examples
 ```
 
@@ -374,16 +375,25 @@ Sprint 8:  [DONE] Task & Inbox UX overhaul — 8 slices:
            (1) compareTasks: due-then-priority sort at every tree level.
            (2) Tasks tab removed from nav; project links show real name.
            (3) Fresh subtasks inherit parent's project (BE + pytest).
-           (4) Free-form estimate input (number + unit) replacing the dropdown;
+           (4) Custom estimate input replacing the fixed dropdown;
                formatDuration/splitDuration/toMinutes in utils/duration.ts.
            (5) Shared TaskCard component (link to /tasks/:id, badges, actions prop).
            (6) TaskDetailPage (/tasks/:taskId) with subtask cards + edit modal;
                GET /api/tasks/{id}/subtasks route; TaskFormModal (create + edit modes).
-           (7) Client-side task filter (status, priority, project, overdue/due-soon/blocked).
+           (7) Client-side task filter (workflow status, priority, project,
+               overdue/due-soon/blocked).
            (8) Inbox = review-only (no capture textarea); candidates as TaskCards;
                POST /api/inbox/{id}/candidates/{task_id} per-candidate approve/dismiss;
                finalization + training row written once all candidates are decided.
-Sprint 9:  Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
+Sprint 9:  [DONE] Task detail/status redesign — split task state into
+           review_status (candidate/accepted/rejected) and workflow_status
+           (open/in_progress/done), keep blocked derived from dependencies, migrate
+           existing rows, and update dashboard/list/dependency/summary semantics.
+           Rebuilt /tasks/:taskId as an inline-editable workspace: no Edit button,
+           editable title/description/priority/due/project/parent/status/estimate,
+           polished header, dependency rows, subtask section, and save/error states.
+           Estimate entry is now natural text: 30m, 2h, 1 day, none.
+Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```
 
@@ -397,9 +407,9 @@ POST /api/inbox                    (creates inbox_item)
 POST /api/inbox/{id}/process       (runs extraction workflow)
 Ollama call through ModelGateway
 Pydantic validation
-Task rows saved with status="candidate"
+Task rows saved with review_status="candidate"
 Review UI lists candidates directly under the messy-text capture box
-Accept candidate → status="accepted"
+Accept candidate → review_status="accepted"
 Diff saved to ai_training_examples
 ```
 
@@ -457,6 +467,7 @@ cd backend && python -m app.integrations.discord.bot   # Discord bot (needs DISC
 cd backend && python -m app.ai.evals.run_evals         # task_extraction eval cases (needs Ollama)
 cd backend && python -m app.ai.evals.run_match_evals   # project_matching eval cases (needs Ollama)
 cd backend && python -m app.ai.evals.run_summary_evals # project summary eval cases (needs Ollama)
+cd backend && ./.venv/bin/alembic upgrade head         # apply DB migrations
 ./scripts/backup_db.sh                                 # snapshot data/app.db → data/backups/
 ```
 

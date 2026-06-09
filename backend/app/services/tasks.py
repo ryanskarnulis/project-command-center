@@ -6,13 +6,13 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.db.models import Task, TaskPriority, TaskStatus
+from app.db.models import Task, TaskPriority, TaskReviewStatus, TaskWorkflowStatus
 from app.services import activity
 from app.services import projects as projects_service
 from app.services.common import active, deleted, restore, soft_delete
 
 
-_FILED_STATUSES = {TaskStatus.accepted, TaskStatus.done}
+_FILED_REVIEW_STATUSES = {TaskReviewStatus.accepted}
 
 
 class TaskCycleError(ValueError):
@@ -23,9 +23,9 @@ class TaskCycleError(ValueError):
 
 
 def _default_project_id_for_status(
-    db: Session, project_id: int | None, status: TaskStatus
+    db: Session, project_id: int | None, review_status: TaskReviewStatus
 ) -> int | None:
-    if project_id is None and status in _FILED_STATUSES:
+    if project_id is None and review_status in _FILED_REVIEW_STATUSES:
         return projects_service.ensure_default_project_id(db)
     return project_id
 
@@ -91,13 +91,21 @@ def list_subtasks(db: Session, parent_task_id: int) -> Sequence[Task]:
 
 
 def list_tasks(
-    db: Session, project_id: int | None = None, status: TaskStatus | None = None
+    db: Session,
+    project_id: int | None = None,
+    review_status: TaskReviewStatus | None = None,
+    workflow_status: TaskWorkflowStatus | None = None,
+    exclude_done: bool = False,
 ) -> Sequence[Task]:
     query = active(Task).order_by(Task.id)
     if project_id is not None:
         query = query.where(Task.project_id == project_id)
-    if status is not None:
-        query = query.where(Task.status == status)
+    if review_status is not None:
+        query = query.where(Task.review_status == review_status)
+    if workflow_status is not None:
+        query = query.where(Task.workflow_status == workflow_status)
+    elif exclude_done:
+        query = query.where(Task.workflow_status != TaskWorkflowStatus.done)
     return db.execute(query).scalars().all()
 
 
@@ -113,7 +121,8 @@ def create_task(
     project_id: int | None,
     title: str,
     description: str | None = None,
-    status: TaskStatus = TaskStatus.accepted,
+    review_status: TaskReviewStatus = TaskReviewStatus.accepted,
+    workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open,
     priority: TaskPriority = TaskPriority.medium,
     due_date: date | None = None,
     inbox_item_id: int | None = None,
@@ -129,14 +138,15 @@ def create_task(
         parent = get_task(db, parent_task_id)
         if parent is not None:
             project_id = parent.project_id
-    project_id = _default_project_id_for_status(db, project_id, status)
+    project_id = _default_project_id_for_status(db, project_id, review_status)
     if parent_task_id is not None:
         _assert_no_parent_cycle(db, None, parent_task_id)
     task = Task(
         project_id=project_id,
         title=title,
         description=description,
-        status=status,
+        review_status=review_status,
+        workflow_status=workflow_status,
         priority=priority,
         due_date=due_date,
         inbox_item_id=inbox_item_id,
@@ -158,7 +168,9 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
         _assert_no_parent_cycle(db, task.id, new_parent_id)
     for key, value in fields.items():
         setattr(task, key, value)
-    task.project_id = _default_project_id_for_status(db, task.project_id, task.status)
+    task.project_id = _default_project_id_for_status(
+        db, task.project_id, task.review_status
+    )
     db.flush()
     db.refresh(task)
     _log_task_event(db, task, "updated")
@@ -166,8 +178,10 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
 
 
 def mark_done(db: Session, task: Task) -> Task:
-    task.status = TaskStatus.done
-    task.project_id = _default_project_id_for_status(db, task.project_id, task.status)
+    task.workflow_status = TaskWorkflowStatus.done
+    task.project_id = _default_project_id_for_status(
+        db, task.project_id, task.review_status
+    )
     db.flush()
     db.refresh(task)
     _log_task_event(db, task, "completed")

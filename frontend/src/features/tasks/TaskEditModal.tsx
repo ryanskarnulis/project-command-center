@@ -1,12 +1,12 @@
 import { type FormEvent, useMemo, useState } from 'react'
 import { Modal } from '../../components/Modal'
 import type { Project } from '../../types/project'
-import type { Task, TaskPriority, TaskStatus, TaskUpdate } from '../../types/task'
-import { DURATION_UNITS, splitDuration, toMinutes } from '../../utils/duration'
+import type { Task, TaskPriority, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
+import { formatDurationInput, parseDurationInput } from '../../utils/duration'
 import { TaskDependencies } from './TaskDependencies'
 
 const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
-const STATUSES: TaskStatus[] = ['candidate', 'accepted', 'rejected', 'done']
+const WORKFLOW_STATUSES: TaskWorkflowStatus[] = ['open', 'in_progress', 'done']
 
 interface Props {
   task: Task
@@ -43,14 +43,12 @@ function descendantIds(task: Task, tasks: Task[]): Set<number> {
 export function TaskEditModal({ task, tasks, projects, onClose, onSave }: Props) {
   const [title, setTitle] = useState(task.title)
   const [description, setDescription] = useState(task.description ?? '')
-  const [status, setStatus] = useState<TaskStatus>(task.status)
+  const [workflowStatus, setWorkflowStatus] = useState<TaskWorkflowStatus>(task.workflow_status)
   const [priority, setPriority] = useState<TaskPriority>(task.priority)
   const [dueDate, setDueDate] = useState(task.due_date ?? '')
   const [projectId, setProjectId] = useState(task.project_id !== null ? String(task.project_id) : '')
   const [parentId, setParentId] = useState(task.parent_task_id !== null ? String(task.parent_task_id) : '')
-  const initialSplit = task.estimated_minutes !== null ? splitDuration(task.estimated_minutes) : null
-  const [estimateValue, setEstimateValue] = useState(initialSplit ? String(initialSplit.value) : '')
-  const [estimateUnit, setEstimateUnit] = useState<'minutes' | 'hours' | 'days' | 'weeks'>(initialSplit?.unit ?? 'minutes')
+  const [estimateDraft, setEstimateDraft] = useState(formatDurationInput(task.estimated_minutes))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -63,16 +61,22 @@ export function TaskEditModal({ task, tasks, projects, onClose, onSave }: Props)
     if (!title.trim()) return
     setSaving(true)
     setError(null)
+    const estimatedMinutes = parseDurationInput(estimateDraft)
+    if (estimatedMinutes === undefined) {
+      setError('Use something like 30m, 2h, or 1 day')
+      setSaving(false)
+      return
+    }
     try {
       await onSave(task.id, {
         title: title.trim(),
         description: description.trim() || null,
-        status,
+        workflow_status: workflowStatus,
         priority,
         due_date: dueDate || null,
         project_id: projectId === '' ? null : Number(projectId),
         parent_task_id: parentId === '' ? null : Number(parentId),
-        estimated_minutes: estimateValue === '' ? null : toMinutes(Number(estimateValue), estimateUnit),
+        estimated_minutes: estimatedMinutes,
       })
       onClose()
     } catch (e: unknown) {
@@ -102,12 +106,12 @@ export function TaskEditModal({ task, tasks, projects, onClose, onSave }: Props)
         <label htmlFor="te-status">Status</label>
         <select
           id="te-status"
-          value={status}
-          onChange={(e) => setStatus(e.target.value as TaskStatus)}
+          value={workflowStatus}
+          onChange={(e) => setWorkflowStatus(e.target.value as TaskWorkflowStatus)}
         >
-          {STATUSES.map((s) => (
+          {WORKFLOW_STATUSES.map((s) => (
             <option key={s} value={s}>
-              {s}
+              {s === 'in_progress' ? 'in progress' : s}
             </option>
           ))}
         </select>
@@ -161,28 +165,13 @@ export function TaskEditModal({ task, tasks, projects, onClose, onSave }: Props)
           ))}
         </select>
 
-        <label htmlFor="te-estimate-value">Estimate</label>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <input
-            id="te-estimate-value"
-            type="number"
-            min={1}
-            placeholder="none"
-            value={estimateValue}
-            onChange={(e) => setEstimateValue(e.target.value)}
-            style={{ width: '5rem' }}
-          />
-          <select
-            id="te-estimate-unit"
-            value={estimateUnit}
-            onChange={(e) => setEstimateUnit(e.target.value as typeof estimateUnit)}
-            disabled={estimateValue === ''}
-          >
-            {DURATION_UNITS.map((u) => (
-              <option key={u} value={u}>{u}</option>
-            ))}
-          </select>
-        </div>
+        <label htmlFor="te-estimate">Estimate</label>
+        <input
+          id="te-estimate"
+          placeholder="30m, 2h, 1 day"
+          value={estimateDraft}
+          onChange={(e) => setEstimateDraft(e.target.value)}
+        />
 
         {error && <p role="alert">{error}</p>}
 

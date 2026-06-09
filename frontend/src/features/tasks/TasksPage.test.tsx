@@ -50,7 +50,8 @@ const baseTask: Task = {
   parent_task_id: null,
   title: 'Fix the VPN',
   description: null,
-  status: 'accepted',
+  review_status: 'accepted',
+  workflow_status: 'open',
   priority: 'medium',
   due_date: null,
   estimated_minutes: null,
@@ -83,7 +84,7 @@ describe('TasksPage', () => {
       task_id: 1,
       depends_on_task_id: 2,
       depends_on_title: 'Rotate the keys',
-      depends_on_status: 'accepted',
+      depends_on_workflow_status: 'open',
       depends_on_done: false,
     })
   })
@@ -204,7 +205,7 @@ describe('TasksPage', () => {
     await user.click(screen.getByRole('button', { name: 'Edit' }))
 
     await user.clear(screen.getByLabelText('Estimate'))
-    await user.type(screen.getByLabelText('Estimate'), '30')
+    await user.type(screen.getByLabelText('Estimate'), '30m')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(mockUpdateTask).toHaveBeenCalledWith(
@@ -243,7 +244,7 @@ describe('TasksPage', () => {
     const user = userEvent.setup()
     mockListAllTasks.mockResolvedValue([
       baseTask,
-      { ...baseTask, id: 2, title: 'A done task', status: 'done' },
+      { ...baseTask, id: 2, title: 'A done task', workflow_status: 'done' },
     ])
     renderGlobal()
 
@@ -273,7 +274,7 @@ describe('TasksPage', () => {
     const user = userEvent.setup()
     mockListAllTasks.mockResolvedValue([
       baseTask,
-      { ...baseTask, id: 2, title: 'A done task', status: 'done' },
+      { ...baseTask, id: 2, title: 'A done task', workflow_status: 'done' },
     ])
     renderGlobal()
 

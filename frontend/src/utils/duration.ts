@@ -40,3 +40,45 @@ export function formatDuration(minutes: number | null): string {
   const singular = unit.endsWith('s') ? unit.slice(0, -1) : unit
   return `${value} ${value === 1 ? singular : unit}`
 }
+
+const INPUT_UNITS: Record<string, DurationUnit> = {
+  '': 'minutes',
+  m: 'minutes',
+  min: 'minutes',
+  mins: 'minutes',
+  minute: 'minutes',
+  minutes: 'minutes',
+  h: 'hours',
+  hr: 'hours',
+  hrs: 'hours',
+  hour: 'hours',
+  hours: 'hours',
+  d: 'days',
+  day: 'days',
+  days: 'days',
+  w: 'weeks',
+  wk: 'weeks',
+  wks: 'weeks',
+  week: 'weeks',
+  weeks: 'weeks',
+}
+
+/** Prefill text for the friendly estimate input. */
+export function formatDurationInput(minutes: number | null): string {
+  return formatDuration(minutes)
+}
+
+/**
+ * Parse a friendly estimate like "30m", "2h", "1 day", or "none".
+ * Returns undefined when the text is invalid, null when the estimate is cleared.
+ */
+export function parseDurationInput(input: string): number | null | undefined {
+  const trimmed = input.trim().toLowerCase()
+  if (trimmed === '' || trimmed === 'none' || trimmed === 'no estimate') return null
+  const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*([a-z]*)$/)
+  if (!match) return undefined
+  const value = Number(match[1])
+  const unit = INPUT_UNITS[match[2]]
+  if (!Number.isFinite(value) || value <= 0 || unit === undefined) return undefined
+  return toMinutes(value, unit)
+}

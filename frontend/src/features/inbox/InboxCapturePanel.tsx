@@ -83,9 +83,6 @@ export function InboxCapturePanel({
           <Heading>{title}</Heading>
           {description && <p>{description}</p>}
         </div>
-        {pending.length > 0 && (
-          <span className="count-badge">{pending.length} awaiting review</span>
-        )}
       </div>
 
       {notice && <p role="status">{notice}</p>}
@@ -109,35 +106,6 @@ export function InboxCapturePanel({
       </form>
 
       {error && <p role="alert">{error}</p>}
-
-      {pending.length > 0 && (
-        <section className="pending-review-panel">
-          <h2>Awaiting review ({pending.length})</h2>
-          <ul>
-            {pending.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  disabled={loading}
-                  aria-current={inboxItem?.id === item.id}
-                  onClick={() => void selectItem(item)}
-                >
-                  <span>[{item.source}]</span>{' '}
-                  {item.summary ?? item.raw_text.slice(0, 60)}
-                </button>
-                <button
-                  type="button"
-                  disabled={loading}
-                  aria-label={`Dismiss ${item.summary ?? item.raw_text.slice(0, 60)}`}
-                  onClick={() => void dismiss(item.id)}
-                >
-                  Dismiss
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       {inboxItem && (
         <section className="capture-summary-panel">

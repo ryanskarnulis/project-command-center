@@ -5,7 +5,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.models import TaskPriority, TaskStatus
+from app.db.models import TaskPriority, TaskReviewStatus, TaskWorkflowStatus
 from app.schemas.common import NonBlankStr, OptionalStrippedStr
 
 # A duration estimate, when present, must be a positive whole number of minutes.
@@ -15,7 +15,8 @@ PositiveMinutes = Annotated[int, Field(gt=0)]
 class TaskCreate(BaseModel):
     title: NonBlankStr
     description: OptionalStrippedStr = None
-    status: TaskStatus = TaskStatus.accepted
+    review_status: TaskReviewStatus = TaskReviewStatus.accepted
+    workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open
     priority: TaskPriority = TaskPriority.medium
     due_date: date | None = None
     parent_task_id: int | None = None
@@ -25,7 +26,8 @@ class TaskCreate(BaseModel):
 class TaskUpdate(BaseModel):
     title: NonBlankStr | None = None
     description: OptionalStrippedStr = None
-    status: TaskStatus | None = None
+    review_status: TaskReviewStatus | None = None
+    workflow_status: TaskWorkflowStatus | None = None
     priority: TaskPriority | None = None
     due_date: date | None = None
     project_id: int | None = None
@@ -42,7 +44,8 @@ class TaskRead(BaseModel):
     parent_task_id: int | None
     title: str
     description: str | None
-    status: TaskStatus
+    review_status: TaskReviewStatus
+    workflow_status: TaskWorkflowStatus
     priority: TaskPriority
     due_date: date | None
     estimated_minutes: int | None

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { formatDuration, splitDuration, toMinutes } from './duration'
+import {
+  formatDuration,
+  formatDurationInput,
+  parseDurationInput,
+  splitDuration,
+  toMinutes,
+} from './duration'
 
 describe('toMinutes', () => {
   it('minutes', () => expect(toMinutes(30, 'minutes')).toBe(30))
@@ -40,4 +46,38 @@ describe('formatDuration', () => {
   it('plural days', () => expect(formatDuration(2880)).toBe('2 days'))
   it('singular week', () => expect(formatDuration(10080)).toBe('1 week'))
   it('odd minutes fallback', () => expect(formatDuration(45)).toBe('45 minutes'))
+})
+
+describe('parseDurationInput', () => {
+  it('clears empty and none values', () => {
+    expect(parseDurationInput('')).toBeNull()
+    expect(parseDurationInput('none')).toBeNull()
+    expect(parseDurationInput('no estimate')).toBeNull()
+  })
+
+  it('parses compact estimates', () => {
+    expect(parseDurationInput('30m')).toBe(30)
+    expect(parseDurationInput('2h')).toBe(120)
+    expect(parseDurationInput('1d')).toBe(1440)
+    expect(parseDurationInput('1w')).toBe(10080)
+  })
+
+  it('parses word estimates and plain numbers as minutes', () => {
+    expect(parseDurationInput('45 min')).toBe(45)
+    expect(parseDurationInput('2 hours')).toBe(120)
+    expect(parseDurationInput('1 day')).toBe(1440)
+    expect(parseDurationInput('30')).toBe(30)
+  })
+
+  it('rejects invalid estimates', () => {
+    expect(parseDurationInput('later')).toBeUndefined()
+    expect(parseDurationInput('0m')).toBeUndefined()
+  })
+})
+
+describe('formatDurationInput', () => {
+  it('uses the friendly duration label', () => {
+    expect(formatDurationInput(120)).toBe('2 hours')
+    expect(formatDurationInput(null)).toBe('')
+  })
 })

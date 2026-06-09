@@ -1,12 +1,12 @@
 import { type FormEvent, useMemo, useState } from 'react'
 import { Modal } from '../../components/Modal'
 import type { Project } from '../../types/project'
-import type { Task, TaskCreate, TaskPriority, TaskStatus, TaskUpdate } from '../../types/task'
-import { DURATION_UNITS, splitDuration, toMinutes } from '../../utils/duration'
+import type { Task, TaskCreate, TaskPriority, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
+import { formatDurationInput, parseDurationInput } from '../../utils/duration'
 import { TaskDependencies } from './TaskDependencies'
 
 const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
-const STATUSES: TaskStatus[] = ['candidate', 'accepted', 'rejected', 'done']
+const WORKFLOW_STATUSES: TaskWorkflowStatus[] = ['open', 'in_progress', 'done']
 
 type CreateMode = {
   mode: 'create'
@@ -56,13 +56,11 @@ export function TaskFormModal(props: Props) {
   const existingTask = isEdit ? props.task : null
   const defaults = isEdit ? undefined : props.defaults
 
-  const initialSplit = existingTask?.estimated_minutes != null
-    ? splitDuration(existingTask.estimated_minutes)
-    : null
-
   const [title, setTitle] = useState(existingTask?.title ?? '')
   const [description, setDescription] = useState(existingTask?.description ?? '')
-  const [status, setStatus] = useState<TaskStatus>(existingTask?.status ?? 'accepted')
+  const [workflowStatus, setWorkflowStatus] = useState<TaskWorkflowStatus>(
+    existingTask?.workflow_status ?? 'open'
+  )
   const [priority, setPriority] = useState<TaskPriority>(existingTask?.priority ?? 'medium')
   const [dueDate, setDueDate] = useState(existingTask?.due_date ?? '')
   const [projectId, setProjectId] = useState(
@@ -75,10 +73,7 @@ export function TaskFormModal(props: Props) {
     : defaults?.parent_task_id != null ? String(defaults.parent_task_id)
     : ''
   )
-  const [estimateValue, setEstimateValue] = useState(initialSplit ? String(initialSplit.value) : '')
-  const [estimateUnit, setEstimateUnit] = useState<'minutes' | 'hours' | 'days' | 'weeks'>(
-    initialSplit?.unit ?? 'minutes'
-  )
+  const [estimateDraft, setEstimateDraft] = useState(formatDurationInput(existingTask?.estimated_minutes ?? null))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -93,13 +88,17 @@ export function TaskFormModal(props: Props) {
     if (!title.trim()) return
     setSaving(true)
     setError(null)
-    const estimatedMinutes = estimateValue === '' ? null : toMinutes(Number(estimateValue), estimateUnit)
+    const estimatedMinutes = parseDurationInput(estimateDraft)
+    if (estimatedMinutes === undefined) {
+      setError('Use something like 30m, 2h, or 1 day')
+      return
+    }
     try {
       if (isEdit && existingTask) {
         await props.onSave(existingTask.id, {
           title: title.trim(),
           description: description.trim() || null,
-          status,
+          workflow_status: workflowStatus,
           priority,
           due_date: dueDate || null,
           project_id: projectId === '' ? null : Number(projectId),
@@ -110,7 +109,7 @@ export function TaskFormModal(props: Props) {
         await (props as CreateMode).onSave({
           title: title.trim(),
           description: description.trim() || null,
-          status,
+          workflow_status: workflowStatus,
           priority,
           due_date: dueDate || null,
           parent_task_id: parentId === '' ? null : Number(parentId),
@@ -138,9 +137,17 @@ export function TaskFormModal(props: Props) {
 
         {isEdit && (
           <>
-            <label htmlFor="tf-status">Status</label>
-            <select id="tf-status" value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)}>
-              {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            <label htmlFor="tf-workflow-status">Status</label>
+            <select
+              id="tf-workflow-status"
+              value={workflowStatus}
+              onChange={(e) => setWorkflowStatus(e.target.value as TaskWorkflowStatus)}
+            >
+              {WORKFLOW_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s === 'in_progress' ? 'in progress' : s}
+                </option>
+              ))}
             </select>
           </>
         )}
@@ -165,26 +172,13 @@ export function TaskFormModal(props: Props) {
           {parentOptions.map((t) => <option key={t.id} value={String(t.id)}>{t.title}</option>)}
         </select>
 
-        <label htmlFor="tf-estimate-value">Estimate</label>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <input
-            id="tf-estimate-value"
-            type="number"
-            min={1}
-            placeholder="none"
-            value={estimateValue}
-            onChange={(e) => setEstimateValue(e.target.value)}
-            style={{ width: '5rem' }}
-          />
-          <select
-            id="tf-estimate-unit"
-            value={estimateUnit}
-            onChange={(e) => setEstimateUnit(e.target.value as typeof estimateUnit)}
-            disabled={estimateValue === ''}
-          >
-            {DURATION_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
-          </select>
-        </div>
+        <label htmlFor="tf-estimate">Estimate</label>
+        <input
+          id="tf-estimate"
+          placeholder="30m, 2h, 1 day"
+          value={estimateDraft}
+          onChange={(e) => setEstimateDraft(e.target.value)}
+        />
 
         {error && <p role="alert">{error}</p>}
 

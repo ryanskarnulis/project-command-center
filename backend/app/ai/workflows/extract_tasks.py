@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.ai import gateway
 from app.ai.schemas import ExtractionInput, ExtractionOutput
-from app.db.models import InboxItem, Task, TaskStatus
+from app.db.models import InboxItem, Task, TaskReviewStatus
 from app.services.inbox import list_candidates as _existing_candidates
 from app.services.tasks import create_task
 from app.services.training_data import record_example
@@ -81,7 +81,7 @@ def extract_tasks(db: Session, inbox_item: InboxItem) -> Sequence[Task]:
                 project_id=None,
                 title=task.title,
                 description=task.description,
-                status=TaskStatus.candidate,
+                review_status=TaskReviewStatus.candidate,
                 priority=task.priority,
                 due_date=task.due_date,
                 inbox_item_id=inbox_item.id,

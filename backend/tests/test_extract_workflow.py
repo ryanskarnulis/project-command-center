@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.ai import gateway
 from app.ai.workflows import extract_tasks as workflow
-from app.db.models import AITrainingExample, InboxItem, Task, TaskStatus
+from app.db.models import AITrainingExample, InboxItem, Task, TaskReviewStatus
 from app.services.common import active
 
 _VALID_OUTPUT = {
@@ -50,7 +50,7 @@ def test_extract_happy_path(db_session: Session, monkeypatch: pytest.MonkeyPatch
     tasks = workflow.extract_tasks(db_session, item)
 
     assert len(tasks) == 2
-    assert all(t.status == TaskStatus.candidate for t in tasks)
+    assert all(t.review_status == TaskReviewStatus.candidate for t in tasks)
     assert all(t.project_id is None for t in tasks)
     assert all(t.inbox_item_id == item.id for t in tasks)
 
