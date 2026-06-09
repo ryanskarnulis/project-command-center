@@ -3,11 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
-import {
-  addDependency,
-  listDependencies,
-} from '../../api/taskDependencies'
-import { createUnscopedTask, listAllTasks, updateTask } from '../../api/tasks'
+import { createUnscopedTask, listAllTasks, markTaskDone } from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { TasksPage } from './TasksPage'
@@ -37,11 +33,9 @@ vi.mock('../../api/taskDependencies', () => ({
 }))
 
 const mockListAllTasks = vi.mocked(listAllTasks)
-const mockUpdateTask = vi.mocked(updateTask)
 const mockListProjects = vi.mocked(listProjects)
 const mockCreateUnscopedTask = vi.mocked(createUnscopedTask)
-const mockListDependencies = vi.mocked(listDependencies)
-const mockAddDependency = vi.mocked(addDependency)
+const mockMarkTaskDone = vi.mocked(markTaskDone)
 
 const baseTask: Task = {
   id: 1,
@@ -76,17 +70,8 @@ describe('TasksPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockListAllTasks.mockResolvedValue([baseTask])
-    mockUpdateTask.mockResolvedValue({ ...baseTask, priority: 'urgent' })
     mockListProjects.mockResolvedValue([baseProject])
-    mockListDependencies.mockResolvedValue([])
-    mockAddDependency.mockResolvedValue({
-      id: 1,
-      task_id: 1,
-      depends_on_task_id: 2,
-      depends_on_title: 'Rotate the keys',
-      depends_on_workflow_status: 'open',
-      depends_on_done: false,
-    })
+    mockMarkTaskDone.mockResolvedValue({ ...baseTask, workflow_status: 'done' })
   })
 
   afterEach(() => {
@@ -106,44 +91,12 @@ describe('TasksPage', () => {
     expect(await screen.findByText('Fix the VPN')).toBeInTheDocument()
   })
 
-  it('opens the edit modal when Edit is clicked', async () => {
-    const user = userEvent.setup()
+  it('does not show per-row Edit buttons', async () => {
     renderGlobal()
-
     await screen.findByText('Fix the VPN')
-    await user.click(screen.getByRole('button', { name: 'Edit' }))
-
-    expect(screen.getByRole('dialog', { name: 'Edit task' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Priority')).toHaveValue('medium')
-  })
-
-  it('calls updateTask with the changed priority and closes the modal', async () => {
-    const user = userEvent.setup()
-    renderGlobal()
-
-    await screen.findByText('Fix the VPN')
-    await user.click(screen.getByRole('button', { name: 'Edit' }))
-
-    await user.selectOptions(screen.getByLabelText('Priority'), 'urgent')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
-
-    expect(mockUpdateTask).toHaveBeenCalledWith(
-      1,
-      expect.objectContaining({ priority: 'urgent' }),
-    )
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  })
-
-  it('closes the modal on Cancel without calling updateTask', async () => {
-    const user = userEvent.setup()
-    renderGlobal()
-
-    await screen.findByText('Fix the VPN')
-    await user.click(screen.getByRole('button', { name: 'Edit' }))
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
-
-    expect(mockUpdateTask).not.toHaveBeenCalled()
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Edit' }),
+    ).not.toBeInTheDocument()
   })
 
   it('shows overdue badge for a past due_date', async () => {
@@ -161,83 +114,16 @@ describe('TasksPage', () => {
     expect(dueBadges).toHaveLength(0)
   })
 
-  it('shows project dropdown in modal with loaded projects', async () => {
-    const user = userEvent.setup()
-    renderGlobal()
-
-    await screen.findByText('Fix the VPN')
-    await user.click(screen.getByRole('button', { name: 'Edit' }))
-
-    const dialog = screen.getByRole('dialog', { name: 'Edit task' })
-    const projectSelect = dialog.querySelector('#tf-project') as HTMLSelectElement
-    expect(projectSelect).toBeInTheDocument()
-    expect(projectSelect).toHaveDisplayValue('— unassigned —')
-    expect(projectSelect.options.length).toBeGreaterThan(1)
-  })
-
-  it('calls updateTask with chosen project_id when project is selected', async () => {
-    const user = userEvent.setup()
-    renderGlobal()
-
-    await screen.findByText('Fix the VPN')
-    await user.click(screen.getByRole('button', { name: 'Edit' }))
-
-    await user.selectOptions(screen.getByLabelText('Project'), 'Infra')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
-
-    expect(mockUpdateTask).toHaveBeenCalledWith(
-      1,
-      expect.objectContaining({ project_id: 42 }),
-    )
-  })
-
   it('shows a human duration label when estimated_minutes is set', async () => {
     mockListAllTasks.mockResolvedValue([{ ...baseTask, estimated_minutes: 60 }])
     renderGlobal()
     expect(await screen.findByText('~1 hour')).toBeInTheDocument()
   })
 
-  it('calls updateTask with the chosen estimate', async () => {
-    const user = userEvent.setup()
-    renderGlobal()
-
-    await screen.findByText('Fix the VPN')
-    await user.click(screen.getByRole('button', { name: 'Edit' }))
-
-    await user.clear(screen.getByLabelText('Estimate'))
-    await user.type(screen.getByLabelText('Estimate'), '30m')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
-
-    expect(mockUpdateTask).toHaveBeenCalledWith(
-      1,
-      expect.objectContaining({ estimated_minutes: 30 }),
-    )
-  })
-
   it('shows a Blocked badge for a task with an unfinished dependency', async () => {
     mockListAllTasks.mockResolvedValue([{ ...baseTask, is_blocked: true }])
     renderGlobal()
     expect(await screen.findByText('Blocked')).toBeInTheDocument()
-  })
-
-  it('adds a dependency from the edit modal', async () => {
-    const user = userEvent.setup()
-    mockListAllTasks.mockResolvedValue([
-      baseTask,
-      { ...baseTask, id: 2, title: 'Rotate the keys' },
-    ])
-    renderGlobal()
-
-    await screen.findByText('Fix the VPN')
-    await user.click(screen.getAllByRole('button', { name: 'Edit' })[0])
-
-    await user.selectOptions(
-      screen.getByLabelText('Add dependency'),
-      'Rotate the keys',
-    )
-    await user.click(screen.getByRole('button', { name: 'Add' }))
-
-    expect(mockAddDependency).toHaveBeenCalledWith(1, 2)
   })
 
   it('filter by status shows only matching tasks', async () => {
@@ -298,16 +184,83 @@ describe('TasksPage', () => {
     expect(screen.queryByText('No tasks yet.')).not.toBeInTheDocument()
   })
 
-  it('renders a subtask nested under its parent', async () => {
+  it('filters by search text in titles and descriptions', async () => {
+    const user = userEvent.setup()
+    mockListAllTasks.mockResolvedValue([
+      { ...baseTask, description: 'Repair the private tunnel' },
+      { ...baseTask, id: 2, title: 'Urgent work', description: 'Patch hosts' },
+    ])
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.type(screen.getByLabelText('Search tasks'), 'tunnel')
+
+    expect(screen.getByText('Fix the VPN')).toBeInTheDocument()
+    expect(screen.queryByText('Urgent work')).not.toBeInTheDocument()
+  })
+
+  it('sorts tasks with the selected sort mode', async () => {
+    const user = userEvent.setup()
+    mockListAllTasks.mockResolvedValue([
+      { ...baseTask, due_date: '2026-06-20' },
+      { ...baseTask, id: 2, title: 'Soon work', due_date: '2026-06-10' },
+    ])
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.selectOptions(screen.getByLabelText('Sort tasks'), 'due_date')
+
+    const taskLinks = screen
+      .getAllByRole('link')
+      .map((link) => link.getAttribute('aria-label'))
+    expect(taskLinks).toEqual(['Soon work', 'Fix the VPN'])
+  })
+
+  it('marks a task done from the compact row action', async () => {
+    const user = userEvent.setup()
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.click(
+      screen.getByRole('button', { name: 'Mark Fix the VPN done' }),
+    )
+
+    expect(mockMarkTaskDone).toHaveBeenCalledWith(1)
+  })
+
+  it('keeps subtasks collapsed until the parent toggle is clicked', async () => {
+    const user = userEvent.setup()
     mockListAllTasks.mockResolvedValue([
       baseTask,
       { ...baseTask, id: 2, parent_task_id: 1, title: 'Rotate the keys' },
     ])
     renderGlobal()
 
-    const child = await screen.findByText('Rotate the keys')
-    // The child lives inside the nested .task-children list, not the root list.
+    await screen.findByText('Fix the VPN')
+    expect(screen.queryByText('Rotate the keys')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Subtasks (1)' }))
+    const child = screen.getByText('Rotate the keys')
     expect(child.closest('ul.task-children')).not.toBeNull()
+  })
+
+  it('keeps nested subtasks hidden until their parent subtask is expanded', async () => {
+    const user = userEvent.setup()
+    mockListAllTasks.mockResolvedValue([
+      baseTask,
+      { ...baseTask, id: 2, parent_task_id: 1, title: 'Rotate the keys' },
+      { ...baseTask, id: 3, parent_task_id: 2, title: 'Verify rotation' },
+    ])
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.click(screen.getByRole('button', { name: 'Subtasks (1)' }))
+
+    expect(screen.getByText('Rotate the keys')).toBeInTheDocument()
+    expect(screen.queryByText('Verify rotation')).not.toBeInTheDocument()
+
+    await user.click(screen.getAllByRole('button', { name: 'Subtasks (1)' })[1])
+    expect(screen.getByText('Verify rotation')).toBeInTheDocument()
   })
 
   it('creates a subtask with the parent_task_id when Add subtask is used', async () => {
