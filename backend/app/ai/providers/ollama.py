@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import httpx
+import structlog
 
 from app.ai.providers.base import BaseProvider, Message, ResponseMode
 from app.config import get_settings
+
+logger = structlog.get_logger(__name__)
 
 
 class OllamaProvider(BaseProvider):
@@ -45,9 +49,47 @@ class OllamaProvider(BaseProvider):
         if response_mode == "json_schema" and json_schema is not None:
             payload["format"] = json_schema
 
-        response = httpx.post(
-            f"{self._base_url}/api/chat", json=payload, timeout=self._timeout
+        logger.info(
+            "ollama_request",
+            model=model,
+            message_count=len(messages),
+            structured=response_mode == "json_schema" and json_schema is not None,
+            max_tokens=max_tokens,
         )
-        response.raise_for_status()
+        start = time.perf_counter()
+        try:
+            response = httpx.post(
+                f"{self._base_url}/api/chat", json=payload, timeout=self._timeout
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            status_code = exc.response.status_code if isinstance(
+                exc, httpx.HTTPStatusError
+            ) else None
+            logger.error(
+                "ollama_request_failed",
+                model=model,
+                error=str(exc),
+                status_code=status_code,
+                duration_ms=round((time.perf_counter() - start) * 1000, 1),
+            )
+            raise
+
         data = response.json()
-        return str(data["message"]["content"])
+        try:
+            content = str(data["message"]["content"])
+        except (KeyError, TypeError) as exc:
+            logger.error(
+                "ollama_response_malformed",
+                model=model,
+                keys=list(data.keys()) if isinstance(data, dict) else None,
+            )
+            raise ValueError("unexpected Ollama response shape") from exc
+
+        logger.info(
+            "ollama_response",
+            model=model,
+            duration_ms=round((time.perf_counter() - start) * 1000, 1),
+            response_chars=len(content),
+        )
+        return content

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import structlog
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AITrainingExample
 from app.services.common import active
+
+logger = structlog.get_logger(__name__)
 
 
 def record_example(
@@ -40,6 +43,15 @@ def record_example(
     db.add(example)
     db.flush()
     db.refresh(example)
+    logger.info(
+        "training_example_recorded",
+        example_id=example.id,
+        task_name=task_name,
+        accepted=accepted,
+        model_profile=model_profile,
+        model_name=model_name,
+        is_failure_case=corrected_output_json is None and not accepted,
+    )
     return example
 
 

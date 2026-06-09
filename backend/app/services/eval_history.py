@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import structlog
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import EvalRun
+
+logger = structlog.get_logger(__name__)
 
 
 def record_run(db: Session, *, suite: str, passed: int, total: int) -> EvalRun:
@@ -14,6 +17,9 @@ def record_run(db: Session, *, suite: str, passed: int, total: int) -> EvalRun:
     db.add(run)
     db.flush()
     db.refresh(run)
+    logger.info(
+        "eval_run_recorded", run_id=run.id, suite=suite, passed=passed, total=total
+    )
     return run
 
 

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import structlog
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import ActivityEvent
+
+logger = structlog.get_logger(__name__)
 
 
 def record_event(
@@ -32,6 +35,14 @@ def record_event(
     db.add(event)
     db.flush()
     db.refresh(event)
+    logger.info(
+        "activity_event_recorded",
+        event_id=event.id,
+        project_id=project_id,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        action=action,
+    )
     return event
 
 

@@ -4,11 +4,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import structlog
 import yaml
 from pydantic import BaseModel
 
 from app.ai.providers.base import BaseProvider, Message, ResponseMode
 from app.ai.providers.ollama import OllamaProvider
+
+logger = structlog.get_logger(__name__)
 
 _PROFILES_PATH = Path(__file__).parent / "profiles.yaml"
 # Runtime overrides written by the settings UI. Gitignored; deep-merged over the
@@ -64,6 +67,7 @@ def get_profile(name: str) -> Profile:
     try:
         return _load_profiles()[name]
     except KeyError:
+        logger.error("unknown_profile", profile=name)
         raise ValueError(f"unknown profile: {name!r}") from None
 
 
@@ -96,6 +100,7 @@ def complete(
     try:
         provider_cls = _PROVIDERS[profile.provider]
     except KeyError:
+        logger.error("unknown_provider", provider=profile.provider, profile=profile_name)
         raise ValueError(f"unknown provider: {profile.provider!r}") from None
 
     messages: list[Message] = [
