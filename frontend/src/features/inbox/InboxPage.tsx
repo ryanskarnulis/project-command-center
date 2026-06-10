@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useParams } from 'react-router-dom'
 import type { Task } from '../../types/task'
 import { TaskCard } from '../tasks/TaskCard'
 import { useInbox } from './useInbox'
@@ -48,6 +49,7 @@ function CandidateList({
 }
 
 export function InboxPage() {
+  const { inboxId } = useParams<{ inboxId?: string }>()
   const {
     inboxItem,
     candidates,
@@ -60,11 +62,23 @@ export function InboxPage() {
     dismiss,
     loadPending,
     selectItem,
+    selectItemById,
+    reset,
   } = useInbox()
 
   useEffect(() => {
     void loadPending()
   }, [loadPending])
+
+  // /inbox/:inboxId opens that note's review directly (breadcrumb back-target);
+  // plain /inbox returns to the list, clearing any previously-selected note.
+  useEffect(() => {
+    if (inboxId) {
+      void selectItemById(Number(inboxId))
+    } else {
+      reset()
+    }
+  }, [inboxId, selectItemById, reset])
 
   function handleDecide(inboxId: number, taskId: number, action: 'approve' | 'dismiss') {
     void decide(inboxId, taskId, { action })

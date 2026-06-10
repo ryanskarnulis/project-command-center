@@ -32,6 +32,7 @@ interface UseInbox {
   loadPending: () => Promise<void>
   loadProjects: () => Promise<void>
   selectItem: (item: InboxItem) => Promise<void>
+  selectItemById: (id: number) => Promise<void>
   reset: () => void
 }
 
@@ -96,6 +97,23 @@ export function useInbox(): UseInbox {
       setCandidates(tasks)
     } catch (e: unknown) {
       setError(messageFor(e, 'Failed to load candidates'))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // Open a note review by id — used when landing on /inbox/:inboxId directly
+  // (e.g. the breadcrumb "back" from the candidate editor).
+  const selectItemById = useCallback(async (id: number) => {
+    setLoading(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const [item, tasks] = await Promise.all([getInbox(id), getCandidates(id)])
+      setInboxItem(item)
+      setCandidates(tasks)
+    } catch (e: unknown) {
+      setError(messageFor(e, 'Failed to load note'))
     } finally {
       setLoading(false)
     }
@@ -198,6 +216,7 @@ export function useInbox(): UseInbox {
     loadPending,
     loadProjects,
     selectItem,
+    selectItemById,
     reset,
   }
 }

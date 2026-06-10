@@ -2,6 +2,7 @@ import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useState } from
 import { CheckCircle2, Circle, PlayCircle, Trash2 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { createUnscopedTask, deleteTask, getSubtasks, getTask, listAllTasks, updateTask } from '../../api/tasks'
+import { decideCandidate } from '../../api/inbox'
 import { listProjects } from '../../api/projects'
 import type { Project } from '../../types/project'
 import type { Task, TaskPriority, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
@@ -67,6 +68,7 @@ export function TaskDetailPage() {
   const [subtaskDraft, setSubtaskDraft] = useState(EMPTY_SUBTASK_DRAFT)
   const [subtaskError, setSubtaskError] = useState<string | null>(null)
   const [addingSubtask, setAddingSubtask] = useState(false)
+  const [deciding, setDeciding] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -203,11 +205,35 @@ export function TaskDetailPage() {
     }
   }
 
+  // Approve/dismiss a candidate. Inline field edits already persisted via
+  // savePatch, so this only flips review_status (and finalizes the note when it
+  // was the last candidate). Send the project explicitly only when one is set, so
+  // the backend's suggested-project fallback still applies to untouched candidates.
+  async function handleDecide(action: 'approve' | 'dismiss') {
+    if (!task || task.inbox_item_id === null) return
+    const inboxItemId = task.inbox_item_id
+    setDeciding(true)
+    setSaveError(null)
+    try {
+      const edits =
+        action === 'approve' && task.project_id !== null
+          ? { project_id: task.project_id }
+          : undefined
+      const res = await decideCandidate(inboxItemId, task.id, { action, edits })
+      navigate(res.finalized ? '/inbox' : `/inbox/${inboxItemId}`)
+    } catch (e: unknown) {
+      setSaveState('error')
+      setSaveError(e instanceof Error ? e.message : 'Failed to record decision')
+      setDeciding(false)
+    }
+  }
+
   if (loading) return <main><p>Loading…</p></main>
   if (error) return <main><p role="alert">{error}</p></main>
   if (!task) return null
 
   const projectName = projects.find((p) => p.id === task.project_id)?.name ?? 'Unassigned'
+  const isCandidate = task.review_status === 'candidate' && task.inbox_item_id !== null
   const saveLabel = saveState === 'saving'
     ? 'Saving…'
     : saveState === 'saved'
@@ -219,7 +245,17 @@ export function TaskDetailPage() {
   return (
     <main className="task-detail">
       <div className="task-detail-header">
-        <p><Link to="/tasks">← Open Tasks</Link></p>
+        {isCandidate ? (
+          <p className="breadcrumb">
+            <Link to="/inbox">Inbox</Link>
+            {' › '}
+            <Link to={`/inbox/${task.inbox_item_id}`}>Note review</Link>
+            {' › '}
+            <span aria-current="page">{task.title}</span>
+          </p>
+        ) : (
+          <p><Link to="/tasks">← Open Tasks</Link></p>
+        )}
         <div className="task-detail-actions">
           {saveLabel && (
             <span
@@ -229,25 +265,49 @@ export function TaskDetailPage() {
               {saveLabel}
             </span>
           )}
-          <button
-            type="button"
-            onClick={() =>
-              void savePatch({
-                workflow_status: task.workflow_status === 'done' ? 'open' : 'done',
-              })
-            }
-          >
-            {task.workflow_status === 'done' ? (
-              <Circle size={16} aria-hidden="true" />
-            ) : (
-              <CheckCircle2 size={16} aria-hidden="true" />
-            )}
-            {task.workflow_status === 'done' ? 'Reopen' : 'Mark done'}
-          </button>
-          <button type="button" className="danger-action" onClick={() => void handleDelete()}>
-            <Trash2 size={16} aria-hidden="true" />
-            Delete
-          </button>
+          {isCandidate ? (
+            <>
+              <button
+                type="button"
+                disabled={deciding}
+                onClick={() => void handleDecide('approve')}
+              >
+                <CheckCircle2 size={16} aria-hidden="true" />
+                Approve
+              </button>
+              <button
+                type="button"
+                className="danger-action"
+                disabled={deciding}
+                onClick={() => void handleDecide('dismiss')}
+              >
+                <Trash2 size={16} aria-hidden="true" />
+                Dismiss
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  void savePatch({
+                    workflow_status: task.workflow_status === 'done' ? 'open' : 'done',
+                  })
+                }
+              >
+                {task.workflow_status === 'done' ? (
+                  <Circle size={16} aria-hidden="true" />
+                ) : (
+                  <CheckCircle2 size={16} aria-hidden="true" />
+                )}
+                {task.workflow_status === 'done' ? 'Reopen' : 'Mark done'}
+              </button>
+              <button type="button" className="danger-action" onClick={() => void handleDelete()}>
+                <Trash2 size={16} aria-hidden="true" />
+                Delete
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -371,6 +431,7 @@ export function TaskDetailPage() {
         </div>
       </section>
 
+      {!isCandidate && (
       <section className="task-detail-panel">
         <div className="task-section-heading">
           <h2>Subtasks</h2>
@@ -448,8 +509,9 @@ export function TaskDetailPage() {
           </form>
         )}
       </section>
+      )}
 
-      <TaskDependencies task={task} tasks={allTasks} />
+      {!isCandidate && <TaskDependencies task={task} tasks={allTasks} />}
     </main>
   )
 }

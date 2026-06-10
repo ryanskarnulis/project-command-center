@@ -29,10 +29,8 @@ export function InboxCapturePanel({
     notice,
     submit,
     review,
-    dismiss,
     loadPending,
     loadProjects,
-    selectItem,
     reset,
   } = useInbox()
   const [text, setText] = useState('')
