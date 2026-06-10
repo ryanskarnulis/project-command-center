@@ -56,13 +56,19 @@ export function TaskFormModal(props: Props) {
   const existingTask = isEdit ? props.task : null
   const defaults = isEdit ? undefined : props.defaults
 
-  const [title, setTitle] = useState(existingTask?.title ?? '')
-  const [description, setDescription] = useState(existingTask?.description ?? '')
+  const [title, setTitle] = useState(existingTask?.title ?? defaults?.title ?? '')
+  const [description, setDescription] = useState(
+    existingTask?.description ?? defaults?.description ?? ''
+  )
   const [workflowStatus, setWorkflowStatus] = useState<TaskWorkflowStatus>(
     existingTask?.workflow_status ?? 'open'
   )
-  const [priority, setPriority] = useState<TaskPriority>(existingTask?.priority ?? 'medium')
-  const [dueDate, setDueDate] = useState(existingTask?.due_date ?? '')
+  const [priority, setPriority] = useState<TaskPriority>(
+    existingTask?.priority ?? defaults?.priority ?? 'medium'
+  )
+  const [dueDate, setDueDate] = useState(
+    existingTask?.due_date ?? defaults?.due_date ?? ''
+  )
   const [projectId, setProjectId] = useState(
     existingTask?.project_id != null ? String(existingTask.project_id)
     : defaults?.parent_task_id != null ? ''
@@ -73,7 +79,9 @@ export function TaskFormModal(props: Props) {
     : defaults?.parent_task_id != null ? String(defaults.parent_task_id)
     : ''
   )
-  const [estimateDraft, setEstimateDraft] = useState(formatDurationInput(existingTask?.estimated_minutes ?? null))
+  const [estimateDraft, setEstimateDraft] = useState(
+    formatDurationInput(existingTask?.estimated_minutes ?? defaults?.estimated_minutes ?? null)
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 

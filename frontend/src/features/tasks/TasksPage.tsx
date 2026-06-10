@@ -11,8 +11,14 @@ import {
 } from 'lucide-react'
 import { listProjects } from '../../api/projects'
 import type { Project } from '../../types/project'
-import type { Task, TaskPriority, TaskWorkflowStatus } from '../../types/task'
+import type {
+  Task,
+  TaskCreate,
+  TaskPriority,
+  TaskWorkflowStatus,
+} from '../../types/task'
 import { compareTasks, dueStatus } from '../../utils/dates'
+import { parseDurationInput } from '../../utils/duration'
 import { ActivityFeed } from '../projects/ActivityFeed'
 import { TaskCard } from './TaskCard'
 import { TaskFormModal } from './TaskFormModal'
@@ -153,8 +159,18 @@ export function TasksPage() {
   )
 
   // Per-row subtask composer
+  const EMPTY_SUBTASK_DRAFT = {
+    title: '',
+    priority: 'medium' as TaskPriority,
+    dueDate: '',
+    estimate: '',
+  }
   const [subtaskParentId, setSubtaskParentId] = useState<number | null>(null)
-  const [subtaskTitle, setSubtaskTitle] = useState('')
+  const [subtaskDraft, setSubtaskDraft] = useState(EMPTY_SUBTASK_DRAFT)
+  const [subtaskError, setSubtaskError] = useState<string | null>(null)
+  // "More options" hands the in-progress draft to the full task modal.
+  const [subtaskModalDefaults, setSubtaskModalDefaults] =
+    useState<Partial<TaskCreate> | null>(null)
 
   useEffect(() => {
     listProjects().then(setProjects).catch(() => {})
@@ -222,13 +238,53 @@ export function TasksPage() {
     })
   }
 
-  async function handleAddSubtask(e: FormEvent<HTMLFormElement>, parentId: number) {
-    e.preventDefault()
-    if (!subtaskTitle.trim()) return
-    await create({ title: subtaskTitle.trim(), parent_task_id: parentId })
-    setSubtaskTitle('')
+  function openSubtaskComposer(parentId: number) {
+    setSubtaskParentId(parentId)
+    setSubtaskDraft(EMPTY_SUBTASK_DRAFT)
+    setSubtaskError(null)
+  }
+
+  function closeSubtaskComposer() {
     setSubtaskParentId(null)
+    setSubtaskError(null)
+  }
+
+  async function handleAddSubtask(
+    e: FormEvent<HTMLFormElement>,
+    parentId: number,
+  ) {
+    e.preventDefault()
+    if (!subtaskDraft.title.trim()) return
+    const estimatedMinutes = parseDurationInput(subtaskDraft.estimate)
+    if (estimatedMinutes === undefined) {
+      setSubtaskError('Use something like 30m, 2h, or 1 day')
+      return
+    }
+    await create({
+      title: subtaskDraft.title.trim(),
+      parent_task_id: parentId,
+      priority: subtaskDraft.priority,
+      due_date: subtaskDraft.dueDate || null,
+      estimated_minutes: estimatedMinutes,
+    })
+    closeSubtaskComposer()
     bumpActivity()
+  }
+
+  // Hand the in-progress draft to the full task modal for the long-tail fields.
+  function openSubtaskModal(parentId: number) {
+    const estimatedMinutes = parseDurationInput(subtaskDraft.estimate)
+    setSubtaskModalDefaults({
+      parent_task_id: parentId,
+      title: subtaskDraft.title.trim() || undefined,
+      priority: subtaskDraft.priority,
+      due_date: subtaskDraft.dueDate || null,
+      // Drop an unparseable estimate rather than blocking the handoff; the modal
+      // re-validates on save.
+      estimated_minutes:
+        estimatedMinutes === undefined ? null : estimatedMinutes,
+    })
+    closeSubtaskComposer()
   }
 
   function renderTask(t: Task) {
@@ -238,10 +294,7 @@ export function TasksPage() {
       <>
         <button
           className="task-action"
-          onClick={() => {
-            setSubtaskParentId(t.id)
-            setSubtaskTitle('')
-          }}
+          onClick={() => openSubtaskComposer(t.id)}
         >
           <Plus size={16} aria-hidden="true" />
           Add subtask
@@ -280,16 +333,67 @@ export function TasksPage() {
           >
             <input
               autoFocus
-              value={subtaskTitle}
-              onChange={(e) => setSubtaskTitle(e.target.value)}
+              value={subtaskDraft.title}
+              onChange={(e) =>
+                setSubtaskDraft((d) => ({ ...d, title: e.target.value }))
+              }
               placeholder="Subtask title"
             />
-            <button type="submit" disabled={!subtaskTitle.trim()}>
-              Add
-            </button>{' '}
-            <button type="button" onClick={() => setSubtaskParentId(null)}>
-              Cancel
-            </button>
+            <div className="task-subtask-fields">
+              <label>
+                <span>Priority</span>
+                <select
+                  value={subtaskDraft.priority}
+                  onChange={(e) =>
+                    setSubtaskDraft((d) => ({
+                      ...d,
+                      priority: e.target.value as TaskPriority,
+                    }))
+                  }
+                >
+                  <option value="urgent">Urgent</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </label>
+              <label>
+                <span>Due date</span>
+                <input
+                  type="date"
+                  value={subtaskDraft.dueDate}
+                  onChange={(e) =>
+                    setSubtaskDraft((d) => ({ ...d, dueDate: e.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                <span>Estimate</span>
+                <input
+                  placeholder="30m, 2h, 1 day"
+                  value={subtaskDraft.estimate}
+                  onChange={(e) =>
+                    setSubtaskDraft((d) => ({ ...d, estimate: e.target.value }))
+                  }
+                />
+              </label>
+            </div>
+            {subtaskError && <p role="alert">{subtaskError}</p>}
+            <div className="task-subtask-actions">
+              <button type="submit" disabled={!subtaskDraft.title.trim()}>
+                Add
+              </button>
+              <button type="button" onClick={closeSubtaskComposer}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => openSubtaskModal(t.id)}
+              >
+                More options
+              </button>
+            </div>
           </form>
         )}
         {kids.length > 0 && (
@@ -536,6 +640,20 @@ export function TasksPage() {
           tasks={tasks}
           projects={projects}
           onClose={() => setAddingTask(false)}
+          onSave={async (data) => {
+            await create(data)
+            bumpActivity()
+          }}
+        />
+      )}
+
+      {subtaskModalDefaults && (
+        <TaskFormModal
+          mode="create"
+          defaults={subtaskModalDefaults}
+          tasks={tasks}
+          projects={projects}
+          onClose={() => setSubtaskModalDefaults(null)}
           onSave={async (data) => {
             await create(data)
             bumpActivity()

@@ -402,6 +402,10 @@ Sprint 9b: [DONE] Completed-task archive — done tasks leave the active list an
            is_blocked). Mirrors the trash/restore pattern.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
+Sprint 11 (backlog): AI "break this down" — a per-task action that sends the
+           task's title + description through ai/gateway.py to suggest subtasks,
+           surfaced as candidates (review_status="candidate") for review/accept,
+           reusing the extract_tasks workflow + eval + training-capture pattern.
 ```
 
 ## First vertical slice

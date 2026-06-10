@@ -58,7 +58,14 @@ export function TaskDetailPage() {
   const [titleDraft, setTitleDraft] = useState('')
   const [descriptionDraft, setDescriptionDraft] = useState('')
   const [estimateDraft, setEstimateDraft] = useState('')
-  const [subtaskTitle, setSubtaskTitle] = useState('')
+  const EMPTY_SUBTASK_DRAFT = {
+    title: '',
+    priority: 'medium' as TaskPriority,
+    dueDate: '',
+    estimate: '',
+  }
+  const [subtaskDraft, setSubtaskDraft] = useState(EMPTY_SUBTASK_DRAFT)
+  const [subtaskError, setSubtaskError] = useState<string | null>(null)
   const [addingSubtask, setAddingSubtask] = useState(false)
 
   useEffect(() => {
@@ -148,19 +155,33 @@ export function TaskDetailPage() {
     }
   }
 
+  function closeSubtaskComposer() {
+    setAddingSubtask(false)
+    setSubtaskError(null)
+  }
+
   async function handleAddSubtask(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (!task || !subtaskTitle.trim()) return
+    if (!task || !subtaskDraft.title.trim()) return
+    const estimatedMinutes = parseDurationInput(subtaskDraft.estimate)
+    if (estimatedMinutes === undefined) {
+      setSubtaskError('Use something like 30m, 2h, or 1 day')
+      return
+    }
     setSaveState('saving')
     setSaveError(null)
     try {
       const created = await createUnscopedTask({
-        title: subtaskTitle.trim(),
+        title: subtaskDraft.title.trim(),
         parent_task_id: task.id,
+        priority: subtaskDraft.priority,
+        due_date: subtaskDraft.dueDate || null,
+        estimated_minutes: estimatedMinutes,
       })
       setSubtasks((items) => [...items, created])
       setAllTasks((items) => [...items, created])
-      setSubtaskTitle('')
+      setSubtaskDraft(EMPTY_SUBTASK_DRAFT)
+      setSubtaskError(null)
       setAddingSubtask(false)
       setSaveState('saved')
     } catch (e: unknown) {
@@ -370,16 +391,60 @@ export function TaskDetailPage() {
           <p>No subtasks yet.</p>
         )}
         {addingSubtask && (
-          <form className="inline-subtask-form" onSubmit={(e) => void handleAddSubtask(e)}>
+          <form className="task-subtask-form" onSubmit={(e) => void handleAddSubtask(e)}>
             <input
               autoFocus
               aria-label="Subtask title"
-              value={subtaskTitle}
-              onChange={(e) => setSubtaskTitle(e.target.value)}
+              value={subtaskDraft.title}
+              onChange={(e) =>
+                setSubtaskDraft((d) => ({ ...d, title: e.target.value }))
+              }
               placeholder="Subtask title"
             />
-            <button type="submit" disabled={!subtaskTitle.trim()}>Add</button>
-            <button type="button" onClick={() => setAddingSubtask(false)}>Cancel</button>
+            <div className="task-subtask-fields">
+              <label>
+                <span>Priority</span>
+                <select
+                  value={subtaskDraft.priority}
+                  onChange={(e) =>
+                    setSubtaskDraft((d) => ({
+                      ...d,
+                      priority: e.target.value as TaskPriority,
+                    }))
+                  }
+                >
+                  <option value="urgent">Urgent</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </label>
+              <label>
+                <span>Due date</span>
+                <input
+                  type="date"
+                  value={subtaskDraft.dueDate}
+                  onChange={(e) =>
+                    setSubtaskDraft((d) => ({ ...d, dueDate: e.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                <span>Estimate</span>
+                <input
+                  placeholder="30m, 2h, 1 day"
+                  value={subtaskDraft.estimate}
+                  onChange={(e) =>
+                    setSubtaskDraft((d) => ({ ...d, estimate: e.target.value }))
+                  }
+                />
+              </label>
+            </div>
+            {subtaskError && <p role="alert">{subtaskError}</p>}
+            <div className="task-subtask-actions">
+              <button type="submit" disabled={!subtaskDraft.title.trim()}>Add</button>
+              <button type="button" onClick={closeSubtaskComposer}>Cancel</button>
+            </div>
           </form>
         )}
       </section>
