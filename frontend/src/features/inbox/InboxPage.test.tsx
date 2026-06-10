@@ -1,8 +1,8 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { decideCandidate, dismissInbox, getCandidates, listPendingInbox } from '../../api/inbox'
+import { decideCandidate, dismissInbox, getCandidates, getInbox, listPendingInbox } from '../../api/inbox'
 import type { InboxItem } from '../../types/inbox'
 import type { Task } from '../../types/task'
 import { InboxPage } from './InboxPage'
@@ -25,6 +25,7 @@ vi.mock('../../api/projects', () => ({
 
 const mockListPendingInbox = vi.mocked(listPendingInbox)
 const mockGetCandidates = vi.mocked(getCandidates)
+const mockGetInbox = vi.mocked(getInbox)
 const mockDecideCandidate = vi.mocked(decideCandidate)
 const mockDismissInbox = vi.mocked(dismissInbox)
 
@@ -67,8 +68,11 @@ const candidate2: Task = { ...candidate, id: 202, title: 'Update firmware' }
 
 function renderPage() {
   return render(
-    <MemoryRouter>
-      <InboxPage />
+    <MemoryRouter initialEntries={['/inbox']}>
+      <Routes>
+        <Route path="/inbox" element={<InboxPage />} />
+        <Route path="/inbox/:inboxId" element={<InboxPage />} />
+      </Routes>
     </MemoryRouter>,
   )
 }
@@ -79,6 +83,8 @@ describe('InboxPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockDismissInbox.mockResolvedValue(undefined)
+    // Selecting a note navigates to /inbox/:id, which loads the item by id.
+    mockGetInbox.mockResolvedValue(pendingItem)
   })
 
   it('shows pending note when present', async () => {

@@ -1,5 +1,6 @@
-import { useEffect } from 'react'
-import { useParams } from 'react-router-dom'
+import { useEffect, useMemo } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { TaskCard } from '../tasks/TaskCard'
 import { useInbox } from './useInbox'
@@ -8,11 +9,13 @@ import { useInbox } from './useInbox'
 function CandidateList({
   inboxId,
   candidates,
+  projects,
   onDecide,
   submitting,
 }: {
   inboxId: number
   candidates: Task[]
+  projects: Project[]
   onDecide: (inboxId: number, taskId: number, action: 'approve' | 'dismiss') => void
   submitting: boolean
 }) {
@@ -23,6 +26,7 @@ function CandidateList({
         <li key={t.id}>
           <TaskCard
             task={t}
+            projects={projects}
             actions={
               <>
                 <button
@@ -50,6 +54,7 @@ function CandidateList({
 
 export function InboxPage() {
   const { inboxId } = useParams<{ inboxId?: string }>()
+  const navigate = useNavigate()
   const {
     inboxItem,
     candidates,
@@ -58,18 +63,32 @@ export function InboxPage() {
     error,
     submitting,
     notice,
+    projects,
     decide,
     review,
     dismiss,
     loadPending,
-    selectItem,
+    loadProjects,
     selectItemById,
     reset,
   } = useInbox()
 
   useEffect(() => {
     void loadPending()
-  }, [loadPending])
+    void loadProjects()
+  }, [loadPending, loadProjects])
+
+  // Review the riskiest extractions first: lowest model confidence at the top
+  // (candidates without a confidence score sort last).
+  const sortedCandidates = useMemo(
+    () => [...candidates].sort((a, b) => (a.confidence ?? 1) - (b.confidence ?? 1)),
+    [candidates],
+  )
+
+  const suggestedProjectName =
+    inboxItem === null
+      ? null
+      : (projects.find((p) => p.id === inboxItem.suggested_project_id)?.name ?? null)
 
   // /inbox/:inboxId opens that note's review directly (breadcrumb back-target);
   // plain /inbox returns to the list, clearing any previously-selected note.
@@ -91,25 +110,46 @@ export function InboxPage() {
     void review(candidates.map((t) => ({ task_id: t.id, action })))
   }
 
+  // Dismissing soft-deletes the whole note (no review, no training row), so guard
+  // a misclick that would discard the candidates.
+  function handleDismissNote(id: number) {
+    if (window.confirm('Dismiss this note? Its candidates will not be reviewed.')) {
+      void dismiss(id)
+    }
+  }
+
   return (
     <main>
       <h1>Inbox</h1>
       <p>Review extracted candidates below. Capture new notes from the dashboard.</p>
 
-      {notice && <p role="status">{notice}</p>}
+      {notice && (
+        <p role="status">
+          {notice} <Link to="/tasks">View filed tasks</Link>
+        </p>
+      )}
       {error && <p role="alert">{error}</p>}
       {loading && <p>Loading…</p>}
 
       {inboxItem ? (
         <section>
+          <p className="breadcrumb"><Link to="/inbox">← Inbox</Link></p>
           <h2>
             {inboxItem.summary ?? 'Note'}
             {' '}
-            <button type="button" onClick={() => void dismiss(inboxItem.id)}>
+            <button type="button" onClick={() => handleDismissNote(inboxItem.id)}>
               Dismiss note
             </button>
           </h2>
           <p className="source-pill">{inboxItem.raw_text}</p>
+          {suggestedProjectName && (
+            <p className="suggested-project">
+              Suggested project: <strong>{suggestedProjectName}</strong>
+            </p>
+          )}
+          {candidates.length > 0 && (
+            <p className="remaining-count">{candidates.length} remaining to review</p>
+          )}
           {candidates.length > 0 && (
             <div className="bulk-actions">
               <button
@@ -130,7 +170,8 @@ export function InboxPage() {
           )}
           <CandidateList
             inboxId={inboxItem.id}
-            candidates={candidates}
+            candidates={sortedCandidates}
+            projects={projects}
             onDecide={handleDecide}
             submitting={submitting}
           />
@@ -145,7 +186,7 @@ export function InboxPage() {
                   type="button"
                   className="task-card"
                   style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}
-                  onClick={() => void selectItem(item)}
+                  onClick={() => navigate(`/inbox/${item.id}`)}
                 >
                   <div className="task-card-body">
                     <span className="task-card-title">{item.summary ?? item.raw_text}</span>

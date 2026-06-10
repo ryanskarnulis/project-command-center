@@ -435,6 +435,48 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
 
 ---
 
+## Sprint 9d — Inbox Approval UX Overhaul
+> Goal: make per-note candidate review reliable and friendly. Shipped as 7 small,
+> independently testable chunks. **No schema/migration; no AI-workflow/eval change** —
+> the existing `decide`/`review` endpoints already write training data on finalize.
+
+- [x] **Chunk 1 — Reappear bug fix** (BE + pytest): `GET /api/inbox/{id}/candidates`
+      returned every active task for the note regardless of `review_status`, so
+      approved/dismissed candidates came back when the user left and returned (and
+      re-deciding them 400'd). `services/inbox.list_candidates` gained an optional
+      `review_status` filter; the route now passes `candidate` while the finalization
+      path keeps the unfiltered view it needs for the `accepted` rows. Regression test
+      `test_candidates_endpoint_excludes_decided_tasks`; 5 existing tests re-read decided
+      state via `GET /api/tasks/{id}`. _Request: fix decided tasks reappearing._
+- [x] **Chunk 2 — Candidate-mode editor + breadcrumbs** (FE): a candidate's `TaskCard`
+      opens `/tasks/:id` in candidate-mode — **Approve** / **Dismiss** (call
+      `decideCandidate`, then navigate back to the note, or `/inbox` if it was the last)
+      replace **Mark done** / **Delete**; subtasks/dependencies hidden. Breadcrumb
+      `Inbox › Note review › <title>`. Note review is now an addressable
+      `/inbox/:inboxId` route (`useInbox.selectItemById`). Approve sends `project_id`
+      only when set, so the backend's suggested-project fallback still applies. _Requests:
+      approve button in the edit window, drop the complete button, breadcrumb back._
+- [x] **Chunk 3 — Bulk Approve all / Dismiss all** (FE): note-review buttons that decide
+      every remaining candidate at once via `POST /api/inbox/{id}/review`. _Improvement._
+- [x] **Chunk 4 — Surface model signals** (FE): per-candidate `conf 0.xx` badge
+      (candidate-only) + suggested-project chip; candidates sorted lowest-confidence-first
+      so the riskiest extractions surface first. _Improvement._
+- [x] **Chunk 5 — Polish bundle** (FE): "N remaining to review" counter, `confirm`
+      before the destructive "Dismiss note", and a post-finalize "View filed tasks" link.
+      _Improvement._
+- [x] **Chunk 6 — URL-based note navigation** (FE): clicking a note routes to
+      `/inbox/:id` (was local state), so browser-back returns to the inbox list instead
+      of the dashboard; added a `← Inbox` breadcrumb on the note view. _Request: get back
+      to the inbox after opening a note._
+- [x] **Chunk 7 — Repair stale frontend tests** (tests only): pre-existing failures
+      surfaced by Sprint 9b/9 — added missing `listCompletedTasks`/`reopenTask` to the
+      `api/tasks` mocks (TasksPage, DashboardPage) and drove the "Done" view through
+      `listCompletedTasks`; scoped the ambiguous `getByText('Open')` to the status pill;
+      updated the dashboard test to the "Awaiting Review" metric card (inline pending-list
+      was removed). Frontend 86/86, backend 148/148.
+
+---
+
 ## Sprint 10 — Custom Model Training
 > Do not start until you have 200+ rows in `ai_training_examples`.
 
@@ -452,7 +494,7 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
 - [ ] litestream continuous replication instead of cron backups
 - [ ] Task due-date reminders
 - [ ] Keyboard shortcuts in review queue
-- [ ] Bulk accept/reject in review queue
+- [x] Bulk accept/reject in review queue (Sprint 9d Chunk 3 — Approve all / Dismiss all)
 - [ ] Dark mode
 - [ ] Export tasks to markdown
 - [ ] `docker-compose.yml` — backend + frontend in containers (deferred from Sprint 6)

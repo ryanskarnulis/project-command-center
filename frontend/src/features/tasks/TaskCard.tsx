@@ -38,6 +38,9 @@ export function TaskCard({ task, projects, actions }: Props) {
           {task.estimated_minutes !== null && (
             <span className="estimate">~{formatDuration(task.estimated_minutes)}</span>
           )}
+          {task.review_status === 'candidate' && task.confidence !== null && (
+            <span className="confidence">conf {task.confidence.toFixed(2)}</span>
+          )}
           {projectName !== undefined && (
             <span className="source-pill">{projectName}</span>
           )}

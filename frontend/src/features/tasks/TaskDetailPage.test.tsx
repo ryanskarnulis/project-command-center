@@ -90,10 +90,13 @@ describe('TaskDetailPage', () => {
   it('renders inline fields without the old edit button or review status', async () => {
     renderDetail()
 
-    expect(await screen.findByLabelText('Task title')).toHaveValue('Patch the router')
+    const title = await screen.findByLabelText('Task title')
+    await waitFor(() => expect(title).toHaveValue('Patch the router'))
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
     expect(screen.queryByText('accepted')).not.toBeInTheDocument()
-    expect(screen.getByText('Open')).toBeInTheDocument()
+    // The workflow status renders as a hero pill (the select also has an "Open"
+    // option, so scope the assertion to the pill).
+    expect(screen.getByText('Open', { selector: 'span.status-pill' })).toBeInTheDocument()
   })
 
   it('saves title changes inline on blur', async () => {

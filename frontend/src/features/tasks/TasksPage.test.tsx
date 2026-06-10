@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
-import { createUnscopedTask, listAllTasks, markTaskDone } from '../../api/tasks'
+import { createUnscopedTask, listAllTasks, listCompletedTasks, markTaskDone } from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { TasksPage } from './TasksPage'
@@ -14,8 +14,10 @@ vi.mock('../../api/tasks', () => ({
   deleteTask: vi.fn(),
   getTask: vi.fn(),
   listAllTasks: vi.fn(),
+  listCompletedTasks: vi.fn(() => Promise.resolve([])),
   listTasks: vi.fn(),
   markTaskDone: vi.fn(),
+  reopenTask: vi.fn(),
   updateTask: vi.fn(),
 }))
 
@@ -33,6 +35,7 @@ vi.mock('../../api/taskDependencies', () => ({
 }))
 
 const mockListAllTasks = vi.mocked(listAllTasks)
+const mockListCompletedTasks = vi.mocked(listCompletedTasks)
 const mockListProjects = vi.mocked(listProjects)
 const mockCreateUnscopedTask = vi.mocked(createUnscopedTask)
 const mockMarkTaskDone = vi.mocked(markTaskDone)
@@ -128,8 +131,9 @@ describe('TasksPage', () => {
 
   it('filter by status shows only matching tasks', async () => {
     const user = userEvent.setup()
-    mockListAllTasks.mockResolvedValue([
-      baseTask,
+    mockListAllTasks.mockResolvedValue([baseTask])
+    // The "Done" view loads the completed archive lazily, not the active list.
+    mockListCompletedTasks.mockResolvedValue([
       { ...baseTask, id: 2, title: 'A done task', workflow_status: 'done' },
     ])
     renderGlobal()
@@ -138,7 +142,7 @@ describe('TasksPage', () => {
     await user.selectOptions(screen.getByLabelText('Filter by status'), 'done')
 
     expect(screen.queryByText('Fix the VPN')).not.toBeInTheDocument()
-    expect(screen.getByText('A done task')).toBeInTheDocument()
+    expect(await screen.findByText('A done task')).toBeInTheDocument()
   })
 
   it('filter by priority shows only matching tasks', async () => {
@@ -158,19 +162,20 @@ describe('TasksPage', () => {
 
   it('Clear filters button restores all tasks', async () => {
     const user = userEvent.setup()
-    mockListAllTasks.mockResolvedValue([
-      baseTask,
-      { ...baseTask, id: 2, title: 'A done task', workflow_status: 'done' },
-    ])
+    const doneTask = { ...baseTask, id: 2, title: 'A done task', workflow_status: 'done' as const }
+    // Active list omits done tasks; the "Done" view loads them from the archive.
+    mockListAllTasks.mockResolvedValue([baseTask])
+    mockListCompletedTasks.mockResolvedValue([doneTask])
     renderGlobal()
 
     await screen.findByText('Fix the VPN')
     await user.selectOptions(screen.getByLabelText('Filter by status'), 'done')
+    expect(await screen.findByText('A done task')).toBeInTheDocument()
     expect(screen.queryByText('Fix the VPN')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Clear filters' }))
-    expect(screen.getByText('Fix the VPN')).toBeInTheDocument()
-    expect(screen.getByText('A done task')).toBeInTheDocument()
+    expect(await screen.findByText('Fix the VPN')).toBeInTheDocument()
+    expect(screen.queryByText('A done task')).not.toBeInTheDocument()
   })
 
   it('empty filter result shows distinct message', async () => {

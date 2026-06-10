@@ -38,6 +38,8 @@ vi.mock('../../api/projects', () => ({
 
 vi.mock('../../api/tasks', () => ({
   listAllTasks: vi.fn(),
+  listCompletedTasks: vi.fn(() => Promise.resolve([])),
+  reopenTask: vi.fn(),
 }))
 
 const mockGetDashboard = vi.mocked(getDashboard)
@@ -193,10 +195,12 @@ describe('DashboardPage', () => {
     expect(screen.getByRole('button', { name: 'Extract tasks' })).toBeInTheDocument()
     expect(screen.getByText('Customer Portal')).toBeInTheDocument()
     expect(screen.queryByText('Review launch notes')).not.toBeInTheDocument()
+    // Pending captures surface as the "Awaiting Review" metric card linking to
+    // /inbox (the inline dashboard pending-list was removed); the list itself
+    // lives on the Inbox page now.
     expect(
-      await screen.findByRole('heading', { name: 'Awaiting review (1)' }),
+      await screen.findByRole('link', { name: 'Awaiting Review: Review now' }),
     ).toBeInTheDocument()
-    expect(screen.getByText('messy note')).toBeInTheDocument()
     expect(screen.getByText('1 blocked task')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Create project' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Quick Actions' })).not.toBeInTheDocument()

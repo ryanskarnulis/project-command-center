@@ -407,6 +407,23 @@ Sprint 9c: [DONE] Rich inline subtask form — add subtask composers in TasksPag
            for description/project/status. TaskFormModal create mode now seeds
            title/priority/due_date/estimated_minutes from optional defaults prop.
            CSS updates: .task-subtask-fields + .task-subtask-actions layout classes.
+Sprint 9d: [DONE] Inbox approval UX overhaul. Bug fix: GET /api/inbox/{id}/candidates
+           now returns only undecided (review_status=candidate) tasks, so approved/
+           dismissed candidates no longer reappear after leaving and returning to a
+           note (services/inbox.list_candidates gained a review_status filter; the
+           finalization path still sees all rows; pytest regression). Candidate editor:
+           a candidate's TaskCard opens /tasks/:id in candidate-mode — Approve/Dismiss
+           (calls the decide endpoint, then returns to the note) replace Mark-done/
+           Delete, with an Inbox › Note review › title breadcrumb; note review is now an
+           addressable /inbox/:inboxId route. Bulk Approve all / Dismiss all on a note
+           (reuses POST /api/inbox/{id}/review). Model signals: per-candidate confidence
+           badge + suggested-project chip, candidates sorted lowest-confidence-first.
+           Polish: "N remaining to review" counter, confirm-before-Dismiss-note, and a
+           post-finalize "View filed tasks" link. Navigation: clicking a note routes to
+           its URL so browser-back returns to the inbox (was jumping to the dashboard),
+           plus a ← Inbox breadcrumb. No schema/migration, no AI/eval change. Also
+           repaired stale frontend tests (listCompletedTasks mocks, status-pill query,
+           dashboard pending-card assertion).
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 Sprint 11 (backlog): AI "break this down" — a per-task action that sends the
