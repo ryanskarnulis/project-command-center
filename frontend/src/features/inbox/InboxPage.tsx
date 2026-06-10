@@ -59,6 +59,7 @@ export function InboxPage() {
     submitting,
     notice,
     decide,
+    review,
     dismiss,
     loadPending,
     selectItem,
@@ -84,6 +85,12 @@ export function InboxPage() {
     void decide(inboxId, taskId, { action })
   }
 
+  // Decide every remaining candidate at once via the batch review endpoint, which
+  // finalizes the note and writes one training row.
+  function handleDecideAll(action: 'accept' | 'reject') {
+    void review(candidates.map((t) => ({ task_id: t.id, action })))
+  }
+
   return (
     <main>
       <h1>Inbox</h1>
@@ -103,6 +110,24 @@ export function InboxPage() {
             </button>
           </h2>
           <p className="source-pill">{inboxItem.raw_text}</p>
+          {candidates.length > 0 && (
+            <div className="bulk-actions">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => handleDecideAll('accept')}
+              >
+                Approve all
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => handleDecideAll('reject')}
+              >
+                Dismiss all
+              </button>
+            </div>
+          )}
           <CandidateList
             inboxId={inboxItem.id}
             candidates={candidates}

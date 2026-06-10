@@ -1741,6 +1741,13 @@ kbd {
   gap: 8px;
 }
 
+.bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
 .task-subtasks {
   margin-top: 6px;
   padding-left: 12px;
