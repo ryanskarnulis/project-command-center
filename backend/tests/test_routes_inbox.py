@@ -77,12 +77,14 @@ def test_inbox_process_review_e2e(
     assert result["accepted"] == 1
     assert result["rejected"] == 1
 
-    # Task statuses persisted, edit applied.
-    candidates_after = client.get(f"/api/inbox/{inbox_id}/candidates").json()
-    by_id = {c["id"]: c for c in candidates_after}
-    assert by_id[accept_id]["review_status"] == TaskReviewStatus.accepted
-    assert by_id[accept_id]["title"] == "Email Q2 budget to Sarah"
-    assert by_id[reject_id]["review_status"] == TaskReviewStatus.rejected
+    # Decided tasks drop out of the candidate queue (read their persisted state
+    # via the task endpoint instead).
+    assert client.get(f"/api/inbox/{inbox_id}/candidates").json() == []
+    accepted = client.get(f"/api/tasks/{accept_id}").json()
+    assert accepted["review_status"] == TaskReviewStatus.accepted
+    assert accepted["title"] == "Email Q2 budget to Sarah"
+    rejected = client.get(f"/api/tasks/{reject_id}").json()
+    assert rejected["review_status"] == TaskReviewStatus.rejected
 
     # Exactly one training row; corrected output holds only the accepted/edited task.
     examples = db_session.execute(active(AITrainingExample)).scalars().all()
@@ -190,7 +192,7 @@ def test_review_inherits_ai_suggestion_and_captures_match(
         json={"decisions": [{"task_id": c["id"], "action": "accept"} for c in candidates]},
     ).json()
 
-    after = client.get(f"/api/inbox/{inbox_id}/candidates").json()
+    after = [client.get(f"/api/tasks/{c['id']}").json() for c in candidates]
     assert all(c["project_id"] == pid for c in after)
 
     match_rows = _match_rows(db_session)
@@ -223,7 +225,7 @@ def test_review_override_redirects_and_records_correction(
         },
     )
 
-    after = client.get(f"/api/inbox/{inbox_id}/candidates").json()
+    after = [client.get(f"/api/tasks/{c['id']}").json() for c in candidates]
     assert all(c["project_id"] == other for c in after)
 
     match_rows = _match_rows(db_session)
@@ -249,8 +251,8 @@ def test_review_deterministic_suggestion_writes_no_match_row(
         json={"decisions": [{"task_id": candidates[0]["id"], "action": "accept"}]},
     )
 
-    after = {c["id"]: c for c in client.get(f"/api/inbox/{inbox_id}/candidates").json()}
-    assert after[candidates[0]["id"]]["project_id"] == pid  # inherited deterministically
+    accepted = client.get(f"/api/tasks/{candidates[0]['id']}").json()
+    assert accepted["project_id"] == pid  # inherited deterministically
     assert _match_rows(db_session) == []
 
 
@@ -315,10 +317,7 @@ def test_review_edit_strips_and_rejects_blank_text(
     )
     assert review.status_code == 200
 
-    candidate = {
-        candidate["id"]: candidate
-        for candidate in client.get(f"/api/inbox/{inbox_id}/candidates").json()
-    }[task_id]
+    candidate = client.get(f"/api/tasks/{task_id}").json()
     assert candidate["title"] == "Fixed title"
     assert candidate["description"] is None
     assert candidate["assignee_hint"] is None
@@ -513,6 +512,45 @@ def test_per_candidate_approve_one_does_not_finalize(
     assert len(examples) == 0
 
     _ = second_id  # second candidate still pending
+
+
+def test_candidates_endpoint_excludes_decided_tasks(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A decided candidate must not reappear in the review queue.
+
+    Regression: GET /candidates used to return every active task for the item
+    (candidate and reviewed), so approved/dismissed tasks came back when the user
+    left and returned to the note — and re-deciding them 400'd.
+    """
+    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
+
+    inbox_id = client.post("/api/inbox", json={"raw_text": "leave and return"}).json()[
+        "id"
+    ]
+    candidates = client.post(f"/api/inbox/{inbox_id}/process").json()
+    decided_id, remaining_id = candidates[0]["id"], candidates[1]["id"]
+
+    # Approve one (not the last → no finalization).
+    client.post(
+        f"/api/inbox/{inbox_id}/candidates/{decided_id}", json={"action": "approve"}
+    )
+
+    # Re-fetching the queue (as the UI does on re-entry) shows only the undecided one.
+    queue = client.get(f"/api/inbox/{inbox_id}/candidates").json()
+    assert [c["id"] for c in queue] == [remaining_id]
+
+    # The same holds after a dismiss decision.
+    other_id = client.post(
+        "/api/inbox", json={"raw_text": "dismiss-and-return"}
+    ).json()["id"]
+    other_candidates = client.post(f"/api/inbox/{other_id}/process").json()
+    client.post(
+        f"/api/inbox/{other_id}/candidates/{other_candidates[0]['id']}",
+        json={"action": "dismiss"},
+    )
+    other_queue = client.get(f"/api/inbox/{other_id}/candidates").json()
+    assert [c["id"] for c in other_queue] == [other_candidates[1]["id"]]
 
 
 def test_per_candidate_decide_last_finalizes_with_one_training_row(

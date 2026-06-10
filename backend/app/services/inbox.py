@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import InboxItem, InboxSource, Task
+from app.db.models import InboxItem, InboxSource, Task, TaskReviewStatus
 from app.services.common import active, deleted, restore, soft_delete
 
 
@@ -140,12 +140,20 @@ def restore_inbox_item(db: Session, item: InboxItem) -> InboxItem:
     return item
 
 
-def list_candidates(db: Session, inbox_item_id: int) -> Sequence[Task]:
-    """Active candidate (and reviewed) tasks belonging to one inbox item."""
-    return (
-        db.execute(
-            active(Task).where(Task.inbox_item_id == inbox_item_id).order_by(Task.id)
-        )
-        .scalars()
-        .all()
-    )
+def list_candidates(
+    db: Session,
+    inbox_item_id: int,
+    *,
+    review_status: TaskReviewStatus | None = None,
+) -> Sequence[Task]:
+    """Active tasks belonging to one inbox item.
+
+    Returns every active task (candidate and already-reviewed) by default — the
+    finalization path needs the ``accepted`` rows to build training data. Pass
+    ``review_status`` to narrow it; the review UI asks for only the still-undecided
+    (``candidate``) rows so decided tasks don't reappear in the queue.
+    """
+    stmt = active(Task).where(Task.inbox_item_id == inbox_item_id)
+    if review_status is not None:
+        stmt = stmt.where(Task.review_status == review_status)
+    return db.execute(stmt.order_by(Task.id)).scalars().all()

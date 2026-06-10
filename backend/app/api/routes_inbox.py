@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.workflows import extract_tasks as extract_workflow
 from app.ai.workflows import match_project as match_workflow
-from app.db.models import InboxItem, Task
+from app.db.models import InboxItem, Task, TaskReviewStatus
 from app.db.session import get_db
 from app.schemas.inbox import (
     CandidateDecision,
@@ -130,8 +130,15 @@ def process_inbox(
 def list_candidates(
     inbox_item_id: int, db: Session = Depends(get_db)
 ) -> Sequence[Task]:
+    """Still-undecided candidates for an inbox item.
+
+    Decided tasks (accepted/rejected) are excluded so they don't reappear in the
+    review queue after the user leaves and returns.
+    """
     _get_inbox_or_404(db, inbox_item_id)
-    return inbox_service.list_candidates(db, inbox_item_id)
+    return inbox_service.list_candidates(
+        db, inbox_item_id, review_status=TaskReviewStatus.candidate
+    )
 
 
 @router.post("/{inbox_item_id}/candidates/{task_id}", response_model=CandidateResult)

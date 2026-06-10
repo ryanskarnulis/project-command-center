@@ -400,6 +400,13 @@ Sprint 9b: [DONE] Completed-task archive — done tasks leave the active list an
            workflow_status=done). POST /api/tasks/{id}/reopen sends a task back to
            open. The same dropdown gained a "Blocked" filter (client-side over
            is_blocked). Mirrors the trash/restore pattern.
+Sprint 9c: [DONE] Rich inline subtask form — add subtask composers in TasksPage
+           and TaskDetailPage now expose optional priority/due_date/estimate fields
+           inline (reuses parseDurationInput for friendly text: 30m, 2h, 1 day).
+           TasksPage adds a "More options" link to hand off the draft to TaskFormModal
+           for description/project/status. TaskFormModal create mode now seeds
+           title/priority/due_date/estimated_minutes from optional defaults prop.
+           CSS updates: .task-subtask-fields + .task-subtask-actions layout classes.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 Sprint 11 (backlog): AI "break this down" — a per-task action that sends the

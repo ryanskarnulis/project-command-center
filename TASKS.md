@@ -414,6 +414,27 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
 
 ---
 
+## Sprint 9c — Rich Inline Subtask Form
+> Goal: faster subtask capture with priority, due date, and estimate at creation time.
+
+- [x] Expand inline subtask composer (TasksPage.tsx) with optional fields:
+      priority (dropdown: urgent/high/medium/low), due_date (date picker), and
+      estimated_minutes (friendly text: "30m", "2h", "1 day", reuses `parseDurationInput`)
+- [x] Validation: bad estimate text shows inline error; title must be non-blank
+- [x] "More options" button in TasksPage composer — hands off draft to TaskFormModal
+      (pre-fills parent + typed values) for description/project/status fields
+- [x] TaskFormModal create mode — now seeds title/priority/due_date/estimated_minutes
+      from optional `defaults` prop (backward-compatible, guarded with `?.`)
+- [x] TaskDetailPage subtask form — same rich inline form upgrade (no "More options"
+      needed since all fields are already editable on the detail page)
+- [x] CSS: `.task-subtask-fields` + `.task-subtask-actions` layout classes for
+      compact field/button rows; fixed title input height (was setting 260px on
+      a column-direction flex)
+- [x] Backlog entry in README: Sprint 11 (backlog) for AI "break this down" feature
+      (decompose task → suggest subtasks via AI)
+
+---
+
 ## Sprint 10 — Custom Model Training
 > Do not start until you have 200+ rows in `ai_training_examples`.
 
