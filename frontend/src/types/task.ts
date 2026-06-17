@@ -40,6 +40,7 @@ export interface TaskCreate {
   due_date?: string | null
   parent_task_id?: number | null
   estimated_minutes?: number | null
+  assignee_hint?: string | null
 }
 
 export interface TaskUpdate {
@@ -52,4 +53,5 @@ export interface TaskUpdate {
   project_id?: number | null
   parent_task_id?: number | null
   estimated_minutes?: number | null
+  assignee_hint?: string | null
 }

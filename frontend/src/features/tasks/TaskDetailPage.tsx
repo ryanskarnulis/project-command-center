@@ -59,6 +59,7 @@ export function TaskDetailPage() {
   const [titleDraft, setTitleDraft] = useState('')
   const [descriptionDraft, setDescriptionDraft] = useState('')
   const [estimateDraft, setEstimateDraft] = useState('')
+  const [assigneeDraft, setAssigneeDraft] = useState('')
   const EMPTY_SUBTASK_DRAFT = {
     title: '',
     priority: 'medium' as TaskPriority,
@@ -100,6 +101,7 @@ export function TaskDetailPage() {
     setTitleDraft(task.title)
     setDescriptionDraft(task.description ?? '')
     setEstimateDraft(formatDurationInput(task.estimated_minutes))
+    setAssigneeDraft(task.assignee_hint ?? '')
   }, [task])
 
   const parentOptions = useMemo(() => {
@@ -149,6 +151,12 @@ export function TaskDetailPage() {
       return
     }
     if (next !== task.estimated_minutes) void savePatch({ estimated_minutes: next })
+  }
+
+  function saveAssignee() {
+    if (!task) return
+    const next = assigneeDraft.trim() || null
+    if (next !== task.assignee_hint) void savePatch({ assignee_hint: next })
   }
 
   function handleTitleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -403,6 +411,16 @@ export function TaskDetailPage() {
                 <option key={project.id} value={String(project.id)}>{project.name}</option>
               ))}
             </select>
+          </label>
+          <label>
+            Assignee
+            <input
+              aria-label="Assignee"
+              value={assigneeDraft}
+              onChange={(e) => setAssigneeDraft(e.target.value)}
+              onBlur={saveAssignee}
+              placeholder="Unassigned"
+            />
           </label>
           <label>
             Parent task

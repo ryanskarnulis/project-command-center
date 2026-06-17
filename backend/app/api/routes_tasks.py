@@ -108,6 +108,7 @@ def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db)) -> Tas
             due_date=data.due_date,
             parent_task_id=data.parent_task_id,
             estimated_minutes=data.estimated_minutes,
+            assignee_hint=data.assignee_hint,
         )
     except tasks_service.TaskCycleError as exc:
         raise _cycle_409(exc) from exc
@@ -138,6 +139,7 @@ def create_task(
             due_date=data.due_date,
             parent_task_id=data.parent_task_id,
             estimated_minutes=data.estimated_minutes,
+            assignee_hint=data.assignee_hint,
         )
     except tasks_service.TaskCycleError as exc:
         raise _cycle_409(exc) from exc

@@ -82,6 +82,9 @@ export function TaskFormModal(props: Props) {
   const [estimateDraft, setEstimateDraft] = useState(
     formatDurationInput(existingTask?.estimated_minutes ?? defaults?.estimated_minutes ?? null)
   )
+  const [assignee, setAssignee] = useState(
+    existingTask?.assignee_hint ?? defaults?.assignee_hint ?? ''
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -112,6 +115,7 @@ export function TaskFormModal(props: Props) {
           project_id: projectId === '' ? null : Number(projectId),
           parent_task_id: parentId === '' ? null : Number(parentId),
           estimated_minutes: estimatedMinutes,
+          assignee_hint: assignee.trim() || null,
         })
       } else {
         await (props as CreateMode).onSave({
@@ -122,6 +126,7 @@ export function TaskFormModal(props: Props) {
           due_date: dueDate || null,
           parent_task_id: parentId === '' ? null : Number(parentId),
           estimated_minutes: estimatedMinutes,
+          assignee_hint: assignee.trim() || null,
         })
       }
       onClose()
@@ -173,6 +178,14 @@ export function TaskFormModal(props: Props) {
           <option value="">— unassigned —</option>
           {projects.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
         </select>
+
+        <label htmlFor="tf-assignee">Assignee</label>
+        <input
+          id="tf-assignee"
+          placeholder="Unassigned"
+          value={assignee}
+          onChange={(e) => setAssignee(e.target.value)}
+        />
 
         <label htmlFor="tf-parent">Parent task</label>
         <select id="tf-parent" value={parentId} onChange={(e) => setParentId(e.target.value)}>

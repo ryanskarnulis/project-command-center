@@ -477,7 +477,7 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
 
 ---
 
-## Sprint 10 — Custom Model Training
+## Sprint TBD — Custom Model Training
 > Do not start until you have 200+ rows in `ai_training_examples`.
 
 - [ ] Export `ai_training_examples` to JSONL training format

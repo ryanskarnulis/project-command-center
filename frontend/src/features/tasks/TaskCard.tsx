@@ -44,6 +44,9 @@ export function TaskCard({ task, projects, actions }: Props) {
           {projectName !== undefined && (
             <span className="source-pill">{projectName}</span>
           )}
+          {task.assignee_hint && (
+            <span className="assignee-pill">👤 {task.assignee_hint}</span>
+          )}
         </div>
       </div>
       {actions && (

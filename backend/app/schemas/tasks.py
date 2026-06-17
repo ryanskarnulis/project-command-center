@@ -21,6 +21,7 @@ class TaskCreate(BaseModel):
     due_date: date | None = None
     parent_task_id: int | None = None
     estimated_minutes: PositiveMinutes | None = None
+    assignee_hint: OptionalStrippedStr = None
 
 
 class TaskUpdate(BaseModel):
@@ -33,6 +34,7 @@ class TaskUpdate(BaseModel):
     project_id: int | None = None
     parent_task_id: int | None = None
     estimated_minutes: PositiveMinutes | None = None
+    assignee_hint: OptionalStrippedStr = None
 
 
 class TaskRead(BaseModel):

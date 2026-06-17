@@ -953,6 +953,7 @@ kbd {
 .status-pill,
 .count-badge,
 .source-pill,
+.assignee-pill,
 .due,
 .estimate,
 .confidence,
@@ -993,6 +994,11 @@ kbd {
   background: var(--neutral-soft);
   color: var(--text-muted);
   text-transform: capitalize;
+}
+
+.assignee-pill {
+  background: var(--neutral-soft);
+  color: var(--text-muted);
 }
 
 .dashboard-list,

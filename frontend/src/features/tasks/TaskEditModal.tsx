@@ -49,6 +49,7 @@ export function TaskEditModal({ task, tasks, projects, onClose, onSave }: Props)
   const [projectId, setProjectId] = useState(task.project_id !== null ? String(task.project_id) : '')
   const [parentId, setParentId] = useState(task.parent_task_id !== null ? String(task.parent_task_id) : '')
   const [estimateDraft, setEstimateDraft] = useState(formatDurationInput(task.estimated_minutes))
+  const [assignee, setAssignee] = useState(task.assignee_hint ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -77,6 +78,7 @@ export function TaskEditModal({ task, tasks, projects, onClose, onSave }: Props)
         project_id: projectId === '' ? null : Number(projectId),
         parent_task_id: parentId === '' ? null : Number(parentId),
         estimated_minutes: estimatedMinutes,
+        assignee_hint: assignee.trim() || null,
       })
       onClose()
     } catch (e: unknown) {
@@ -150,6 +152,14 @@ export function TaskEditModal({ task, tasks, projects, onClose, onSave }: Props)
             </option>
           ))}
         </select>
+
+        <label htmlFor="te-assignee">Assignee</label>
+        <input
+          id="te-assignee"
+          placeholder="Unassigned"
+          value={assignee}
+          onChange={(e) => setAssignee(e.target.value)}
+        />
 
         <label htmlFor="te-parent">Parent task</label>
         <select

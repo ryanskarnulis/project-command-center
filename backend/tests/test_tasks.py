@@ -338,3 +338,26 @@ def test_task_routes_strip_and_reject_blank_text(client: TestClient) -> None:
 
     blank_update = client.patch(f"/api/tasks/{task_id}", json={"title": "   "})
     assert blank_update.status_code == 422
+
+
+def test_assignee_hint_set_on_create_and_update(client: TestClient) -> None:
+    created = client.post(
+        "/api/tasks",
+        json={"title": "Renew TLS cert", "assignee_hint": "  Dana  "},
+    )
+    assert created.status_code == 201
+    task_id = created.json()["id"]
+    assert created.json()["assignee_hint"] == "Dana"
+
+    fetched = client.get(f"/api/tasks/{task_id}")
+    assert fetched.json()["assignee_hint"] == "Dana"
+
+    reassigned = client.patch(
+        f"/api/tasks/{task_id}", json={"assignee_hint": "Sam"}
+    )
+    assert reassigned.status_code == 200
+    assert reassigned.json()["assignee_hint"] == "Sam"
+
+    cleared = client.patch(f"/api/tasks/{task_id}", json={"assignee_hint": None})
+    assert cleared.status_code == 200
+    assert cleared.json()["assignee_hint"] is None
