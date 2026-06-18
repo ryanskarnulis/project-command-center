@@ -111,14 +111,20 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
 **Files (modify):** `ProjectsPage.tsx`, `ProjectsPage.test.tsx`, `index.css`.
 **Files (remove):** `ProjectEditModal.tsx` + `ProjectEditModal.test.tsx` (aliases now on the hub).
 
-- [ ] `ProjectCard`: `<Link to="/projects/:id">`, name, description, protected badge,
-      optional `stats?` prop (consumed in Chunk 4), `actions?` slot (Edit, Delete/Protected).
-- [ ] `ProjectsPage`: replace `<ul>` with a card grid; replace inline form with
-      **"+ New project"** → `ProjectFormModal` (create). Card Edit → `ProjectFormModal` (edit).
-- [ ] `ProjectFormModal`: discriminated-union `create | edit` like `TaskFormModal`
-      (name required, description optional), `saving`/error states.
-- [ ] CSS: `.project-card`, `.project-grid` (reuse `.task-card` look; minimal new rules).
-- [ ] Tests: card renders + links; "+ New project" opens modal + creates; Edit opens edit mode.
+- [x] `ProjectCard`: `<Link to="/projects/:id">`, name, description, protected badge,
+      `actions?` slot. (`stats?` prop intentionally deferred to Chunk 4 to avoid an
+      unused prop now.)
+- [x] `ProjectsPage`: bare `<ul>` → `.project-grid` of `ProjectCard`s; inline form →
+      **New project** button → `ProjectFormModal` (create). Card Edit → `ProjectFormModal`
+      (edit); Delete shown only for non-protected (immediate — confirm lands in Chunk 6).
+- [x] `ProjectFormModal`: discriminated-union `create | edit` (narrowed on `props.mode`),
+      name required, description optional, `saving`/error states.
+- [x] CSS: added `.project-grid` (responsive auto-fill) + `.project-card-desc`; reused
+      `.task-card`/badge styles (no `.project-card` class needed).
+- [x] Retired `ProjectEditModal.tsx` + its test (aliases now live on the hub).
+- [x] Tests: ProjectCard (links/badge/actions), ProjectFormModal (create + edit),
+      ProjectsPage (renders cards, create flow, edit opens modal). Projects suite 14/14;
+      full suite 99/99; `tsc -b && vite build` green.
 - Non-regression: aliases reachable on the hub (Chunk 2); create/edit/delete intact.
 
 ## Chunk 4 — Counts + progress + status badge  *(#4, #5)*
