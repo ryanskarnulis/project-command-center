@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createProject, listProjects } from '../../api/projects'
+import { listAllTasks, listCompletedTasks } from '../../api/tasks'
 import type { Project } from '../../types/project'
 import { ProjectsPage } from './ProjectsPage'
 
@@ -11,6 +12,11 @@ vi.mock('../../api/projects', () => ({
   createProject: vi.fn(),
   updateProject: vi.fn(),
   deleteProject: vi.fn(),
+}))
+
+vi.mock('../../api/tasks', () => ({
+  listAllTasks: vi.fn(),
+  listCompletedTasks: vi.fn(),
 }))
 
 const projects: Project[] = [
@@ -36,6 +42,8 @@ const projects: Project[] = [
 
 const mockList = vi.mocked(listProjects)
 const mockCreate = vi.mocked(createProject)
+const mockListAll = vi.mocked(listAllTasks)
+const mockListDone = vi.mocked(listCompletedTasks)
 
 function renderPage() {
   return render(
@@ -50,6 +58,8 @@ describe('ProjectsPage', () => {
     vi.clearAllMocks()
     mockList.mockResolvedValue(projects)
     mockCreate.mockResolvedValue(projects[1])
+    mockListAll.mockResolvedValue([])
+    mockListDone.mockResolvedValue([])
   })
 
   afterEach(cleanup)

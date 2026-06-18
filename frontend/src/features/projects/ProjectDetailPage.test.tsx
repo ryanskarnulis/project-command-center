@@ -11,7 +11,7 @@ import {
   listAliases,
   updateProject,
 } from '../../api/projects'
-import { listTasks } from '../../api/tasks'
+import { listCompletedTasks, listTasks } from '../../api/tasks'
 import type { Project, ProjectAlias } from '../../types/project'
 import type { Task } from '../../types/task'
 import { ProjectDetailPage } from './ProjectDetailPage'
@@ -27,6 +27,7 @@ vi.mock('../../api/projects', () => ({
 
 vi.mock('../../api/tasks', () => ({
   listTasks: vi.fn(),
+  listCompletedTasks: vi.fn(),
 }))
 
 vi.mock('../../api/dashboard', () => ({
@@ -72,6 +73,7 @@ const alias: ProjectAlias = {
 const mockGetProject = vi.mocked(getProject)
 const mockUpdateProject = vi.mocked(updateProject)
 const mockListTasks = vi.mocked(listTasks)
+const mockListCompleted = vi.mocked(listCompletedTasks)
 const mockListAliases = vi.mocked(listAliases)
 const mockCreateAlias = vi.mocked(createAlias)
 const mockDeleteAlias = vi.mocked(deleteAlias)
@@ -93,6 +95,7 @@ describe('ProjectDetailPage', () => {
     vi.clearAllMocks()
     mockGetProject.mockResolvedValue(project)
     mockListTasks.mockResolvedValue([task])
+    mockListCompleted.mockResolvedValue([])
     mockUpdateProject.mockImplementation(async (_id, patch) => ({ ...project, ...patch }))
     mockListAliases.mockResolvedValue([])
     mockGetProjectActivity.mockResolvedValue([])

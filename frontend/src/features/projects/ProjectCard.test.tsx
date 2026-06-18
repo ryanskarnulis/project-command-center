@@ -45,4 +45,17 @@ describe('ProjectCard', () => {
     renderCard(project, <button type="button">Edit</button>)
     expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
   })
+
+  it('renders stats badges when provided', () => {
+    render(
+      <MemoryRouter>
+        <ProjectCard
+          project={project}
+          stats={{ open: 2, done: 2, progress: 0.5, status: { label: 'On Track', tone: 'green' } }}
+        />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('On Track')).toBeInTheDocument()
+    expect(screen.getByText('2 open · 2 done')).toBeInTheDocument()
+  })
 })

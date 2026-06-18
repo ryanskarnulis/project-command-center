@@ -1587,6 +1587,20 @@ kbd {
   overflow-wrap: anywhere;
 }
 
+.project-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--neutral-soft);
+  overflow: hidden;
+}
+
+.project-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--green);
+  border-radius: 999px;
+}
+
 .task-action {
   min-height: 34px;
   font-size: 13px;

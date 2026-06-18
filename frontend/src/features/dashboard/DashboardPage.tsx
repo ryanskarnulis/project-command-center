@@ -20,10 +20,9 @@ import {
 import type { ProjectOpenTasksRow } from '../../types/dashboard'
 import type { Task } from '../../types/task'
 import { compareByDue, dueStatus, formatDueDate } from '../../utils/dates'
+import { projectStatus, type Tone } from '../../utils/projectStatus'
 import { InboxCapturePanel } from '../inbox/InboxCapturePanel'
 import { useDashboard } from './useDashboard'
-
-type Tone = 'blue' | 'green' | 'orange' | 'red' | 'purple' | 'neutral'
 
 interface MetricCardProps {
   icon: LucideIcon
@@ -132,18 +131,6 @@ function DueSoonFocusCard({
 
 function tasksForProject(tasks: Task[], projectId: number): Task[] {
   return tasks.filter((task) => task.project_id === projectId)
-}
-
-function projectStatus(tasks: Task[], openCount: number): { label: string; tone: Tone } {
-  if (openCount === 0) return { label: 'Clear', tone: 'neutral' }
-  if (tasks.some((task) => task.is_blocked)) return { label: 'Blocked', tone: 'red' }
-  if (tasks.some((task) => dueStatus(task.due_date) === 'overdue')) {
-    return { label: 'At Risk', tone: 'orange' }
-  }
-  if (tasks.some((task) => dueStatus(task.due_date, 7) !== 'none')) {
-    return { label: 'Due Soon', tone: 'blue' }
-  }
-  return { label: 'On Track', tone: 'green' }
 }
 
 function buildInsights(

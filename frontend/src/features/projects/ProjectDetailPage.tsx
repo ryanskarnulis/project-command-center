@@ -9,10 +9,11 @@ import {
   listAliases,
   updateProject,
 } from '../../api/projects'
-import { listTasks } from '../../api/tasks'
+import { listCompletedTasks, listTasks } from '../../api/tasks'
 import type { ProjectSummary } from '../../types/dashboard'
 import type { Project, ProjectAlias, ProjectUpdate } from '../../types/project'
 import type { Task } from '../../types/task'
+import { buildProjectStats } from '../../utils/projectStatus'
 import { TaskCard } from '../tasks/TaskCard'
 import { ActivityFeed } from './ActivityFeed'
 
@@ -25,6 +26,7 @@ export function ProjectDetailPage() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [tasksLoading, setTasksLoading] = useState(true)
   const [tasksError, setTasksError] = useState<string | null>(null)
+  const [doneCount, setDoneCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -80,6 +82,15 @@ export function ProjectDetailPage() {
         if (active) setTasksError(e instanceof Error ? e.message : 'Failed to load tasks')
       })
       .finally(() => { if (active) setTasksLoading(false) })
+    return () => { active = false }
+  }, [id])
+
+  // Done count feeds the hero progress bar (best-effort).
+  useEffect(() => {
+    let active = true
+    listCompletedTasks(id)
+      .then((data) => { if (active) setDoneCount(data.length) })
+      .catch(() => { /* best-effort */ })
     return () => { active = false }
   }, [id])
 
@@ -185,6 +196,7 @@ export function ProjectDetailPage() {
   if (error) return <main className="task-detail"><p role="alert" className="error">{error}</p></main>
   if (!project) return null
 
+  const stats = buildProjectStats(tasks, doneCount)
   const saveLabel = saveState === 'saving'
     ? 'Saving…'
     : saveState === 'saved'
@@ -218,9 +230,14 @@ export function ProjectDetailPage() {
           onBlur={saveName}
           onKeyDown={handleNameKeyDown}
         />
-        {project.is_protected && (
-          <div className="task-card-badges">
-            <span className="source-pill">Protected</span>
+        <div className="task-card-badges">
+          <span className={`status-pill tone-${stats.status.tone}`}>{stats.status.label}</span>
+          <span className="estimate">{stats.open} open · {stats.done} done</span>
+          {project.is_protected && <span className="source-pill">Protected</span>}
+        </div>
+        {stats.open + stats.done > 0 && (
+          <div className="project-progress" aria-hidden="true">
+            <span style={{ width: `${Math.round(stats.progress * 100)}%` }} />
           </div>
         )}
         {saveError && <p role="alert" className="error">{saveError}</p>}

@@ -135,12 +135,16 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
 stats, pass `stats` to cards), `ProjectCard.tsx`, `ProjectDetailPage.tsx` (same stats in
 the hero), `index.css` (reuse `.workload-bar`/progress styles), tests.
 
-- [ ] Extract `projectStatus(tasks, openCount)` + `Tone` to the util; refactor the
-      dashboard to use it (visually unchanged).
-- [ ] Stats helper: group open tasks (count, `is_blocked`, `due_date` →
-      blocked/overdue/due-soon) + done count; `progress = done / (open + done)`.
-- [ ] Card: `N open · M done`, a progress bar, and the status pill.
-- [ ] Tests: `projectStatus` mapping; card shows counts/progress.
+- [x] Extracted `projectStatus(tasks, openCount)` + `Tone` to `utils/projectStatus.ts`;
+      `DashboardPage` now imports them (behavior unchanged, dashboard tests still pass).
+- [x] `buildProjectStats(openTasks, doneCount)` helper → `{ open, done, progress, status }`;
+      `progress = done / (open + done)`. `ProjectsPage` groups `listAllTasks()` +
+      `listCompletedTasks()` by project (best-effort; cards still render if the fetch fails).
+- [x] Card: status pill + `N open · M done` + a progress bar; same stats shown in the
+      hub hero (`listCompletedTasks(id)` for the done count).
+- [x] CSS: `.project-progress` bar (reuses `--green`/`--neutral-soft`).
+- [x] Tests: `projectStatus` mapping (Clear/Blocked/At Risk/Due Soon/On Track) +
+      `buildProjectStats` progress; card stats render. Suite 107/107; build green.
 
 ## Chunk 5 — Search + sort  *(#8, #9)*
 
