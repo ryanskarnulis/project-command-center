@@ -89,16 +89,19 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
 
 ## Chunk 2 — Detail hub sections: AI summary + activity + aliases  *(#6, #7, aliases home)*
 
-**Files (modify):** `ProjectDetailPage.tsx`, `ProjectDetailPage.test.tsx`,
-`api/projects.ts` (add `getProjectSummary` if missing), `types/project.ts` (summary type).
+**Files (modify):** `ProjectDetailPage.tsx`, `ProjectDetailPage.test.tsx`.
+(`getProjectSummary` + the `ProjectSummary` type already existed in `api/dashboard.ts`
+/ `types/dashboard.ts` — imported those; no new wrapper/type needed.)
 
-- [ ] AI summary: "Summarize" button → `GET /api/projects/{id}/summary`; loading +
-      502-safe error ("Summary unavailable — is Ollama running?"); render the prose.
-- [ ] Activity: mount existing `ActivityFeed` (`refreshKey` bumped after edits/task changes).
-- [ ] Aliases: list + add + remove (reuse `listAliases`/`createAlias`/`deleteAlias`) as
+- [x] AI summary: "Summarize" button → `getProjectSummary` (`GET /api/projects/{id}/summary`);
+      loading + 502-safe error ("Summary unavailable — is Ollama running?"); renders the
+      prose + model name.
+- [x] Activity: mount existing `ActivityFeed` (`activityKey` bumped on project edits).
+- [x] Aliases: list + add + remove (reuse `listAliases`/`createAlias`/`deleteAlias`) as
       a detail section — gives aliases their permanent home before `ProjectEditModal` is
-      retired in Chunk 3.
-- [ ] Tests: summarize calls API + renders text; alias add/remove; activity mounts.
+      retired in Chunk 3. Same labels as the modal (`Add alias`, `Add`, `Remove alias X`).
+- [x] Tests: summarize calls API + renders text; alias add + remove; activity mounts.
+      `ProjectDetailPage.test.tsx` 6/6; full suite 92/92; build green.
 - Non-regression: `ProjectEditModal` still reachable from the list until Chunk 3.
 
 ## Chunk 3 — `ProjectCard` + list rework + `ProjectFormModal`; retire `ProjectEditModal`  *(#1, #3)*

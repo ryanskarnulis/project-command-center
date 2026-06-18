@@ -2,19 +2,35 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getProject, updateProject } from '../../api/projects'
+import { getProjectSummary } from '../../api/dashboard'
+import {
+  createAlias,
+  deleteAlias,
+  getProject,
+  getProjectActivity,
+  listAliases,
+  updateProject,
+} from '../../api/projects'
 import { listTasks } from '../../api/tasks'
-import type { Project } from '../../types/project'
+import type { Project, ProjectAlias } from '../../types/project'
 import type { Task } from '../../types/task'
 import { ProjectDetailPage } from './ProjectDetailPage'
 
 vi.mock('../../api/projects', () => ({
   getProject: vi.fn(),
   updateProject: vi.fn(),
+  listAliases: vi.fn(),
+  createAlias: vi.fn(),
+  deleteAlias: vi.fn(),
+  getProjectActivity: vi.fn(),
 }))
 
 vi.mock('../../api/tasks', () => ({
   listTasks: vi.fn(),
+}))
+
+vi.mock('../../api/dashboard', () => ({
+  getProjectSummary: vi.fn(),
 }))
 
 const project: Project = {
@@ -46,9 +62,21 @@ const task: Task = {
   is_blocked: false,
 }
 
+const alias: ProjectAlias = {
+  id: 11,
+  project_id: 7,
+  alias: 'fw',
+  created_at: '2026-06-01T00:00:00Z',
+}
+
 const mockGetProject = vi.mocked(getProject)
 const mockUpdateProject = vi.mocked(updateProject)
 const mockListTasks = vi.mocked(listTasks)
+const mockListAliases = vi.mocked(listAliases)
+const mockCreateAlias = vi.mocked(createAlias)
+const mockDeleteAlias = vi.mocked(deleteAlias)
+const mockGetProjectActivity = vi.mocked(getProjectActivity)
+const mockGetProjectSummary = vi.mocked(getProjectSummary)
 
 function renderDetail() {
   return render(
@@ -66,6 +94,8 @@ describe('ProjectDetailPage', () => {
     mockGetProject.mockResolvedValue(project)
     mockListTasks.mockResolvedValue([task])
     mockUpdateProject.mockImplementation(async (_id, patch) => ({ ...project, ...patch }))
+    mockListAliases.mockResolvedValue([])
+    mockGetProjectActivity.mockResolvedValue([])
   })
 
   afterEach(cleanup)
@@ -110,5 +140,56 @@ describe('ProjectDetailPage', () => {
 
     expect(mockUpdateProject).not.toHaveBeenCalled()
     expect(await screen.findByText('Name is required')).toBeInTheDocument()
+  })
+
+  it('generates an AI summary on demand', async () => {
+    const user = userEvent.setup()
+    mockGetProjectSummary.mockResolvedValue({
+      project_id: 7,
+      summary: 'Two open tasks remain on the edge firewall.',
+      model_name: 'gemma4:e2b',
+    })
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Summarize' }))
+
+    expect(mockGetProjectSummary).toHaveBeenCalledWith(7)
+    expect(
+      await screen.findByText('Two open tasks remain on the edge firewall.'),
+    ).toBeInTheDocument()
+  })
+
+  it('adds and removes aliases via the dedicated endpoints', async () => {
+    const user = userEvent.setup()
+    mockListAliases.mockResolvedValue([alias])
+    mockCreateAlias.mockResolvedValue({
+      id: 12,
+      project_id: 7,
+      alias: 'firewall',
+      created_at: '2026-06-01T00:05:00Z',
+    })
+    mockDeleteAlias.mockResolvedValue(undefined)
+    renderDetail()
+
+    // Existing alias loads.
+    expect(await screen.findByText('fw')).toBeInTheDocument()
+
+    // Add a new one.
+    await user.type(screen.getByLabelText('Add alias'), 'firewall')
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    expect(mockCreateAlias).toHaveBeenCalledWith(7, { alias: 'firewall' })
+    expect(await screen.findByText('firewall')).toBeInTheDocument()
+
+    // Remove the original.
+    await user.click(screen.getByRole('button', { name: 'Remove alias fw' }))
+    expect(mockDeleteAlias).toHaveBeenCalledWith(7, 11)
+    await waitFor(() => expect(screen.queryByText('fw')).not.toBeInTheDocument())
+  })
+
+  it('mounts the activity feed for the project', async () => {
+    renderDetail()
+
+    expect(await screen.findByText('No activity yet.')).toBeInTheDocument()
+    expect(mockGetProjectActivity).toHaveBeenCalled()
   })
 })
