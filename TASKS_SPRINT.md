@@ -151,11 +151,14 @@ the hero), `index.css` (reuse `.workload-bar`/progress styles), tests.
 **Files (modify):** `ProjectsPage.tsx`, `ProjectsPage.test.tsx`, `index.css`
 (reuse `.task-filters`/`.task-search-field`).
 
-- [ ] Search: case-insensitive over name + description (client-side).
-- [ ] Sort: Name / Most open tasks / Recently updated / Recently created (uses Chunk 4
-      stats for "most open tasks"; `updated_at`/`created_at` otherwise).
-- [ ] "Clear" affordance when active; distinct empty message when a search hides all.
-- [ ] Tests: search narrows; each sort orders; clear restores.
+- [x] Search: case-insensitive over name + description (client-side).
+- [x] Sort: Name / Most open tasks / Recently updated / Recently created (uses Chunk 4
+      stats for "most open tasks"; `updated_at`/`created_at` localeCompare otherwise).
+- [x] "Clear" shown when search or non-default sort is active (resets both); distinct
+      "No projects match your search." message when a search hides all. Filter bar only
+      renders when there are projects. Reused `.task-filters`/`.task-search-field` (no new CSS).
+- [x] Tests: search narrows + clear restores; no-match message; sort reorders.
+      ProjectsPage 6/6; full suite 110/110; build green.
 
 ## Chunk 6 — Polish bundle  *(#10)*
 

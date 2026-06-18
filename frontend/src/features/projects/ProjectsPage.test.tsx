@@ -101,4 +101,39 @@ describe('ProjectsPage', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(screen.getByLabelText('Name')).toBeInTheDocument()
   })
+
+  it('filters projects by search and clears it', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText('Firewall')
+
+    await user.type(screen.getByLabelText('Search projects'), 'fire')
+    expect(screen.getByText('Firewall')).toBeInTheDocument()
+    expect(screen.queryByText('General')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Clear/ }))
+    expect(screen.getByText('General')).toBeInTheDocument()
+  })
+
+  it('shows a no-match message when the search hides everything', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText('Firewall')
+
+    await user.type(screen.getByLabelText('Search projects'), 'zzz')
+    expect(screen.getByText('No projects match your search.')).toBeInTheDocument()
+  })
+
+  it('reorders projects when the sort changes', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText('Firewall')
+
+    // Default sort is by name → Firewall (F) before General (G).
+    expect(screen.getAllByRole('link')[0]).toHaveTextContent('Firewall')
+
+    // "Most open tasks" with all-zero counts keeps the original order → General first.
+    await user.selectOptions(screen.getByLabelText('Sort projects'), 'open')
+    expect(screen.getAllByRole('link')[0]).toHaveTextContent('General')
+  })
 })
