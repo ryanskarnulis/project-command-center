@@ -53,7 +53,7 @@ export function ProjectsPage() {
       <ul>
         {projects.map((p) => (
           <li key={p.id}>
-            <Link to={`/projects/${p.id}/tasks`}>{p.name}</Link>
+            <Link to={`/projects/${p.id}`}>{p.name}</Link>
             {p.description && <span> — {p.description}</span>}{' '}
             <button onClick={() => setEditing(p)}>Edit</button>{' '}
             {p.is_protected ? (
