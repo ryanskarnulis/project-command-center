@@ -424,6 +424,18 @@ Sprint 9d: [DONE] Inbox approval UX overhaul. Bug fix: GET /api/inbox/{id}/candi
            plus a ← Inbox breadcrumb. No schema/migration, no AI/eval change. Also
            repaired stale frontend tests (listCompletedTasks mocks, status-pill query,
            dashboard pending-card assertion).
+Sprint 9e: [DONE] Projects tab UX overhaul — brought Projects to par with the
+           Tasks/Inbox polish. Frontend-only: no schema/migration, no new/changed API
+           route (reuses existing project/task/activity/summary/alias endpoints).
+           Card-based list (ProjectCard reusing .task-card) replacing the bare list;
+           new inline-editable hub at /projects/:id (name/description save-on-blur,
+           AI summary via GET /api/projects/{id}/summary, activity feed, alias
+           add/remove, tasks as TaskCards, "View all tasks" → kept /projects/:id/tasks
+           board); ProjectFormModal (create/edit) replacing the inline form + retiring
+           ProjectEditModal; per-project open/done counts + progress bar + derived
+           status badge (shared utils/projectStatus.ts, also used by the dashboard
+           Projects Overview); client-side search + sort; confirm-before-delete and
+           consistent empty/loading/error states.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 Sprint 11 (backlog): AI "break this down" — a per-task action that sends the

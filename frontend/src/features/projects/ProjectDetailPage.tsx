@@ -192,7 +192,7 @@ export function ProjectDetailPage() {
     }
   }
 
-  if (loading) return <main className="task-detail"><p>Loading…</p></main>
+  if (loading) return <main className="task-detail"><div className="page-loading">Loading…</div></main>
   if (error) return <main className="task-detail"><p role="alert" className="error">{error}</p></main>
   if (!project) return null
 

@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createProject, listProjects } from '../../api/projects'
+import { createProject, deleteProject, listProjects } from '../../api/projects'
 import { listAllTasks, listCompletedTasks } from '../../api/tasks'
 import type { Project } from '../../types/project'
 import { ProjectsPage } from './ProjectsPage'
@@ -44,6 +44,7 @@ const mockList = vi.mocked(listProjects)
 const mockCreate = vi.mocked(createProject)
 const mockListAll = vi.mocked(listAllTasks)
 const mockListDone = vi.mocked(listCompletedTasks)
+const mockDelete = vi.mocked(deleteProject)
 
 function renderPage() {
   return render(
@@ -60,6 +61,7 @@ describe('ProjectsPage', () => {
     mockCreate.mockResolvedValue(projects[1])
     mockListAll.mockResolvedValue([])
     mockListDone.mockResolvedValue([])
+    mockDelete.mockResolvedValue(undefined)
   })
 
   afterEach(cleanup)
@@ -135,5 +137,28 @@ describe('ProjectsPage', () => {
     // "Most open tasks" with all-zero counts keeps the original order → General first.
     await user.selectOptions(screen.getByLabelText('Sort projects'), 'open')
     expect(screen.getAllByRole('link')[0]).toHaveTextContent('General')
+  })
+
+  it('confirms before deleting a project', async () => {
+    const user = userEvent.setup()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    renderPage()
+    await screen.findByText('Firewall')
+
+    // Only the non-protected project (Firewall, id 2) has a Delete button.
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(mockDelete).not.toHaveBeenCalled()
+
+    confirmSpy.mockReturnValue(true)
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(mockDelete).toHaveBeenCalledWith(2)
+
+    confirmSpy.mockRestore()
+  })
+
+  it('shows an empty state when there are no projects', async () => {
+    mockList.mockResolvedValue([])
+    renderPage()
+    expect(await screen.findByText('No projects yet.')).toBeInTheDocument()
   })
 })

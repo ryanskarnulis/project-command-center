@@ -477,6 +477,36 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
 
 ---
 
+## Sprint 9e — Projects Tab UX Overhaul
+> Goal: bring the Projects tab up to par with the Sprint 8–9d Tasks/Inbox polish.
+> Frontend-only — no schema/migration, no new/changed API route (reuses existing
+> project/task/activity/summary/alias endpoints). Detail-page model: Hub + keep board.
+> Full working notes in `TASKS_SPRINT.md`.
+
+- [x] **Chunk 1 — Detail hub skeleton + route**: new `/projects/:id` `ProjectDetailPage`
+      (inline-editable name/description save-on-blur, `← Projects` breadcrumb, the
+      project's tasks as `TaskCard`s, "View all tasks" → kept `/projects/:id/tasks`
+      board, 404→`/projects`); the projects list now links to the hub.
+- [x] **Chunk 2 — Hub sections**: AI summary (Summarize via `GET /api/projects/{id}/summary`,
+      502-safe), activity feed (reused `ActivityFeed`), and alias list/add/remove —
+      giving aliases their home before `ProjectEditModal` was retired.
+- [x] **Chunk 3 — Cards + modal**: `ProjectCard` (reuses `.task-card`) in a `.project-grid`;
+      New project + Edit via `ProjectFormModal` (create/edit); confirm-aware Delete for
+      non-protected projects; retired `ProjectEditModal`.
+- [x] **Chunk 4 — Counts/progress/status**: extracted `projectStatus` + `Tone` to
+      `utils/projectStatus.ts` (dashboard now imports it); per-project open/done counts,
+      a progress bar, and a status badge (Clear/On Track/Due Soon/At Risk/Blocked) from
+      `listAllTasks()`/`listCompletedTasks()` grouped client-side.
+- [x] **Chunk 5 — Search + sort**: client-side search (name/description) + sort
+      (name / most open tasks / recently updated / recently created), Clear, and a
+      no-match empty state (reuses `.task-filters`).
+- [x] **Chunk 6 — Polish**: `.page-loading` / `.empty-state` / `role="alert"` errors
+      across both pages; confirm-before-delete (`window.confirm`); breadcrumb/heading
+      consistency.
+- Verification: frontend 112/112 (Vitest) + `tsc -b && vite build` green; backend untouched.
+
+---
+
 ## Sprint TBD — Custom Model Training
 > Do not start until you have 200+ rows in `ai_training_examples`.
 

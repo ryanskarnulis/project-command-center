@@ -83,6 +83,12 @@ export function ProjectsPage() {
 
   const filtersActive = search.trim() !== '' || sortMode !== 'name'
 
+  function handleDelete(p: Project) {
+    if (window.confirm(`Delete "${p.name}"? Its active tasks move to General.`)) {
+      void remove(p.id)
+    }
+  }
+
   return (
     <main>
       <div className="section-heading">
@@ -93,10 +99,12 @@ export function ProjectsPage() {
         </button>
       </div>
 
-      {loading && <p>Loading…</p>}
-      {error && <p role="alert">{error}</p>}
+      {loading && <div className="page-loading">Loading projects…</div>}
+      {error && <p role="alert" className="error">{error}</p>}
 
-      {!loading && projects.length === 0 && <p>No projects yet.</p>}
+      {!loading && projects.length === 0 && (
+        <div className="empty-state">No projects yet.</div>
+      )}
 
       {!loading && projects.length > 0 && (
         <>
@@ -151,7 +159,7 @@ export function ProjectsPage() {
           </div>
 
           {visibleProjects.length === 0 ? (
-            <p>No projects match your search.</p>
+            <div className="empty-state">No projects match your search.</div>
           ) : (
             <ul className="project-grid">
               {visibleProjects.map((p) => (
@@ -166,7 +174,7 @@ export function ProjectsPage() {
                           <button
                             type="button"
                             className="danger-action"
-                            onClick={() => void remove(p.id)}
+                            onClick={() => handleDelete(p)}
                           >
                             Delete
                           </button>

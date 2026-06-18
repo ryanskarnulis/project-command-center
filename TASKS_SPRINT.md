@@ -165,11 +165,14 @@ the hero), `index.css` (reuse `.workload-bar`/progress styles), tests.
 **Files (modify):** `ProjectsPage.tsx`, `ProjectDetailPage.tsx`,
 `ProjectCard.tsx`/`ProjectFormModal.tsx`, `index.css`, tests.
 
-- [ ] Consistent `.empty-state` / `.page-loading` + `role="alert"` errors across both
-      pages (match Tasks/Inbox).
-- [ ] Confirm-before-delete (`window.confirm`, like the inbox "Dismiss note").
-- [ ] Breadcrumb consistency (`← Projects`; section headings via `.task-section-heading`).
-- [ ] Tests: confirm-delete only deletes on confirm; empty/loading states render.
+- [x] Consistent states: `.page-loading` (loading) + `.empty-state` (no projects / no
+      search match) on `ProjectsPage`; `.page-loading` on the hub; errors carry
+      `role="alert" class="error"`.
+- [x] Confirm-before-delete (`window.confirm`) on project delete.
+- [x] Breadcrumb consistency confirmed (`← Projects` on the hub; all sections already use
+      `.task-section-heading` from Chunks 1–2 — no change needed).
+- [x] Tests: confirm-delete (skips on cancel, deletes on confirm) + empty-state renders.
+      Projects suite 20/20; full suite 112/112; build green.
 
 ---
 
