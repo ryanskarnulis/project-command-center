@@ -4,6 +4,8 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getEvalRuns,
+  getModels,
+  getOllamaStatus,
   getProfiles,
   getPrompts,
   runEval,
@@ -16,6 +18,8 @@ vi.mock('../../api/settings', () => ({
   getProfiles: vi.fn(),
   getPrompts: vi.fn(),
   getEvalRuns: vi.fn(),
+  getOllamaStatus: vi.fn(),
+  getModels: vi.fn(),
   updateProfile: vi.fn(),
   putPrompt: vi.fn(),
   runEval: vi.fn(),
@@ -39,8 +43,18 @@ const prompts: Prompt[] = [
 const mockGetProfiles = vi.mocked(getProfiles)
 const mockGetPrompts = vi.mocked(getPrompts)
 const mockGetEvalRuns = vi.mocked(getEvalRuns)
+const mockGetOllamaStatus = vi.mocked(getOllamaStatus)
+const mockGetModels = vi.mocked(getModels)
 const mockUpdateProfile = vi.mocked(updateProfile)
 const mockRunEval = vi.mocked(runEval)
+
+// Health/model introspection is best-effort and orthogonal to these tests;
+// default it to "reachable, with llama3 also installed" so the model dropdown
+// has another option to switch to (the profile's gemma4:e2b is added on top).
+function mockOllamaDefaults() {
+  mockGetOllamaStatus.mockResolvedValue({ reachable: true, host: 'http://localhost:11434' })
+  mockGetModels.mockResolvedValue(['gemma4:e2b', 'llama3'])
+}
 
 function renderPage() {
   return render(
@@ -53,6 +67,7 @@ function renderPage() {
 describe('SettingsPage edit safety', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockOllamaDefaults()
     mockGetProfiles.mockResolvedValue([profile])
     mockGetPrompts.mockResolvedValue(prompts)
     mockGetEvalRuns.mockResolvedValue([])
@@ -66,15 +81,14 @@ describe('SettingsPage edit safety', () => {
     const user = userEvent.setup()
     renderPage()
 
-    const modelInput = await screen.findByDisplayValue('gemma4:e2b')
+    const modelSelect = await screen.findByDisplayValue('gemma4:e2b')
     const saveButton = screen.getByRole('button', { name: 'Save' })
 
     // Pristine: nothing to save, no unsaved marker.
     expect(saveButton).toBeDisabled()
     expect(screen.queryByLabelText('Unsaved changes')).not.toBeInTheDocument()
 
-    await user.clear(modelInput)
-    await user.type(modelInput, 'llama3')
+    await user.selectOptions(modelSelect, 'llama3')
 
     expect(saveButton).toBeEnabled()
     expect(screen.getByLabelText('Unsaved changes')).toBeInTheDocument()
@@ -88,9 +102,8 @@ describe('SettingsPage edit safety', () => {
     try {
       renderPage()
 
-      const modelInput = await screen.findByDisplayValue('gemma4:e2b')
-      await user.clear(modelInput)
-      await user.type(modelInput, 'llama3')
+      const modelSelect = await screen.findByDisplayValue('gemma4:e2b')
+      await user.selectOptions(modelSelect, 'llama3')
 
       await user.click(screen.getByRole('button', { name: 'Save' }))
 
@@ -118,6 +131,7 @@ describe('SettingsPage edit safety', () => {
 describe('SettingsPage prompt editor', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockOllamaDefaults()
     mockGetProfiles.mockResolvedValue([profile])
     mockGetPrompts.mockResolvedValue(prompts)
     mockGetEvalRuns.mockResolvedValue([])
@@ -188,6 +202,7 @@ describe('SettingsPage eval trend', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockOllamaDefaults()
     mockGetProfiles.mockResolvedValue([profile])
     mockGetPrompts.mockResolvedValue(prompts)
   })

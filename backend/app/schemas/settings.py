@@ -50,6 +50,13 @@ class EvalRunResult(BaseModel):
     cases: list[EvalCaseResult]
 
 
+class OllamaStatus(BaseModel):
+    """Liveness of the local Ollama runtime, for the settings health panel."""
+
+    reachable: bool
+    host: str
+
+
 class EvalRunRecord(BaseModel):
     """A persisted eval run (history). No per-case detail — that lives only in
     the in-memory ``EvalRunResult`` returned at run time."""

@@ -20,6 +20,11 @@ export interface Prompt {
   text: string
 }
 
+export interface OllamaStatus {
+  reachable: boolean
+  host: string
+}
+
 export interface EvalCaseResult {
   name: string
   passed: boolean

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   getEvalRuns,
+  getModels,
+  getOllamaStatus,
   getProfiles,
   getPrompts,
   putPrompt,
@@ -10,6 +12,7 @@ import {
 import type {
   EvalRunRecord,
   EvalRunResult,
+  OllamaStatus,
   Profile,
   ProfileUpdate,
   Prompt,
@@ -45,6 +48,10 @@ interface UseSettings {
   prompts: Prompt[] | null
   loading: boolean
   error: string | null
+  ollamaStatus: OllamaStatus | null
+  ollamaChecking: boolean
+  models: string[]
+  recheckOllama: () => void
   profileState: Record<string, ActionState>
   promptState: Record<string, ActionState>
   evalState: Record<string, EvalState>
@@ -64,6 +71,9 @@ export function useSettings(): UseSettings {
   const [promptState, setPromptState] = useState<Record<string, ActionState>>({})
   const [evalState, setEvalState] = useState<Record<string, EvalState>>({})
   const [evalRuns, setEvalRuns] = useState<Record<string, EvalRunRecord[]>>({})
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null)
+  const [ollamaChecking, setOllamaChecking] = useState(false)
+  const [models, setModels] = useState<string[]>([])
 
   // Per-item timers that auto-clear the "Saved ✓" confirmation. Keyed by
   // `${kind}:${name}` so a profile and prompt of the same name don't collide.
@@ -118,6 +128,23 @@ export function useSettings(): UseSettings {
         /* history is best-effort */
       })
   }, [])
+
+  // Ollama health + installed models: best-effort, never block the page. A down
+  // runtime is an expected state (status.reachable === false), not an error.
+  const recheckOllama = useCallback(() => {
+    setOllamaChecking(true)
+    Promise.allSettled([getOllamaStatus(), getModels()])
+      .then(([statusRes, modelsRes]) => {
+        if (statusRes.status === 'fulfilled') setOllamaStatus(statusRes.value)
+        else setOllamaStatus({ reachable: false, host: '' })
+        if (modelsRes.status === 'fulfilled') setModels(modelsRes.value)
+      })
+      .finally(() => setOllamaChecking(false))
+  }, [])
+
+  useEffect(() => {
+    recheckOllama()
+  }, [recheckOllama])
 
   const saveProfile = useCallback(
     (name: string, fields: ProfileUpdate) => {
@@ -231,6 +258,10 @@ export function useSettings(): UseSettings {
     prompts,
     loading,
     error,
+    ollamaStatus,
+    ollamaChecking,
+    models,
+    recheckOllama,
     profileState,
     promptState,
     evalState,

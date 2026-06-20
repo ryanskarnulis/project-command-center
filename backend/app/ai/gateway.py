@@ -77,6 +77,21 @@ def _load_prompt(filename: str) -> str:
     return (_PROMPTS_DIR / filename).read_text()
 
 
+def ollama_status() -> tuple[bool, str]:
+    """(reachable, base_url) for the local Ollama runtime.
+
+    Provider access stays inside the gateway per the constitution; the settings
+    service calls this rather than importing the provider directly.
+    """
+    provider = OllamaProvider()
+    return provider.is_reachable(), provider.base_url
+
+
+def installed_models() -> list[str]:
+    """Installed model names from Ollama (empty list when unreachable)."""
+    return OllamaProvider().list_models()
+
+
 def complete(
     *,
     profile_name: str,

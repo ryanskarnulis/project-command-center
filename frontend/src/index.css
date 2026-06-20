@@ -1458,6 +1458,64 @@ kbd {
   border-color: var(--blue);
 }
 
+/* Ollama health panel: live connection state + re-check, above the section nav. */
+.settings-health {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.settings-health.is-up {
+  border-left-color: var(--green);
+}
+
+.settings-health.is-down {
+  border-left-color: var(--red);
+}
+
+.settings-health-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 720;
+  color: var(--text-h);
+}
+
+.settings-health.is-up .settings-health-state {
+  color: var(--green);
+}
+
+.settings-health.is-down .settings-health-state {
+  color: var(--red);
+}
+
+.settings-health-host {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.settings-health-recheck,
+.settings-health-state svg,
+.settings-model-pick {
+  flex-shrink: 0;
+}
+
+.settings-health-recheck {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .settings-section-title {
   display: flex;
   align-items: center;

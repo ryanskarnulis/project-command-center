@@ -25,6 +25,41 @@ class OllamaProvider(BaseProvider):
         self._base_url = (base_url or get_settings().ollama_base_url).rstrip("/")
         self._timeout = timeout
 
+    @property
+    def base_url(self) -> str:
+        return self._base_url
+
+    def is_reachable(self, timeout: float = 3.0) -> bool:
+        """Cheap liveness probe for the settings health panel.
+
+        Uses a short timeout (not the long completion timeout) and never raises:
+        a down runtime is an expected state the UI renders, not an error.
+        """
+        try:
+            response = httpx.get(f"{self._base_url}/api/tags", timeout=timeout)
+            response.raise_for_status()
+            return True
+        except httpx.HTTPError as exc:
+            logger.info("ollama_unreachable", base_url=self._base_url, error=str(exc))
+            return False
+
+    def list_models(self, timeout: float = 5.0) -> list[str]:
+        """Installed model names from Ollama's ``/api/tags``, sorted.
+
+        Returns an empty list (never raises) when the runtime is down or the
+        response is malformed, so the settings dropdown degrades gracefully.
+        """
+        try:
+            response = httpx.get(f"{self._base_url}/api/tags", timeout=timeout)
+            response.raise_for_status()
+            data = response.json()
+            models = data["models"]
+        except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+            logger.info("ollama_list_models_failed", base_url=self._base_url, error=str(exc))
+            return []
+        names = [str(m["name"]) for m in models if isinstance(m, dict) and "name" in m]
+        return sorted(names)
+
     def complete(
         self,
         *,

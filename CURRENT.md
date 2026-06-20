@@ -150,7 +150,7 @@ possibly `types/settings.ts`. FE-only.
 - **Done when:** eval history reads as a trend and you can trigger all suites at
   once; tests/build green.
 
-## Chunk 5 — Ollama introspection: health panel + model dropdown `[ ]` (BE + FE)
+## Chunk 5 — Ollama introspection: health panel + model dropdown `[x]` (BE + FE)
 
 **Asks:** #7, #6. **Files:** `app/ai/providers/` (ollama provider),
 `app/ai/gateway.py`, `app/services/settings.py`, `app/schemas/settings.py`,

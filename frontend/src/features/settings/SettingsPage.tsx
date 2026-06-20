@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Check, ClipboardCheck, MessageSquare, SlidersHorizontal } from 'lucide-react'
+import {
+  Check,
+  ClipboardCheck,
+  MessageSquare,
+  RefreshCw,
+  SlidersHorizontal,
+  Wifi,
+  WifiOff,
+} from 'lucide-react'
 import { useSettings } from './useSettings'
 import type {
   EvalRunRecord,
+  OllamaStatus,
   Profile,
   ProfileUpdate,
   Prompt,
@@ -53,13 +62,76 @@ function SavedConfirmation() {
   )
 }
 
+// Sentinel <option> value that switches the model picker to the free-text input,
+// so a not-yet-pulled or custom model name is still enterable.
+const CUSTOM_MODEL = '__custom__'
+
+function ModelField({
+  profile,
+  model,
+  models,
+  onChange,
+}: {
+  profile: Profile
+  model: string
+  models: string[]
+  onChange: (value: string) => void
+}) {
+  // The current value is always selectable even if it isn't installed (e.g. not
+  // yet pulled), so the dropdown never silently re-defaults the model.
+  const options = models.includes(model) ? models : [model, ...models]
+  // Default to the dropdown; "Custom…" is the opt-in escape to a free-text name.
+  const [custom, setCustom] = useState(false)
+
+  return (
+    <div className="settings-field">
+      <label>
+        Model {overridden(profile, 'model') && <em>(overridden)</em>}
+        {custom ? (
+          <input
+            value={model}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="model name (e.g. gemma4:e2b)"
+          />
+        ) : (
+          <select
+            value={model}
+            onChange={(e) => {
+              if (e.target.value === CUSTOM_MODEL) setCustom(true)
+              else onChange(e.target.value)
+            }}
+          >
+            {options.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+            <option value={CUSTOM_MODEL}>Custom…</option>
+          </select>
+        )}
+      </label>
+      {custom && (
+        <button
+          type="button"
+          className="secondary-action settings-model-pick"
+          onClick={() => setCustom(false)}
+        >
+          Choose from list
+        </button>
+      )}
+    </div>
+  )
+}
+
 function ProfileEditor({
   profile,
+  models,
   state,
   onSave,
   onDirtyChange,
 }: {
   profile: Profile
+  models: string[]
   state: ActionState | undefined
   onSave: (name: string, fields: ProfileUpdate) => void
   onDirtyChange: (name: string, dirty: boolean) => void
@@ -92,12 +164,12 @@ function ProfileEditor({
         </span>
       </div>
 
-      <div className="settings-field">
-        <label>
-          Model {overridden(profile, 'model') && <em>(overridden)</em>}
-          <input value={model} onChange={(e) => setModel(e.target.value)} />
-        </label>
-      </div>
+      <ModelField
+        profile={profile}
+        model={model}
+        models={models}
+        onChange={setModel}
+      />
 
       <div className="settings-field">
         <label>
@@ -236,12 +308,57 @@ function EvalTrend({ runs }: { runs: EvalRunRecord[] }) {
   )
 }
 
+function HealthPanel({
+  status,
+  modelCount,
+  checking,
+  onRecheck,
+}: {
+  status: OllamaStatus | null
+  modelCount: number
+  checking: boolean
+  onRecheck: () => void
+}) {
+  const reachable = status?.reachable ?? false
+  return (
+    <div className={`settings-health${reachable ? ' is-up' : ' is-down'}`}>
+      <span className="settings-health-state">
+        {reachable ? (
+          <Wifi size={16} aria-hidden="true" />
+        ) : (
+          <WifiOff size={16} aria-hidden="true" />
+        )}
+        {checking ? 'Checking…' : reachable ? 'Ollama connected' : 'Ollama not reachable'}
+      </span>
+      {status?.host && <code className="settings-health-host">{status.host}</code>}
+      {reachable && (
+        <span className="settings-meta">
+          {modelCount} model{modelCount === 1 ? '' : 's'} installed
+        </span>
+      )}
+      <button
+        type="button"
+        className="secondary-action settings-health-recheck"
+        onClick={onRecheck}
+        disabled={checking}
+      >
+        <RefreshCw size={14} aria-hidden="true" />
+        Re-check
+      </button>
+    </div>
+  )
+}
+
 export function SettingsPage() {
   const {
     profiles,
     prompts,
     loading,
     error,
+    ollamaStatus,
+    ollamaChecking,
+    models,
+    recheckOllama,
     profileState,
     promptState,
     evalState,
@@ -318,6 +435,13 @@ export function SettingsPage() {
         without a restart and never touch the committed defaults.
       </p>
 
+      <HealthPanel
+        status={ollamaStatus}
+        modelCount={models.length}
+        checking={ollamaChecking}
+        onRecheck={recheckOllama}
+      />
+
       <nav className="settings-nav" aria-label="Settings sections">
         {tabs.map(({ id, label, icon: Icon, count }) => (
           <button
@@ -349,6 +473,7 @@ export function SettingsPage() {
               <ProfileEditor
                 key={profile.name}
                 profile={profile}
+                models={models}
                 state={profileState[profile.name]}
                 onSave={saveProfile}
                 onDirtyChange={onProfileDirty}

@@ -20,6 +20,7 @@ from app.ai.evals import run_evals, run_match_evals, run_summary_evals
 from app.schemas.settings import (
     EvalCaseResult,
     EvalRunResult,
+    OllamaStatus,
     ProfileRead,
     ProfileUpdate,
     PromptRead,
@@ -126,6 +127,18 @@ def put_prompt(name: str, text: str) -> PromptRead:
     path.write_text(text)
     logger.info("prompt_updated", prompt=name, chars=len(text))
     return PromptRead(name=name, text=text)
+
+
+# --- Provider introspection -------------------------------------------------
+
+
+def ollama_status() -> OllamaStatus:
+    reachable, host = gateway.ollama_status()
+    return OllamaStatus(reachable=reachable, host=host)
+
+
+def list_models() -> list[str]:
+    return gateway.installed_models()
 
 
 # --- Evals ------------------------------------------------------------------

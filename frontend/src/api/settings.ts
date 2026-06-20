@@ -2,12 +2,23 @@ import { apiClient } from './client'
 import type {
   EvalRunRecord,
   EvalRunResult,
+  OllamaStatus,
   Profile,
   ProfileUpdate,
   Prompt,
 } from '../types/settings'
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
+
+export async function getOllamaStatus(): Promise<OllamaStatus> {
+  const res = await apiClient('/api/settings/ollama/status')
+  return (await res.json()) as OllamaStatus
+}
+
+export async function getModels(): Promise<string[]> {
+  const res = await apiClient('/api/settings/models')
+  return (await res.json()) as string[]
+}
 
 export async function getProfiles(): Promise<Profile[]> {
   const res = await apiClient('/api/settings/profiles')

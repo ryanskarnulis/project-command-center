@@ -172,6 +172,58 @@ class TestPrompts:
         assert (isolated_prompts / "extract_tasks.md").read_text() == "original prompt\n"
 
 
+class TestOllamaIntrospection:
+    def test_status_reachable(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            gateway, "ollama_status", lambda: (True, "http://localhost:11434")
+        )
+        resp = client.get("/api/settings/ollama/status")
+        assert resp.status_code == 200
+        assert resp.json() == {"reachable": True, "host": "http://localhost:11434"}
+
+    def test_status_unreachable_is_200_not_error(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A down runtime is an expected state the UI renders, not a 5xx.
+        monkeypatch.setattr(
+            gateway, "ollama_status", lambda: (False, "http://localhost:11434")
+        )
+        resp = client.get("/api/settings/ollama/status")
+        assert resp.status_code == 200
+        assert resp.json()["reachable"] is False
+
+    def test_list_models(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            gateway, "installed_models", lambda: ["gemma4:e2b", "llama3:8b"]
+        )
+        resp = client.get("/api/settings/models")
+        assert resp.status_code == 200
+        assert resp.json() == ["gemma4:e2b", "llama3:8b"]
+
+    def test_list_models_empty_when_unreachable(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(gateway, "installed_models", lambda: [])
+        resp = client.get("/api/settings/models")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_lan_client_can_read_status_and_models(
+        self, lan_client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Reads stay public over the LAN (only writes are loopback-guarded).
+        monkeypatch.setattr(
+            gateway, "ollama_status", lambda: (True, "http://localhost:11434")
+        )
+        monkeypatch.setattr(gateway, "installed_models", lambda: ["gemma4:e2b"])
+        assert lan_client.get("/api/settings/ollama/status").status_code == 200
+        assert lan_client.get("/api/settings/models").status_code == 200
+
+
 class TestEvalRun:
     def test_run_eval_returns_structured_results(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch

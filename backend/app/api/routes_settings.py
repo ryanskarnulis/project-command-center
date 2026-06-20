@@ -12,6 +12,7 @@ from app.db.session import get_db
 from app.schemas.settings import (
     EvalRunRecord,
     EvalRunResult,
+    OllamaStatus,
     ProfileRead,
     ProfileUpdate,
     PromptRead,
@@ -41,6 +42,18 @@ def require_local_settings_write(request: Request) -> None:
         status_code=status.HTTP_403_FORBIDDEN,
         detail="settings writes are only allowed from localhost",
     )
+
+
+@router.get("/ollama/status", response_model=OllamaStatus)
+def get_ollama_status() -> OllamaStatus:
+    """Whether the local Ollama runtime is reachable + its host (read-only, public)."""
+    return settings_service.ollama_status()
+
+
+@router.get("/models", response_model=list[str])
+def get_models() -> list[str]:
+    """Installed Ollama model names (empty when unreachable; read-only, public)."""
+    return settings_service.list_models()
 
 
 @router.get("/profiles", response_model=list[ProfileRead])
