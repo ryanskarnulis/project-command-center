@@ -85,7 +85,7 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
 
 ---
 
-## Chunk 1 — Structural foundation: header, cards, section nav `[ ]`
+## Chunk 1 — Structural foundation: header, cards, section nav `[x]`
 
 **Asks:** #1, #2. **Files:** `SettingsPage.tsx`, `index.css`. FE-only.
 
@@ -104,23 +104,26 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
 - **Done when:** the page reads as a polished, navigable settings screen with
   parity to Projects/Trash; `npm run test && npm run build` green.
 
-## Chunk 2 — Edit safety: dirty-state + save confirmation `[ ]`
+## Chunk 2 — Edit safety: dirty-state + save confirmation `[x]`
 
 **Asks:** #3, #4. **Files:** `SettingsPage.tsx` (`ProfileEditor`, `PromptEditor`),
 optionally `useSettings.ts`. FE-only.
 
 - **Dirty-state:** each editor computes whether its inputs differ from the loaded
   value. Disable **Save** when unchanged; show an "unsaved" dot/badge when dirty.
-- **Navigate-away warning:** if any editor is dirty, warn before leaving
-  (route change + `beforeunload`). Keep it lightweight — a single page-level
-  "you have unsaved changes" guard fed by the editors' dirty flags.
+- **Navigate-away warning:** if any editor is dirty, warn before leaving.
+  Shipped the `beforeunload` guard (covers refresh / tab-close / external nav),
+  fed by a single page-level dirty map the editors report into. **In-app route-
+  change blocking deferred:** declarative `<BrowserRouter>` can't use
+  `useBlocker` — it needs a `createBrowserRouter` conversion (App/AppRoutes/
+  AppShell), out of scope for a FE-settings slice. Tracked as a follow-up.
 - **Save confirmation:** on success, show a transient inline "Saved ✓" that
   auto-clears after a few seconds (extend the existing per-item `ActionState`
   with a `saved` flag rather than adding a toast system).
 - **Done when:** Save is gated on real changes, unsaved edits are visible and
   warned-on, and a successful save shows clear confirmation; tests/build green.
 
-## Chunk 3 — Prompt editor upgrades `[ ]`
+## Chunk 3 — Prompt editor upgrades `[x]`
 
 **Ask:** #8. **Files:** `SettingsPage.tsx` (`PromptEditor`), `index.css`,
 possibly `types/settings.ts`. FE-only.
@@ -198,3 +201,14 @@ possibly `types/settings.ts`. FE-only.
 1 → 2 → 3 → 4 (safe, frontend-only parity and edit-safety land first and are
 independently shippable) → 5 → 6 (backend-touching, each isolated and reviewable
 on its own; reset-override last since it's the only new settings write).
+
+---
+
+## Follow-ups / tech debt
+
+- **Flaky `TaskDetailPage.test.tsx`.** Fails intermittently in the full
+  `npm run test` run (4 failed on clean `main`, 1 on the Chunk-3 tree) but
+  **passes in isolation** (`npm run test -- TaskDetailPage`). Pre-existing test
+  pollution / timing under parallel load, unrelated to the Sprint 10 settings
+  work. Fix before closing out the sprint — likely a leaked timer or unawaited
+  state update bleeding across tests.

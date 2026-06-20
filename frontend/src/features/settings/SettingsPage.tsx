@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ClipboardCheck, MessageSquare, SlidersHorizontal } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Check, ClipboardCheck, MessageSquare, SlidersHorizontal } from 'lucide-react'
 import { useSettings } from './useSettings'
 import type { Profile, ProfileUpdate, Prompt } from '../../types/settings'
 
@@ -10,41 +10,78 @@ type Section = 'profiles' | 'prompts' | 'evals'
 interface ActionState {
   busy: boolean
   error: string | null
+  saved: boolean
 }
 
 function overridden(profile: Profile, field: string): boolean {
   return profile.overridden_fields.includes(field)
 }
 
+// The set of fields whose edited values differ from the loaded profile. Shared
+// by the dirty check and the save handler so the two never disagree.
+function profileChanges(
+  profile: Profile,
+  model: string,
+  temperature: string,
+  maxTokens: string,
+): ProfileUpdate {
+  const fields: ProfileUpdate = {}
+  if (model !== profile.model) fields.model = model
+  const tempNum = Number(temperature)
+  if (!Number.isNaN(tempNum) && tempNum !== profile.temperature)
+    fields.temperature = tempNum
+  const mtNum = Number(maxTokens)
+  if (!Number.isNaN(mtNum) && mtNum !== profile.max_tokens) fields.max_tokens = mtNum
+  return fields
+}
+
+function UnsavedDot() {
+  return <span className="settings-dirty-dot" aria-label="Unsaved changes" title="Unsaved changes" />
+}
+
+function SavedConfirmation() {
+  return (
+    <span className="settings-saved" role="status">
+      <Check size={14} aria-hidden="true" />
+      Saved
+    </span>
+  )
+}
+
 function ProfileEditor({
   profile,
   state,
   onSave,
+  onDirtyChange,
 }: {
   profile: Profile
   state: ActionState | undefined
   onSave: (name: string, fields: ProfileUpdate) => void
+  onDirtyChange: (name: string, dirty: boolean) => void
 }) {
   const [model, setModel] = useState(profile.model)
   const [temperature, setTemperature] = useState(String(profile.temperature))
   const [maxTokens, setMaxTokens] = useState(String(profile.max_tokens))
 
+  const dirty =
+    Object.keys(profileChanges(profile, model, temperature, maxTokens)).length > 0
+
+  useEffect(() => {
+    onDirtyChange(profile.name, dirty)
+    return () => onDirtyChange(profile.name, false)
+  }, [profile.name, dirty, onDirtyChange])
+
   function handleSave() {
-    const fields: ProfileUpdate = {}
-    if (model !== profile.model) fields.model = model
-    const tempNum = Number(temperature)
-    if (!Number.isNaN(tempNum) && tempNum !== profile.temperature)
-      fields.temperature = tempNum
-    const mtNum = Number(maxTokens)
-    if (!Number.isNaN(mtNum) && mtNum !== profile.max_tokens)
-      fields.max_tokens = mtNum
-    onSave(profile.name, fields)
+    onSave(profile.name, profileChanges(profile, model, temperature, maxTokens))
   }
 
   return (
     <li className="settings-profile">
       <div className="settings-profile-header">
-        <strong>{profile.name}</strong>
+        <strong>
+          {profile.name}
+          {dirty && <UnsavedDot />}
+        </strong>
         <span className="settings-meta">
           {profile.provider} · {profile.response_mode} · {profile.system_prompt}
         </span>
@@ -82,9 +119,10 @@ function ProfileEditor({
       </div>
 
       <div className="settings-actions">
-        <button onClick={handleSave} disabled={state?.busy}>
+        <button onClick={handleSave} disabled={state?.busy || !dirty}>
           {state?.busy ? 'Saving…' : 'Save'}
         </button>
+        {state?.saved && <SavedConfirmation />}
         {state?.error && <span className="error">{state.error}</span>}
       </div>
     </li>
@@ -93,30 +131,65 @@ function ProfileEditor({
 
 function PromptEditor({
   prompt,
+  workflows,
   state,
   onSave,
+  onDirtyChange,
 }: {
   prompt: Prompt
+  workflows: string[]
   state: ActionState | undefined
   onSave: (name: string, text: string) => void
+  onDirtyChange: (name: string, dirty: boolean) => void
 }) {
   const [text, setText] = useState(prompt.text)
+
+  const dirty = text !== prompt.text
+
+  useEffect(() => {
+    onDirtyChange(prompt.name, dirty)
+    return () => onDirtyChange(prompt.name, false)
+  }, [prompt.name, dirty, onDirtyChange])
 
   return (
     <li className="settings-prompt">
       <div className="settings-profile-header">
-        <strong>{prompt.name}</strong>
+        <strong>
+          {prompt.name}
+          {dirty && <UnsavedDot />}
+        </strong>
+        <span className="settings-prompt-tags">
+          {workflows.length > 0 ? (
+            workflows.map((wf) => (
+              <span key={wf} className="settings-prompt-tag">
+                {wf}
+              </span>
+            ))
+          ) : (
+            <span className="settings-meta">unused</span>
+          )}
+        </span>
       </div>
       <textarea
         className="settings-prompt-text"
-        rows={10}
+        rows={14}
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
       <div className="settings-actions">
-        <button onClick={() => onSave(prompt.name, text)} disabled={state?.busy}>
+        <button onClick={() => onSave(prompt.name, text)} disabled={state?.busy || !dirty}>
           {state?.busy ? 'Saving…' : 'Save'}
         </button>
+        <button
+          type="button"
+          className="secondary-action"
+          onClick={() => setText(prompt.text)}
+          disabled={state?.busy || !dirty}
+        >
+          Revert
+        </button>
+        <span className="settings-char-count">{text.length} chars</span>
+        {state?.saved && <SavedConfirmation />}
         {state?.error && <span className="error">{state.error}</span>}
       </div>
     </li>
@@ -139,6 +212,49 @@ export function SettingsPage() {
   } = useSettings()
 
   const [section, setSection] = useState<Section>('profiles')
+
+  // Which workflow profiles consume each prompt, derived from the loaded
+  // profiles' system_prompt (which is the prompt's filename). Frontend-only join.
+  const promptWorkflows = useMemo(() => {
+    const map: Record<string, string[]> = {}
+    for (const profile of profiles ?? [])
+      (map[profile.system_prompt] ??= []).push(profile.name)
+    return map
+  }, [profiles])
+
+  // Dirty flags reported up from each editor, keyed by `${kind}:${name}`.
+  // Editors clear their entry on unmount, so switching tabs (which unmounts the
+  // hidden section's editors and discards their edits) keeps this accurate.
+  const [dirtyMap, setDirtyMap] = useState<Record<string, boolean>>({})
+
+  const reportDirty = useCallback((kind: string, name: string, dirty: boolean) => {
+    setDirtyMap((prev) => {
+      const key = `${kind}:${name}`
+      if ((prev[key] ?? false) === dirty) return prev
+      return { ...prev, [key]: dirty }
+    })
+  }, [])
+
+  const onProfileDirty = useCallback(
+    (name: string, dirty: boolean) => reportDirty('profile', name, dirty),
+    [reportDirty],
+  )
+  const onPromptDirty = useCallback(
+    (name: string, dirty: boolean) => reportDirty('prompt', name, dirty),
+    [reportDirty],
+  )
+
+  const anyDirty = Object.values(dirtyMap).some(Boolean)
+
+  useEffect(() => {
+    if (!anyDirty) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [anyDirty])
 
   if (loading) return <div className="page-loading">Loading settings…</div>
   if (error) return <p role="alert" className="error">Error: {error}</p>
@@ -193,6 +309,7 @@ export function SettingsPage() {
                 profile={profile}
                 state={profileState[profile.name]}
                 onSave={saveProfile}
+                onDirtyChange={onProfileDirty}
               />
             ))}
           </ul>
@@ -214,8 +331,10 @@ export function SettingsPage() {
               <PromptEditor
                 key={prompt.name}
                 prompt={prompt}
+                workflows={promptWorkflows[prompt.name] ?? []}
                 state={promptState[prompt.name]}
                 onSave={savePrompt}
+                onDirtyChange={onPromptDirty}
               />
             ))}
           </ul>
