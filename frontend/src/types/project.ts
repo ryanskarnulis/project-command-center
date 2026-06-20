@@ -6,6 +6,7 @@ export interface Project {
   is_protected: boolean
   created_at: string
   updated_at: string
+  deleted_at?: string | null
 }
 
 export interface ProjectCreate {

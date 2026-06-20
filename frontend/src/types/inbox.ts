@@ -17,6 +17,7 @@ export interface InboxItem {
   suggested_project_id: number | null
   created_at: string
   updated_at: string
+  deleted_at?: string | null
 }
 
 export interface InboxCreate {

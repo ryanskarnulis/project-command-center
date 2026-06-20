@@ -3,11 +3,12 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Sequence
 
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import InboxItem, InboxSource, Task, TaskReviewStatus
-from app.services.common import active, deleted, restore, soft_delete
+from app.services.common import active, deleted, hard_delete, restore, soft_delete
 
 
 class RestoreConflictError(Exception):
@@ -138,6 +139,43 @@ def restore_inbox_item(db: Session, item: InboxItem) -> InboxItem:
     db.flush()
     db.refresh(item)
     return item
+
+
+# --- Permanent delete / purge (Sprint 9f) ----------------------------------
+
+
+def purge_inbox_item(db: Session, item: InboxItem) -> None:
+    """Permanently delete a trashed inbox item and clean its candidate FK edge.
+
+    Candidate tasks carry ``inbox_item_id`` back to this row. Trashed candidates
+    are purged with the item (via ``purge_task``); any still-active task that came
+    from this note is detached (``inbox_item_id = NULL``) — a live task is never
+    destroyed. ``hard_delete``'s guard enforces the item is already in trash.
+    ``ai_training_examples`` has no FK to inbox items and is left untouched
+    (prime directive #4). Caller commits.
+    """
+    from app.services import tasks as tasks_service  # local: avoid circular import
+
+    deleted_candidate_ids = [
+        t.id
+        for t in db.execute(
+            deleted(Task).where(Task.inbox_item_id == item.id)
+        ).scalars()
+    ]
+    for task_id in deleted_candidate_ids:
+        task = db.execute(
+            deleted(Task).where(Task.id == task_id)
+        ).scalar_one_or_none()
+        if task is not None:
+            tasks_service.purge_task(db, task)
+
+    db.execute(
+        update(Task)
+        .where(Task.inbox_item_id == item.id)
+        .values(inbox_item_id=None)
+    )
+
+    hard_delete(db, item)
 
 
 def list_candidates(

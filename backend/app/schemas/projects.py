@@ -27,6 +27,7 @@ class ProjectRead(BaseModel):
     is_protected: bool
     created_at: datetime
     updated_at: datetime
+    deleted_at: datetime | None = None
 
 
 class ProjectAliasCreate(BaseModel):

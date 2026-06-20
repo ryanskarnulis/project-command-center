@@ -48,6 +48,10 @@ export async function restoreProject(id: number): Promise<Project> {
   return (await res.json()) as Project
 }
 
+export async function purgeProject(id: number): Promise<void> {
+  await apiClient(`/api/projects/${id}/purge`, { method: 'DELETE' })
+}
+
 export async function listAliases(projectId: number): Promise<ProjectAlias[]> {
   const res = await apiClient(`/api/projects/${projectId}/aliases`)
   return (await res.json()) as ProjectAlias[]

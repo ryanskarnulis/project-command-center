@@ -52,6 +52,10 @@ export async function restoreInbox(id: number): Promise<InboxItem> {
   return (await res.json()) as InboxItem
 }
 
+export async function purgeInbox(id: number): Promise<void> {
+  await apiClient(`/api/inbox/${id}/purge`, { method: 'DELETE' })
+}
+
 export async function reviewInbox(
   id: number,
   data: ReviewRequest,

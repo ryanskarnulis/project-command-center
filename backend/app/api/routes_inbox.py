@@ -95,6 +95,25 @@ def restore_inbox(inbox_item_id: int, db: Session = Depends(get_db)) -> InboxIte
     return restored
 
 
+@router.delete("/{inbox_item_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
+def purge_inbox(inbox_item_id: int, db: Session = Depends(get_db)) -> None:
+    item = inbox_service.get_deleted_inbox_item(db, inbox_item_id)
+    if item is None:
+        # Active item (exists, not dismissed) → 409; truly absent → 404.
+        if inbox_service.get_inbox_item(db, inbox_item_id) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Inbox item is not in trash; dismiss it first",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No dismissed inbox item with that id",
+        )
+    inbox_service.purge_inbox_item(db, item)
+    db.commit()
+    logger.info("inbox_purged", inbox_item_id=inbox_item_id)
+
+
 @router.post("/{inbox_item_id}/process", response_model=list[TaskRead])
 def process_inbox(
     inbox_item_id: int, db: Session = Depends(get_db)

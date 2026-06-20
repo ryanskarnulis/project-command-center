@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { compareByDue, compareTasks, dueStatus, formatDueDate } from './dates'
+import { compareByDue, compareTasks, dueStatus, formatDueDate, formatRelative } from './dates'
 
 describe('dueStatus', () => {
   beforeEach(() => {
@@ -52,6 +52,30 @@ describe('formatDueDate', () => {
     const result = formatDueDate('2026-06-15')
     expect(result).toContain('15')
     expect(result.length).toBeGreaterThan(2)
+  })
+})
+
+describe('formatRelative', () => {
+  const now = new Date('2026-06-19T12:00:00Z').getTime()
+  const ago = (sec: number) => new Date(now - sec * 1000).toISOString()
+
+  it('returns "just now" under a minute', () => {
+    expect(formatRelative(ago(0), now)).toBe('just now')
+    expect(formatRelative(ago(59), now)).toBe('just now')
+  })
+
+  it('formats minutes, hours, and days', () => {
+    expect(formatRelative(ago(60), now)).toBe('1 minute ago')
+    expect(formatRelative(ago(120), now)).toBe('2 minutes ago')
+    expect(formatRelative(ago(3_600), now)).toBe('1 hour ago')
+    expect(formatRelative(ago(86_400), now)).toBe('1 day ago')
+    expect(formatRelative(ago(3 * 86_400), now)).toBe('3 days ago')
+  })
+
+  it('formats weeks, months, and years', () => {
+    expect(formatRelative(ago(7 * 86_400), now)).toBe('1 week ago')
+    expect(formatRelative(ago(30 * 86_400), now)).toBe('1 month ago')
+    expect(formatRelative(ago(400 * 86_400), now)).toBe('1 year ago')
   })
 })
 

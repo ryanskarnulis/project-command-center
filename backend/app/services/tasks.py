@@ -4,12 +4,20 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any
 
+from sqlalchemy import delete as sql_delete
+from sqlalchemy import or_, update
 from sqlalchemy.orm import Session
 
-from app.db.models import Task, TaskPriority, TaskReviewStatus, TaskWorkflowStatus
+from app.db.models import (
+    Task,
+    TaskDependency,
+    TaskPriority,
+    TaskReviewStatus,
+    TaskWorkflowStatus,
+)
 from app.services import activity
 from app.services import projects as projects_service
-from app.services.common import active, deleted, restore, soft_delete
+from app.services.common import active, deleted, hard_delete, restore, soft_delete
 
 
 _FILED_REVIEW_STATUSES = {TaskReviewStatus.accepted}
@@ -239,3 +247,59 @@ def restore_task(db: Session, task: Task) -> Task:
     db.refresh(task)
     _log_task_event(db, task, "restored")
     return task
+
+
+# --- Permanent delete / purge (Sprint 9f) ----------------------------------
+
+
+def _deleted_subtree_depth_first(db: Session, task: Task) -> list[Task]:
+    """The soft-deleted subtree rooted at ``task``, children before parents.
+
+    Soft-deleting a parent cascade-soft-deletes its subtree, so the whole subtree
+    sits in trash together; purging the root must take the descendants with it or
+    they'd dangle a ``parent_task_id`` at a destroyed row (FK enforcement is off,
+    so the DB won't stop us). Children-first ordering lets the caller delete in a
+    single pass without tripping the self-referential FK.
+    """
+    children = (
+        db.execute(deleted(Task).where(Task.parent_task_id == task.id))
+        .scalars()
+        .all()
+    )
+    ordered: list[Task] = []
+    for child in children:
+        ordered.extend(_deleted_subtree_depth_first(db, child))
+    ordered.append(task)
+    return ordered
+
+
+def purge_task(db: Session, task: Task) -> None:
+    """Permanently delete a trashed task and its soft-deleted subtree.
+
+    Cleans the real FK edges first: dependency rows on either side of any subtree
+    task, and any stray ``parent_task_id`` from a row outside the purge set (e.g. a
+    child that was individually restored while its parent stayed in trash). The
+    caller is responsible for committing. ``ai_training_examples`` has no FK to
+    tasks and is deliberately untouched.
+    """
+    subtree = _deleted_subtree_depth_first(db, task)
+    ids = [t.id for t in subtree]
+
+    db.execute(
+        sql_delete(TaskDependency).where(
+            or_(
+                TaskDependency.task_id.in_(ids),
+                TaskDependency.depends_on_task_id.in_(ids),
+            )
+        )
+    )
+    # Detach any row (active or not) still pointing into the purge set but not
+    # itself being purged, so no dangling parent ref survives.
+    db.execute(
+        update(Task)
+        .where(Task.parent_task_id.in_(ids), Task.id.not_in(ids))
+        .values(parent_task_id=None)
+    )
+
+    for node in subtree:  # children before parents
+        hard_delete(db, node)

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
+import { useTrashCount } from '../features/trash/TrashCountContext'
 import {
   Bell,
   Bot,
@@ -46,6 +47,7 @@ function navClass({ isActive }: { isActive: boolean }) {
 }
 
 export function AppShell({ children }: AppShellProps) {
+  const { count: trashCount } = useTrashCount()
   const today = new Date().toLocaleDateString(undefined, {
     weekday: 'long',
     month: 'short',
@@ -85,12 +87,25 @@ export function AppShell({ children }: AppShellProps) {
         </div>
 
         <nav className="shell-nav shell-nav-bottom">
-          {utilityNav.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} className={navClass}>
-              <Icon size={19} aria-hidden="true" />
-              <span>{label}</span>
-            </NavLink>
-          ))}
+          {utilityNav.map(({ to, label, icon: Icon }) => {
+            const showCount = to === '/trash' && trashCount > 0
+            return (
+              <NavLink
+                key={to}
+                to={to}
+                className={navClass}
+                aria-label={showCount ? `${label} (${trashCount} items)` : undefined}
+              >
+                <Icon size={19} aria-hidden="true" />
+                <span>{label}</span>
+                {showCount && (
+                  <span className="nav-count-badge" aria-hidden="true">
+                    {trashCount}
+                  </span>
+                )}
+              </NavLink>
+            )
+          })}
           <button className="shell-nav-link disabled" disabled>
             <HelpCircle size={19} aria-hidden="true" />
             <span>Help & Support</span>

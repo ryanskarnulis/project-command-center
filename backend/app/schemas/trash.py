@@ -16,3 +16,19 @@ class TrashRead(BaseModel):
     projects: list[ProjectRead]
     tasks: list[TaskRead]
     inbox_items: list[InboxRead]
+
+
+class EmptyTrashResult(BaseModel):
+    """Per-kind counts of rows permanently removed by ``DELETE /api/trash`` (9f)."""
+
+    projects: int
+    tasks: int
+    inbox_items: int
+
+
+class TrashCountResult(BaseModel):
+    """Exact per-kind counts of rows currently in trash, for the nav badge (9f)."""
+
+    projects: int
+    tasks: int
+    inbox_items: int

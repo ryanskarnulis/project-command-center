@@ -436,6 +436,19 @@ Sprint 9e: [DONE] Projects tab UX overhaul — brought Projects to par with the
            status badge (shared utils/projectStatus.ts, also used by the dashboard
            Projects Overview); client-side search + sort; confirm-before-delete and
            consistent empty/loading/error states.
+Sprint 9f: [DONE] Trash tab UX overhaul — brought /trash to par with the
+           Tasks/Inbox/Projects polish (cards, lucide icons, context badges,
+           "Deleted X ago", search + type filter, nav count, bulk Restore all,
+           restore notices). Schema-surface change: added deleted_at to ProjectRead/
+           TaskRead/InboxRead (serializes null for active rows; no migration — it
+           reads the existing SoftDeleteMixin column). New routes: DELETE
+           /api/{projects,tasks,inbox}/{id}/purge (permanent delete — 404 absent /
+           409 active / 403 protected General) + DELETE /api/trash (empty trash,
+           returns per-kind counts). Purge is the one true delete (user-approved
+           override of "soft deletes only"); it only ever removes rows already in
+           trash, cleans every FK edge explicitly (FK enforcement is off on SQLite),
+           and leaves ai_training_examples untouched (no FK). No Alembic migration
+           (purge is DML, not a schema change).
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 Sprint 11 (backlog): AI "break this down" — a per-task action that sends the

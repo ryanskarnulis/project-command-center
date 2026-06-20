@@ -4,11 +4,13 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from sqlalchemy import delete as sql_delete
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
-from app.db.models import Project, ProjectAlias, Task
+from app.db.models import ActivityEvent, InboxItem, Project, ProjectAlias, Task
 from app.services import activity
-from app.services.common import active, deleted, restore, soft_delete
+from app.services.common import active, deleted, hard_delete, restore, soft_delete
 
 DEFAULT_PROJECT_NAME = "General"
 DEFAULT_PROJECT_DESCRIPTION = "Default project for unfiled tasks"
@@ -148,6 +150,56 @@ def restore_project(db: Session, project: Project) -> Project:
         summary=f'Project "{project.name}" restored',
     )
     return project
+
+
+# --- Permanent delete / purge (Sprint 9f) ----------------------------------
+
+
+def purge_project(db: Session, project: Project) -> None:
+    """Permanently delete a trashed project and clean every FK edge into it.
+
+    Protected (``General``) is never purgeable. Active tasks were rehomed to
+    General when the project was soft-deleted, so only soft-deleted tasks still
+    point here — purge them (via ``purge_task`` so their dependency/subtree edges
+    go too). Aliases are hard-deleted. The two nullable FKs that would otherwise
+    dangle — ``inbox_items.suggested_project_id`` and ``activity_events.project_id``
+    (the audit log, kept but with the ref cleared) — are nulled. ``hard_delete``'s
+    guard enforces the project is already in trash. Caller commits.
+    """
+    from app.services import tasks as tasks_service  # local: avoid circular import
+
+    if project.is_protected:
+        raise ValueError(f'Project "{project.name}" is protected and cannot be deleted')
+
+    # Purge every soft-deleted task still pointing here. A task may already be gone
+    # when we reach it (a prior root's subtree purge took it), so re-fetch and skip
+    # the misses rather than holding stale ORM rows.
+    owned_ids = [
+        t.id
+        for t in db.execute(
+            deleted(Task).where(Task.project_id == project.id)
+        ).scalars()
+    ]
+    for task_id in owned_ids:
+        task = db.execute(
+            deleted(Task).where(Task.id == task_id)
+        ).scalar_one_or_none()
+        if task is not None:
+            tasks_service.purge_task(db, task)
+
+    db.execute(sql_delete(ProjectAlias).where(ProjectAlias.project_id == project.id))
+    db.execute(
+        update(InboxItem)
+        .where(InboxItem.suggested_project_id == project.id)
+        .values(suggested_project_id=None)
+    )
+    db.execute(
+        update(ActivityEvent)
+        .where(ActivityEvent.project_id == project.id)
+        .values(project_id=None)
+    )
+
+    hard_delete(db, project)
 
 
 # --- Aliases & deterministic project matching (Sprint 4) -------------------

@@ -30,6 +30,7 @@ class InboxRead(BaseModel):
     suggested_project_id: int | None
     created_at: datetime
     updated_at: datetime
+    deleted_at: datetime | None = None
 
 
 class ReviewEdit(BaseModel):

@@ -219,3 +219,23 @@ def restore_task(task_id: int, db: Session = Depends(get_db)) -> Task:
     db.refresh(restored)
     logger.info("task_restored", task_id=restored.id)
     return restored
+
+
+@router.delete("/tasks/{task_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
+def purge_task(task_id: int, db: Session = Depends(get_db)) -> None:
+    task = tasks_service.get_deleted_task(db, task_id)
+    if task is None:
+        # Distinguish an active task (exists, not in trash → 409) from a truly
+        # absent one (404): purge only ever touches rows already in trash.
+        if tasks_service.get_task(db, task_id) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Task is not in trash; delete it first",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No deleted task with that id",
+        )
+    tasks_service.purge_task(db, task)
+    db.commit()
+    logger.info("task_purged", task_id=task_id)

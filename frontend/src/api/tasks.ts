@@ -74,6 +74,10 @@ export async function restoreTask(id: number): Promise<Task> {
   return (await res.json()) as Task
 }
 
+export async function purgeTask(id: number): Promise<void> {
+  await apiClient(`/api/tasks/${id}/purge`, { method: 'DELETE' })
+}
+
 export async function getSubtasks(id: number): Promise<Task[]> {
   const res = await apiClient(`/api/tasks/${id}/subtasks`)
   return (await res.json()) as Task[]

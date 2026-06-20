@@ -2,8 +2,35 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.ai import gateway
+from app.db.models import (
+    ActivityEvent,
+    AITrainingExample,
+    InboxItem,
+    Project,
+    ProjectAlias,
+    Task,
+    TaskDependency,
+)
+from app.services.common import soft_delete
+
+
+def _make_training_example(db: Session) -> int:
+    """A self-contained training row (no FK to any user table) to prove survival."""
+    row = AITrainingExample(
+        task_name="task_extraction",
+        input_text="raw note",
+        model_output_json="{}",
+        model_profile="default",
+        model_name="gemma4:e2b",
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row.id
 
 _VALID_OUTPUT = {
     "summary": "One task.",
@@ -27,20 +54,46 @@ def test_trash_empty_by_default(client: TestClient) -> None:
     assert body == {"projects": [], "tasks": [], "inbox_items": []}
 
 
+def test_trash_count_reports_each_kind(client: TestClient) -> None:
+    pid = client.post("/api/projects", json={"name": "Firewall"}).json()["id"]
+    client.delete(f"/api/projects/{pid}")
+    tid = client.post("/api/tasks", json={"title": "Pay invoice"}).json()["id"]
+    client.delete(f"/api/tasks/{tid}")
+
+    assert client.get("/api/trash/count").json() == {
+        "projects": 1,
+        "tasks": 1,
+        "inbox_items": 0,
+    }
+
+
+def test_trash_count_is_not_capped_by_the_list_page_limit(client: TestClient) -> None:
+    # Regression: the nav badge used to count the length of the (page-limited)
+    # trash list, so it stuck at the 50-row cap. The count must be exact.
+    for i in range(51):
+        tid = client.post("/api/tasks", json={"title": f"task {i}"}).json()["id"]
+        client.delete(f"/api/tasks/{tid}")
+
+    assert len(client.get("/api/trash").json()["tasks"]) == 50  # list still paginated
+    assert client.get("/api/trash/count").json()["tasks"] == 51  # count is exact
+
+
 def test_project_delete_appears_in_trash_and_restores(client: TestClient) -> None:
     pid = client.post("/api/projects", json={"name": "Firewall"}).json()["id"]
     assert client.delete(f"/api/projects/{pid}").status_code == 204
 
     trash = client.get("/api/trash").json()
     assert [p["id"] for p in trash["projects"]] == [pid]
+    assert trash["projects"][0]["deleted_at"] is not None  # trashed row carries it
     assert client.get(f"/api/projects/{pid}").status_code == 404  # gone from active
 
     restored = client.post(f"/api/projects/{pid}/restore")
     assert restored.status_code == 200
     assert restored.json()["id"] == pid
 
-    assert pid in {p["id"] for p in client.get("/api/projects").json()}  # active again
-    assert client.get("/api/trash").json()["projects"] == []  # gone from trash
+    active = {p["id"]: p for p in client.get("/api/projects").json()}
+    assert pid in active  # active again
+    assert active[pid]["deleted_at"] is None  # active row serializes null
 
 
 def test_restore_unknown_project_404(client: TestClient) -> None:
@@ -53,12 +106,15 @@ def test_task_delete_appears_in_trash_and_restores(client: TestClient) -> None:
 
     trash = client.get("/api/trash").json()
     assert [t["id"] for t in trash["tasks"]] == [tid]
+    assert trash["tasks"][0]["deleted_at"] is not None  # trashed row carries it
 
     restored = client.post(f"/api/tasks/{tid}/restore")
     assert restored.status_code == 200
     assert restored.json()["id"] == tid
     assert client.get("/api/trash").json()["tasks"] == []
-    assert client.get(f"/api/tasks/{tid}").status_code == 200
+    active = client.get(f"/api/tasks/{tid}")
+    assert active.status_code == 200
+    assert active.json()["deleted_at"] is None  # active row serializes null
 
 
 def test_inbox_dismiss_appears_in_trash_and_restores(
@@ -72,6 +128,7 @@ def test_inbox_dismiss_appears_in_trash_and_restores(
 
     trash = client.get("/api/trash").json()
     assert [i["id"] for i in trash["inbox_items"]] == [inbox_id]
+    assert trash["inbox_items"][0]["deleted_at"] is not None  # trashed row carries it
 
     restored = client.post(f"/api/inbox/{inbox_id}/restore")
     assert restored.status_code == 200
@@ -102,3 +159,199 @@ def test_restore_inbox_conflicts_when_text_recaptured(
 
 def test_restore_unknown_inbox_404(client: TestClient) -> None:
     assert client.post("/api/inbox/424242/restore").status_code == 404
+
+
+# --- Permanent delete / purge (Sprint 9f) ----------------------------------
+
+
+def test_purge_task_removes_row_and_is_404_on_repeat(client: TestClient) -> None:
+    tid = client.post("/api/tasks", json={"title": "Pay invoice"}).json()["id"]
+    client.delete(f"/api/tasks/{tid}")
+
+    assert client.delete(f"/api/tasks/{tid}/purge").status_code == 204
+    assert client.get("/api/trash").json()["tasks"] == []
+    # Gone for good — no longer in trash, so a repeat purge 404s.
+    assert client.delete(f"/api/tasks/{tid}/purge").status_code == 404
+
+
+def test_purge_active_task_409(client: TestClient) -> None:
+    tid = client.post("/api/tasks", json={"title": "Still alive"}).json()["id"]
+    # Exists but not in trash → 409, never destroyed.
+    assert client.delete(f"/api/tasks/{tid}/purge").status_code == 409
+    assert client.get(f"/api/tasks/{tid}").status_code == 200
+
+
+def test_purge_unknown_task_404(client: TestClient) -> None:
+    assert client.delete("/api/tasks/424242/purge").status_code == 404
+
+
+def test_purge_task_keeps_training_examples(
+    client: TestClient, db_session: Session
+) -> None:
+    example_id = _make_training_example(db_session)
+    tid = client.post("/api/tasks", json={"title": "Disposable"}).json()["id"]
+    client.delete(f"/api/tasks/{tid}")
+
+    assert client.delete(f"/api/tasks/{tid}/purge").status_code == 204
+    # Prime directive #4: training data has no FK to tasks and must survive.
+    assert db_session.get(AITrainingExample, example_id) is not None
+
+
+def test_purge_task_cleans_dependency_edges(
+    client: TestClient, db_session: Session
+) -> None:
+    a = client.post("/api/tasks", json={"title": "A"}).json()["id"]
+    b = client.post("/api/tasks", json={"title": "B"}).json()["id"]
+    # A depends on B, and B depends on A's perspective is irrelevant — one edge.
+    client.post(f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b})
+    client.delete(f"/api/tasks/{a}")
+
+    assert client.delete(f"/api/tasks/{a}/purge").status_code == 204
+    # No dependency row references the purged task on either side.
+    edges = db_session.execute(select(TaskDependency)).scalars().all()
+    assert all(a not in (e.task_id, e.depends_on_task_id) for e in edges)
+
+
+def test_purge_parent_task_takes_subtree(
+    client: TestClient, db_session: Session
+) -> None:
+    parent = client.post("/api/tasks", json={"title": "Parent"}).json()["id"]
+    child = client.post(
+        "/api/tasks", json={"title": "Child", "parent_task_id": parent}
+    ).json()["id"]
+    client.delete(f"/api/tasks/{parent}")  # cascade-soft-deletes the child too
+
+    assert client.delete(f"/api/tasks/{parent}/purge").status_code == 204
+    # Both rows gone; no orphaned child dangling a parent_task_id.
+    assert db_session.get(Task, parent) is None
+    assert db_session.get(Task, child) is None
+
+
+def test_purge_project_cleans_all_fk_edges(
+    client: TestClient, db_session: Session
+) -> None:
+    pid = client.post("/api/projects", json={"name": "Firewall"}).json()["id"]
+    aid = client.post(
+        f"/api/projects/{pid}/aliases", json={"alias": "fw"}
+    ).json()["id"]
+    tid = client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "Patch it"}
+    ).json()["id"]
+
+    # An inbox item suggesting this project, and the project's activity events,
+    # both hold a real FK into projects that purge must clear.
+    item = InboxItem(raw_text="note", input_hash="h-fw", suggested_project_id=pid)
+    db_session.add(item)
+    db_session.commit()
+    item_id = item.id
+    assert (
+        db_session.execute(
+            select(ActivityEvent).where(ActivityEvent.project_id == pid)
+        ).first()
+        is not None
+    )
+
+    client.delete(f"/api/projects/{pid}")  # active task rehomes to General
+    # Re-point the rehomed task at the trashed project and soft-delete it, so a
+    # soft-deleted task still references pid when we purge (the case purge cleans).
+    task = db_session.get(Task, tid)
+    assert task is not None
+    task.project_id = pid
+    soft_delete(task)
+    db_session.commit()
+
+    assert client.delete(f"/api/projects/{pid}/purge").status_code == 204
+
+    assert db_session.get(Project, pid) is None
+    assert db_session.get(ProjectAlias, aid) is None
+    assert db_session.get(Task, tid) is None  # soft-deleted owned task purged
+    # Nullable FKs cleared, not dangling; the audit row itself survives.
+    assert db_session.get(InboxItem, item_id).suggested_project_id is None
+    assert (
+        db_session.execute(
+            select(ActivityEvent).where(ActivityEvent.project_id == pid)
+        ).first()
+        is None
+    )
+
+
+def test_purge_active_project_409(client: TestClient) -> None:
+    pid = client.post("/api/projects", json={"name": "Live"}).json()["id"]
+    assert client.delete(f"/api/projects/{pid}/purge").status_code == 409
+
+
+def test_purge_protected_project_403(client: TestClient, db_session: Session) -> None:
+    # Filing a task into General materializes the protected project lazily.
+    client.post("/api/tasks", json={"title": "files into General"})
+    # General can't reach trash through the API, so soft-delete it directly to
+    # exercise the guard: purge must refuse a protected project even in trash.
+    general = db_session.execute(
+        select(Project).where(Project.system_key == "general")
+    ).scalar_one()
+    soft_delete(general)
+    db_session.commit()
+
+    assert client.delete(f"/api/projects/{general.id}/purge").status_code == 403
+    assert db_session.get(Project, general.id) is not None  # untouched
+
+
+def test_purge_inbox_keeps_training_and_detaches_active_task(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
+    example_id = _make_training_example(db_session)
+
+    inbox_id = client.post("/api/inbox", json={"raw_text": "extract me"}).json()["id"]
+    client.post(f"/api/inbox/{inbox_id}/process")  # creates a candidate task
+    candidate = db_session.execute(
+        select(Task).where(Task.inbox_item_id == inbox_id)
+    ).scalar_one()
+    candidate_id = candidate.id
+    client.delete(f"/api/inbox/{inbox_id}")  # dismiss → trash (task stays active)
+
+    assert client.delete(f"/api/inbox/{inbox_id}/purge").status_code == 204
+    assert client.get("/api/trash").json()["inbox_items"] == []
+    # Training survives; the still-active candidate is detached, not destroyed.
+    assert db_session.get(AITrainingExample, example_id) is not None
+    detached = db_session.get(Task, candidate_id)
+    assert detached is not None
+    assert detached.inbox_item_id is None
+
+
+def test_purge_inbox_active_409_and_unknown_404(client: TestClient) -> None:
+    inbox_id = client.post("/api/inbox", json={"raw_text": "alive"}).json()["id"]
+    assert client.delete(f"/api/inbox/{inbox_id}/purge").status_code == 409
+    assert client.delete("/api/inbox/424242/purge").status_code == 404
+
+
+def test_empty_trash_clears_all_and_is_idempotent(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
+    example_id = _make_training_example(db_session)
+
+    pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
+    tid = client.post("/api/tasks", json={"title": "Doomed task"}).json()["id"]
+    inbox_id = client.post("/api/inbox", json={"raw_text": "doomed note"}).json()["id"]
+    client.post(f"/api/inbox/{inbox_id}/process")
+    client.delete(f"/api/projects/{pid}")
+    client.delete(f"/api/tasks/{tid}")
+    client.delete(f"/api/inbox/{inbox_id}")
+
+    result = client.delete("/api/trash")
+    assert result.status_code == 200
+    counts = result.json()
+    assert counts["projects"] == 1
+    assert counts["inbox_items"] == 1
+    assert counts["tasks"] >= 1  # the deleted task (+ any dismissed-note candidate)
+
+    assert client.get("/api/trash").json() == {
+        "projects": [],
+        "tasks": [],
+        "inbox_items": [],
+    }
+    # Re-running clears nothing and protected General is spared.
+    again = client.delete("/api/trash").json()
+    assert again == {"projects": 0, "tasks": 0, "inbox_items": 0}
+    assert db_session.get(AITrainingExample, example_id) is not None
+    assert client.get("/api/projects").json()  # General still present

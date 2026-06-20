@@ -18,6 +18,7 @@ export interface Task {
   assignee_hint: string | null
   created_at: string
   updated_at: string
+  deleted_at?: string | null
   // Derived server-side: true while any dependency is unfinished.
   is_blocked: boolean
 }

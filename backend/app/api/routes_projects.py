@@ -103,6 +103,30 @@ def restore_project(project_id: int, db: Session = Depends(get_db)) -> Project:
     return restored
 
 
+@router.delete("/{project_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
+def purge_project(project_id: int, db: Session = Depends(get_db)) -> None:
+    project = projects_service.get_deleted_project(db, project_id)
+    if project is None:
+        # Active project (exists, not in trash) → 409; truly absent → 404.
+        if projects_service.get_project(db, project_id) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Project is not in trash; delete it first",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No deleted project with that id",
+        )
+    try:
+        projects_service.purge_project(db, project)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        ) from exc
+    db.commit()
+    logger.info("project_purged", project_id=project_id)
+
+
 @router.get("/{project_id}/activity", response_model=list[ActivityEventRead])
 def list_activity(
     project_id: int, limit: int = 50, db: Session = Depends(get_db)

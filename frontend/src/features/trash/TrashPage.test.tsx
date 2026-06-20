@@ -1,22 +1,37 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '../../api/client'
 import { restoreInbox } from '../../api/inbox'
-import { restoreProject } from '../../api/projects'
-import { restoreTask } from '../../api/tasks'
-import { getTrash } from '../../api/trash'
+import { listProjects, purgeProject, restoreProject } from '../../api/projects'
+import { purgeTask, restoreTask } from '../../api/tasks'
+import { emptyTrash, getTrash } from '../../api/trash'
 import type { Trash } from '../../types/trash'
 import { TrashPage } from './TrashPage'
 
-vi.mock('../../api/trash', () => ({ getTrash: vi.fn() }))
-vi.mock('../../api/projects', () => ({ restoreProject: vi.fn() }))
-vi.mock('../../api/tasks', () => ({ restoreTask: vi.fn() }))
-vi.mock('../../api/inbox', () => ({ restoreInbox: vi.fn() }))
+const renderPage = () => render(<TrashPage />, { wrapper: MemoryRouter })
+
+// Relative to the test run's clock so formatRelative is deterministic ("3 days ago").
+const DELETED_AT = new Date(Date.now() - 3 * 86_400_000).toISOString()
+
+vi.mock('../../api/trash', () => ({ getTrash: vi.fn(), emptyTrash: vi.fn() }))
+vi.mock('../../api/projects', () => ({
+  listProjects: vi.fn(),
+  restoreProject: vi.fn(),
+  purgeProject: vi.fn(),
+}))
+vi.mock('../../api/tasks', () => ({ restoreTask: vi.fn(), purgeTask: vi.fn() }))
+vi.mock('../../api/inbox', () => ({ restoreInbox: vi.fn(), purgeInbox: vi.fn() }))
 
 const mockGetTrash = vi.mocked(getTrash)
+const mockEmptyTrash = vi.mocked(emptyTrash)
 const mockRestoreProject = vi.mocked(restoreProject)
+const mockListProjects = vi.mocked(listProjects)
 const mockRestoreTask = vi.mocked(restoreTask)
 const mockRestoreInbox = vi.mocked(restoreInbox)
+const mockPurgeProject = vi.mocked(purgeProject)
+const mockPurgeTask = vi.mocked(purgeTask)
 
 const trash: Trash = {
   projects: [
@@ -28,6 +43,7 @@ const trash: Trash = {
       is_protected: false,
       created_at: '2026-06-01T17:00:00Z',
       updated_at: '2026-06-01T17:00:00Z',
+      deleted_at: DELETED_AT,
     },
   ],
   tasks: [
@@ -48,6 +64,7 @@ const trash: Trash = {
       assignee_hint: null,
       created_at: '2026-06-01T17:00:00Z',
       updated_at: '2026-06-01T17:00:00Z',
+      deleted_at: DELETED_AT,
     },
   ],
   inbox_items: [
@@ -65,6 +82,7 @@ const trash: Trash = {
       suggested_project_id: null,
       created_at: '2026-06-01T17:00:00Z',
       updated_at: '2026-06-01T17:00:00Z',
+      deleted_at: DELETED_AT,
     },
   ],
 }
@@ -72,6 +90,8 @@ const trash: Trash = {
 describe('TrashPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Active projects feed the restored-task destination label; none needed here.
+    mockListProjects.mockResolvedValue([])
     // First load shows the deleted items; the post-restore reload is empty.
     mockGetTrash
       .mockResolvedValueOnce(trash)
@@ -82,11 +102,13 @@ describe('TrashPage', () => {
     const user = userEvent.setup()
     mockRestoreProject.mockResolvedValue(trash.projects[0])
 
-    render(<TrashPage />)
+    renderPage()
 
     expect(await screen.findByText('Firewall')).toBeInTheDocument()
     expect(screen.getByText('Pay invoice')).toBeInTheDocument()
     expect(screen.getByText(/A dismissed note/)).toBeInTheDocument()
+    // Each card shows a relative deleted-time label (fixtures deleted 3 days ago).
+    expect(screen.getAllByText('Deleted 3 days ago').length).toBe(3)
 
     await user.click(
       screen.getByRole('button', { name: 'Restore project Firewall' }),
@@ -103,11 +125,190 @@ describe('TrashPage', () => {
     mockRestoreTask.mockResolvedValue(trash.tasks[0])
     mockRestoreInbox.mockResolvedValue(trash.inbox_items[0])
 
-    render(<TrashPage />)
+    renderPage()
 
     await user.click(
       await screen.findByRole('button', { name: 'Restore task Pay invoice' }),
     )
     expect(mockRestoreTask).toHaveBeenCalledWith(5)
+  })
+
+  it('names the project a restored task actually lands in', async () => {
+    const user = userEvent.setup()
+    // The restore response carries the task's real (rehomed-or-original) project;
+    // the notice should name it, not assume General.
+    mockRestoreTask.mockResolvedValue({ ...trash.tasks[0], project_id: 7 })
+    mockListProjects.mockResolvedValue([
+      { id: 7, name: 'Firewall' } as Awaited<ReturnType<typeof listProjects>>[number],
+    ])
+
+    renderPage()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Restore task Pay invoice' }),
+    )
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /Restored .*Pay invoice.* to .*Firewall/,
+    )
+  })
+
+  it('renders the loading state before trash resolves', () => {
+    renderPage()
+    expect(screen.getByText('Loading trash…')).toBeInTheDocument()
+  })
+
+  it('renders the empty state when trash is empty', async () => {
+    // mockReset (not clearAllMocks) drops the beforeEach once→trash queue.
+    mockGetTrash.mockReset()
+    mockGetTrash.mockResolvedValue({ projects: [], tasks: [], inbox_items: [] })
+
+    renderPage()
+
+    expect(await screen.findByText('Trash is empty.')).toBeInTheDocument()
+  })
+
+  it('renders an error alert when loading fails', async () => {
+    mockGetTrash.mockReset()
+    mockGetTrash.mockRejectedValue(new Error('boom'))
+
+    renderPage()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('boom')
+  })
+
+  it('narrows results by search and restores them on Clear', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Firewall')
+    await user.type(screen.getByLabelText('Search trash'), 'firewall')
+
+    expect(screen.getByText('Firewall')).toBeInTheDocument()
+    expect(screen.queryByText('Pay invoice')).not.toBeInTheDocument()
+    expect(screen.queryByText(/A dismissed note/)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Clear' }))
+
+    expect(screen.getByText('Pay invoice')).toBeInTheDocument()
+    expect(screen.getByText(/A dismissed note/)).toBeInTheDocument()
+  })
+
+  it('isolates a single section with the type filter', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Firewall')
+    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
+
+    expect(screen.getByText('Pay invoice')).toBeInTheDocument()
+    expect(screen.queryByText('Firewall')).not.toBeInTheDocument()
+    expect(screen.queryByText(/A dismissed note/)).not.toBeInTheDocument()
+  })
+
+  it('shows a no-match message when the search hides everything', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Firewall')
+    await user.type(screen.getByLabelText('Search trash'), 'nothing matches this')
+
+    expect(screen.getByText('No items match your search.')).toBeInTheDocument()
+    expect(screen.queryByText('Firewall')).not.toBeInTheDocument()
+  })
+
+  it('shows a success notice naming the restored item', async () => {
+    const user = userEvent.setup()
+    mockRestoreProject.mockResolvedValue(trash.projects[0])
+
+    renderPage()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Restore project Firewall' }),
+    )
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/Restored project .*Firewall/)
+  })
+
+  it('restores a whole section with Restore all', async () => {
+    const user = userEvent.setup()
+    mockRestoreTask.mockResolvedValue(trash.tasks[0])
+
+    renderPage()
+
+    // Isolate the Tasks section so there's a single "Restore all" button.
+    await screen.findByText('Firewall')
+    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
+    await user.click(screen.getByRole('button', { name: 'Restore all' }))
+
+    expect(mockRestoreTask).toHaveBeenCalledWith(5)
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /Restored 1 task. Tasks return to their original projects./,
+    )
+  })
+
+  it('messages the inbox 409 when a Restore all hits a re-captured note', async () => {
+    const user = userEvent.setup()
+    mockRestoreInbox.mockRejectedValue(new ApiError(409, {}))
+
+    renderPage()
+
+    await screen.findByText('Firewall')
+    await user.selectOptions(screen.getByLabelText('Filter by type'), 'inbox')
+    await user.click(screen.getByRole('button', { name: 'Restore all' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/re-captured/)
+  })
+
+  it('purges a task after the user confirms', async () => {
+    const user = userEvent.setup()
+    mockPurgeTask.mockResolvedValue(undefined)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderPage()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Delete task Pay invoice forever' }),
+    )
+
+    expect(confirm).toHaveBeenCalled()
+    expect(mockPurgeTask).toHaveBeenCalledWith(5)
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /Permanently deleted .*Pay invoice/,
+    )
+    confirm.mockRestore()
+  })
+
+  it('does not purge when the user cancels the confirm', async () => {
+    const user = userEvent.setup()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+    renderPage()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Delete project Firewall forever' }),
+    )
+
+    expect(mockPurgeProject).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
+  it('empties the whole trash after the user confirms', async () => {
+    const user = userEvent.setup()
+    mockEmptyTrash.mockResolvedValue({ projects: 1, tasks: 1, inbox_items: 1 })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Empty trash' }))
+
+    expect(confirm).toHaveBeenCalled()
+    expect(mockEmptyTrash).toHaveBeenCalled()
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /Permanently deleted 3 items/,
+    )
+    await waitFor(() =>
+      expect(screen.getByText('Trash is empty.')).toBeInTheDocument(),
+    )
+    confirm.mockRestore()
   })
 })

@@ -7,3 +7,15 @@ export interface Trash {
   tasks: Task[]
   inbox_items: InboxItem[]
 }
+
+export interface EmptyTrashResult {
+  projects: number
+  tasks: number
+  inbox_items: number
+}
+
+export interface TrashCountResult {
+  projects: number
+  tasks: number
+  inbox_items: number
+}
