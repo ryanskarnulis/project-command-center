@@ -21,12 +21,20 @@ class TrainingExampleRead(BaseModel):
     model_profile: str
     model_name: str
     created_at: datetime
+    deleted_at: datetime | None
+
+
+class TaskStat(BaseModel):
+    """Per-task corpus counts: total rows and how many were accepted."""
+
+    count: int
+    accepted: int
 
 
 class TrainingStatsRead(BaseModel):
     total: int
     accepted: int
-    by_task: dict[str, int]
+    by_task: dict[str, TaskStat]
     goal: int = FINE_TUNE_GOAL
 
     @computed_field  # type: ignore[prop-decorator]

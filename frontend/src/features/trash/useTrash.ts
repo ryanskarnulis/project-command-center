@@ -3,17 +3,18 @@ import { ApiError } from '../../api/client'
 import { purgeInbox, restoreInbox } from '../../api/inbox'
 import { listProjects, purgeProject, restoreProject } from '../../api/projects'
 import { purgeTask, restoreTask } from '../../api/tasks'
+import { purgeTrainingExample, restoreTrainingExample } from '../../api/training'
 import { emptyTrash, getTrash } from '../../api/trash'
 import type { Task } from '../../types/task'
 import type { Trash } from '../../types/trash'
 import { useTrashCount } from './TrashCountContext'
 
-const EMPTY: Trash = { projects: [], tasks: [], inbox_items: [] }
+const EMPTY: Trash = { projects: [], tasks: [], inbox_items: [], training_examples: [] }
 
 const INBOX_409 =
   'That note was re-captured after it was dismissed — the active copy already represents it.'
 
-export type TrashKind = 'projects' | 'tasks' | 'inbox'
+export type TrashKind = 'projects' | 'tasks' | 'inbox' | 'training'
 
 export interface RestoreItem {
   id: number
@@ -28,6 +29,7 @@ interface UseTrash {
   restoreProjectById: (id: number, name: string) => Promise<void>
   restoreTaskById: (id: number, title: string) => Promise<void>
   restoreInboxById: (id: number, label: string) => Promise<void>
+  restoreTrainingById: (id: number, label: string) => Promise<void>
   restoreAll: (kind: TrashKind, items: RestoreItem[]) => Promise<void>
   purgeById: (kind: TrashKind, id: number, label: string) => Promise<void>
   emptyTrashAll: () => Promise<void>
@@ -37,12 +39,14 @@ const RESTORE: Record<TrashKind, (id: number) => Promise<unknown>> = {
   projects: restoreProject,
   tasks: restoreTask,
   inbox: restoreInbox,
+  training: restoreTrainingExample,
 }
 
 const PURGE: Record<TrashKind, (id: number) => Promise<void>> = {
   projects: purgeProject,
   tasks: purgeTask,
   inbox: purgeInbox,
+  training: purgeTrainingExample,
 }
 
 export function useTrash(): UseTrash {
@@ -136,6 +140,11 @@ export function useTrash(): UseTrash {
     (id: number, label: string) => runRestore('inbox', id, () => `Restored note “${label}”.`),
     [runRestore],
   )
+  const restoreTrainingById = useCallback(
+    (id: number, label: string) =>
+      runRestore('training', id, () => `Restored training example “${label}”.`),
+    [runRestore],
+  )
 
   const restoreAll = useCallback(
     async (kind: TrashKind, items: RestoreItem[]) => {
@@ -161,7 +170,12 @@ export function useTrash(): UseTrash {
       }
       reload()
       if (restored > 0) {
-        const noun = kind === 'inbox' ? 'note' : kind.slice(0, -1)
+        const noun =
+          kind === 'inbox'
+            ? 'note'
+            : kind === 'training'
+              ? 'training example'
+              : kind.slice(0, -1)
         const parts = [`Restored ${restored} ${noun}${restored === 1 ? '' : 's'}.`]
         if (kind === 'tasks') parts.push('Tasks return to their original projects.')
         if (skipped > 0) parts.push(`${skipped} re-captured and skipped.`)
@@ -193,7 +207,8 @@ export function useTrash(): UseTrash {
     setNotice(null)
     try {
       const result = await emptyTrash()
-      const total = result.projects + result.tasks + result.inbox_items
+      const total =
+        result.projects + result.tasks + result.inbox_items + result.training_examples
       setNotice(
         total === 0
           ? 'Trash was already empty.'
@@ -213,6 +228,7 @@ export function useTrash(): UseTrash {
     restoreProjectById,
     restoreTaskById,
     restoreInboxById,
+    restoreTrainingById,
     restoreAll,
     purgeById,
     emptyTrashAll,

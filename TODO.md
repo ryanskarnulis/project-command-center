@@ -14,6 +14,18 @@ Incomplete items pulled from the master task list. Organized by urgency/category
 
 ---
 
+## Sprint 9g — Remaining (follow-ups)
+
+- [ ] In-app route-change blocking for unsaved Settings edits — chunk 2 shipped the
+      `beforeunload` guard, but declarative `<BrowserRouter>` can't use `useBlocker`; needs a
+      `createBrowserRouter` conversion (App/AppRoutes/AppShell) before it can warn on in-app nav.
+- [!] Flaky `TaskDetailPage.test.tsx` — fails intermittently in the full `npm run test` run but
+      passes in isolation (`npm run test -- TaskDetailPage`). Pre-existing test pollution / timing
+      under parallel load, unrelated to the Sprint 9g settings work — likely a leaked timer or
+      unawaited state update bleeding across tests.
+
+---
+
 ## Deferred from Sprint 6
 
 - [ ] `docker-compose.yml` — backend + frontend in containers (deferred: "clean restarts, not prod")
@@ -27,6 +39,42 @@ Incomplete items pulled from the master task list. Organized by urgency/category
 - [ ] Dark mode
 - [ ] Export tasks to markdown
 
+### Command Bar / Search
+
+- [ ] **Global search** — wire the existing AppShell search placeholder to a `GET /api/search?q=`
+      route that queries projects, tasks, and inbox with a simple `LIKE`; return typed results
+      grouped by kind; keyboard-navigate and click-through to the relevant page. No new schema.
+      This is the first slice; the bar is designed to grow into an AI chat + slash-command surface
+      (e.g. `/done <task>`, `/new <text>`) in later sprints, so keep the input component generic
+      from the start.
+
+### Today / Daily Schedule
+
+- [ ] **AI-generated daily schedule** — a `/today` route (or dashboard section) that does more than
+      filter due-today tasks: builds a prioritized schedule for the day using open tasks, their
+      estimates, priorities, and due dates, filling idle time even when nothing is formally due.
+      Initial version: pure Python scheduling logic (no model call needed) that bins tasks into
+      time blocks and surfaces them in order. Future slices: (1) AI reordering with a brief
+      "why this order" rationale, (2) calendar integration to schedule around meetings once
+      calendar sync is unblocked (currently on the README "do not build" list — revisit when ready).
+
+### Task Comments / Notes
+
+- [ ] **Task notes** — timestamped log entries appended to a task (separate from the description).
+      New `task_notes` table (`id`, `task_id FK`, `body`, `created_at`; soft-delete via `deleted_at`
+      on the parent task cascade, no own `deleted_at` needed). `GET /api/tasks/{id}/notes` +
+      `POST /api/tasks/{id}/notes`; rendered as an append-only feed at the bottom of
+      `TaskDetailPage`. Alembic migration required.
+
+### Recurring Tasks
+
+- [ ] **Recurring task stubs** — add a nullable `repeat_interval` field to `tasks`
+      (`daily | weekly | monthly | null`; Alembic migration required). When a task with a
+      repeat_interval is marked workflow_status=`done`, `services/tasks.py` auto-creates the next
+      occurrence with the same title/project/priority/estimate and a `due_date` advanced by the
+      interval. New task gets review_status=`accepted` (skips the candidate queue). No AI
+      involvement; pure Python in the service layer.
+
 ### Features
 
 - [ ] Kanban board over `workflow_status` (`open`/`in_progress`/`done`) — columns + drag-to-move
@@ -38,6 +86,39 @@ Incomplete items pulled from the master task list. Organized by urgency/category
       over existing data (no new schema), replaces the `AppShell` calendar placeholder.
       ⚠️ Confirm scope: "Calendar **sync**" is on the README "do not build yet" list (external
       Google/iCal) — build the *internal, read-only* due-date calendar, **not** external sync.
+
+---
+
+## AI Improvements
+
+- [ ] **Eval regression warning** — after each eval run, compare the new pass rate for each suite
+      against the previous run stored in `eval_runs`; surface a red warning badge in the Settings
+      Evals section if any suite regressed. Frontend-only; uses the existing eval run history
+      endpoint.
+- [ ] **Prompt snapshot on save** — when a prompt file is saved via the Settings UI, write a
+      timestamped copy to `ai/prompts/.history/<name>.<timestamp>.md` before overwriting. Lets you
+      diff before/after a score drop and revert manually. Backend change in the prompt-save route;
+      no schema/migration.
+- [ ] **Sprint 11 — AI "break this down"** — per-task action that sends the task's title +
+      description through `ai/gateway.py` to suggest subtasks, returned as candidates
+      (review_status=`candidate`) for the standard review queue. Reuses the `extract_tasks`
+      workflow, eval cases, and training-capture pattern. No new schema beyond what's already
+      there. (Named in README backlog; formalizing here.)
+- [ ] **Surface AI inbox summary as note title** — the extraction response already returns a
+      `summary` field (stored on `inbox_items.summary`); use it as the display title in the inbox
+      list instead of truncating raw text. Frontend-only change; no backend/schema work.
+
+---
+
+## Discord (follow-ups to Sprint 3)
+
+- [ ] `/tasks` command — lists open tasks (optionally filtered to a project) without opening the
+      web UI. Calls a new `GET /api/discord/tasks` endpoint (shared-secret guarded, same pattern
+      as `/api/discord/inbox`). Bot formats results as a short numbered list in the reply.
+- [ ] `/done <task search>` command — fuzzy-match a task title from the bot and mark it
+      workflow_status=`done`. Backend: `PATCH /api/tasks/{id}` already handles this; add a
+      `GET /api/discord/tasks/search?q=` helper for the bot to resolve the title to an ID first.
+      If multiple matches, bot replies with a disambiguation list.
 
 ---
 

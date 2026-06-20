@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { FolderX, Inbox, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
-import { useTrash } from './useTrash'
+import { FolderX, GraduationCap, Inbox, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { useTrash, type TrashKind } from './useTrash'
 import { useTrashCount } from './TrashCountContext'
 import { TaskCard } from '../tasks/TaskCard'
 import { ProjectCard } from '../projects/ProjectCard'
@@ -34,12 +34,17 @@ function NoNav({ children }: { children: ReactNode }) {
   return <div onClickCapture={(e) => e.preventDefault()}>{children}</div>
 }
 
-type TypeFilter = 'all' | 'projects' | 'tasks' | 'inbox'
+type TypeFilter = 'all' | 'projects' | 'tasks' | 'inbox' | 'training'
 
 // An inbox item's display label: the summary if the model produced one, else a
 // snippet of the raw text (matches what the inbox section renders).
 function inboxLabel(item: { summary: string | null; raw_text: string }): string {
   return item.summary ?? item.raw_text.slice(0, 60)
+}
+
+// A training example's display label: a snippet of the input that produced it.
+function trainingLabel(example: { input_text: string }): string {
+  return example.input_text.slice(0, 80)
 }
 
 export function TrashPage() {
@@ -51,6 +56,7 @@ export function TrashPage() {
     restoreProjectById,
     restoreTaskById,
     restoreInboxById,
+    restoreTrainingById,
     restoreAll,
     purgeById,
     emptyTrashAll,
@@ -84,12 +90,15 @@ export function TrashPage() {
   }, [trash])
 
   const totalCount =
-    trash.projects.length + trash.tasks.length + trash.inbox_items.length
+    trash.projects.length +
+    trash.tasks.length +
+    trash.inbox_items.length +
+    trash.training_examples.length
   const isEmpty = totalCount === 0
 
   // Purge is irreversible (it really deletes the row), so every purge path is
   // gated by an explicit confirm naming what's about to go.
-  const confirmPurge = (kind: 'projects' | 'tasks' | 'inbox', id: number, label: string) => {
+  const confirmPurge = (kind: TrashKind, id: number, label: string) => {
     if (window.confirm(`Permanently delete “${label}”? This cannot be undone.`)) {
       void purgeById(kind, id, label)
     }
@@ -108,22 +117,32 @@ export function TrashPage() {
   // Search (case-insensitive, over each item's display label) + type filter are
   // both client-side. A list is included only when the type filter selects it;
   // the search then narrows within whatever's included.
-  const { projects, tasks, inboxItems } = useMemo(() => {
+  const { projects, tasks, inboxItems, trainingExamples } = useMemo(() => {
     const q = search.trim().toLowerCase()
     const showProjects = typeFilter === 'all' || typeFilter === 'projects'
     const showTasks = typeFilter === 'all' || typeFilter === 'tasks'
     const showInbox = typeFilter === 'all' || typeFilter === 'inbox'
+    const showTraining = typeFilter === 'all' || typeFilter === 'training'
     const match = (label: string) => q === '' || label.toLowerCase().includes(q)
     return {
       projects: showProjects ? trash.projects.filter((p) => match(p.name)) : [],
       tasks: showTasks ? trash.tasks.filter((t) => match(t.title)) : [],
       inboxItems: showInbox ? trash.inbox_items.filter((i) => match(inboxLabel(i))) : [],
+      trainingExamples: showTraining
+        ? trash.training_examples.filter(
+            (e) => match(e.task_name) || match(trainingLabel(e)),
+          )
+        : [],
     }
   }, [trash, search, typeFilter])
 
   const filtersActive = search.trim() !== '' || typeFilter !== 'all'
   const noMatches =
-    !isEmpty && projects.length === 0 && tasks.length === 0 && inboxItems.length === 0
+    !isEmpty &&
+    projects.length === 0 &&
+    tasks.length === 0 &&
+    inboxItems.length === 0 &&
+    trainingExamples.length === 0
 
   // The number shown next to a section title. While filtering, the filtered
   // length is what's honest (it matches the cards shown). Otherwise show the true
@@ -202,6 +221,7 @@ export function TrashPage() {
                 <option value="projects">Projects</option>
                 <option value="tasks">Tasks</option>
                 <option value="inbox">Inbox</option>
+                <option value="training">Training</option>
               </select>
             </label>
           </div>
@@ -374,6 +394,69 @@ export function TrashPage() {
                         className="trash-danger"
                         aria-label={`Delete inbox item ${label} forever`}
                         onClick={() => confirmPurge('inbox', item.id, label)}
+                      >
+                        Delete forever
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      )}
+
+      {!loading && trainingExamples.length > 0 && (
+        <section className="trash-section">
+          <div className="trash-section-head">
+            <h2>
+              <GraduationCap size={18} aria-hidden="true" />
+              Training examples ({headingCount(trainingExamples.length, trash.training_examples.length, counts.training_examples)})
+            </h2>
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() =>
+                void restoreAll(
+                  'training',
+                  trainingExamples.map((e) => ({ id: e.id, label: trainingLabel(e) })),
+                )
+              }
+            >
+              Restore all
+            </button>
+          </div>
+          <TruncationHint
+            loaded={trash.training_examples.length}
+            total={counts.training_examples}
+          />
+          <ul className="task-list">
+            {trainingExamples.map((example) => {
+              const label = trainingLabel(example)
+              return (
+                <li key={example.id}>
+                  <div className="task-card">
+                    <div className="task-card-body">
+                      <span className="task-card-title">{label}</span>
+                      <div className="task-card-badges">
+                        <span className="source-pill">{example.task_name}</span>
+                        <span className="source-pill">{example.model_name}</span>
+                      </div>
+                    </div>
+                    <div className="task-card-actions">
+                      <DeletedAt at={example.deleted_at} />
+                      <button
+                        type="button"
+                        aria-label={`Restore training example ${label}`}
+                        onClick={() => void restoreTrainingById(example.id, label)}
+                      >
+                        Restore
+                      </button>
+                      <button
+                        type="button"
+                        className="trash-danger"
+                        aria-label={`Delete training example ${label} forever`}
+                        onClick={() => confirmPurge('training', example.id, label)}
                       >
                         Delete forever
                       </button>

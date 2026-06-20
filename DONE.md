@@ -479,3 +479,72 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
       rows survive; FK cleanup leaves no dangling dependency/alias/parent rows + clears the two nullable
       project FKs; empty-trash is idempotent. `ai_training_examples` left untouched (no FK). No Alembic
       migration (purge is DML, not a schema change).
+
+---
+
+## Sprint 9g — Settings Tab UX Overhaul
+> Goal: bring `/settings` up to par with the Sprint 8–9f Tasks/Inbox/Projects/Trash polish.
+> Shipped as 6 small chunks (committed `EEE`–`III` under the Sprint 9 label; tracked as 9g
+> to avoid colliding with the README's Sprint 10 Unsloth-export work).
+
+- [x] **Chunk 1 — Structural foundation: header, cards, section nav** (FE): real page header +
+      one-line description matching the other pages; sticky section nav (Profiles · Prompts · Evals);
+      each `<li>` editor (`ProfileEditor`, `PromptEditor`, eval rows) converted to the shared card look
+      with per-section lucide icons; all existing handlers/behavior preserved (pure structure + styling,
+      no new endpoints).
+- [x] **Chunk 2 — Edit safety: dirty-state + save confirmation** (FE): each editor computes whether
+      inputs differ from the loaded value — Save disabled when unchanged, "unsaved" dot when dirty;
+      `beforeunload` guard (refresh / tab-close / external nav) fed by a page-level dirty map; transient
+      inline "Saved ✓" on success (extended the per-item `ActionState` with a `saved` flag, no toast
+      system). In-app route-change blocking deferred (needs a `createBrowserRouter` conversion).
+- [x] **Chunk 3 — Prompt editor upgrades** (FE): workflow tag per prompt derived on the frontend from
+      the loaded profiles' `system_prompt` (e.g. `extract_tasks.md → task_extraction`); monospace,
+      resizable, taller textarea + live character count; revert-to-last-saved button (pairs with the
+      chunk-2 dirty-state). No backend change.
+- [x] **Chunk 4 — Eval trend + run-all** (FE): flat run list replaced with a compact pass-rate trend
+      across the recent runs already loaded via `getEvalRuns` (keeps latest-run failing-case details);
+      one "Run all suites" button runs `task_extraction`, `project_matching`, and `summary` in sequence
+      (reuses `runEvals`) with per-suite progress. No new endpoint.
+- [x] **Chunk 5 — Ollama introspection: health panel + model dropdown** (BE + FE): provider
+      introspection added via the gateway only (no `import ollama` outside `app/ai/providers/`) — a
+      health/ping (reachable + host) and an installed-models list (Ollama `/api/tags`), exposed as two
+      read-only GET routes `GET /api/settings/ollama/status` + `GET /api/settings/models` (public, no
+      write guard). FE: top-of-page health row (connected / host, re-check button, graceful "not
+      reachable" state); `ProfileEditor` free-text model input replaced with a dropdown from
+      `/api/settings/models` preselecting the current value, with a free-text fallback for not-yet-pulled
+      / custom names — never silently re-defaults `task_extraction` off `gemma4:e2b`. New route test +
+      pytest green.
+- [x] **Chunk 6 — Reset-to-default for overrides** (BE + FE): service helper removes a profile's
+      override key(s) from `profiles.local.yaml` and reloads, returning the new effective `ProfileRead`;
+      exposed as `DELETE /api/settings/profiles/{name}/overrides` (optional `?field=` clears one field,
+      no field clears all), guarded by `require_local_settings_write` (404 unknown profile, no-op safe
+      when no override exists). FE: "Reset to default" control per profile, enabled only when
+      `overridden_fields` is non-empty, wired through `useSettings`; on success inputs reflect the
+      committed `profiles.yaml` value and the "(overridden)" tags clear (reuses chunk-2 save feedback).
+      New route test + pytest green. No schema/migration.
+
+## Sprint 9i — Training-Data Pruning (trash → purge)
+> Goal: let the user clean junk rows out of the corpus, but only via the same reversible two-step
+> path (soft-delete → trash → purge) as projects/tasks/inbox. User-approved exception to "treat
+> training data like accounting data" — the active corpus is never bulk-deleted.
+
+- [x] **Chunk A — Backend delete/restore/purge** (BE): `services/training_data.py` gains
+      `get_example`, `get_deleted_example`, `soft_delete_example`, `list_deleted_examples`,
+      `restore_example`, `purge_example` (leaf table, so purge is a bare `hard_delete` and restore
+      has no uniqueness conflict). Three routes on `/training-examples`: `DELETE /{id}` (soft-delete →
+      trash, 204), `POST /{id}/restore`, `DELETE /{id}/purge` (404 absent / 409 active-not-trashed,
+      mirroring inbox). `deleted_at` added to `TrainingExampleRead` (reads the existing
+      `SoftDeleteMixin` column — no migration). A trashed row drops out of the `/training` list AND
+      `example_stats` automatically (both already filter `deleted_at IS NULL`).
+- [x] **Chunk B — Fourth trash kind** (BE): `PurgeCounts`/`TrashRead`/`EmptyTrashResult`/
+      `TrashCountResult` and `count_trash`/`empty_trash` gain `training_examples`; `/trash`,
+      `/trash/count`, and empty-trash thread it through. Empty-trash purges any *trashed* examples.
+- [x] **Chunk C — Move-to-trash on /training** (FE): `deleteTrainingExample`/`restore`/`purge` API
+      calls; `useTraining.deleteExample` drops the row locally, refreshes corpus stats (goal meter
+      falls) and the sidebar trash badge; per-example trash button (light confirm — reversible).
+- [x] **Chunk D — Training section on /trash** (FE): types + `TrashCountContext` + `useTrash`
+      (`training` kind, restore/purge maps, `restoreTrainingById`) + a Training examples section with
+      Restore / Delete-forever, type filter, nav count, empty-trash all updated.
+- [x] **Chunk E — Tests + docs**: new route tests (delete drops from list+stats, restore, purge
+      409/404, trash round-trip) + updated trash response-shape tests; full pytest green (178+). No
+      Alembic. README schema-philosophy + roadmap updated.

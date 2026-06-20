@@ -8,12 +8,18 @@ export interface TrainingExample {
   model_profile: string
   model_name: string
   created_at: string
+  deleted_at: string | null
+}
+
+export interface TaskStat {
+  count: number
+  accepted: number
 }
 
 export interface TrainingStats {
   total: number
   accepted: number
-  by_task: Record<string, number>
+  by_task: Record<string, TaskStat>
   goal: number
   remaining: number
 }
@@ -21,4 +27,5 @@ export interface TrainingStats {
 export interface TrainingFilters {
   task_name?: string
   accepted?: boolean
+  search?: string
 }

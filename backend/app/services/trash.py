@@ -4,10 +4,11 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.db.models import InboxItem, Project, Task
+from app.db.models import AITrainingExample, InboxItem, Project, Task
 from app.services import inbox as inbox_service
 from app.services import projects as projects_service
 from app.services import tasks as tasks_service
+from app.services import training_data as training_service
 from app.services.common import count_deleted, deleted
 
 
@@ -18,6 +19,7 @@ class PurgeCounts:
     projects: int
     tasks: int
     inbox_items: int
+    training_examples: int
 
 
 def count_trash(db: Session) -> PurgeCounts:
@@ -30,6 +32,7 @@ def count_trash(db: Session) -> PurgeCounts:
         projects=count_deleted(db, Project),
         tasks=count_deleted(db, Task),
         inbox_items=count_deleted(db, InboxItem),
+        training_examples=count_deleted(db, AITrainingExample),
     )
 
 
@@ -52,6 +55,8 @@ def empty_trash(db: Session) -> PurgeCounts:
         for p in db.execute(deleted(Project)).scalars()
         if not p.is_protected
     ]
+    # Training examples are a leaf table — purge order doesn't matter for them.
+    training_ids = [e.id for e in db.execute(deleted(AITrainingExample)).scalars()]
 
     for inbox_id in inbox_ids:
         item = db.execute(
@@ -74,8 +79,14 @@ def empty_trash(db: Session) -> PurgeCounts:
         if project is not None:
             projects_service.purge_project(db, project)
 
+    for example_id in training_ids:
+        example = training_service.get_deleted_example(db, example_id)
+        if example is not None:
+            training_service.purge_example(db, example)
+
     return PurgeCounts(
         projects=len(project_ids),
         tasks=len(task_ids),
         inbox_items=len(inbox_ids),
+        training_examples=len(training_ids),
     )

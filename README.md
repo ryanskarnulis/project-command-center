@@ -178,7 +178,7 @@ eval_runs
 ai_training_examples
 ```
 
-All tables use **soft deletes** via a `deleted_at` column. Don't actually delete rows — you'll change your mind, and training data references them.
+All tables use **soft deletes** via a `deleted_at` column. Don't actually delete rows — you'll change your mind, and training data references them. The one true delete is **purge from trash** (Sprint 9f/9i): a row must already be soft-deleted, and only the user, from the `/trash` page, triggers it. `ai_training_examples` can be pruned this way too (Sprint 9i, user-approved), but only one row at a time via trash — the active corpus is never bulk-deleted.
 
 > **Exception:** `activity_events` (Sprint 6) is an append-only audit log and has
 > **no** `deleted_at` — an audit trail is never user-edited. It records
@@ -448,7 +448,45 @@ Sprint 9f: [DONE] Trash tab UX overhaul — brought /trash to par with the
            override of "soft deletes only"); it only ever removes rows already in
            trash, cleans every FK edge explicitly (FK enforcement is off on SQLite),
            and leaves ai_training_examples untouched (no FK). No Alembic migration
-           (purge is DML, not a schema change).
+           (purge is DML, not a schema change). [Superseded by 9i: training
+           examples can now themselves be trashed and purged — empty-trash purges
+           any that are *in trash*, but never the active corpus.]
+Sprint 9g: [DONE] Settings tab UX overhaul — brought /settings to par with the
+           Tasks/Inbox/Projects/Trash polish (6 chunks). FE: page header, sticky
+           section nav (Profiles · Prompts · Evals), card layout + lucide icons;
+           per-editor dirty-state (Save gated on real changes, unsaved dot,
+           beforeunload guard) + transient "Saved ✓" confirmation; prompt editor
+           upgrades (workflow tag derived from profiles, monospace/resizable
+           textarea, live char count, revert-to-last-saved); eval pass-rate trend
+           across recent runs + "Run all suites" button; live Ollama health panel
+           (connected/host + re-check) and an installed-model dropdown in
+           ProfileEditor (free-text fallback, preselects current value, never
+           silently re-defaults task_extraction off gemma4:e2b); reset-to-default
+           for profile overrides. BE: three settings routes — read-only GET
+           /api/settings/ollama/status and GET /api/settings/models (Ollama
+           introspection via gateway/provider only, public reads), plus
+           loopback-guarded DELETE /api/settings/profiles/{name}/overrides
+           (optional ?field= clears one field, no field clears all; removes keys
+           from profiles.local.yaml and returns the new effective ProfileRead).
+           No schema/migration. In-app route-change blocking deferred (needs a
+           createBrowserRouter conversion); flaky TaskDetailPage.test.tsx noted as
+           pre-existing.
+Sprint 9i: [DONE] Training-data pruning — let the user clean junk rows out of the
+           corpus via the same two-step trash → purge path as every other entity.
+           BE: training_data gains soft_delete/restore/purge helpers (leaf table,
+           so purge is a bare hard_delete, restore has no conflict); three routes
+           DELETE /api/training-examples/{id} (soft-delete), POST .../restore,
+           DELETE .../purge (404 absent / 409 active-not-trashed). Registered as a
+           fourth trash kind: TrashRead/EmptyTrashResult/TrashCountResult and
+           empty_trash gain training_examples; deleted_at added to TrainingExampleRead
+           (no migration — reads the existing SoftDeleteMixin column). A soft-deleted
+           example drops out of the /training list AND the progress-to-200 meter
+           automatically (both already filter deleted_at IS NULL). User-approved
+           exception to "treat training data like accounting data" — pruning is only
+           ever via reversible trash, and the active corpus is never destroyed in
+           bulk. FE: per-example "move to trash" button on /training; a Training
+           examples section on /trash (restore / delete-forever), nav count + empty-
+           trash include it. New route + trash tests; pytest green. No Alembic.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 Sprint 11 (backlog): AI "break this down" — a per-task action that sends the
@@ -486,10 +524,16 @@ If this works, everything else is incremental.
 
 ## Settings UI
 
-A small page (Sprint 5) that lets you:
-- Edit model profiles — model, temperature, max_tokens
-- Edit prompts in `ai/prompts/*.md` without restarting
-- Trigger a re-run of evals (per suite: `task_extraction` / `project_matching` / `summary`)
+A page (Sprint 5, overhauled Sprint 9g) with a sectioned card UI (Profiles ·
+Prompts · Evals) that lets you:
+- Edit model profiles — model (dropdown of installed Ollama models, free-text
+  fallback), temperature, max_tokens — with dirty-state, save confirmation, and
+  reset-to-default for any local override
+- Edit prompts in `ai/prompts/*.md` without restarting — monospace editor with a
+  live char count, revert-to-last-saved, and the workflow each prompt feeds
+- Trigger a re-run of evals (per suite: `task_extraction` / `project_matching` /
+  `summary`, or all at once) and see a pass-rate trend across recent runs
+- Check live Ollama health (reachable / host) with a re-check button
 
 Profile edits write to **`backend/app/ai/profiles.local.yaml`** (gitignored), which the gateway
 deep-merges over the committed `profiles.yaml` (local wins per-field). The committed file is
@@ -499,9 +543,11 @@ cache is cleared on each save, so changes take effect without a restart.
 This pays for itself the first time you tune a prompt.
 
 Settings mutation routes are intentionally localhost-only: profile saves,
-prompt saves, and eval runs mutate local files or run local model work, so LAN
-clients receive `403` for those writes. Read-only Settings routes can still be
-used from another device when the API is bound to `0.0.0.0`.
+profile-override resets, prompt saves, and eval runs mutate local files or run
+local model work, so LAN clients receive `403` for those writes. Read-only
+Settings routes — including the Ollama health (`/ollama/status`) and
+installed-models (`/models`) introspection — can still be used from another
+device when the API is bound to `0.0.0.0`.
 
 ## Do not build yet
 

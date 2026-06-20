@@ -5,6 +5,7 @@ interface TrashCounts {
   projects: number
   tasks: number
   inbox_items: number
+  training_examples: number
 }
 
 interface TrashCount {
@@ -16,7 +17,7 @@ interface TrashCount {
   refresh: () => Promise<void>
 }
 
-const ZERO: TrashCounts = { projects: 0, tasks: 0, inbox_items: 0 }
+const ZERO: TrashCounts = { projects: 0, tasks: 0, inbox_items: 0, training_examples: 0 }
 
 // Default is a no-op so consumers (e.g. AppShell) render fine with no provider —
 // the badge simply hides at 0 and headings fall back to their loaded lengths.
@@ -41,6 +42,7 @@ export function TrashCountProvider({ children }: { children: ReactNode }) {
         projects: next.projects,
         tasks: next.tasks,
         inbox_items: next.inbox_items,
+        training_examples: next.training_examples,
       })
     } catch {
       // best-effort; leave the prior counts in place
@@ -51,7 +53,8 @@ export function TrashCountProvider({ children }: { children: ReactNode }) {
     void refresh()
   }, [refresh])
 
-  const count = counts.projects + counts.tasks + counts.inbox_items
+  const count =
+    counts.projects + counts.tasks + counts.inbox_items + counts.training_examples
 
   return (
     <TrashCountContext.Provider value={{ count, counts, refresh }}>

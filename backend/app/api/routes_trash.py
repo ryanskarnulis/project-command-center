@@ -9,6 +9,7 @@ from app.schemas.trash import EmptyTrashResult, TrashCountResult, TrashRead
 from app.services import inbox as inbox_service
 from app.services import projects as projects_service
 from app.services import tasks as tasks_service
+from app.services import training_data as training_service
 from app.services import trash as trash_service
 
 logger = structlog.get_logger(__name__)
@@ -26,6 +27,7 @@ def get_trash(
         projects=projects_service.list_deleted_projects(db, limit=limit),  # type: ignore[arg-type]
         tasks=tasks_service.list_deleted_tasks(db, limit=limit),  # type: ignore[arg-type]
         inbox_items=inbox_service.list_deleted_inbox_items(db, limit=limit),  # type: ignore[arg-type]
+        training_examples=training_service.list_deleted_examples(db, limit=limit),  # type: ignore[arg-type]
     )
 
 
@@ -37,6 +39,7 @@ def get_trash_count(db: Session = Depends(get_db)) -> TrashCountResult:
         projects=counts.projects,
         tasks=counts.tasks,
         inbox_items=counts.inbox_items,
+        training_examples=counts.training_examples,
     )
 
 
@@ -50,9 +53,11 @@ def empty_trash(db: Session = Depends(get_db)) -> EmptyTrashResult:
         projects=counts.projects,
         tasks=counts.tasks,
         inbox_items=counts.inbox_items,
+        training_examples=counts.training_examples,
     )
     return EmptyTrashResult(
         projects=counts.projects,
         tasks=counts.tasks,
         inbox_items=counts.inbox_items,
+        training_examples=counts.training_examples,
     )

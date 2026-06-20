@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from app.schemas.inbox import InboxRead
 from app.schemas.projects import ProjectRead
 from app.schemas.tasks import TaskRead
+from app.schemas.training import TrainingExampleRead
 
 
 class TrashRead(BaseModel):
@@ -16,6 +17,7 @@ class TrashRead(BaseModel):
     projects: list[ProjectRead]
     tasks: list[TaskRead]
     inbox_items: list[InboxRead]
+    training_examples: list[TrainingExampleRead]
 
 
 class EmptyTrashResult(BaseModel):
@@ -24,6 +26,7 @@ class EmptyTrashResult(BaseModel):
     projects: int
     tasks: int
     inbox_items: int
+    training_examples: int
 
 
 class TrashCountResult(BaseModel):
@@ -32,3 +35,4 @@ class TrashCountResult(BaseModel):
     projects: int
     tasks: int
     inbox_items: int
+    training_examples: int

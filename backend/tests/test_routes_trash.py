@@ -51,7 +51,12 @@ _VALID_OUTPUT = {
 
 def test_trash_empty_by_default(client: TestClient) -> None:
     body = client.get("/api/trash").json()
-    assert body == {"projects": [], "tasks": [], "inbox_items": []}
+    assert body == {
+        "projects": [],
+        "tasks": [],
+        "inbox_items": [],
+        "training_examples": [],
+    }
 
 
 def test_trash_count_reports_each_kind(client: TestClient) -> None:
@@ -64,6 +69,7 @@ def test_trash_count_reports_each_kind(client: TestClient) -> None:
         "projects": 1,
         "tasks": 1,
         "inbox_items": 0,
+        "training_examples": 0,
     }
 
 
@@ -349,9 +355,16 @@ def test_empty_trash_clears_all_and_is_idempotent(
         "projects": [],
         "tasks": [],
         "inbox_items": [],
+        "training_examples": [],
     }
     # Re-running clears nothing and protected General is spared.
     again = client.delete("/api/trash").json()
-    assert again == {"projects": 0, "tasks": 0, "inbox_items": 0}
+    assert again == {
+        "projects": 0,
+        "tasks": 0,
+        "inbox_items": 0,
+        "training_examples": 0,
+    }
+    # The example here was never trashed, so empty-trash leaves it untouched.
     assert db_session.get(AITrainingExample, example_id) is not None
     assert client.get("/api/projects").json()  # General still present

@@ -85,6 +85,20 @@ const trash: Trash = {
       deleted_at: DELETED_AT,
     },
   ],
+  training_examples: [
+    {
+      id: 13,
+      task_name: 'task_extraction',
+      input_text: 'junk note to prune',
+      model_output_json: '{"tasks": []}',
+      corrected_output_json: null,
+      accepted: false,
+      model_profile: 'task_extraction',
+      model_name: 'gemma4:e2b',
+      created_at: '2026-06-01T17:00:00Z',
+      deleted_at: DELETED_AT,
+    },
+  ],
 }
 
 describe('TrashPage', () => {
@@ -95,7 +109,7 @@ describe('TrashPage', () => {
     // First load shows the deleted items; the post-restore reload is empty.
     mockGetTrash
       .mockResolvedValueOnce(trash)
-      .mockResolvedValue({ projects: [], tasks: [], inbox_items: [] })
+      .mockResolvedValue({ projects: [], tasks: [], inbox_items: [], training_examples: [] })
   })
 
   it('lists deleted items and restores a project', async () => {
@@ -107,8 +121,9 @@ describe('TrashPage', () => {
     expect(await screen.findByText('Firewall')).toBeInTheDocument()
     expect(screen.getByText('Pay invoice')).toBeInTheDocument()
     expect(screen.getByText(/A dismissed note/)).toBeInTheDocument()
+    expect(screen.getByText('junk note to prune')).toBeInTheDocument()
     // Each card shows a relative deleted-time label (fixtures deleted 3 days ago).
-    expect(screen.getAllByText('Deleted 3 days ago').length).toBe(3)
+    expect(screen.getAllByText('Deleted 3 days ago').length).toBe(4)
 
     await user.click(
       screen.getByRole('button', { name: 'Restore project Firewall' }),
@@ -160,7 +175,7 @@ describe('TrashPage', () => {
   it('renders the empty state when trash is empty', async () => {
     // mockReset (not clearAllMocks) drops the beforeEach once→trash queue.
     mockGetTrash.mockReset()
-    mockGetTrash.mockResolvedValue({ projects: [], tasks: [], inbox_items: [] })
+    mockGetTrash.mockResolvedValue({ projects: [], tasks: [], inbox_items: [], training_examples: [] })
 
     renderPage()
 
@@ -294,7 +309,7 @@ describe('TrashPage', () => {
 
   it('empties the whole trash after the user confirms', async () => {
     const user = userEvent.setup()
-    mockEmptyTrash.mockResolvedValue({ projects: 1, tasks: 1, inbox_items: 1 })
+    mockEmptyTrash.mockResolvedValue({ projects: 1, tasks: 1, inbox_items: 1, training_examples: 0 })
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     renderPage()
