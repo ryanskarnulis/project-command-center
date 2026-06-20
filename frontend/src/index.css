@@ -1545,6 +1545,29 @@ kbd {
   font-style: normal;
 }
 
+/* Override tag + its inline per-field reset link. */
+.settings-override {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.settings-reset-field {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--blue);
+  font-size: 0.78rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.settings-reset-field:disabled {
+  color: var(--text-muted);
+  cursor: default;
+  text-decoration: none;
+}
+
 /* Unsaved-changes indicator next to an editor's title. */
 .settings-dirty-dot {
   display: inline-block;

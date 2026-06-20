@@ -81,6 +81,27 @@ def patch_profile(name: str, update: ProfileUpdate) -> ProfileRead:
         ) from exc
 
 
+@router.delete(
+    "/profiles/{name}/overrides",
+    response_model=ProfileRead,
+    dependencies=[Depends(require_local_settings_write)],
+)
+def reset_profile_overrides(
+    name: str, field: str | None = Query(default=None)
+) -> ProfileRead:
+    """Revert a profile to its committed default by removing local overrides.
+
+    ``?field=`` clears one override key; omitting it clears all overrides for the
+    profile. No-op safe; writes to profiles.local.yaml.
+    """
+    try:
+        return settings_service.reset_profile_overrides(name, field)
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown profile: {name!r}"
+        ) from None
+
+
 @router.get("/prompts", response_model=list[PromptRead])
 def get_prompts() -> list[PromptRead]:
     """All editable prompt files in ai/prompts/."""

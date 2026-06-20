@@ -114,6 +114,63 @@ class TestProfiles:
         assert resp.json()["detail"] == "settings writes are only allowed from localhost"
         assert not isolated_local.exists()
 
+    def test_reset_clears_all_overrides(
+        self, client: TestClient, isolated_local: Path
+    ) -> None:
+        committed = gateway.get_profile("task_extraction")
+        client.patch(
+            "/api/settings/profiles/task_extraction",
+            json={"temperature": 0.9, "max_tokens": 256},
+        )
+
+        resp = client.delete("/api/settings/profiles/task_extraction/overrides")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["overridden_fields"] == []
+        assert body["temperature"] == committed.temperature
+        assert body["max_tokens"] == committed.max_tokens
+        # The whole profile key is dropped from the local file once empty.
+        assert "task_extraction" not in (yaml.safe_load(isolated_local.read_text()) or {})
+
+    def test_reset_single_field_leaves_others(
+        self, client: TestClient, isolated_local: Path
+    ) -> None:
+        committed = gateway.get_profile("task_extraction")
+        client.patch(
+            "/api/settings/profiles/task_extraction",
+            json={"temperature": 0.9, "max_tokens": 256},
+        )
+
+        resp = client.delete(
+            "/api/settings/profiles/task_extraction/overrides?field=temperature"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["overridden_fields"] == ["max_tokens"]
+        assert body["temperature"] == committed.temperature
+        assert body["max_tokens"] == 256
+
+    def test_reset_unknown_profile_404(
+        self, client: TestClient, isolated_local: Path
+    ) -> None:
+        assert (
+            client.delete("/api/settings/profiles/nope/overrides").status_code == 404
+        )
+
+    def test_reset_noop_when_no_override(
+        self, client: TestClient, isolated_local: Path
+    ) -> None:
+        resp = client.delete("/api/settings/profiles/task_extraction/overrides")
+        assert resp.status_code == 200
+        assert resp.json()["overridden_fields"] == []
+        assert not isolated_local.exists()
+
+    def test_lan_client_cannot_reset(
+        self, lan_client: TestClient, isolated_local: Path
+    ) -> None:
+        resp = lan_client.delete("/api/settings/profiles/task_extraction/overrides")
+        assert resp.status_code == 403
+
 
 class TestPrompts:
     def test_list_prompts(self, client: TestClient, isolated_prompts: Path) -> None:

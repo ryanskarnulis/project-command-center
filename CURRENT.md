@@ -34,7 +34,7 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blo
 | 9  | Eval trend (pass-rate over recent runs) + "Run all suites" | 4 | FE |
 | 7  | Ollama health panel (connected / host / model + re-check) | 5 | BE + FE |
 | 6  | Installed-model dropdown (from Ollama, free-text fallback) | 5 | BE + FE |
-| 5  | Reset-to-default for profile overrides | 6 | BE + FE |
+| 5  | Reset-to-default for profile overrides ✅ | 6 | BE + FE |
 
 ## Ground rules (read first)
 
@@ -173,7 +173,7 @@ possibly `types/settings.ts`. FE-only.
 - **Done when:** Settings shows live Ollama status and profiles pick from real
   installed models; backend pytest + a new route test green; FE tests/build green.
 
-## Chunk 6 — Reset-to-default for overrides `[ ]` (BE + FE)
+## Chunk 6 — Reset-to-default for overrides `[x]` (BE + FE)
 
 **Ask:** #5. **Files:** `app/services/settings.py`, `app/api/routes_settings.py`,
 `app/schemas/settings.py`, `tests/test_routes_settings.py`, `src/api/settings.ts`,

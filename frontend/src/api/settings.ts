@@ -37,6 +37,17 @@ export async function updateProfile(
   return (await res.json()) as Profile
 }
 
+export async function resetProfileOverrides(
+  name: string,
+  field?: string,
+): Promise<Profile> {
+  const qs = field ? `?field=${encodeURIComponent(field)}` : ''
+  const res = await apiClient(`/api/settings/profiles/${name}/overrides${qs}`, {
+    method: 'DELETE',
+  })
+  return (await res.json()) as Profile
+}
+
 export async function getPrompts(): Promise<Prompt[]> {
   const res = await apiClient('/api/settings/prompts')
   return (await res.json()) as Prompt[]

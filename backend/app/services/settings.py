@@ -94,6 +94,36 @@ def update_profile(name: str, update: ProfileUpdate) -> ProfileRead:
     return _profile_read(name, _read_local())
 
 
+def reset_profile_overrides(name: str, field: str | None = None) -> ProfileRead:
+    """Drop a profile's override(s) from ``profiles.local.yaml`` and return the
+    new effective profile.
+
+    ``field`` clears a single override key; ``None`` clears every override for
+    ``name``. No-op safe (returns the unchanged profile) when nothing is
+    overridden. Raises ``KeyError`` for an unknown profile (→ 404).
+    """
+    merged = gateway._load_raw_merged()
+    if name not in merged:
+        raise KeyError(name)
+
+    local = _read_local()
+    overrides = local.get(name, {})
+    if field is not None:
+        removed = overrides.pop(field, None) is not None
+    else:
+        removed = bool(overrides)
+        overrides.clear()
+    if not overrides:
+        local.pop(name, None)
+
+    if removed:
+        _write_local(local)
+        gateway.reload_profiles()
+        logger.info("profile_overrides_reset", profile=name, field=field)
+
+    return _profile_read(name, _read_local())
+
+
 # --- Prompts ----------------------------------------------------------------
 
 

@@ -49,6 +49,37 @@ function profileChanges(
   return fields
 }
 
+// Marks an overridden field with a tag + an inline per-field reset that reverts
+// just that field to its committed profiles.yaml value. Renders nothing when the
+// field isn't overridden.
+function OverrideTag({
+  profile,
+  field,
+  busy,
+  onReset,
+}: {
+  profile: Profile
+  field: string
+  busy: boolean
+  onReset: (name: string, field?: string) => void
+}) {
+  if (!overridden(profile, field)) return null
+  return (
+    <span className="settings-override">
+      <em>(overridden)</em>
+      <button
+        type="button"
+        className="settings-reset-field"
+        onClick={() => onReset(profile.name, field)}
+        disabled={busy}
+        title="Reset this field to its committed default"
+      >
+        reset
+      </button>
+    </span>
+  )
+}
+
 function UnsavedDot() {
   return <span className="settings-dirty-dot" aria-label="Unsaved changes" title="Unsaved changes" />
 }
@@ -70,12 +101,16 @@ function ModelField({
   profile,
   model,
   models,
+  busy,
   onChange,
+  onReset,
 }: {
   profile: Profile
   model: string
   models: string[]
+  busy: boolean
   onChange: (value: string) => void
+  onReset: (name: string, field?: string) => void
 }) {
   // The current value is always selectable even if it isn't installed (e.g. not
   // yet pulled), so the dropdown never silently re-defaults the model.
@@ -86,7 +121,8 @@ function ModelField({
   return (
     <div className="settings-field">
       <label>
-        Model {overridden(profile, 'model') && <em>(overridden)</em>}
+        Model{' '}
+        <OverrideTag profile={profile} field="model" busy={busy} onReset={onReset} />
         {custom ? (
           <input
             value={model}
@@ -128,12 +164,14 @@ function ProfileEditor({
   models,
   state,
   onSave,
+  onReset,
   onDirtyChange,
 }: {
   profile: Profile
   models: string[]
   state: ActionState | undefined
   onSave: (name: string, fields: ProfileUpdate) => void
+  onReset: (name: string, field?: string) => void
   onDirtyChange: (name: string, dirty: boolean) => void
 }) {
   const [model, setModel] = useState(profile.model)
@@ -168,12 +206,20 @@ function ProfileEditor({
         profile={profile}
         model={model}
         models={models}
+        busy={!!state?.busy}
         onChange={setModel}
+        onReset={onReset}
       />
 
       <div className="settings-field">
         <label>
-          Temperature {overridden(profile, 'temperature') && <em>(overridden)</em>}
+          Temperature{' '}
+          <OverrideTag
+            profile={profile}
+            field="temperature"
+            busy={!!state?.busy}
+            onReset={onReset}
+          />
           <input
             type="number"
             step="0.1"
@@ -184,7 +230,13 @@ function ProfileEditor({
           />
         </label>
         <label>
-          Max tokens {overridden(profile, 'max_tokens') && <em>(overridden)</em>}
+          Max tokens{' '}
+          <OverrideTag
+            profile={profile}
+            field="max_tokens"
+            busy={!!state?.busy}
+            onReset={onReset}
+          />
           <input
             type="number"
             min="1"
@@ -198,6 +250,15 @@ function ProfileEditor({
       <div className="settings-actions">
         <button onClick={handleSave} disabled={state?.busy || !dirty}>
           {state?.busy ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          type="button"
+          className="secondary-action"
+          onClick={() => onReset(profile.name)}
+          disabled={state?.busy || profile.overridden_fields.length === 0}
+          title="Reset all overridden fields to their committed defaults"
+        >
+          Reset to default
         </button>
         {state?.saved && <SavedConfirmation />}
         {state?.error && <span className="error">{state.error}</span>}
@@ -364,6 +425,7 @@ export function SettingsPage() {
     evalState,
     evalRuns,
     saveProfile,
+    resetProfile,
     savePrompt,
     runEvals,
     runAllEvals,
@@ -471,11 +533,15 @@ export function SettingsPage() {
           <ul className="settings-list">
             {profiles.map((profile) => (
               <ProfileEditor
-                key={profile.name}
+                // Include the override signature so a save/reset that changes the
+                // committed-vs-effective values remounts the editor, re-seeding its
+                // inputs from the new profile instead of stale local state.
+                key={`${profile.name}:${profile.overridden_fields.join(',')}`}
                 profile={profile}
                 models={models}
                 state={profileState[profile.name]}
                 onSave={saveProfile}
+                onReset={resetProfile}
                 onDirtyChange={onProfileDirty}
               />
             ))}

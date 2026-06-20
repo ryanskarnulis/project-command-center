@@ -6,6 +6,7 @@ import {
   getProfiles,
   getPrompts,
   putPrompt,
+  resetProfileOverrides,
   runEval,
   updateProfile,
 } from '../../api/settings'
@@ -57,6 +58,7 @@ interface UseSettings {
   evalState: Record<string, EvalState>
   evalRuns: Record<string, EvalRunRecord[]>
   saveProfile: (name: string, fields: ProfileUpdate) => void
+  resetProfile: (name: string, field?: string) => void
   savePrompt: (name: string, text: string) => void
   runEvals: (suite: string) => void
   runAllEvals: (suites: string[]) => void
@@ -179,6 +181,41 @@ export function useSettings(): UseSettings {
     [scheduleSavedClear],
   )
 
+  // Revert a profile (or one field) to its committed default. Shares the
+  // per-profile ActionState + "Saved ✓" feedback with saveProfile.
+  const resetProfile = useCallback(
+    (name: string, field?: string) => {
+      setProfileState((prev) => ({
+        ...prev,
+        [name]: { busy: true, error: null, saved: false },
+      }))
+      resetProfileOverrides(name, field)
+        .then((updated) => {
+          setProfiles((prev) =>
+            prev ? prev.map((p) => (p.name === name ? updated : p)) : prev,
+          )
+          setProfileState((prev) => ({
+            ...prev,
+            [name]: { busy: false, error: null, saved: true },
+          }))
+          scheduleSavedClear(`profile:${name}`, () =>
+            setProfileState((prev) =>
+              prev[name]?.saved
+                ? { ...prev, [name]: { ...prev[name], saved: false } }
+                : prev,
+            ),
+          )
+        })
+        .catch((err: unknown) => {
+          setProfileState((prev) => ({
+            ...prev,
+            [name]: { busy: false, error: errMessage(err), saved: false },
+          }))
+        })
+    },
+    [scheduleSavedClear],
+  )
+
   const savePrompt = useCallback(
     (name: string, text: string) => {
       setPromptState((prev) => ({
@@ -267,6 +304,7 @@ export function useSettings(): UseSettings {
     evalState,
     evalRuns,
     saveProfile,
+    resetProfile,
     savePrompt,
     runEvals,
     runAllEvals,
