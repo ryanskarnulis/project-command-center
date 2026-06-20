@@ -1,237 +1,200 @@
-# Sprint 9f — Trash Tab UX Overhaul
+# Sprint 10 — Settings Page Overhaul
 
-> Goal: bring `/trash` up to par with the Sprint 8–9e Tasks/Inbox/Projects polish.
-> Today `TrashPage` is a bare `<main>` with three `<ul>` lists and plain "Restore"
-> buttons — no cards, no icons, no item context, no timestamps, no search/sort, no
-> nav count, no shared loading/empty/error states, and `deleted_at` isn't even
-> exposed by the API. Everything else now uses `TaskCard`/`ProjectCard`, lucide
-> icons, `.task-filters`, `.page-loading`/`.empty-state`, status pills, and confirms.
+> Goal: bring `/settings` up to par with the Sprint 8–9f Dashboard/Tasks/Inbox/
+> Projects/Trash polish. Today [`SettingsPage`](frontend/src/features/settings/SettingsPage.tsx)
+> is a bare `<div className="settings">` with one `<h1>` and three stacked
+> `<section>`s of plain `<ul>/<li>` editors — no page header, no section nav, no
+> cards, no lucide icons, free-text model fields, no dirty-state, no save
+> confirmation, and no way to undo a profile override. Everything else now uses
+> cards, lucide icons, `.task-filters`, `.page-loading`/`.empty-state`, status
+> pills, and nav counts.
 >
-> Ship as **5 small chunks** (CLAUDE.md: small reviewable diffs, one slice at a
-> time), stopping after each for manual review/test/commit. The two destructive /
-> backend-touching pieces (expose `deleted_at`, permanent delete) are isolated into
-> their own chunks so the safe visual parity lands first and #10 stays reviewable
+> Ship as **6 small chunks** (CLAUDE.md: small reviewable diffs, one slice at a
+> time), stopping after each for manual review/test/commit. The backend-touching
+> pieces (Ollama introspection, reset-override) are isolated into their own chunks
+> so the safe frontend parity lands first and each backend diff stays reviewable
 > on its own.
+
+> Sprint number assumed **10** (continues the 8–9f polish line; settings is a new
+> area). Change the label if you'd rather keep it under 9.
 
 Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
-## The 10 approved asks → chunk map
+## The 9 approved asks → chunk map
 
-| # | Improvement | Chunk |
-| --- | --- | --- |
-| 1 | Card layout + lucide icons + section headings | 2 |
-| 2 | "Deleted X ago" relative timestamps | 1 (BE) + 2 (UI) |
-| 3 | Rich item context badges (project/priority/due, source pill, project counts) | 2 |
-| 4 | Search box | 3 |
-| 5 | Type filter (Projects / Tasks / Inbox) | 3 |
-| 6 | Empty / loading / error state parity | 2 |
-| 7 | Trash count badge in the nav | 4 |
-| 8 | Bulk "Restore all" per section | 4 |
-| 9 | Restore feedback (inline confirmation + rehome/409 notices) | 4 |
-| 10 | Permanent delete (purge) per item + "Empty trash" | 5 |
+(#10, keyboard & a11y polish, was **not** approved and is out of scope.)
+
+| #  | Improvement | Chunk | Touches |
+| -- | --- | --- | --- |
+| 1  | Section nav / tabs (Profiles · Prompts · Evals) | 1 | FE |
+| 2  | Card layout + lucide icons + page header | 1 | FE |
+| 3  | Dirty-state tracking + unsaved-changes warning | 2 | FE |
+| 4  | Save confirmation ("Saved ✓", auto-clears) | 2 | FE |
+| 8  | Prompt editor upgrades (workflow tag, monospace, char count, revert) | 3 | FE |
+| 9  | Eval trend (pass-rate over recent runs) + "Run all suites" | 4 | FE |
+| 7  | Ollama health panel (connected / host / model + re-check) | 5 | BE + FE |
+| 6  | Installed-model dropdown (from Ollama, free-text fallback) | 5 | BE + FE |
+| 5  | Reset-to-default for profile overrides | 6 | BE + FE |
 
 ## Ground rules (read first)
 
-- **Slice discipline:** Chunk 1 is a 3-field schema add (+ frontend types). Chunk 5
-  is the only chunk with new backend service logic + routes. Chunks 2–4 are
-  **frontend-only** and reuse existing endpoints (`GET /api/trash`, the three
-  `POST .../restore` routes).
-- React + Vite + TS strict; no `any` without a `// TODO` + reason. API calls go
-  through `src/api/`; components consume hooks. Plain CSS in `src/index.css` —
-  **reuse existing classes** (`.task-card`, `.page-loading`, `.empty-state`,
-  `.task-filters`, `.task-search-field`, the pill styles, `.source-pill`,
-  `.status-pill.*`, `.priority-pill.*`, `.due.*`); add `.trash-*` only where new.
-- Backend: Python 3.11+, SQLAlchemy 2.0 typed, Pydantic v2, structlog with the
-  request-bound logger. Soft-delete helpers live in `services/common.py`.
-- Per chunk: `cd frontend && npm run test && npm run build` green; for chunks that
-  touch the backend, `cd backend && ./.venv/bin/pytest` green too.
+- **Slice discipline:** Chunks 1–4 are **frontend-only** and reuse the existing
+  endpoints (`GET /profiles`, `PATCH /profiles/{name}`, `GET/PUT /prompts`,
+  `POST /evals/{suite}/run`, `GET /evals/runs`). Chunk 5 adds two **read-only**
+  provider-introspection endpoints; chunk 6 is the only chunk with a settings
+  **write** beyond the existing PATCH.
+- **Frontend:** React + Vite + TS strict; no `any` without a `// TODO` + reason.
+  API calls go through [`src/api/settings.ts`](frontend/src/api/settings.ts);
+  components consume [`useSettings`](frontend/src/features/settings/useSettings.ts).
+  Plain CSS in [`src/index.css`](frontend/src/index.css) — **reuse existing
+  classes** (`.task-card`, the `<h1>`/page-header pattern, `.page-loading`,
+  `.empty-state`, `.task-filters`, the `.settings-*` family already present at
+  lines ~1298–1451, the pill styles, `.error`); add `.settings-*` only where
+  genuinely new.
+- **Backend:** Python 3.11+, SQLAlchemy 2.0 typed, Pydantic v2, structlog with the
+  request-bound logger. **All model/provider access goes through
+  [`app/ai/gateway.py`](backend/app/ai/gateway.py); never `import ollama` outside
+  `app/ai/providers/`** (CLAUDE.md prime directive #2). New schemas live in
+  [`app/schemas/settings.py`](backend/app/schemas/settings.py); routes in
+  [`app/api/routes_settings.py`](backend/app/api/routes_settings.py); logic in
+  [`app/services/settings.py`](backend/app/services/settings.py).
+- **Write guard:** the existing `require_local_settings_write` dependency limits
+  settings *writes* to loopback. Reads (health, model list, eval history) stay
+  public like the other GETs.
+- Per chunk: `cd frontend && npm run test && npm run build` green; for the
+  backend-touching chunks (5, 6) also `cd backend && ./.venv/bin/pytest` green,
+  with a new case in
+  [`tests/test_routes_settings.py`](backend/tests/test_routes_settings.py).
 - One-line commit per chunk at the chunk stop, in the running style:
-  `<letters>: Sprint 9f - <chunk> (...)`.
+  `<letters>: Sprint 10 - <chunk> (...)`.
 
-## ⚠️ #10 — conflict flagged and accepted
+## ⚠️ Flags (raised per CLAUDE.md)
 
-CLAUDE.md prime directive: **"Soft deletes only … training data references them —
-don't actually delete rows."** A true purge contradicts this. The user approved it
-after the flag. It is de-risked by one fact verified in the code:
-**`ai_training_examples` has NO foreign keys** to `tasks`/`inbox_items`/`projects`
-— it stores full `input_text` + `model_output_json` by design — so purging a
-trashed row **cannot orphan training data**. Chunk 5 still:
-- only ever purges rows that are **already soft-deleted** (in trash); never an
-  active row (404 otherwise);
-- cleans the real FK edges explicitly (see Chunk 5);
-- requires an explicit per-item / empty-trash confirm in the UI.
-No Alembic migration: purge is DML (row deletion), not a schema change.
-
-## Reuse map (model on / import — do NOT reinvent)
-
-- **Cards** → `features/tasks/TaskCard.tsx` (badges, `actions?` slot) for trashed
-  tasks; `features/projects/ProjectCard.tsx` (`stats?` prop) for trashed projects.
-  Inbox items: a small inline card reusing `.task-card` + `.source-pill`.
-- **States** → `.page-loading`, `.empty-state`, `role="alert" class="error"`
-  (same as `ProjectsPage`/`TasksPage` after Sprint 9e Chunk 6).
-- **Filters** → `.task-filters` / `.task-search-field` (search + type filter, Chunk 3).
-- **Status/stats** → `utils/projectStatus.ts` `buildProjectStats` for project cards.
-- **Dates** → `utils/dates.ts`. **Add `formatRelative(iso)` here** ("3 days ago")
-  — no relative formatter exists yet (ActivityFeed uses raw `toLocaleString()`);
-  the new helper gets a unit test and can be reused by ActivityFeed later.
-- **Restore plumbing** → `features/trash/useTrash.ts` already wraps
-  `restoreProject/Task/Inbox` with the inbox-409 handling; extend it, don't rewrite.
-- **Backend restore pattern** → `routes_{projects,tasks,inbox}.py` `*/restore`
-  + `services/common.py` (`deleted()`, `restore()`); Chunk 5 purge routes mirror
-  the shape (`DELETE /{id}/purge`).
+- **LAN write-guard interaction.** The app is reached from LAN devices
+  ([[project_lan_networked_setup]]), but `require_local_settings_write` blocks
+  settings *writes* from non-loopback clients (403). This already applies to the
+  existing profile PATCH and prompt PUT — chunk 6's reset-override inherits the
+  same behavior. **No change to the guard** here; just be aware that profile/
+  prompt/reset edits only succeed from the host machine, while the new read-only
+  health and model-list panels (chunk 5) work from any LAN device. Flag if you
+  want the guard relaxed — that's a separate, explicit decision.
+- **Extraction model stays `gemma4:e2b`** ([[project_extraction_model_choice]]).
+  The chunk-5 model dropdown must **preselect the current value** and only change
+  a model when the user explicitly picks one — it must not silently re-default
+  `task_extraction` off `gemma4:e2b`.
 
 ---
 
-## Chunk 1 — Backend: expose `deleted_at` (+ frontend types)  *(#2 core)*
+## Chunk 1 — Structural foundation: header, cards, section nav `[ ]`
 
-**Files (modify):** `backend/app/schemas/projects.py`, `backend/app/schemas/tasks.py`,
-`backend/app/schemas/inbox.py`, `frontend/src/types/{project,task,inbox}.ts`,
-`backend/tests/test_routes_trash.py`.
+**Asks:** #1, #2. **Files:** `SettingsPage.tsx`, `index.css`. FE-only.
 
-- [x] Add `deleted_at: datetime | None = None` to `ProjectRead`, `TaskRead`,
-      `InboxRead` (`from_attributes=True` already set; populates from the ORM
-      `SoftDeleteMixin.deleted_at`; serializes `null` for active rows — backward
-      compatible for every other consumer).
-- [x] Mirror in the frontend types: optional `deleted_at?: string | null` on
-      `Project`, `Task`, `InboxItem`.
-- [x] pytest: `GET /api/trash` items carry a non-null `deleted_at`; an active
-      project/task `GET` carries `null`.
-- Non-regression: existing trash + list tests still green (additive field only).
+- Add a real page header matching the other pages: `<h1>Settings</h1>` + a
+  one-line description (consistent with the existing `.settings-note` tone).
+- Introduce **section navigation**: a sticky sub-nav / tab row (Profiles ·
+  Prompts · Evals) that scroll-anchors (or toggles) the three sections, so you
+  jump instead of scrolling one long column. Pick scroll-spy *or* tab-switch —
+  whichever is simpler with current CSS; note the choice in the commit.
+- Convert each `<li>` editor (`ProfileEditor`, `PromptEditor`, eval rows) to the
+  shared **card** look and add **lucide icons** per section
+  (`SlidersHorizontal` for profiles, `FileText`/`MessageSquare` for prompts,
+  `ClipboardCheck` for evals — reuse icons already imported elsewhere).
+- Keep all existing behavior/handlers intact; this chunk is purely structure +
+  styling. No new endpoints, no logic changes.
+- **Done when:** the page reads as a polished, navigable settings screen with
+  parity to Projects/Trash; `npm run test && npm run build` green.
 
-## Chunk 2 — Card layout + icons + context badges + states  *(#1, #3, #6, #2 UI)*
+## Chunk 2 — Edit safety: dirty-state + save confirmation `[ ]`
 
-**Files (modify):** `features/trash/TrashPage.tsx`, `features/trash/TrashPage.test.tsx`,
-`utils/dates.ts` (+ `utils/dates.test.ts`), `index.css`.
+**Asks:** #3, #4. **Files:** `SettingsPage.tsx` (`ProfileEditor`, `PromptEditor`),
+optionally `useSettings.ts`. FE-only.
 
-- [x] Section headings with lucide icons (`FolderX` / `Trash2` / `Inbox`) + per-
-      section count, e.g. `Projects (2)`.
-- [x] Trashed **tasks** render as `TaskCard` (badges: project, priority, due) with a
-      Restore action in the `actions` slot; **projects** as `ProjectCard`
-      (`stats` from `buildProjectStats`); **inbox** as a small `.task-card` with the
-      `.source-pill` + summary/`raw_text` snippet.
-- [x] Each card shows **"Deleted {formatRelative(deleted_at)}"** (new `dates.ts`
-      helper; unit-tested).
-- [x] States: `.page-loading` (loading), `.empty-state` with icon + copy when trash
-      is empty, `role="alert" class="error"` for the error path.
-- [x] CSS: add `.trash-*` only where a card/section truly needs it; otherwise reuse.
-- [x] Tests: cards render per type; deleted-time label renders; empty/loading/error
-      states render; restore buttons still wired.
-- Non-regression: restore still works via the unchanged `useTrash` actions.
-- Flagged + fixed: shared cards are `<Link>`s; trashed cards wrap them in a
-      capture-phase `preventDefault` (`NoNav`) so they don't navigate to a deleted
-      item's 404'ing detail page. Also enabled Testing Library `cleanup` in
-      `src/test/setup.ts` (no `globals: true`, so auto-cleanup never registered).
+- **Dirty-state:** each editor computes whether its inputs differ from the loaded
+  value. Disable **Save** when unchanged; show an "unsaved" dot/badge when dirty.
+- **Navigate-away warning:** if any editor is dirty, warn before leaving
+  (route change + `beforeunload`). Keep it lightweight — a single page-level
+  "you have unsaved changes" guard fed by the editors' dirty flags.
+- **Save confirmation:** on success, show a transient inline "Saved ✓" that
+  auto-clears after a few seconds (extend the existing per-item `ActionState`
+  with a `saved` flag rather than adding a toast system).
+- **Done when:** Save is gated on real changes, unsaved edits are visible and
+  warned-on, and a successful save shows clear confirmation; tests/build green.
 
-## Chunk 3 — Search + type filter  *(#4, #5)*
+## Chunk 3 — Prompt editor upgrades `[ ]`
 
-**Files (modify):** `features/trash/TrashPage.tsx`, `TrashPage.test.tsx`, `index.css`
-(reuse `.task-filters` / `.task-search-field`).
+**Ask:** #8. **Files:** `SettingsPage.tsx` (`PromptEditor`), `index.css`,
+possibly `types/settings.ts`. FE-only.
 
-- [x] Search: case-insensitive over each item's display label (project name, task
-      title, inbox summary/`raw_text`).
-- [x] Type filter: All / Projects / Tasks / Inbox (client-side; hides empty
-      sections). Reuse the `.task-filters` bar; filter bar only renders when trash
-      is non-empty.
-- [x] "Clear" appears when a search term or non-`All` filter is active (resets both);
-      distinct "No items match your search." message when a search hides everything.
-- [x] Tests: search narrows + clear restores; type filter shows only that section;
-      no-match message renders.
+- **Workflow tag:** show which profile(s) consume each prompt, derived on the
+  frontend from the already-loaded profiles' `system_prompt` field (e.g.
+  `extract_tasks.md → task_extraction`). No backend change.
+- **Comfort:** monospace, resizable, taller textarea; live **character count**.
+- **Revert-to-last-saved:** a button that restores the editor to the prompt text
+  currently loaded in state (pairs with chunk-2 dirty-state).
+- **Done when:** prompts are comfortable to edit and clearly tied to their
+  workflow; tests/build green.
 
-## Chunk 4 — Nav count + bulk restore + restore feedback  *(#7, #8, #9)*
+## Chunk 4 — Eval trend + run-all `[ ]`
 
-**Files (modify):** `components/AppShell.tsx`, `features/trash/useTrash.ts`,
-`features/trash/TrashPage.tsx`, `TrashPage.test.tsx`, `AppShell.test.tsx`,
-`index.css`. **Files (new, maybe):** `features/trash/TrashCountContext.tsx`.
+**Ask:** #9. **Files:** `SettingsPage.tsx`, `useSettings.ts`, `index.css`. FE-only.
 
-- [x] **Nav count (#7):** lightweight count beside the Trash link in `AppShell`.
-      `TrashCountContext`/provider (new `features/trash/TrashCountContext.tsx`,
-      wrapped in `App.tsx`) fetches `getTrash()` once and exposes `count` +
-      `refresh()`; `useTrash` calls `refresh()` on every reload so the badge stays
-      live. Context default is a no-op so `AppShell` renders with no provider (its
-      standalone test stays green). Badge hidden at `0`.
-- [x] **Bulk restore (#8):** "Restore all" button per non-empty section
-      (`restoreAll(kind, items)` in `useTrash`); iterates ids through the existing
-      per-item restore, tolerating inbox 409s, reloading once, and reporting
-      restored-vs-skipped in the notice.
-- [x] **Restore feedback (#9):** new transient `notice` channel on `useTrash`;
-      single restores name the item, tasks-section shows an up-front "Restored tasks
-      return to General" hint + the notice repeats it; inbox-409 still messages via
-      the error channel.
-- [x] Tests: badge shows the summed count and hides at 0 (`AppShell.test`); "Restore
-      all" restores a section; success notice names the item; bulk 409 path still
-      messages correctly.
-- Flagged + fixed: the post-action reload's refetch was clearing an error set by a
-      409/failure (its `.then` called `setError(null)`). Removed that clobber —
-      reloads only fire from actions that already reset error/notice at their start,
-      so the action's outcome now survives the refetch.
+- **Trend:** replace the flat run list with a compact pass-rate trend across the
+  recent runs already loaded via `getEvalRuns` (sparkline or pass-rate row per
+  run). Keep failing-case details from the latest run.
+- **Run all suites:** one button that runs `task_extraction`, `project_matching`,
+  and `summary` in sequence (reuse the existing `runEvals`), with per-suite
+  progress. No new endpoint.
+- **Done when:** eval history reads as a trend and you can trigger all suites at
+  once; tests/build green.
 
-## Chunk 5 — Permanent delete (purge) + Empty trash  *(#10 — see ⚠️ above)*
+## Chunk 5 — Ollama introspection: health panel + model dropdown `[ ]` (BE + FE)
 
-**Files (new):** none (routes go in existing routers).
-**Files (modify, BE):** `services/projects.py`, `services/tasks.py`,
-`services/inbox.py`, `services/common.py` (a `hard_delete` helper),
-`routes_projects.py`, `routes_tasks.py`, `routes_inbox.py`, `routes_trash.py`,
-`tests/test_routes_trash.py`.
-**Files (modify, FE):** `api/{projects,tasks,inbox}.ts`, `api/trash.ts`,
-`features/trash/useTrash.ts`, `TrashPage.tsx`, tests.
+**Asks:** #7, #6. **Files:** `app/ai/providers/` (ollama provider),
+`app/ai/gateway.py`, `app/services/settings.py`, `app/schemas/settings.py`,
+`app/api/routes_settings.py`, `tests/test_routes_settings.py`,
+`src/api/settings.ts`, `src/types/settings.ts`, `useSettings.ts`,
+`SettingsPage.tsx`, `index.css`. **Both endpoints are read-only.**
 
-- [x] `common.hard_delete(db, obj)` — guard: refuse if `obj.deleted_at is None`
-      (only purge rows already in trash; raise so the route returns `409`).
-- [x] **Per-entity FK cleanup** (verified against `db/models.py`):
-      - **Task:** delete its `task_dependencies` rows (both `task_id` and
-        `depends_on_task_id`); the cascade-soft-deleted subtree is already in trash,
-        so purge the whole soft-deleted subtree together (children share the parent's
-        deletion) to avoid a dangling `parent_task_id`.
-      - **Project:** hard-delete its `aliases` and any **soft-deleted** tasks still
-        pointing at it (active tasks were rehomed to General on delete, so they don't
-        reference it). Never purge the protected `General` project.
-      - **Inbox item:** detach soft-deleted candidate tasks (`inbox_item_id = NULL`)
-        or purge them if they're trashed too; don't touch accepted/active tasks.
-      - **`ai_training_examples` is left untouched** (no FK; self-contained).
-- [x] **Flagged + added (FK enforcement is OFF — no `PRAGMA foreign_keys`, so the
-      DB won't cascade; explicit cleanup is mandatory):** project purge also nulls
-      `inbox_items.suggested_project_id` and `activity_events.project_id` (the audit
-      row survives with the ref cleared) — two FK edges into `projects` the original
-      list missed. Task/inbox purge re-fetch-and-skip across subtree cascades.
-- [x] Routes mirror restore: `DELETE /api/projects/{id}/purge`,
-      `DELETE /api/tasks/{id}/purge`, `DELETE /api/inbox/{id}/purge` (404 if not
-      found, 409 if not soft-deleted, 403 for protected `General`); plus
-      `DELETE /api/trash` = empty trash (purge all soft-deleted, protected-project
-      safe, returns per-kind counts). structlog `*_purged` / `trash_emptied` lines.
-- [x] Frontend: per-card "Delete forever" (with `window.confirm`) + an "Empty trash"
-      button (confirm, names the total). Wired into `useTrash` + the Chunk 4 count
-      refresh; `.trash-danger` button style added.
-- [x] pytest: purge removes the row; purge of a non-deleted row → 409; purge of
-      `General` → 403; **`ai_training_examples` rows survive a task/inbox purge**;
-      FK cleanup leaves no dangling dependency/alias/parent rows + clears the two
-      nullable project FKs; empty-trash clears all and is idempotent.
+- **Backend (via gateway only):** add provider introspection — a health/ping that
+  reports reachable + host, and an installed-models list (Ollama `/api/tags`).
+  Expose through `gateway`, then two **GET** routes
+  (`/api/settings/ollama/status`, `/api/settings/models`). No `import ollama`
+  outside `app/ai/providers/`. Both stay public (reads), no write guard.
+- **FE #7 — health panel:** a status row at the top of Settings showing
+  connected / host / (loaded model if available) with a **re-check** button.
+  Degrade gracefully when Ollama is down (clear "not reachable" state, no crash).
+- **FE #6 — model dropdown:** in `ProfileEditor`, replace the free-text model
+  input with a dropdown populated from `/api/settings/models`, **preselecting the
+  current value** and keeping a free-text fallback (so a not-yet-pulled or custom
+  name is still enterable). Respect the extraction-model flag above.
+- **Done when:** Settings shows live Ollama status and profiles pick from real
+  installed models; backend pytest + a new route test green; FE tests/build green.
+
+## Chunk 6 — Reset-to-default for overrides `[ ]` (BE + FE)
+
+**Ask:** #5. **Files:** `app/services/settings.py`, `app/api/routes_settings.py`,
+`app/schemas/settings.py`, `tests/test_routes_settings.py`, `src/api/settings.ts`,
+`useSettings.ts`, `SettingsPage.tsx`. **Settings write — loopback-guarded.**
+
+- **Backend:** a service helper that removes a profile's override key(s) from
+  `profiles.local.yaml` and reloads, returning the new effective `ProfileRead`
+  (so the UI updates `overridden_fields`). Expose as a **DELETE**
+  (`/api/settings/profiles/{name}/overrides`, optional `?field=` to clear one
+  field; no field = clear all for that profile), guarded by
+  `require_local_settings_write`. 404 on unknown profile; no-op safe if no
+  override exists.
+- **FE:** a **"Reset to default"** control on each profile (enabled only when
+  `overridden_fields` is non-empty), wired through `useSettings`; on success the
+  inputs reflect the committed `profiles.yaml` value and the "(overridden)" tags
+  clear. Reuse chunk-2 save feedback.
+- **Done when:** an overridden profile can be reverted to its committed default
+  from the host machine; backend pytest + new route test green; FE tests/build
+  green.
 
 ---
 
-## Verification
+## Suggested order & rationale
 
-**Per chunk (definition of done):**
-1. `cd frontend && npm run test` — new + existing Vitest suites green.
-2. `cd frontend && npm run build` — strict TS build passes (no stray `any`).
-3. Chunks 1 & 5: `cd backend && ./.venv/bin/pytest` green.
-4. Tick the chunk's boxes here; stop for manual review/commit.
-
-**End-to-end manual (per README dev commands):**
-- **1:** `GET /api/trash` items show `deleted_at`; active gets `null`.
-- **2:** `/trash` shows cards with icons, context badges, and "Deleted X ago";
-  empty/loading/error states match the rest of the app.
-- **3:** search narrows; the type filter isolates a section; clear restores.
-- **4:** the nav shows a live trash count; "Restore all" empties a section; a
-  success notice names what was restored and warns that tasks rehome to General.
-- **5:** "Delete forever" (confirm) removes one item permanently; "Empty trash"
-  (confirm) clears everything; the `/training` meter / training viewer is
-  **unchanged** afterward (training rows survive).
-
-## Bookkeeping
-
-- Tick each chunk's boxes here as it lands; one-line commit per chunk at the stop.
-- README update at sprint end: add a `Sprint 9f [DONE]` line (Trash card overhaul +
-  the new `deleted_at` field on the three Read schemas + the `DELETE …/purge` and
-  `DELETE /api/trash` routes — the only documented-surface changes). No new page
-  route (still `/trash`); **no Alembic migration** (purge is DML; schema unchanged).
-- `DONE.md` / `TODO.md` (uncommitted, working tree) left untouched unless asked.
+1 → 2 → 3 → 4 (safe, frontend-only parity and edit-safety land first and are
+independently shippable) → 5 → 6 (backend-touching, each isolated and reviewable
+on its own; reset-override last since it's the only new settings write).

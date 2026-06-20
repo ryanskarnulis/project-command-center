@@ -443,3 +443,39 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
       across both pages; confirm-before-delete (`window.confirm`); breadcrumb/heading
       consistency.
 - Verification: frontend 112/112 (Vitest) + `tsc -b && vite build` green; backend untouched.
+
+---
+
+## Sprint 9f — Trash Tab UX Overhaul
+> Goal: bring `/trash` up to par with the Sprint 8–9e Tasks/Inbox/Projects polish.
+
+- [x] **Chunk 1 — Backend: expose `deleted_at`** (BE + pytest): added `deleted_at: datetime | None = None`
+      to `ProjectRead`, `TaskRead`, `InboxRead` schemas (serializes `null` for active rows; no migration —
+      reads the existing `SoftDeleteMixin.deleted_at` column); mirrored `deleted_at?: string | null` in
+      frontend types; pytest: trash items carry non-null `deleted_at`, active rows carry `null`.
+- [x] **Chunk 2 — Card layout + icons + context badges + states** (FE): section headings with lucide icons
+      (`FolderX` / `Trash2` / `Inbox`) + per-section count; trashed tasks render as `TaskCard`, projects
+      as `ProjectCard` (`buildProjectStats`), inbox as a small `.task-card` + `.source-pill`; each card
+      shows "Deleted {formatRelative(deleted_at)}" (new `utils/dates.ts` helper + unit test); `.page-loading`
+      / `.empty-state` / `role="alert"` state parity; `NoNav` capture-phase wrapper prevents card links from
+      navigating to deleted-item 404 pages; `cleanup` registered in `src/test/setup.ts`.
+- [x] **Chunk 3 — Search + type filter** (FE): case-insensitive search over display label; type filter
+      All / Projects / Tasks / Inbox (client-side, hides empty sections); "Clear" resets both; distinct
+      "No items match your search." empty state; filter bar hidden when trash is empty.
+- [x] **Chunk 4 — Nav count + bulk restore + restore feedback** (FE): `TrashCountContext` / provider
+      (new `features/trash/TrashCountContext.tsx`, wrapped in `App.tsx`) fetches `getTrash()` once and
+      exposes `count` + `refresh()`; live count badge in `AppShell` (hidden at 0); `restoreAll(kind, items)`
+      in `useTrash` iterates per-item restores, tolerates inbox 409s, reports restored-vs-skipped in the
+      notice; transient `notice` channel names the item and warns tasks rehome to General; fixed: reload's
+      `.then` no longer clears a 409 error set by a failed action.
+- [x] **Chunk 5 — Permanent delete (purge) + Empty trash** (BE + FE): `common.hard_delete(db, obj)`
+      guard (refuses if `deleted_at is None` → 409); per-entity FK cleanup: tasks→dependency rows +
+      soft-deleted subtree; projects→aliases + soft-deleted tasks + null `inbox_items.suggested_project_id`
+      + null `activity_events.project_id`; inbox→detach/purge trashed candidate tasks; routes
+      `DELETE /api/{projects,tasks,inbox}/{id}/purge` (404 absent / 409 active / 403 General) +
+      `DELETE /api/trash` (empty trash, returns per-kind counts); frontend: per-card "Delete forever"
+      (confirm) + "Empty trash" button (confirm); `.trash-danger` style; count badge refreshes on purge;
+      pytest: purge removes row; purge of active row → 409; purge of General → 403; `ai_training_examples`
+      rows survive; FK cleanup leaves no dangling dependency/alias/parent rows + clears the two nullable
+      project FKs; empty-trash is idempotent. `ai_training_examples` left untouched (no FK). No Alembic
+      migration (purge is DML, not a schema change).

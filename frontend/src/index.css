@@ -1417,6 +1417,53 @@ kbd {
   line-height: 1.55;
 }
 
+/* Sticky tab row for jumping between the Profiles / Prompts / Evals sections. */
+.settings-nav {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.settings-nav-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.settings-nav-tab:hover {
+  color: var(--text-h);
+  background: var(--surface-soft);
+}
+
+.settings-nav-tab.is-active {
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-color: var(--blue);
+}
+
+.settings-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .settings-profile,
 .settings-prompt,
 .settings-eval,
