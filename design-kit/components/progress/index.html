@@ -1,0 +1,70 @@
+<!-- @dsCard group="Components" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Progress &amp; indicators — Command Center</title>
+<link rel="stylesheet" href="../../app.css">
+<style>
+  body { margin: 0; }
+  .kit-page { padding: 32px; max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+  .kit-page > header p { color: var(--text-muted); font-weight: 600; }
+  .kit-group h2 { margin-bottom: 12px; }
+  .kit-group { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-soft); padding: 18px; }
+  .kit-label { display: block; margin-bottom: 6px; color: var(--text-muted); font-family: var(--mono); font-size: 12px; }
+  .workload-cell { max-width: 220px; margin-top: 4px; }
+  .dot-row { display: flex; align-items: center; gap: 16px; }
+  .dot-row span:nth-child(odd) { color: var(--text-muted); font-family: var(--mono); font-size: 12px; }
+</style>
+</head>
+<body>
+<main class="kit-page">
+  <header>
+    <h1>Progress &amp; indicators</h1>
+    <p>Bars, sparklines and status dots used in dashboards and detail views.</p>
+  </header>
+
+  <section class="kit-group">
+    <h2>Bars</h2>
+    <span class="kit-label">.mini-progress (green)</span>
+    <div class="mini-progress"><span style="width:72%"></span></div>
+
+    <span class="kit-label" style="margin-top:16px">.project-progress (green)</span>
+    <div class="project-progress"><span style="width:48%"></span></div>
+
+    <span class="kit-label" style="margin-top:16px">.training-progress (green)</span>
+    <div class="training-progress"><span class="training-progress-bar" style="width:88%"></span></div>
+
+    <span class="kit-label" style="margin-top:16px">.workload-bar (blue)</span>
+    <div class="workload-cell">
+      <span style="color:var(--text-muted);font-size:12px">6 / 10</span>
+      <div class="workload-bar"><span style="width:60%"></span></div>
+    </div>
+  </section>
+
+  <section class="kit-group">
+    <h2>Eval trend sparkline</h2>
+    <div class="eval-trend">
+      <div class="eval-trend-bars">
+        <span class="eval-trend-bar" style="height:40%"></span>
+        <span class="eval-trend-bar" style="height:55%"></span>
+        <span class="eval-trend-bar" style="height:50%"></span>
+        <span class="eval-trend-bar is-full" style="height:80%"></span>
+        <span class="eval-trend-bar is-full" style="height:90%"></span>
+        <span class="eval-trend-bar is-full" style="height:100%"></span>
+      </div>
+      <span class="eval-trend-summary">6/6 passing</span>
+    </div>
+  </section>
+
+  <section class="kit-group">
+    <h2>Status dots</h2>
+    <div class="dot-row">
+      <span>active</span><span class="status-dot active"></span>
+      <span>done</span><span class="status-dot done"></span>
+    </div>
+  </section>
+</main>
+</body>
+</html>

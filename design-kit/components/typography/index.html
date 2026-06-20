@@ -1,0 +1,53 @@
+<!-- @dsCard group="Foundations" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Typography — Command Center</title>
+<link rel="stylesheet" href="../../app.css">
+<style>
+  body { margin: 0; }
+  .kit-page { padding: 32px; max-width: 820px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+  .kit-page > header p { color: var(--text-muted); font-weight: 600; }
+  .kit-row { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-soft); padding: 16px; }
+  .kit-row .spec { display: block; margin-top: 6px; color: var(--text-muted); font-family: var(--mono); font-size: 11px; }
+  .kit-stack { display: flex; flex-direction: column; gap: 12px; }
+</style>
+</head>
+<body>
+<main class="kit-page">
+  <header>
+    <h1>Typography</h1>
+    <p>Type scale and inline text styles. Sans stack: Inter; mono: SFMono / Consolas.</p>
+  </header>
+
+  <div class="kit-stack">
+    <div class="kit-row">
+      <h1>Heading 1 — the quick brown fox</h1>
+      <span class="spec">h1 · 26px / 760 weight / line-height 1.2</span>
+    </div>
+    <div class="kit-row">
+      <h2>Heading 2 — the quick brown fox</h2>
+      <span class="spec">h2 · 16px / 720 weight</span>
+    </div>
+    <div class="kit-row">
+      <h3>Heading 3 — the quick brown fox</h3>
+      <span class="spec">h3 · 14px / 700 weight</span>
+    </div>
+    <div class="kit-row">
+      <p>Body text — pack my box with five dozen liquor jugs. The app reads at <strong>var(--text)</strong> with <strong>strong</strong> emphasis lifting to the heading color.</p>
+      <span class="spec">p / strong · default body color #475569</span>
+    </div>
+    <div class="kit-row">
+      <p>Inline <code>code</code> and a keyboard hint <kbd>⌘K</kbd> share the mono stack and neutral chip background.</p>
+      <span class="spec">code / kbd · var(--mono) · neutral-soft bg</span>
+    </div>
+    <div class="kit-row">
+      <p style="font-family:var(--mono)">Monospace sample — 0123456789 {} () =&gt; const x = 1;</p>
+      <span class="spec">var(--mono) · used for counters, JSON, metadata</span>
+    </div>
+  </div>
+</main>
+</body>
+</html>

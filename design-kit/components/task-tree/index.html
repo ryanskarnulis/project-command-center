@@ -1,0 +1,69 @@
+<!-- @dsCard group="Components" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dependencies &amp; subtasks — Command Center</title>
+<link rel="stylesheet" href="../../app.css">
+<style>
+  body { margin: 0; }
+  .kit-page { padding: 32px; max-width: 820px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+  .kit-page > header p { color: var(--text-muted); font-weight: 600; }
+</style>
+</head>
+<body>
+<main class="kit-page">
+  <header>
+    <h1>Dependencies &amp; subtasks</h1>
+    <p>Blocking relationships and nested subtask trees on a task.</p>
+  </header>
+
+  <div class="task-dependencies">
+    <div class="task-section-heading"><h3>Dependencies</h3><span>2 blocking</span></div>
+    <ul class="dependency-list">
+      <li>
+        <a href="#">Define extraction Pydantic schema</a>
+        <span class="status-pill dep-done">Done</span>
+        <button class="icon-button compact" aria-label="Remove">×</button>
+      </li>
+      <li>
+        <a href="#">Add gateway response_mode handling</a>
+        <span class="dep-pending">Pending</span>
+        <button class="icon-button compact" aria-label="Remove">×</button>
+      </li>
+    </ul>
+    <div class="dependency-add-row">
+      <select><option>Add a blocking task…</option><option>Wire review queue UI</option></select>
+      <button class="task-action">Add</button>
+    </div>
+  </div>
+
+  <div>
+    <button class="task-subtasks-toggle">▾ Subtasks (3)</button>
+    <ul class="task-children">
+      <li>
+        <div class="task-card">
+          <div class="task-card-body"><div class="task-card-title">Validate model JSON</div><div class="task-card-badges"><span class="status-pill workflow-done">Done</span></div></div>
+        </div>
+      </li>
+      <li>
+        <div class="task-card">
+          <div class="task-card-body"><div class="task-card-title">Save failure cases to ai_training_examples</div><div class="task-card-badges"><span class="status-pill workflow-in_progress">In progress</span><span class="priority-pill priority-high">High</span></div></div>
+        </div>
+      </li>
+    </ul>
+    <form class="inline-subtask-form">
+      <input type="text" placeholder="New subtask title">
+      <button class="task-action">Add subtask</button>
+    </form>
+  </div>
+
+  <div class="bulk-actions">
+    <button class="secondary-action">Mark done</button>
+    <button class="secondary-action">Move to project</button>
+    <button class="trash-danger">Delete selected</button>
+  </div>
+</main>
+</body>
+</html>

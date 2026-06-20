@@ -1,0 +1,77 @@
+<!-- @dsCard group="Foundations" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colors — Command Center</title>
+<link rel="stylesheet" href="../../app.css">
+<style>
+  body { margin: 0; }
+  .kit-page { padding: 32px; max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+  .kit-page > header h1 { margin-bottom: 4px; }
+  .kit-page > header p { color: var(--text-muted); font-weight: 600; }
+  .kit-group h2 { margin-bottom: 12px; }
+  .swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .swatch { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow-soft); }
+  .swatch .chip { height: 64px; border-bottom: 1px solid var(--border); }
+  .swatch .meta { padding: 8px 10px; }
+  .swatch .meta b { display: block; font-size: 13px; }
+  .swatch .meta code { font-size: 11px; padding: 1px 4px; }
+  .tone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+  .tone-grid .status-pill { width: 100%; padding: 12px; }
+</style>
+</head>
+<body>
+<main class="kit-page">
+  <header>
+    <h1>Colors</h1>
+    <p>Palette tokens from <code>:root</code>. All app color comes from these custom properties.</p>
+  </header>
+
+  <section class="kit-group">
+    <h2>Surfaces &amp; text</h2>
+    <div class="swatch-grid">
+      <div class="swatch"><div class="chip" style="background:var(--bg)"></div><div class="meta"><b>bg</b><code>#f7f9fc</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--surface)"></div><div class="meta"><b>surface</b><code>#ffffff</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--surface-soft)"></div><div class="meta"><b>surface-soft</b><code>#f8fafc</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--surface-strong)"></div><div class="meta"><b>surface-strong</b><code>#eef4ff</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--text-h)"></div><div class="meta"><b>text-h</b><code>#0f172a</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--text)"></div><div class="meta"><b>text</b><code>#475569</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--text-muted)"></div><div class="meta"><b>text-muted</b><code>#64748b</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--border)"></div><div class="meta"><b>border</b><code>#dbe3ef</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--border-strong)"></div><div class="meta"><b>border-strong</b><code>#c8d3e1</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--neutral-soft)"></div><div class="meta"><b>neutral-soft</b><code>#eef2f7</code></div></div>
+    </div>
+  </section>
+
+  <section class="kit-group">
+    <h2>Accents</h2>
+    <div class="swatch-grid">
+      <div class="swatch"><div class="chip" style="background:var(--blue)"></div><div class="meta"><b>blue</b><code>#3b82f6</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--blue-soft)"></div><div class="meta"><b>blue-soft</b><code>#e9f1ff</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--green)"></div><div class="meta"><b>green</b><code>#16a34a</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--green-soft)"></div><div class="meta"><b>green-soft</b><code>#e9f8ee</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--orange)"></div><div class="meta"><b>orange</b><code>#f59e0b</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--orange-soft)"></div><div class="meta"><b>orange-soft</b><code>#fff5e3</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--red)"></div><div class="meta"><b>red</b><code>#e11d48</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--red-soft)"></div><div class="meta"><b>red-soft</b><code>#ffe8ee</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--purple)"></div><div class="meta"><b>purple</b><code>#7c3aed</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--purple-soft)"></div><div class="meta"><b>purple-soft</b><code>#f1eafe</code></div></div>
+    </div>
+  </section>
+
+  <section class="kit-group">
+    <h2>Tone pairings</h2>
+    <div class="tone-grid">
+      <span class="status-pill tone-blue">tone-blue</span>
+      <span class="status-pill tone-green">tone-green</span>
+      <span class="status-pill tone-orange">tone-orange</span>
+      <span class="status-pill tone-red">tone-red</span>
+      <span class="status-pill tone-purple">tone-purple</span>
+      <span class="status-pill tone-neutral">tone-neutral</span>
+    </div>
+  </section>
+</main>
+</body>
+</html>

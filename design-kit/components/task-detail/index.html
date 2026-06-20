@@ -1,0 +1,70 @@
+<!-- @dsCard group="Layout" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task detail — Command Center</title>
+<link rel="stylesheet" href="../../app.css">
+<style>
+  body { margin: 0; }
+  .kit-page { padding: 32px; max-width: 1000px; margin: 0 auto; }
+</style>
+</head>
+<body>
+<main class="kit-page">
+  <div class="task-detail">
+    <div class="breadcrumb"><a href="#">Tasks</a> / <a href="#">Command Center</a> / Wire inbox extract</div>
+
+    <div class="task-detail-header">
+      <h1>Wire inbox extract → review queue</h1>
+      <div class="task-detail-actions">
+        <span class="save-state">Saved</span>
+        <button class="secondary-action">Add subtask</button>
+        <button class="danger-action">Delete</button>
+      </div>
+    </div>
+
+    <div class="task-hero">
+      <input class="task-title-input" value="Wire inbox extract → review queue">
+      <div class="task-card-badges">
+        <span class="status-pill workflow-in_progress">In progress</span>
+        <span class="priority-pill priority-high">High</span>
+        <span class="due due-soon">Due Fri</span>
+        <span class="estimate">3h</span>
+      </div>
+    </div>
+
+    <div class="task-detail-grid">
+      <div class="task-description-panel">
+        <h3>Description</h3>
+        <textarea>Connect the validated extraction output to the review queue UI so accepted suggestions create tasks.</textarea>
+      </div>
+      <div class="task-fields-panel">
+        <label>Status
+          <select><option>Open</option><option selected>In progress</option><option>Done</option></select>
+        </label>
+        <label>Priority
+          <select><option>Low</option><option>Medium</option><option selected>High</option><option>Urgent</option></select>
+        </label>
+        <label>Due date
+          <input type="date" value="2026-06-26">
+        </label>
+        <label>Project
+          <select><option selected>Command Center</option><option>Personal</option></select>
+        </label>
+      </div>
+    </div>
+
+    <div class="activity-feed">
+      <div class="section-heading compact"><div class="section-title"><h2>Activity</h2></div></div>
+      <ul>
+        <li class="activity-item activity-created"><strong>Created</strong> from inbox extraction <span class="activity-time">3 days ago</span></li>
+        <li class="activity-item"><strong>Priority</strong> changed Medium → High <span class="activity-time">yesterday</span></li>
+        <li class="activity-item activity-completed"><strong>Subtask completed</strong> — schema validation <span class="activity-time">2h ago</span></li>
+      </ul>
+    </div>
+  </div>
+</main>
+</body>
+</html>

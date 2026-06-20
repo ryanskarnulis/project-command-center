@@ -1,0 +1,47 @@
+<!-- @dsCard group="Foundations" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elevation &amp; radius — Command Center</title>
+<link rel="stylesheet" href="../../app.css">
+<style>
+  body { margin: 0; }
+  .kit-page { padding: 32px; max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+  .kit-page > header p { color: var(--text-muted); font-weight: 600; }
+  .kit-group h2 { margin-bottom: 14px; }
+  .box-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 24px; }
+  .elev-box { display: flex; align-items: flex-end; min-height: 110px; padding: 12px; border-radius: 8px; background: var(--surface); color: var(--text-muted); font-family: var(--mono); font-size: 11px; }
+  .radius-box { display: grid; place-items: center; height: 96px; border: 1px solid var(--border); background: var(--surface-strong); color: var(--text-muted); font-family: var(--mono); font-size: 11px; }
+</style>
+</head>
+<body>
+<main class="kit-page">
+  <header>
+    <h1>Elevation &amp; radius</h1>
+    <p>Shadow tokens and the radius scale used across surfaces.</p>
+  </header>
+
+  <section class="kit-group">
+    <h2>Shadows</h2>
+    <div class="box-grid">
+      <div class="elev-box" style="box-shadow:var(--shadow)">--shadow</div>
+      <div class="elev-box" style="box-shadow:var(--shadow-soft)">--shadow-soft</div>
+      <div class="elev-box" style="box-shadow:0 1px 2px rgba(15,23,42,0.04)">button 0 1px 2px</div>
+      <div class="elev-box" style="box-shadow:0 8px 22px rgba(15,23,42,0.05)">metric 0 8px 22px</div>
+    </div>
+  </section>
+
+  <section class="kit-group">
+    <h2>Radius</h2>
+    <div class="box-grid">
+      <div class="radius-box" style="border-radius:6px">6px · pills / code</div>
+      <div class="radius-box" style="border-radius:8px">8px · controls / cards</div>
+      <div class="radius-box" style="border-radius:14px">14px · command search</div>
+      <div class="radius-box" style="border-radius:999px">999px · chips / avatars</div>
+    </div>
+  </section>
+</main>
+</body>
+</html>

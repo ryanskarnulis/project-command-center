@@ -1,0 +1,87 @@
+<!-- @dsCard group="Layout" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard — Command Center</title>
+<link rel="stylesheet" href="../../app.css">
+<style>
+  body { margin: 0; }
+  .kit-page { padding: 32px; max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+</style>
+</head>
+<body>
+<main class="kit-page dashboard">
+  <div class="dashboard-hero">
+    <div>
+      <h1>Good morning, Ryan</h1>
+      <p>You have 5 items in your inbox and 27 active tasks across 4 projects.</p>
+    </div>
+    <button class="secondary-action">Capture note</button>
+  </div>
+
+  <div class="metric-grid">
+    <div class="metric-card">
+      <div class="metric-icon tone-blue"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+      <div class="metric-content"><span>Active tasks</span><strong>27</strong><small>+4 since last week</small></div>
+      <div class="metric-corner-action"><span>Open</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg></div>
+      <div class="metric-footer">View all <span>→</span></div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-icon tone-orange"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></div>
+      <div class="metric-content"><span>Overdue</span><strong>3</strong><small>Oldest 4 days past due</small></div>
+      <div class="metric-corner-action"><span>Open</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg></div>
+      <div class="metric-footer">Review <span>→</span></div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-icon tone-green"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg></div>
+      <div class="metric-content"><span>Completed</span><strong>112</strong><small>+18 this week</small></div>
+      <div class="metric-corner-action"><span>Open</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg></div>
+      <div class="metric-footer">History <span>→</span></div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-icon tone-purple"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1Z"/></svg></div>
+      <div class="metric-content"><span>Inbox</span><strong>5</strong><small>2 awaiting review</small></div>
+      <div class="metric-corner-action"><span>Open</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg></div>
+      <div class="metric-footer">Process <span>→</span></div>
+    </div>
+  </div>
+
+  <div class="dashboard-layout">
+    <div class="dashboard-main-grid">
+      <div class="panel projects-overview">
+        <div class="section-heading compact"><div class="section-title"><h2>Projects</h2></div><a href="#">All</a></div>
+        <div class="project-table">
+          <div class="project-table-row">
+            <div class="project-name-cell"><span class="project-avatar tone-blue">CC</span><div><a href="#">Command Center</a><small>18 tasks</small></div></div>
+            <div class="workload-cell"><span>64%</span><div class="workload-bar"><span style="width:64%"></span></div></div>
+            <span class="status-pill workflow-in_progress">In progress</span>
+          </div>
+          <div class="project-table-row">
+            <div class="project-name-cell"><span class="project-avatar tone-green">PR</span><div><a href="#">Personal</a><small>6 tasks</small></div></div>
+            <div class="workload-cell"><span>30%</span><div class="workload-bar"><span style="width:30%"></span></div></div>
+            <span class="status-pill workflow-open">Open</span>
+          </div>
+        </div>
+      </div>
+      <div class="panel due-panel">
+        <div class="section-heading compact"><div class="section-title"><h2>Due soon</h2></div></div>
+        <ul class="task-preview-list">
+          <li><input type="checkbox"><div><strong>Validate extraction output</strong><small>Command Center</small></div><span class="due due-today">Today</span><span></span></li>
+          <li><input type="checkbox"><div><strong>Add eval case</strong><small>Command Center</small></div><span class="due due-soon">Fri</span><span></span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="dashboard-rail">
+      <div class="panel">
+        <div class="section-heading compact"><div class="section-title"><h2>Insights</h2></div></div>
+        <ul class="insight-list">
+          <li><span class="insight-icon tone-orange"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></span><div><a href="#">3 tasks overdue</a><small>in Command Center</small></div><span>›</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!-- @dsCard group="Components" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inputs — Command Center</title>
+<link rel="stylesheet" href="../../app.css">
+<style>
+  body { margin: 0; }
+  .kit-page { padding: 32px; max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+  .kit-page > header p { color: var(--text-muted); font-weight: 600; }
+  .kit-group h2 { margin-bottom: 12px; }
+  .kit-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; color: var(--text-h); font-size: 13px; font-weight: 720; }
+  .kit-field input, .kit-field select, .kit-field textarea { width: 100%; }
+  .kit-note { color: var(--text-muted); font-size: 12px; font-family: var(--mono); }
+</style>
+</head>
+<body>
+<main class="kit-page">
+  <header>
+    <h1>Inputs</h1>
+    <p>Form controls, focus ring, and the composed search fields.</p>
+  </header>
+
+  <section class="kit-group">
+    <h2>Controls</h2>
+    <label class="kit-field">Text input
+      <input type="text" placeholder="Placeholder text" value="Ship the inbox slice">
+    </label>
+    <label class="kit-field">Select
+      <select><option>Open</option><option>In progress</option><option>Done</option></select>
+    </label>
+    <label class="kit-field">Textarea
+      <textarea placeholder="Describe the task…"></textarea>
+    </label>
+    <label class="kit-field">Disabled
+      <input type="text" value="Read only" disabled>
+    </label>
+    <p class="kit-note">38px min-height · 8px radius · 3px blue focus ring (focus the inputs above)</p>
+  </section>
+
+  <section class="kit-group">
+    <h2>Command search</h2>
+    <div class="command-search">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" placeholder="Search tasks, projects, notes…">
+      <kbd>⌘K</kbd>
+    </div>
+  </section>
+
+  <section class="kit-group">
+    <h2>Task search field</h2>
+    <label class="task-search-field">Search
+      <div>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="text" placeholder="Filter tasks">
+      </div>
+    </label>
+  </section>
+</main>
+</body>
+</html>

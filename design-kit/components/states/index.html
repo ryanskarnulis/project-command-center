@@ -1,0 +1,47 @@
+<!-- @dsCard group="Components" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>States — Command Center</title>
+<link rel="stylesheet" href="../../app.css">
+<style>
+  body { margin: 0; }
+  .kit-page { padding: 32px; max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+  .kit-page > header p { color: var(--text-muted); font-weight: 600; }
+  .kit-group h2 { margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<main class="kit-page">
+  <header>
+    <h1>Empty &amp; loading states</h1>
+    <p>Placeholders shown when a view has no data or is fetching.</p>
+  </header>
+
+  <section class="kit-group">
+    <h2>Empty state</h2>
+    <div class="empty-state">No tasks yet — capture something in the inbox to get started.</div>
+  </section>
+
+  <section class="kit-group">
+    <h2>Loading</h2>
+    <div class="page-loading">Loading…</div>
+  </section>
+
+  <section class="kit-group">
+    <h2>Placeholder block</h2>
+    <div class="placeholder-block">
+      <span>This panel unlocks in a later sprint.</span>
+      <span>Calendar sync is on the "do not build yet" list.</span>
+    </div>
+  </section>
+
+  <section class="kit-group">
+    <h2>Error</h2>
+    <p class="error">Validation failed — model output did not match schema.</p>
+  </section>
+</main>
+</body>
+</html>

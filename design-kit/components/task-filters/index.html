@@ -1,0 +1,48 @@
+<!-- @dsCard group="Components" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task filters — Command Center</title>
+<link rel="stylesheet" href="../../app.css">
+<style>
+  body { margin: 0; }
+  .kit-page { padding: 32px; max-width: 900px; margin: 0 auto; }
+</style>
+</head>
+<body>
+<main class="kit-page">
+  <div class="task-filters">
+    <div class="task-filters-header">
+      <div class="task-filters-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h18l-7 8v6l-4 2v-8Z"/></svg>
+        <strong>Filters</strong>
+      </div>
+      <button class="secondary-action">Clear all</button>
+    </div>
+
+    <label class="task-search-field">Search
+      <div>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="text" placeholder="Filter tasks by title">
+      </div>
+    </label>
+
+    <div class="task-filter-grid">
+      <label>Project<select><option>All projects</option><option>Command Center</option></select></label>
+      <label>Status<select><option>Any</option><option>Open</option><option>Done</option></select></label>
+      <label>Priority<select><option>Any</option><option>High</option><option>Urgent</option></select></label>
+      <label>Due<select><option>Any time</option><option>Today</option><option>This week</option></select></label>
+    </div>
+
+    <div class="task-filter-toggles">
+      <label class="selected"><input type="checkbox" checked> Has subtasks</label>
+      <label><input type="checkbox"> Blocked</label>
+      <label><input type="checkbox"> Unassigned</label>
+      <label class="selected"><input type="checkbox" checked> Hide completed</label>
+    </div>
+  </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,76 @@
+<!-- @dsCard group="Components" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pills &amp; badges — Command Center</title>
+<link rel="stylesheet" href="../../app.css">
+<style>
+  body { margin: 0; }
+  .kit-page { padding: 32px; max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+  .kit-page > header p { color: var(--text-muted); font-weight: 600; }
+  .kit-group h2 { margin-bottom: 12px; }
+  .kit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+</style>
+</head>
+<body>
+<main class="kit-page">
+  <header>
+    <h1>Pills &amp; badges</h1>
+    <p>Status, priority and metadata chips. All share a 6px-radius, 760-weight base.</p>
+  </header>
+
+  <section class="kit-group">
+    <h2>Workflow status</h2>
+    <div class="kit-row">
+      <span class="status-pill workflow-open">Open</span>
+      <span class="status-pill workflow-in_progress">In progress</span>
+      <span class="status-pill workflow-done">Done</span>
+    </div>
+  </section>
+
+  <section class="kit-group">
+    <h2>Priority</h2>
+    <div class="kit-row">
+      <span class="priority-pill priority-urgent">Urgent</span>
+      <span class="priority-pill priority-high">High</span>
+      <span class="priority-pill priority-medium">Medium</span>
+      <span class="priority-pill priority-low">Low</span>
+    </div>
+  </section>
+
+  <section class="kit-group">
+    <h2>Due dates</h2>
+    <div class="kit-row">
+      <span class="due due-today">Due today</span>
+      <span class="due due-soon">Due soon</span>
+      <span class="due due-overdue">Overdue</span>
+      <span class="due due-none">No due date</span>
+    </div>
+  </section>
+
+  <section class="kit-group">
+    <h2>Dependencies &amp; blocking</h2>
+    <div class="kit-row">
+      <span class="blocked">Blocked</span>
+      <span class="dep-pending">Pending</span>
+      <span class="status-pill dep-done">Done</span>
+    </div>
+  </section>
+
+  <section class="kit-group">
+    <h2>Metadata</h2>
+    <div class="kit-row">
+      <span class="count-badge">12</span>
+      <span class="nav-count-badge">3</span>
+      <span class="source-pill">inbox</span>
+      <span class="assignee-pill">Ryan</span>
+      <span class="confidence">0.92</span>
+      <span class="estimate">2h</span>
+      <span class="training-task-chip">task_extraction <code>gemma4:e2b</code></span>
+    </div>
+  </section>
+</main>
+</body>
+</html>

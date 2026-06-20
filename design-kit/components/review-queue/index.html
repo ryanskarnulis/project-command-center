@@ -1,0 +1,50 @@
+<!-- @dsCard group="Workflows" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review queue — Command Center</title>
+<link rel="stylesheet" href="../../app.css">
+<style>
+  body { margin: 0; }
+  .kit-page { padding: 32px; max-width: 760px; margin: 0 auto; }
+</style>
+</head>
+<body>
+<main class="kit-page">
+  <div class="section-heading compact"><div class="section-title"><h2>Review extracted tasks</h2><p>Accept, edit, or reject each suggestion.</p></div></div>
+  <ul class="review-queue">
+    <li class="review-row">
+      <div class="review-row-controls">
+        <label>
+          Title
+          <input type="text" value="Follow up with design on review queue spec">
+        </label>
+        <button class="task-action">Accept</button>
+      </div>
+      <div class="review-row-meta">
+        <span class="confidence">0.92</span>
+        <span class="priority-pill priority-high">High</span>
+        <span class="due due-soon">Due Fri</span>
+        <span class="suggested-project">Command Center</span>
+        <button class="danger-action">Reject</button>
+      </div>
+    </li>
+    <li class="review-row rejected">
+      <div class="review-row-controls">
+        <label>
+          Title
+          <input type="text" value="Buy more coffee" disabled>
+        </label>
+        <button class="secondary-action">Restore</button>
+      </div>
+      <div class="review-row-meta">
+        <span class="confidence">0.41</span>
+        <span class="status-pill tone-red">Rejected</span>
+      </div>
+    </li>
+  </ul>
+</main>
+</body>
+</html>

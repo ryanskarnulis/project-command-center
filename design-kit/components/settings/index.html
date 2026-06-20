@@ -1,0 +1,90 @@
+<!-- @dsCard group="Workflows" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings — Command Center</title>
+<link rel="stylesheet" href="../../app.css">
+<style>
+  body { margin: 0; }
+  .kit-page { padding: 32px; max-width: 820px; margin: 0 auto; }
+  .settings { gap: 18px; }
+</style>
+</head>
+<body>
+<main class="kit-page settings">
+  <div class="settings-health is-up">
+    <span class="settings-health-state">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+      Ollama connected
+    </span>
+    <span class="settings-health-host">http://192.168.1.20:11434</span>
+    <button class="settings-health-recheck secondary-action">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+      Re-check
+    </button>
+  </div>
+
+  <div class="settings-nav">
+    <button class="settings-nav-tab is-active">Profiles</button>
+    <button class="settings-nav-tab">Prompts</button>
+    <button class="settings-nav-tab">Evals</button>
+  </div>
+
+  <section>
+    <div class="settings-profile">
+      <div class="settings-profile-header">
+        <div class="settings-section-title"><h3>task_extraction</h3><span class="settings-dirty-dot"></span></div>
+        <span class="settings-saved"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Saved</span>
+      </div>
+      <div class="settings-field">
+        <label>Model
+          <span class="settings-override">gemma4:e2b <button class="settings-reset-field">reset</button></span>
+          <input type="text" value="gemma4:e2b">
+        </label>
+        <label>Temperature
+          <input type="number" value="0.2" step="0.1">
+        </label>
+      </div>
+      <p class="settings-note">Profiles live in <code>ai/profiles.yaml</code>. Overrides apply per field; reset returns to the file default.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="settings-prompt">
+      <div class="settings-section-title"><h3>extraction.md</h3></div>
+      <textarea class="settings-prompt-text">You are a task extraction assistant. Return JSON matching the schema…</textarea>
+      <div class="settings-prompt-tags">
+        <span class="settings-prompt-tag">task_extraction</span>
+        <span class="settings-prompt-tag">inbox</span>
+      </div>
+      <div class="settings-actions">
+        <button class="task-action">Save</button>
+        <button class="secondary-action">Revert</button>
+        <span class="settings-char-count">1,284 chars</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="settings-eval">
+      <div class="settings-section-head">
+        <h3>extraction_cases.yaml</h3>
+        <button class="task-action">Run all</button>
+      </div>
+      <div class="eval-trend">
+        <div class="eval-trend-bars">
+          <span class="eval-trend-bar" style="height:50%"></span>
+          <span class="eval-trend-bar" style="height:60%"></span>
+          <span class="eval-trend-bar is-full" style="height:85%"></span>
+          <span class="eval-trend-bar is-full" style="height:100%"></span>
+        </div>
+        <span class="eval-trend-summary">8/8 passing</span>
+      </div>
+      <p class="settings-eval-fails">No failing cases in the last run.</p>
+    </div>
+  </section>
+</main>
+</body>
+</html>

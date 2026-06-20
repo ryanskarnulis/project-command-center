@@ -1,0 +1,72 @@
+<!-- @dsCard group="Workflows" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training data — Command Center</title>
+<link rel="stylesheet" href="../../app.css">
+<style>
+  body { margin: 0; }
+  .kit-page { padding: 32px; max-width: 820px; margin: 0 auto; }
+  .training { gap: 18px; }
+</style>
+</head>
+<body>
+<main class="kit-page training">
+  <div class="training-stats">
+    <div class="training-stats-readout">
+      <span class="training-readiness-label">142 correction examples captured</span>
+      <span class="training-chip-accepted">68% accepted as-is</span>
+    </div>
+    <div class="training-progress"><span class="training-progress-bar" style="width:71%"></span></div>
+    <span class="training-progress-label">71% toward the 200-example fine-tune target</span>
+    <div class="training-by-task">
+      <span class="training-task-chip">task_extraction <code>98</code></span>
+      <span class="training-task-chip">project_match <code>31</code></span>
+      <span class="training-task-chip">summarize <code>13</code></span>
+    </div>
+    <p class="training-filtered-count">Showing 2 of 142 examples</p>
+  </div>
+
+  <div class="training-list">
+    <div class="training-example">
+      <details open>
+        <summary>
+          <span class="training-example-id">task_extraction <span class="status-pill tone-orange">Corrected</span></span>
+          <span class="training-diff-count"><span class="diff-add">+3</span><span class="diff-del">−1</span></span>
+          <span class="training-example-meta">
+            extraction · gemma4:e2b · 2h ago
+            <button class="training-copy-btn">Copy</button>
+            <button class="training-delete-btn" aria-label="Move to trash">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+            </button>
+          </span>
+        </summary>
+        <div class="training-example-body">
+          <pre class="training-pre"><code class="training-diff"><span class="training-diff-line is-eq">{</span>
+<span class="training-diff-line is-eq">  "title": "Follow up with design",</span>
+<span class="training-diff-line is-del">  "priority": "medium",</span>
+<span class="training-diff-line is-add">  "priority": "high",</span>
+<span class="training-diff-line is-add">  "due_date": "2026-06-26",</span>
+<span class="training-diff-line is-add">  "project": "Command Center"</span>
+<span class="training-diff-line is-eq">}</span></code></pre>
+        </div>
+      </details>
+    </div>
+
+    <div class="training-example">
+      <details>
+        <summary>
+          <span class="training-example-id">project_match <span class="status-pill tone-green">Accepted</span></span>
+          <span class="training-example-meta">project_match · gemma4:e2b · yesterday</span>
+        </summary>
+        <div class="training-example-body">
+          <pre class="training-pre">{ "project": "Command Center", "confidence": 0.94 }</pre>
+        </div>
+      </details>
+    </div>
+  </div>
+</main>
+</body>
+</html>

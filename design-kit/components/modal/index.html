@@ -1,0 +1,42 @@
+<!-- @dsCard group="Overlays" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modal — Command Center</title>
+<link rel="stylesheet" href="../../app.css">
+<style>
+  body { margin: 0; min-height: 100vh; }
+  /* Render the overlay inline (not fixed) so it sits inside the preview card. */
+  .modal-overlay { position: relative; inset: auto; min-height: 480px; }
+</style>
+</head>
+<body>
+<div class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>New task</h2>
+      <button class="modal-close" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <form>
+        <label>Title
+          <input type="text" value="Wire inbox extract → review queue">
+        </label>
+        <label>Project
+          <select><option>Command Center</option><option>Personal</option></select>
+        </label>
+        <label>Description
+          <textarea>Connect the extraction output to the review queue UI.</textarea>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="secondary-action">Cancel</button>
+          <button type="submit" class="task-action">Create task</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+</body>
+</html>
