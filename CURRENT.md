@@ -137,7 +137,7 @@ possibly `types/settings.ts`. FE-only.
 - **Done when:** prompts are comfortable to edit and clearly tied to their
   workflow; tests/build green.
 
-## Chunk 4 — Eval trend + run-all `[ ]`
+## Chunk 4 — Eval trend + run-all `[x]`
 
 **Ask:** #9. **Files:** `SettingsPage.tsx`, `useSettings.ts`, `index.css`. FE-only.
 

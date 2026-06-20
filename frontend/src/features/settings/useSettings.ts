@@ -52,6 +52,7 @@ interface UseSettings {
   saveProfile: (name: string, fields: ProfileUpdate) => void
   savePrompt: (name: string, text: string) => void
   runEvals: (suite: string) => void
+  runAllEvals: (suites: string[]) => void
 }
 
 export function useSettings(): UseSettings {
@@ -184,26 +185,46 @@ export function useSettings(): UseSettings {
     [scheduleSavedClear],
   )
 
-  const runEvals = useCallback((suite: string) => {
-    setEvalState((prev) => ({
-      ...prev,
-      [suite]: { running: true, result: null, error: null },
-    }))
-    runEval(suite)
-      .then((result) => {
+  // Core single-suite run; returns a promise so the run-all sequence can await
+  // each suite in turn instead of firing all three at Ollama in parallel.
+  const runOne = useCallback(
+    async (suite: string) => {
+      setEvalState((prev) => ({
+        ...prev,
+        [suite]: { running: true, result: null, error: null },
+      }))
+      try {
+        const result = await runEval(suite)
         setEvalState((prev) => ({
           ...prev,
           [suite]: { running: false, result, error: null },
         }))
         refreshRuns(suite)
-      })
-      .catch((err: unknown) => {
+      } catch (err: unknown) {
         setEvalState((prev) => ({
           ...prev,
           [suite]: { running: false, result: null, error: errMessage(err) },
         }))
-      })
-  }, [refreshRuns])
+      }
+    },
+    [refreshRuns],
+  )
+
+  const runEvals = useCallback(
+    (suite: string) => {
+      void runOne(suite)
+    },
+    [runOne],
+  )
+
+  const runAllEvals = useCallback(
+    (suites: string[]) => {
+      void (async () => {
+        for (const suite of suites) await runOne(suite)
+      })()
+    },
+    [runOne],
+  )
 
   return {
     profiles,
@@ -217,5 +238,6 @@ export function useSettings(): UseSettings {
     saveProfile,
     savePrompt,
     runEvals,
+    runAllEvals,
   }
 }

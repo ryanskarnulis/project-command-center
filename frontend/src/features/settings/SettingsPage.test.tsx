@@ -6,9 +6,10 @@ import {
   getEvalRuns,
   getProfiles,
   getPrompts,
+  runEval,
   updateProfile,
 } from '../../api/settings'
-import type { Profile, Prompt } from '../../types/settings'
+import type { EvalRunRecord, Profile, Prompt } from '../../types/settings'
 import { SettingsPage } from './SettingsPage'
 
 vi.mock('../../api/settings', () => ({
@@ -39,6 +40,7 @@ const mockGetProfiles = vi.mocked(getProfiles)
 const mockGetPrompts = vi.mocked(getPrompts)
 const mockGetEvalRuns = vi.mocked(getEvalRuns)
 const mockUpdateProfile = vi.mocked(updateProfile)
+const mockRunEval = vi.mocked(runEval)
 
 function renderPage() {
   return render(
@@ -162,5 +164,68 @@ describe('SettingsPage prompt editor', () => {
     expect(revert).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
     expect(screen.queryByLabelText('Unsaved changes')).not.toBeInTheDocument()
+  })
+})
+
+describe('SettingsPage eval trend', () => {
+  // Newest-first, as the API returns them. 1/4 then 4/4 → latest is 100%.
+  const runs: EvalRunRecord[] = [
+    {
+      id: 2,
+      suite: 'task_extraction',
+      passed: 4,
+      total: 4,
+      created_at: '2026-06-19T10:00:00Z',
+    },
+    {
+      id: 1,
+      suite: 'task_extraction',
+      passed: 1,
+      total: 4,
+      created_at: '2026-06-18T10:00:00Z',
+    },
+  ]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetProfiles.mockResolvedValue([profile])
+    mockGetPrompts.mockResolvedValue(prompts)
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('renders a pass-rate trend from loaded runs and an empty state otherwise', async () => {
+    const user = userEvent.setup()
+    mockGetEvalRuns.mockResolvedValue(runs)
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: /Evals/ }))
+
+    // Latest run is 4/4 across 2 runs for task_extraction.
+    expect(await screen.findByText('100% · 2 runs')).toBeInTheDocument()
+    // The other two suites have no history.
+    expect(screen.getAllByText('No runs yet')).toHaveLength(2)
+  })
+
+  it('runs every suite in sequence when "Run all suites" is clicked', async () => {
+    const user = userEvent.setup()
+    mockGetEvalRuns.mockResolvedValue([])
+    mockRunEval.mockImplementation(async (suite: string) => ({
+      suite,
+      passed: 1,
+      total: 1,
+      cases: [],
+    }))
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: /Evals/ }))
+    await user.click(screen.getByRole('button', { name: 'Run all suites' }))
+
+    await waitFor(() => expect(mockRunEval).toHaveBeenCalledTimes(3))
+    expect(mockRunEval).toHaveBeenCalledWith('task_extraction')
+    expect(mockRunEval).toHaveBeenCalledWith('project_matching')
+    expect(mockRunEval).toHaveBeenCalledWith('summary')
   })
 })

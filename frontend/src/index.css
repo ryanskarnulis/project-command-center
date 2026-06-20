@@ -1543,11 +1543,50 @@ kbd {
   font-size: 13px;
 }
 
-.settings-eval-fails,
-.eval-history {
+.settings-eval-fails {
   margin: 0;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+/* Evals section header: title on the left, run-all button on the right. */
+.settings-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Pass-rate sparkline across a suite's recent runs. */
+.eval-trend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.eval-trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 28px;
+  padding: 0;
+}
+
+.eval-trend-bar {
+  width: 6px;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--orange);
+}
+
+.eval-trend-bar.is-full {
+  background: var(--green);
+}
+
+.eval-trend-summary {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .training-progress {

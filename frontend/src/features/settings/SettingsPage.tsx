@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Check, ClipboardCheck, MessageSquare, SlidersHorizontal } from 'lucide-react'
 import { useSettings } from './useSettings'
-import type { Profile, ProfileUpdate, Prompt } from '../../types/settings'
+import type {
+  EvalRunRecord,
+  Profile,
+  ProfileUpdate,
+  Prompt,
+} from '../../types/settings'
 
 const EVAL_SUITES = ['task_extraction', 'project_matching', 'summary'] as const
 
@@ -196,6 +201,41 @@ function PromptEditor({
   )
 }
 
+function passRate(run: EvalRunRecord): number {
+  return run.total > 0 ? run.passed / run.total : 0
+}
+
+// Compact pass-rate sparkline across a suite's recent runs. Records arrive
+// newest-first; reverse so the bars read oldest→newest left-to-right and the
+// rightmost bar is the latest run.
+function EvalTrend({ runs }: { runs: EvalRunRecord[] }) {
+  if (runs.length === 0) return <span className="settings-meta">No runs yet</span>
+
+  const ordered = [...runs].reverse()
+  const latest = runs[0]
+
+  return (
+    <div className="eval-trend">
+      <div className="eval-trend-bars" role="img" aria-label={`${runs.length} recent runs`}>
+        {ordered.map((run) => {
+          const rate = passRate(run)
+          return (
+            <span
+              key={run.id}
+              className={`eval-trend-bar${rate === 1 ? ' is-full' : ''}`}
+              style={{ height: `${Math.max(rate * 100, 6)}%` }}
+              title={`${run.passed}/${run.total} · ${new Date(run.created_at).toLocaleString()}`}
+            />
+          )
+        })}
+      </div>
+      <span className="eval-trend-summary">
+        {Math.round(passRate(latest) * 100)}% · {runs.length} run{runs.length === 1 ? '' : 's'}
+      </span>
+    </div>
+  )
+}
+
 export function SettingsPage() {
   const {
     profiles,
@@ -209,6 +249,7 @@ export function SettingsPage() {
     saveProfile,
     savePrompt,
     runEvals,
+    runAllEvals,
   } = useSettings()
 
   const [section, setSection] = useState<Section>('profiles')
@@ -245,6 +286,7 @@ export function SettingsPage() {
   )
 
   const anyDirty = Object.values(dirtyMap).some(Boolean)
+  const anyEvalRunning = Object.values(evalState).some((s) => s.running)
 
   useEffect(() => {
     if (!anyDirty) return
@@ -343,10 +385,20 @@ export function SettingsPage() {
 
       {section === 'evals' && (
         <section>
-          <h2 className="settings-section-title">
-            <ClipboardCheck size={18} aria-hidden="true" />
-            Evals
-          </h2>
+          <div className="settings-section-head">
+            <h2 className="settings-section-title">
+              <ClipboardCheck size={18} aria-hidden="true" />
+              Evals
+            </h2>
+            <button
+              type="button"
+              className="settings-run-all"
+              onClick={() => runAllEvals([...EVAL_SUITES])}
+              disabled={anyEvalRunning}
+            >
+              {anyEvalRunning ? 'Running…' : 'Run all suites'}
+            </button>
+          </div>
           <p className="settings-note">Runs synchronously against Ollama.</p>
           <ul className="settings-list">
             {EVAL_SUITES.map((suite) => {
@@ -376,16 +428,7 @@ export function SettingsPage() {
                         ))}
                     </ul>
                   )}
-                  {evalRuns[suite] && evalRuns[suite].length > 0 && (
-                    <ul className="eval-history">
-                      {evalRuns[suite].map((run) => (
-                        <li key={run.id}>
-                          {run.passed}/{run.total} ·{' '}
-                          {new Date(run.created_at).toLocaleString()}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                  <EvalTrend runs={evalRuns[suite] ?? []} />
                 </li>
               )
             })}
