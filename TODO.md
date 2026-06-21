@@ -13,8 +13,6 @@ until promoted.
 
 AI "break this down" shipped (README Sprint 10a / DONE.md). No slice is currently
 promoted — pick the next strongest themed group from the backlog below when ready.
-Strong candidates: Kanban board (needs a drag-and-drop dependency — ask first),
-internal read-only Calendar view, or Recurring series management.
 
 ---
 
@@ -95,11 +93,13 @@ internal read-only Calendar view, or Recurring series management.
       "feeds future kanban"). Global + per-project boards (mirror `/tasks` vs
       `/projects/:id/tasks`); reuse `TaskCard`, respect derived `is_blocked`. FE-heavy;
       likely no new backend route.
-- [ ] Calendar view — month/week of tasks by `due_date`, click-through to task detail;
-      read-only over existing data (no new schema), replaces the `AppShell` calendar
-      placeholder. ⚠️ Confirm scope: "Calendar **sync**" is on the README "do not build
-      yet" list (external Google/iCal) — build the *internal, read-only* due-date
-      calendar, **not** external sync.
+- [x] Calendar view — shipped (README Sprint 10b). Internal read-only month/week
+      calendar of tasks by `due_date` at `/calendar` (`GET /api/calendar?start=&end=`,
+      new `services/calendar.py` — accepted tasks incl. done, candidate/deleted
+      excluded; flat `list[TaskRead]` reusing `_reads_with_blocked`). Reached only via
+      the dashboard "Upcoming Events" tile (now real: soonest-due tasks + a real
+      **View calendar** link), not the global nav. No schema/migration, no model call,
+      no new dependency. NOT external Google/iCal sync (stays on the do-not-build list).
 
 ### AI Improvements
 

@@ -11,6 +11,7 @@ from fastapi.routing import APIRouter
 
 from app.api import (
     routes_ai,
+    routes_calendar,
     routes_discord,
     routes_inbox,
     routes_projects,
@@ -39,6 +40,7 @@ api_router.include_router(routes_training.router)
 api_router.include_router(routes_trash.router)
 api_router.include_router(routes_search.router)
 api_router.include_router(routes_today.router)
+api_router.include_router(routes_calendar.router)
 
 
 @asynccontextmanager

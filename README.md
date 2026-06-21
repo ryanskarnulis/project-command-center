@@ -595,6 +595,22 @@ Sprint 10a: [DONE] AI "break this down" — a second correctable AI surface that
            #4). New break_down_task profile + ai/prompts/break_down_task.md + eval
            suite (ai/evals/breakdown_cases.yaml + run_breakdown_evals.py, registered
            in the settings eval runner; 6/6 on gemma4:e2b). No new dependency.
+Sprint 10b: [DONE] Internal read-only Calendar view — a month/week calendar over
+           tasks.due_date at /calendar. New GET /api/calendar?start=&end=
+           (services/calendar.py + routes_calendar.py): deterministic, date-bounded
+           read of accepted tasks with a due date in range — includes done (so
+           completed work shows on past days), excludes candidate/rejected and
+           soft-deleted; end<start → 422. Returns a flat list[TaskRead] reusing the
+           existing _reads_with_blocked serializer (is_blocked resolved in one
+           query). Frontend features/calendar/ (useCalendar hook deriving the
+           full-week grid range in local time — no UTC off-by-one; CalendarPage with
+           month grid / week toggle, prev/next/today, task chips linking to
+           /tasks/:id). Reached ONLY via the dashboard "Upcoming Events" rail tile,
+           which is now real (soonest-due tasks + a working View calendar link,
+           replacing the "Calendar not connected" placeholder) — no global-nav entry,
+           mirroring /today. NOT external Google/iCal sync (stays on do-not-build).
+           New backend test_calendar.py + frontend CalendarPage tests; dashboard test
+           updated. No schema/migration, no Alembic, no model call, no new dependency.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

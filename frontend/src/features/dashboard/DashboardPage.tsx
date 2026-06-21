@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   ArrowRight,
   Bot,
-  CalendarDays,
   CheckCircle2,
   ClipboardList,
   Clock3,
@@ -22,6 +21,7 @@ import type { Task } from '../../types/task'
 import { compareByDue, dueStatus, formatDueDate } from '../../utils/dates'
 import { projectStatus, type Tone } from '../../utils/projectStatus'
 import { InboxCapturePanel } from '../inbox/InboxCapturePanel'
+import { UpcomingEvents } from './UpcomingEvents'
 import { useDashboard } from './useDashboard'
 
 interface MetricCardProps {
@@ -422,20 +422,7 @@ export function DashboardPage() {
         </div>
 
         <aside className="dashboard-rail" aria-label="Dashboard side rail">
-          <section className="panel upcoming-events disabled-panel">
-            <div className="section-title">
-              <CalendarDays size={18} aria-hidden="true" />
-              <h2>Upcoming Events</h2>
-            </div>
-            <div className="placeholder-block">
-              <strong>Calendar not connected</strong>
-              <span>Calendar sync is intentionally out of scope for now.</span>
-            </div>
-            <button type="button" disabled>
-              View calendar
-              <ArrowRight size={15} aria-hidden="true" />
-            </button>
-          </section>
+          <UpcomingEvents />
         </aside>
       </div>
     </div>

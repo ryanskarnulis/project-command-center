@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { CalendarPage } from '../features/calendar/CalendarPage'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { InboxPage } from '../features/inbox/InboxPage'
 import { ProjectDetailPage } from '../features/projects/ProjectDetailPage'
@@ -16,6 +17,7 @@ export function AppRoutes() {
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/today" element={<TodayPage />} />
+      <Route path="/calendar" element={<CalendarPage />} />
       <Route path="/inbox" element={<InboxPage />} />
       <Route path="/inbox/:inboxId" element={<InboxPage />} />
       <Route path="/tasks" element={<TasksPage />} />
