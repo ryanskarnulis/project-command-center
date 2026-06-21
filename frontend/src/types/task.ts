@@ -34,6 +34,14 @@ export interface Task {
   is_blocked: boolean
 }
 
+/** A recurrence series: every occurrence sharing a `recurrence_id`. */
+export interface TaskSeries {
+  recurrence_id: string
+  // Oldest due date first; includes soft-deleted (skipped) occurrences, which
+  // carry a non-null `deleted_at`.
+  occurrences: Task[]
+}
+
 export interface TaskDependency {
   id: number
   task_id: number

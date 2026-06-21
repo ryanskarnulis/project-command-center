@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete as sql_delete
-from sqlalchemy import or_, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -360,6 +360,45 @@ def skip_occurrence(db: Session, task: Task) -> Task:
     db.flush()
     _log_task_event(db, task, "skipped")
     return next_occurrence
+
+
+def get_series(db: Session, recurrence_id: str) -> list[Task]:
+    """All occurrences in a recurrence series, oldest due date first.
+
+    Deliberately a plain ``select(Task)`` rather than the ``active()`` helper:
+    skipped occurrences are soft-deleted, but the series timeline must show them
+    so the chain is truthful. Ordered by ``due_date`` (then ``id`` as a stable
+    tiebreak for rows sharing a date).
+    """
+    return list(
+        db.execute(
+            select(Task)
+            .where(Task.recurrence_id == recurrence_id)
+            .order_by(Task.due_date.asc(), Task.id.asc())
+        )
+        .scalars()
+        .all()
+    )
+
+
+def stop_recurrence(db: Session, task: Task) -> Task:
+    """Stop a series from spawning further occurrences.
+
+    Clears ``repeat_interval`` (so completing the task no longer creates the next
+    occurrence) while leaving ``recurrence_id`` intact, matching the inline-clear
+    rule above so the existing chain stays readable. Rejects a non-recurring task
+    with a 422 — there is nothing to stop.
+    """
+    if task.repeat_interval is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Task is not recurring",
+        )
+    task.repeat_interval = None
+    db.flush()
+    db.refresh(task)
+    _log_task_event(db, task, "updated")
+    return task
 
 
 def reopen_task(db: Session, task: Task) -> Task:

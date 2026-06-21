@@ -25,6 +25,7 @@ import { parseDurationInput } from '../../utils/duration'
 import { ActivityFeed } from '../projects/ActivityFeed'
 import { KanbanBoard } from './KanbanBoard'
 import { TaskCard } from './TaskCard'
+import { buildTaskTree } from './taskTree'
 import { TaskFormModal } from './TaskFormModal'
 import { useCompletedTasks } from './useCompletedTasks'
 import { useTasks } from './useTasks'
@@ -251,19 +252,7 @@ export function TasksPage() {
     const filtered = isActive(filters)
       ? tasks.filter((t) => matchesFilters(t, filters))
       : tasks
-    const ids = new Set(filtered.map((t) => t.id))
-    const childrenOf = new Map<number, Task[]>()
-    const roots: Task[] = []
-    for (const t of filtered) {
-      if (t.parent_task_id !== null && ids.has(t.parent_task_id)) {
-        const group = childrenOf.get(t.parent_task_id) ?? []
-        group.push(t)
-        childrenOf.set(t.parent_task_id, group)
-      } else {
-        roots.push(t)
-      }
-    }
-    return { roots, childrenOf }
+    return buildTaskTree(filtered)
   }, [tasks, filters])
 
   // Completed tasks are a flat archive — no tree, just filter + sort.

@@ -4,6 +4,7 @@ import type {
   SubtaskDecision,
   Task,
   TaskCreate,
+  TaskSeries,
   TaskUpdate,
 } from '../types/task'
 
@@ -68,6 +69,20 @@ export async function markTaskDone(id: number): Promise<Task> {
 
 export async function skipOccurrence(id: number): Promise<Task> {
   const res = await apiClient(`/api/tasks/${id}/skip`, { method: 'POST' })
+  return (await res.json()) as Task
+}
+
+/** Every occurrence in this task's recurrence series (oldest due date first). */
+export async function getTaskSeries(id: number): Promise<TaskSeries> {
+  const res = await apiClient(`/api/tasks/${id}/series`)
+  return (await res.json()) as TaskSeries
+}
+
+/** Stop the series from spawning further occurrences (clears repeat_interval). */
+export async function stopRecurrence(id: number): Promise<Task> {
+  const res = await apiClient(`/api/tasks/${id}/stop-recurrence`, {
+    method: 'POST',
+  })
   return (await res.json()) as Task
 }
 

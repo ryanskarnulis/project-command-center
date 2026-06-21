@@ -115,3 +115,15 @@ class TaskRead(BaseModel):
     # False so an ORM Task lacking the attribute (e.g. a freshly created task with
     # no dependencies) serializes cleanly; list/detail routes populate it.
     is_blocked: bool = False
+
+
+class TaskSeries(BaseModel):
+    """A recurrence series: every occurrence sharing a ``recurrence_id``.
+
+    Occurrences reuse ``TaskRead`` (which already carries ``deleted_at``, so the
+    client can mark skipped rows) and are ordered oldest due date first. Includes
+    soft-deleted (skipped) rows so the timeline is complete.
+    """
+
+    recurrence_id: str
+    occurrences: list[TaskRead]

@@ -10,6 +10,7 @@ import { formatDueDate } from '../../utils/dates'
 import { formatDuration, formatDurationInput, parseDurationInput } from '../../utils/duration'
 import { formatRepeatInterval } from '../../utils/recurrence'
 import { EditScopeModal } from './EditScopeModal'
+import { RecurrenceSeries } from './RecurrenceSeries'
 import { RepeatIntervalInput } from './RepeatIntervalInput'
 import { TaskCard } from './TaskCard'
 import { TaskDependencies } from './TaskDependencies'
@@ -766,6 +767,18 @@ export function TaskDetailPage() {
           </form>
         )}
       </section>
+      )}
+
+      {!isCandidate && task.recurrence_id && (
+        <RecurrenceSeries
+          task={task}
+          onStopped={(updated) => {
+            setTask(updated)
+            setAllTasks((items) =>
+              items.map((item) => (item.id === updated.id ? updated : item)),
+            )
+          }}
+        />
       )}
 
       {!isCandidate && <TaskDependencies task={task} tasks={allTasks} />}

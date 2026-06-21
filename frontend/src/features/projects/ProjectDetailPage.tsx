@@ -15,6 +15,8 @@ import type { Project, ProjectAlias, ProjectUpdate } from '../../types/project'
 import type { Task } from '../../types/task'
 import { buildProjectStats } from '../../utils/projectStatus'
 import { TaskCard } from '../tasks/TaskCard'
+import { SubtaskGroup } from '../tasks/SubtaskGroup'
+import { buildTaskTree } from '../tasks/taskTree'
 import { ActivityFeed } from './ActivityFeed'
 
 interface ProjectDraft {
@@ -223,6 +225,7 @@ export function ProjectDetailPage() {
   const currentTasks = tasksLoadedProjectId === id ? tasks : []
   const tasksLoading = tasksLoadedProjectId !== id
   const stats = buildProjectStats(currentTasks, doneCount)
+  const taskTree = buildTaskTree(currentTasks)
   const saveLabel = saveState === 'saving'
     ? 'Saving…'
     : saveState === 'saved'
@@ -323,8 +326,11 @@ export function ProjectDetailPage() {
           <p>Loading…</p>
         ) : currentTasks.length > 0 ? (
           <ul className="task-detail-list">
-            {currentTasks.map((t) => (
-              <li key={t.id}><TaskCard task={t} /></li>
+            {taskTree.roots.map((t) => (
+              <li key={t.id}>
+                <TaskCard task={t} />
+                <SubtaskGroup children={taskTree.childrenOf.get(t.id) ?? []} />
+              </li>
             ))}
           </ul>
         ) : (

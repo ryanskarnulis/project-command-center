@@ -166,14 +166,21 @@ def get_today_plan(
 ) -> TodayPlan:
     """Build the deterministic day plan. No model calls; all from existing tables.
 
-    Source tasks are accepted, not-done tasks. Blocked tasks (an unfinished
-    dependency) are surfaced separately and never scheduled.
+    Source tasks are accepted, not-done top-level tasks (subtasks are excluded —
+    they belong to their parent). Blocked tasks (an unfinished dependency) are
+    surfaced separately and never scheduled.
     """
-    source = tasks_service.list_tasks(
-        db,
-        review_status=TaskReviewStatus.accepted,
-        exclude_done=True,
-    )
+    source = [
+        task
+        for task in tasks_service.list_tasks(
+            db,
+            review_status=TaskReviewStatus.accepted,
+            exclude_done=True,
+        )
+        # Subtasks are scheduled as part of their parent's work, never as their
+        # own day-plan rows. They surface only nested under the parent task.
+        if task.parent_task_id is None
+    ]
     blocked_ids = deps_service.blocked_task_ids(db, [task.id for task in source])
 
     blocked: list[BlockedTask] = []

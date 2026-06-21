@@ -81,9 +81,12 @@ promoted — pick the next strongest themed group from the backlog below when re
       `skip_recurrence` suppresses it, `edit_scope="future"` forward-patches the series.
       `repeat_interval` requires a `due_date` (422). Frontend RepeatIntervalInput +
       EditScopeModal + skip button + TaskCard repeat badge. Pure Python service layer, no AI.
-- [ ] **Recurring series management** — add a small way to see future occurrences by
-      `recurrence_id`, stop recurrence, and apply future edits deliberately. Likely no
-      migration: reuse the existing series id with a filtered endpoint and TaskDetail UI.
+- [x] **Recurring series management** — shipped (README Sprint 12). `GET /api/tasks/{id}/series`
+      returns every occurrence sharing a `recurrence_id` (incl. soft-deleted skipped rows,
+      oldest first) and `POST /api/tasks/{id}/stop-recurrence` clears `repeat_interval` while
+      keeping the chain id. Lazy-loaded RecurrenceSeries timeline + confirm-gated Stop
+      recurrence on TaskDetailPage. Future edits already shipped via `edit_scope` (9L). No
+      migration, no model call, no new dependency.
 
 ### Features
 

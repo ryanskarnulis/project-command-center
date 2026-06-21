@@ -50,6 +50,24 @@ def test_due_urgency_orders_overdue_first(db_session: Session) -> None:
     ]
 
 
+def test_subtasks_are_excluded_from_the_plan(db_session: Session) -> None:
+    parent = _task(db_session, "parent")
+    subtask = tasks_service.create_task(
+        db_session,
+        project_id=None,
+        title="subtask",
+        parent_task_id=parent,
+    )
+    db_session.commit()
+
+    plan = today_service.get_today_plan(db_session, target_date=TARGET)
+
+    scheduled_ids = [b.task_id for b in plan.scheduled]
+    assert parent in scheduled_ids
+    assert subtask.id not in scheduled_ids
+    assert subtask.id not in [o.task_id for o in plan.overflow]
+
+
 def test_in_progress_outranks_open_at_equal_due_and_priority(
     db_session: Session,
 ) -> None:

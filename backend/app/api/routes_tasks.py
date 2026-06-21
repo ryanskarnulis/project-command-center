@@ -15,6 +15,7 @@ from app.schemas.tasks import (
     BreakdownReviewResult,
     TaskCreate,
     TaskRead,
+    TaskSeries,
     TaskUpdate,
 )
 from app.services import breakdown as breakdown_service
@@ -259,6 +260,33 @@ def skip_occurrence(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
         "task_occurrence_skipped", task_id=task_id, next_task_id=next_occurrence.id
     )
     return _read_with_blocked(db, next_occurrence)
+
+
+@router.get("/tasks/{task_id}/series", response_model=TaskSeries)
+def get_task_series(task_id: int, db: Session = Depends(get_db)) -> TaskSeries:
+    """All occurrences in this task's recurrence series, oldest due date first."""
+    task = _get_task_or_404(db, task_id)
+    if task.recurrence_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Task is not part of a recurrence series",
+        )
+    occurrences = tasks_service.get_series(db, task.recurrence_id)
+    return TaskSeries(
+        recurrence_id=task.recurrence_id,
+        occurrences=_reads_with_blocked(db, occurrences),
+    )
+
+
+@router.post("/tasks/{task_id}/stop-recurrence", response_model=TaskRead)
+def stop_recurrence(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
+    """Stop a series from spawning further occurrences (clears repeat_interval)."""
+    task = _get_task_or_404(db, task_id)
+    updated = tasks_service.stop_recurrence(db, task)
+    db.commit()
+    db.refresh(updated)
+    logger.info("task_recurrence_stopped", task_id=updated.id)
+    return _read_with_blocked(db, updated)
 
 
 @router.post("/tasks/{task_id}/reopen", response_model=TaskRead)

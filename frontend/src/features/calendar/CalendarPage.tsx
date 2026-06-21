@@ -31,6 +31,8 @@ function bucketByDay(tasks: Task[]): Map<string, Task[]> {
   const map = new Map<string, Task[]>()
   for (const task of tasks) {
     if (!task.due_date) continue
+    // Subtasks are only shown nested under their parent, never as standalone chips.
+    if (task.parent_task_id !== null) continue
     const list = map.get(task.due_date)
     if (list) list.push(task)
     else map.set(task.due_date, [task])

@@ -32,6 +32,8 @@ export function UpcomingEvents() {
         if (!active) return
         const upcoming = result
           .filter((task) => task.workflow_status !== 'done')
+          // Subtasks surface only under their parent, not as their own events.
+          .filter((task) => task.parent_task_id === null)
           .sort(compareByDue)
           .slice(0, MAX_EVENTS)
         setTasks(upcoming)

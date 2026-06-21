@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
 import { listDependencies } from '../../api/taskDependencies'
-import { getSubtasks, getTask, listAllTasks, skipOccurrence, updateTask } from '../../api/tasks'
+import { getSubtasks, getTask, getTaskSeries, listAllTasks, skipOccurrence, stopRecurrence, updateTask } from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { TaskDetailPage } from './TaskDetailPage'
@@ -14,8 +14,10 @@ vi.mock('../../api/tasks', () => ({
   deleteTask: vi.fn(),
   getSubtasks: vi.fn(),
   getTask: vi.fn(),
+  getTaskSeries: vi.fn(),
   listAllTasks: vi.fn(),
   skipOccurrence: vi.fn(),
+  stopRecurrence: vi.fn(),
   updateTask: vi.fn(),
 }))
 
@@ -67,6 +69,8 @@ const mockListProjects = vi.mocked(listProjects)
 const mockListDependencies = vi.mocked(listDependencies)
 const mockUpdateTask = vi.mocked(updateTask)
 const mockSkipOccurrence = vi.mocked(skipOccurrence)
+const mockGetTaskSeries = vi.mocked(getTaskSeries)
+const mockStopRecurrence = vi.mocked(stopRecurrence)
 
 function renderDetail(task: Task) {
   mockGetTask.mockResolvedValue(task)
@@ -146,5 +150,43 @@ describe('Recurrence UI', () => {
     await waitFor(() => expect(mockSkipOccurrence).toHaveBeenCalledWith(7))
     // Skip never marks the occurrence done — it soft-deletes and rolls forward.
     expect(mockUpdateTask).not.toHaveBeenCalled()
+  })
+
+  it('lazily loads the series timeline and marks the current/skipped rows', async () => {
+    const user = userEvent.setup()
+    mockGetTaskSeries.mockResolvedValue({
+      recurrence_id: 'series-abc',
+      occurrences: [
+        { ...baseTask, id: 5, due_date: '2026-05-18', workflow_status: 'done' },
+        { ...baseTask, id: 6, due_date: '2026-05-25', deleted_at: '2026-05-25T00:00:00Z' },
+        baseTask, // id 7 — the current occurrence
+      ],
+    })
+    renderDetail(baseTask)
+
+    // Not fetched until the section is expanded.
+    await screen.findByRole('button', { name: 'Show occurrences' })
+    expect(mockGetTaskSeries).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Show occurrences' }))
+
+    await waitFor(() => expect(mockGetTaskSeries).toHaveBeenCalledWith(7))
+    expect(await screen.findByText('Skipped')).toBeInTheDocument()
+    expect(screen.getByText('This occurrence')).toBeInTheDocument()
+  })
+
+  it('stop recurrence confirms then calls the endpoint', async () => {
+    const user = userEvent.setup()
+    mockStopRecurrence.mockResolvedValue({ ...baseTask, repeat_interval: null })
+    renderDetail(baseTask)
+
+    await user.click(await screen.findByRole('button', { name: 'Stop recurrence' }))
+    // A confirmation gate stands between the click and the request.
+    expect(mockStopRecurrence).not.toHaveBeenCalled()
+    await user.click(
+      screen.getByRole('alertdialog', { name: 'Confirm stop recurrence' }).querySelector('button')!,
+    )
+
+    await waitFor(() => expect(mockStopRecurrence).toHaveBeenCalledWith(7))
   })
 })

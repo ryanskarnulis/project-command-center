@@ -218,6 +218,8 @@ export function DashboardPage() {
     const blockedTasks = tasks.filter((task) => task.is_blocked)
     const dueTasks = [...tasks]
       .filter((task) => dueStatus(task.due_date, 7) !== 'none')
+      // Subtasks appear only nested under their parent, not in the due list.
+      .filter((task) => task.parent_task_id === null)
       .sort(compareByDue)
     const todayCount = tasks.filter(
       (task) => dueStatus(task.due_date) === 'today',

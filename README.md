@@ -629,6 +629,23 @@ Sprint 11: [DONE] Kanban board — a drag-to-move board view over workflow_statu
            guard, done→out); tsc/eslint/vitest/build green. Frontend-only: no new
            backend route, no schema/migration, no Alembic, no model call, no new
            dependency.
+Sprint 12: [DONE] Recurring series management — see a whole recurrence series and
+           stop it deliberately. New GET /api/tasks/{id}/series returns every
+           occurrence sharing a recurrence_id (TaskSeries: recurrence_id +
+           occurrences[TaskRead]), oldest due date first, INCLUDING soft-deleted
+           skipped rows (plain select(Task), not the active() helper, so the
+           timeline is truthful). New POST /api/tasks/{id}/stop-recurrence clears
+           repeat_interval while leaving recurrence_id intact (matches the inline-
+           clear rule), so completing the task no longer spawns the next occurrence;
+           422 if not recurring. New services/tasks.py get_series + stop_recurrence.
+           Frontend: lazy-loaded RecurrenceSeries panel on TaskDetailPage (shown when
+           recurrence_id is set) — Show/Hide occurrences timeline with state pills
+           (open/in-progress/done/skipped, current row highlighted) + a confirm-gated
+           Stop recurrence button. New api/tasks.ts getTaskSeries/stopRecurrence,
+           TaskSeries type. Tests: test_recurrence.py (series order incl. skipped,
+           stop clears repeat/keeps id/no respawn, 422 paths, HTTP happy-paths);
+           Recurrence.test.tsx (lazy load + current/skipped marking, stop confirm).
+           No schema/migration, no Alembic, no model call, no new dependency.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

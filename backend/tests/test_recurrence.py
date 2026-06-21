@@ -320,3 +320,102 @@ def test_patch_repeat_without_due_date_returns_422_over_http(
     )
 
     assert res.status_code == 422
+
+
+# --- Series management (Recurring series management slice) -------------------
+
+
+def test_get_series_includes_skipped_in_due_date_order(db_session: Session) -> None:
+    # A weekly series: complete the first (06-01 done, spawns 06-08 open), then
+    # skip the second (06-08 soft-deleted, spawns 06-15 open).
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    recurrence_id = task.recurrence_id
+    assert recurrence_id is not None
+
+    tasks_service.update_task(
+        db_session, task, {"workflow_status": TaskWorkflowStatus.done}
+    )
+    db_session.commit()
+    second = _series(db_session, recurrence_id)[-1]
+    tasks_service.skip_occurrence(db_session, second)
+    db_session.commit()
+
+    series = tasks_service.get_series(db_session, recurrence_id)
+    # All three rows present, including the soft-deleted skipped one, oldest first.
+    assert [t.due_date for t in series] == [
+        date(2026, 6, 1),
+        date(2026, 6, 8),
+        date(2026, 6, 15),
+    ]
+    skipped = next(t for t in series if t.due_date == date(2026, 6, 8))
+    assert skipped.deleted_at is not None
+
+
+def test_stop_recurrence_clears_repeat_keeps_id(db_session: Session) -> None:
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    recurrence_id = task.recurrence_id
+    assert recurrence_id is not None
+
+    tasks_service.stop_recurrence(db_session, task)
+    db_session.commit()
+
+    assert task.repeat_interval is None
+    assert task.recurrence_id == recurrence_id  # chain stays readable
+    before = _active_count(db_session)
+
+    # Completing it now spawns no further occurrence.
+    tasks_service.mark_done(db_session, task)
+    db_session.commit()
+    assert _active_count(db_session) == before
+
+
+def test_stop_recurrence_non_recurring_raises_422(db_session: Session) -> None:
+    task = _make_task(db_session, due=date(2026, 6, 1))
+
+    with pytest.raises(HTTPException) as exc:
+        tasks_service.stop_recurrence(db_session, task)
+    assert exc.value.status_code == 422
+
+
+def test_get_series_over_http(client: TestClient, db_session: Session) -> None:
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+
+    res = client.get(f"/api/tasks/{task.id}/series")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["recurrence_id"] == task.recurrence_id
+    assert len(body["occurrences"]) == 1
+    assert body["occurrences"][0]["id"] == task.id
+
+
+def test_get_series_non_recurring_returns_422(
+    client: TestClient, db_session: Session
+) -> None:
+    task = _make_task(db_session, due=date(2026, 6, 1))
+
+    res = client.get(f"/api/tasks/{task.id}/series")
+    assert res.status_code == 422
+
+
+def test_stop_recurrence_over_http(client: TestClient, db_session: Session) -> None:
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+
+    res = client.post(f"/api/tasks/{task.id}/stop-recurrence")
+    assert res.status_code == 200
+    assert res.json()["repeat_interval"] is None

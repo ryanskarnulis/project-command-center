@@ -2432,6 +2432,44 @@ kbd {
 .status-pill.workflow-open        { background: var(--blue-soft); color: #0b55d9; }
 .status-pill.workflow-in_progress { background: var(--purple-soft); color: var(--purple); }
 .status-pill.workflow-done        { background: #f0fdf4; color: #16a34a; }
+.status-pill.workflow-skipped     { background: var(--orange-soft); color: var(--orange); }
+
+.recurrence-occurrence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recurrence-occurrence {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.recurrence-occurrence.current {
+  background: var(--blue-soft);
+}
+
+.recurrence-occurrence-due {
+  min-width: 110px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.recurrence-occurrence-here {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.recurrence-stopped-note {
+  color: var(--text-muted);
+  font-style: italic;
+}
 
 @media (prefers-color-scheme: dark) {
   .priority-pill.priority-urgent { background: #3f1212; color: #f87171; }
