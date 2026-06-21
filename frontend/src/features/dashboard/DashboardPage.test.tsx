@@ -103,6 +103,7 @@ const tasks: Task[] = [
     created_at: '2026-06-01T17:00:00Z',
     updated_at: '2026-06-01T17:00:00Z',
     is_blocked: true,
+    has_subtasks: false,
   },
   {
     id: 2,
@@ -123,6 +124,7 @@ const tasks: Task[] = [
     created_at: '2026-06-01T17:00:00Z',
     updated_at: '2026-06-01T17:00:00Z',
     is_blocked: false,
+    has_subtasks: false,
   },
 ]
 
@@ -178,6 +180,7 @@ describe('DashboardPage', () => {
         created_at: '2026-06-01T17:00:00Z',
         updated_at: '2026-06-01T17:00:00Z',
         is_blocked: false,
+        has_subtasks: false,
       },
     ])
   })

@@ -3437,3 +3437,11 @@ kbd {
     grid-template-columns: 1fr;
   }
 }
+
+/* Hint under a read-only field whose value is derived from subtasks. */
+.task-field-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+}

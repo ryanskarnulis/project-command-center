@@ -347,9 +347,14 @@ export function TasksPage() {
     })
   }
 
-  function openSubtaskComposer(parentId: number) {
-    setSubtaskParentId(parentId)
-    setSubtaskDraft(EMPTY_SUBTASK_DRAFT)
+  function openSubtaskComposer(parent: Task) {
+    // Seed priority/due date from the parent as overridable starting values.
+    setSubtaskParentId(parent.id)
+    setSubtaskDraft({
+      ...EMPTY_SUBTASK_DRAFT,
+      priority: parent.priority,
+      dueDate: parent.due_date ?? '',
+    })
     setSubtaskError(null)
   }
 
@@ -403,12 +408,12 @@ export function TasksPage() {
       <>
         <button
           className="task-action"
-          onClick={() => openSubtaskComposer(t.id)}
+          onClick={() => openSubtaskComposer(t)}
         >
           <Plus size={16} aria-hidden="true" />
           Add subtask
         </button>
-        {t.workflow_status !== 'done' && (
+        {t.workflow_status !== 'done' && !t.has_subtasks && (
           <button
             className="task-icon-action"
             aria-label={`Mark ${t.title} done`}

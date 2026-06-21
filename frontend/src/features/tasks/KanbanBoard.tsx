@@ -69,6 +69,12 @@ export function KanbanBoard({
 
   async function move(task: Task, target: TaskWorkflowStatus) {
     if (task.workflow_status === target) return
+    // A parent's status is derived from its subtasks (read-only) — move the
+    // subtasks instead. Mirrors the server's 409 guard.
+    if (task.has_subtasks) {
+      notify('error', 'Status is rolled up from subtasks')
+      return
+    }
     if (isMoveBlocked(task, target)) {
       notify('error', 'Blocked by an unfinished dependency')
       return
@@ -97,7 +103,7 @@ export function KanbanBoard({
         <select
           aria-label={`Move ${task.title} to`}
           value={task.workflow_status}
-          disabled={pending}
+          disabled={pending || task.has_subtasks}
           onChange={(e) =>
             void move(task, e.target.value as TaskWorkflowStatus)
           }
@@ -114,7 +120,7 @@ export function KanbanBoard({
       <li
         key={task.id}
         className="kanban-card"
-        draggable={!pending}
+        draggable={!pending && !task.has_subtasks}
         onDragStart={(e) =>
           e.dataTransfer.setData('text/plain', String(task.id))
         }

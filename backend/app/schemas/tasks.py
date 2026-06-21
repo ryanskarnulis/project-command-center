@@ -30,7 +30,10 @@ class TaskCreate(BaseModel):
     description: OptionalStrippedStr = None
     review_status: TaskReviewStatus = TaskReviewStatus.accepted
     workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open
-    priority: TaskPriority = TaskPriority.medium
+    # Optional so an omitted priority is distinguishable from an explicit choice:
+    # a subtask with no priority/due_date seeds them from its parent (service
+    # layer), while a parent-less task still resolves to ``medium``.
+    priority: TaskPriority | None = None
     due_date: date | None = None
     parent_task_id: int | None = None
     estimated_minutes: PositiveMinutes | None = None
@@ -115,6 +118,10 @@ class TaskRead(BaseModel):
     # False so an ORM Task lacking the attribute (e.g. a freshly created task with
     # no dependencies) serializes cleanly; list/detail routes populate it.
     is_blocked: bool = False
+    # Derived (not stored): true when the task has accepted subtasks, in which case
+    # ``estimated_minutes`` and ``workflow_status`` above carry the rolled-up values
+    # and are read-only in the UI. Defaults to False for the same reason as above.
+    has_subtasks: bool = False
 
 
 class TaskSeries(BaseModel):

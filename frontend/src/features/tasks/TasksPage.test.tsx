@@ -59,6 +59,7 @@ const baseTask: Task = {
   created_at: '2026-06-01T10:00:00Z',
   updated_at: '2026-06-01T10:00:00Z',
   is_blocked: false,
+  has_subtasks: false,
 }
 
 const baseProject: Project = {

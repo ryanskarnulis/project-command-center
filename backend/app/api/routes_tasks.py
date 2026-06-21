@@ -48,19 +48,36 @@ def _cycle_409(exc: tasks_service.TaskCycleError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
+def _rollup_update(rollup: tasks_service.Rollup) -> dict[str, object]:
+    """The ``model_copy`` overrides a roll-up implies.
+
+    Only a task with accepted subtasks overrides its estimate/status; a leaf keeps
+    its stored values, so we touch nothing but the ``has_subtasks`` flag for it.
+    """
+    update: dict[str, object] = {"has_subtasks": rollup.has_subtasks}
+    if rollup.has_subtasks:
+        update["estimated_minutes"] = rollup.estimated_minutes
+        update["workflow_status"] = rollup.workflow_status
+    return update
+
+
 def _read_with_blocked(db: Session, task: Task) -> TaskRead:
-    """A single task's read model with its derived ``is_blocked`` populated."""
+    """A single task's read model with ``is_blocked`` and roll-ups populated."""
     return TaskRead.model_validate(task).model_copy(
-        update={"is_blocked": deps_service.is_blocked(db, task.id)}
+        update={
+            "is_blocked": deps_service.is_blocked(db, task.id),
+            **_rollup_update(tasks_service.get_rollup(db, task)),
+        }
     )
 
 
 def _reads_with_blocked(db: Session, tasks: Sequence[Task]) -> list[TaskRead]:
-    """A task list with ``is_blocked`` resolved in one query (no N+1)."""
+    """A task list with ``is_blocked`` and roll-ups resolved in one query each (no N+1)."""
     blocked = deps_service.blocked_task_ids(db, [t.id for t in tasks])
+    rollups = tasks_service.compute_rollups(db, tasks)
     return [
         TaskRead.model_validate(t).model_copy(
-            update={"is_blocked": t.id in blocked}
+            update={"is_blocked": t.id in blocked, **_rollup_update(rollups[t.id])}
         )
         for t in tasks
     ]
@@ -233,6 +250,10 @@ def update_task(
         )
     except tasks_service.TaskCycleError as exc:
         raise _cycle_409(exc) from exc
+    except tasks_service.DerivedStatusError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     db.commit()
     db.refresh(updated)
     logger.info("task_updated", task_id=updated.id)
@@ -242,7 +263,12 @@ def update_task(
 @router.post("/tasks/{task_id}/done", response_model=TaskRead)
 def mark_task_done(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     task = _get_task_or_404(db, task_id)
-    updated = tasks_service.mark_done(db, task)
+    try:
+        updated = tasks_service.mark_done(db, task)
+    except tasks_service.DerivedStatusError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     db.commit()
     db.refresh(updated)
     logger.info("task_marked_done", task_id=updated.id)
@@ -292,7 +318,12 @@ def stop_recurrence(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
 @router.post("/tasks/{task_id}/reopen", response_model=TaskRead)
 def reopen_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     task = _get_task_or_404(db, task_id)
-    updated = tasks_service.reopen_task(db, task)
+    try:
+        updated = tasks_service.reopen_task(db, task)
+    except tasks_service.DerivedStatusError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     db.commit()
     db.refresh(updated)
     logger.info("task_reopened", task_id=updated.id)

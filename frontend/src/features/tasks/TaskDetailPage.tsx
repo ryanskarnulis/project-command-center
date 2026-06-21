@@ -248,6 +248,20 @@ export function TaskDetailPage() {
     }
   }
 
+  function openSubtaskComposer() {
+    // Seed priority/due date from the parent as a starting value (overridable):
+    // a subtask inherits its parent's urgency and deadline by default.
+    if (task) {
+      setSubtaskDraft({
+        ...EMPTY_SUBTASK_DRAFT,
+        priority: task.priority,
+        dueDate: task.due_date ?? '',
+      })
+    }
+    setSubtaskError(null)
+    setAddingSubtask(true)
+  }
+
   function closeSubtaskComposer() {
     setAddingSubtask(false)
     setSubtaskError(null)
@@ -273,6 +287,9 @@ export function TaskDetailPage() {
       })
       setSubtasks((items) => [...items, created])
       setAllTasks((items) => [...items, created])
+      // The parent's estimate/status/has_subtasks are now derived — refresh it so
+      // the read-only gating and rolled-up values reflect the new subtask.
+      setTask(await getTask(task.id))
       setSubtaskDraft(EMPTY_SUBTASK_DRAFT)
       setSubtaskError(null)
       setAddingSubtask(false)
@@ -549,6 +566,7 @@ export function TaskDetailPage() {
             Status
             <select
               value={task.workflow_status}
+              disabled={task.has_subtasks}
               onChange={(e) =>
                 savePatch({ workflow_status: e.target.value as TaskWorkflowStatus })
               }
@@ -557,6 +575,9 @@ export function TaskDetailPage() {
                 <option key={status} value={status}>{workflowLabel(status)}</option>
               ))}
             </select>
+            {task.has_subtasks && (
+              <span className="task-field-hint">Rolled up from subtasks</span>
+            )}
           </label>
           <label>
             Priority
@@ -630,12 +651,16 @@ export function TaskDetailPage() {
             <input
               aria-label="Estimate"
               value={estimateDraft}
+              disabled={task.has_subtasks}
               onChange={(e) =>
                 setTaskDraft({ ...activeTaskDraft, estimate: e.target.value })
               }
               onBlur={saveEstimate}
               placeholder="30m, 2h, 1 day"
             />
+            {task.has_subtasks && (
+              <span className="task-field-hint">Sum of subtask estimates</span>
+            )}
           </label>
         </div>
       </section>
@@ -653,7 +678,7 @@ export function TaskDetailPage() {
               <Sparkles size={16} aria-hidden="true" />
               {breakingDown ? 'Breaking down…' : 'Break this down'}
             </button>
-            <button type="button" onClick={() => setAddingSubtask(true)}>
+            <button type="button" onClick={openSubtaskComposer}>
               <PlayCircle size={16} aria-hidden="true" />
               Add subtask
             </button>

@@ -32,6 +32,10 @@ export interface Task {
   deleted_at?: string | null
   // Derived server-side: true while any dependency is unfinished.
   is_blocked: boolean
+  // Derived server-side: true when the task has accepted subtasks. When true,
+  // `estimated_minutes` and `workflow_status` carry rolled-up values and are
+  // read-only (set them by editing the subtasks instead).
+  has_subtasks: boolean
 }
 
 /** A recurrence series: every occurrence sharing a `recurrence_id`. */

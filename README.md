@@ -213,6 +213,16 @@ and the depended-on tasks' workflow status (`TaskRead.is_blocked`, resolved in o
 the same `services/task_dependencies.py` cycle guard refuses any edge that would
 create an `A→B→A` deadlock (prime directive #1: the app owns the logic).
 
+A parent's **estimate and progress are likewise derived, not stored**
+(`services/tasks.compute_rollups`, folded into `TaskRead` the same way as
+`is_blocked`): with accepted subtasks present, `estimated_minutes` is the subtree
+sum (the parent's own estimate is ignored) and `workflow_status` rolls up (all
+done → done, all open → open, otherwise in-progress). Such a parent's status is
+read-only — a direct status write is refused with a `409`. Children flow the other
+way: a new subtask **seeds** its priority and due date from its parent as
+overridable defaults (create-time only; changing the parent later never clobbers
+existing children — same rule as project inheritance).
+
 ### The most important table
 
 ```

@@ -39,6 +39,14 @@ class TaskCycleError(ValueError):
     """
 
 
+class DerivedStatusError(ValueError):
+    """A status-changing write was attempted on a task whose status is derived.
+
+    A task with accepted subtasks rolls its progress up from them, so it can't be
+    marked open/in-progress/done directly. The caller surfaces a 409.
+    """
+
+
 def _default_project_id_for_status(
     db: Session, project_id: int | None, review_status: TaskReviewStatus
 ) -> int | None:
@@ -107,6 +115,112 @@ def list_subtasks(db: Session, parent_task_id: int) -> Sequence[Task]:
     )
 
 
+# --- Parent <- child roll-ups (Sprint VVV) ---------------------------------
+#
+# Derived, never stored (mirrors the ``is_blocked`` precedent): a parent's
+# estimate and progress summarize its accepted subtasks. Only accepted children
+# count — a pending AI breakdown (review_status="candidate") must not flip a
+# parent to read-only or pad its estimate before the user approves it.
+
+
+class Rollup:
+    """Derived parent values: estimate is the subtree sum, status is rolled up.
+
+    ``has_subtasks`` is true only when the task has at least one active, accepted
+    child; the route uses it both to override the read model and to gate writes.
+    """
+
+    __slots__ = ("estimated_minutes", "workflow_status", "has_subtasks")
+
+    def __init__(
+        self,
+        estimated_minutes: int | None,
+        workflow_status: TaskWorkflowStatus,
+        has_subtasks: bool,
+    ) -> None:
+        self.estimated_minutes = estimated_minutes
+        self.workflow_status = workflow_status
+        self.has_subtasks = has_subtasks
+
+
+def _rollup_status(child_statuses: Sequence[TaskWorkflowStatus]) -> TaskWorkflowStatus:
+    """All done -> done; all open -> open; anything mixed/in-progress -> in_progress."""
+    if all(s == TaskWorkflowStatus.done for s in child_statuses):
+        return TaskWorkflowStatus.done
+    if all(s == TaskWorkflowStatus.open for s in child_statuses):
+        return TaskWorkflowStatus.open
+    return TaskWorkflowStatus.in_progress
+
+
+def _children_map(db: Session) -> dict[int | None, list[Task]]:
+    """``parent_id -> children`` over all active, accepted tasks (one query)."""
+    rows = (
+        db.execute(
+            active(Task).where(Task.review_status == TaskReviewStatus.accepted)
+        )
+        .scalars()
+        .all()
+    )
+    by_parent: dict[int | None, list[Task]] = {}
+    for row in rows:
+        by_parent.setdefault(row.parent_task_id, []).append(row)
+    return by_parent
+
+
+def _resolve_rollup(
+    task: Task,
+    by_parent: dict[int | None, list[Task]],
+    memo: dict[int, Rollup],
+) -> Rollup:
+    cached = memo.get(task.id)
+    if cached is not None:
+        return cached
+    children = by_parent.get(task.id, [])
+    if not children:
+        # Leaf: its own stored values stand.
+        rollup = Rollup(task.estimated_minutes, task.workflow_status, False)
+        memo[task.id] = rollup
+        return rollup
+    child_rollups = [_resolve_rollup(c, by_parent, memo) for c in children]
+    minutes = [r.estimated_minutes for r in child_rollups if r.estimated_minutes]
+    total = sum(minutes) if minutes else None
+    status = _rollup_status([r.workflow_status for r in child_rollups])
+    rollup = Rollup(total, status, True)
+    memo[task.id] = rollup
+    return rollup
+
+
+def compute_rollups(db: Session, tasks: Sequence[Task]) -> dict[int, Rollup]:
+    """Derived roll-up per task id, resolved in a single query (no N+1)."""
+    by_parent = _children_map(db)
+    memo: dict[int, Rollup] = {}
+    return {t.id: _resolve_rollup(t, by_parent, memo) for t in tasks}
+
+
+def get_rollup(db: Session, task: Task) -> Rollup:
+    """Derived roll-up for a single task."""
+    return compute_rollups(db, [task])[task.id]
+
+
+def has_active_children(db: Session, task_id: int) -> bool:
+    """True if the task has at least one active, accepted subtask.
+
+    Such a task's status/estimate are derived and read-only, so status-changing
+    writes against it are rejected.
+    """
+    return (
+        db.execute(
+            active(Task)
+            .where(
+                Task.parent_task_id == task_id,
+                Task.review_status == TaskReviewStatus.accepted,
+            )
+            .limit(1)
+        ).first()
+        is not None
+    )
+
+
 def list_tasks(
     db: Session,
     project_id: int | None = None,
@@ -140,7 +254,7 @@ def create_task(
     description: str | None = None,
     review_status: TaskReviewStatus = TaskReviewStatus.accepted,
     workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open,
-    priority: TaskPriority = TaskPriority.medium,
+    priority: TaskPriority | None = None,
     due_date: date | None = None,
     inbox_item_id: int | None = None,
     confidence: float | None = None,
@@ -148,13 +262,22 @@ def create_task(
     parent_task_id: int | None = None,
     estimated_minutes: int | None = None,
 ) -> Task:
-    # Inherit project from parent on create only. Re-parenting an existing task
-    # does not silently move its project — the edit modal exposes an explicit
-    # Project field for that.
-    if parent_task_id is not None and project_id is None:
+    # Inherit from the parent on create only. Re-parenting an existing task does
+    # not silently move its project (the edit modal exposes an explicit Project
+    # field) nor restamp its priority/due date. ``priority``/``due_date`` left
+    # unset here seed from the parent as a starting value the caller can override;
+    # changing the parent later never clobbers an existing child (see the plan).
+    if parent_task_id is not None:
         parent = get_task(db, parent_task_id)
         if parent is not None:
-            project_id = parent.project_id
+            if project_id is None:
+                project_id = parent.project_id
+            if priority is None:
+                priority = parent.priority
+            if due_date is None:
+                due_date = parent.due_date
+    if priority is None:
+        priority = TaskPriority.medium
     project_id = _default_project_id_for_status(db, project_id, review_status)
     if parent_task_id is not None:
         _assert_no_parent_cycle(db, None, parent_task_id)
@@ -242,6 +365,17 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     if new_parent_id is not None:
         _assert_no_parent_cycle(db, task.id, new_parent_id)
 
+    # A parent's status is derived from its subtasks (read-only); reject a direct
+    # workflow-status change rather than silently dropping it.
+    if (
+        "workflow_status" in control
+        and control["workflow_status"] != task.workflow_status
+        and has_active_children(db, task.id)
+    ):
+        raise DerivedStatusError(
+            "This task's status is derived from its subtasks and can't be set directly"
+        )
+
     # Recurrence requires a due date. The schema can't enforce this (the task may
     # already carry one not present in this request), so re-check against the
     # post-patch view: an incoming due_date wins, else the task's existing one.
@@ -322,6 +456,10 @@ def mark_done(db: Session, task: Task) -> Task:
     # POST /tasks/{id}/done is the path the task lists/cards use, so completing a
     # recurring task here must spawn its next occurrence too. (This endpoint has no
     # skip flag — skipping is the detail page's PATCH path.)
+    if has_active_children(db, task.id):
+        raise DerivedStatusError(
+            "This task's status is derived from its subtasks and can't be set directly"
+        )
     becoming_done = task.workflow_status != TaskWorkflowStatus.done
     task.workflow_status = TaskWorkflowStatus.done
     task.project_id = _default_project_id_for_status(
@@ -402,6 +540,10 @@ def stop_recurrence(db: Session, task: Task) -> Task:
 
 
 def reopen_task(db: Session, task: Task) -> Task:
+    if has_active_children(db, task.id):
+        raise DerivedStatusError(
+            "This task's status is derived from its subtasks and can't be set directly"
+        )
     task.workflow_status = TaskWorkflowStatus.open
     db.flush()
     db.refresh(task)

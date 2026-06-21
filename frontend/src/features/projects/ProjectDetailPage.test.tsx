@@ -63,6 +63,7 @@ const task: Task = {
   created_at: '2026-06-01T00:00:00Z',
   updated_at: '2026-06-01T00:00:00Z',
   is_blocked: false,
+  has_subtasks: false,
 }
 
 const alias: ProjectAlias = {

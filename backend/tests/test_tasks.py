@@ -361,3 +361,193 @@ def test_assignee_hint_set_on_create_and_update(client: TestClient) -> None:
     cleared = client.patch(f"/api/tasks/{task_id}", json={"assignee_hint": None})
     assert cleared.status_code == 200
     assert cleared.json()["assignee_hint"] is None
+
+
+# --- Parent <- child roll-ups (Sprint VVV) ---------------------------------
+
+
+def _accepted_subtask(db: Session, parent_id: int, **kw: object) -> object:
+    return tasks_service.create_task(
+        db, project_id=None, parent_task_id=parent_id, **kw  # type: ignore[arg-type]
+    )
+
+
+def test_estimate_rolls_up_sum_of_children(db_session: Session) -> None:
+    parent = tasks_service.create_task(
+        db_session, project_id=None, title="parent", estimated_minutes=999
+    )
+    _accepted_subtask(db_session, parent.id, title="a", estimated_minutes=30)
+    _accepted_subtask(db_session, parent.id, title="b", estimated_minutes=45)
+    db_session.commit()
+
+    rollup = tasks_service.get_rollup(db_session, parent)
+    assert rollup.has_subtasks is True
+    # Sum of children only — the parent's own 999 is ignored.
+    assert rollup.estimated_minutes == 75
+
+
+def test_estimate_rolls_up_across_two_levels(db_session: Session) -> None:
+    parent = tasks_service.create_task(db_session, project_id=None, title="parent")
+    mid = _accepted_subtask(db_session, parent.id, title="mid", estimated_minutes=10)
+    _accepted_subtask(db_session, mid.id, title="leaf1", estimated_minutes=20)
+    _accepted_subtask(db_session, mid.id, title="leaf2", estimated_minutes=5)
+    db_session.commit()
+
+    # mid's own 10 is ignored (it has children); parent = 20 + 5.
+    assert tasks_service.get_rollup(db_session, mid).estimated_minutes == 25
+    assert tasks_service.get_rollup(db_session, parent).estimated_minutes == 25
+
+
+def test_estimate_none_when_no_subtree_estimates(db_session: Session) -> None:
+    parent = tasks_service.create_task(db_session, project_id=None, title="parent")
+    _accepted_subtask(db_session, parent.id, title="a")
+    _accepted_subtask(db_session, parent.id, title="b")
+    db_session.commit()
+
+    assert tasks_service.get_rollup(db_session, parent).estimated_minutes is None
+
+
+def test_leaf_rollup_keeps_own_values(db_session: Session) -> None:
+    task = tasks_service.create_task(
+        db_session, project_id=None, title="leaf", estimated_minutes=42
+    )
+    db_session.commit()
+    rollup = tasks_service.get_rollup(db_session, task)
+    assert rollup.has_subtasks is False
+    assert rollup.estimated_minutes == 42
+    assert rollup.workflow_status == TaskWorkflowStatus.open
+
+
+@pytest.mark.parametrize(
+    ("child_statuses", "expected"),
+    [
+        ([TaskWorkflowStatus.open, TaskWorkflowStatus.open], TaskWorkflowStatus.open),
+        ([TaskWorkflowStatus.done, TaskWorkflowStatus.done], TaskWorkflowStatus.done),
+        (
+            [TaskWorkflowStatus.open, TaskWorkflowStatus.in_progress],
+            TaskWorkflowStatus.in_progress,
+        ),
+        (
+            [TaskWorkflowStatus.open, TaskWorkflowStatus.done],
+            TaskWorkflowStatus.in_progress,
+        ),
+    ],
+)
+def test_status_rolls_up(
+    db_session: Session,
+    child_statuses: list[TaskWorkflowStatus],
+    expected: TaskWorkflowStatus,
+) -> None:
+    parent = tasks_service.create_task(db_session, project_id=None, title="parent")
+    for i, status in enumerate(child_statuses):
+        _accepted_subtask(
+            db_session, parent.id, title=f"c{i}", workflow_status=status
+        )
+    db_session.commit()
+    assert tasks_service.get_rollup(db_session, parent).workflow_status == expected
+
+
+def test_candidate_children_do_not_count(db_session: Session) -> None:
+    parent = tasks_service.create_task(db_session, project_id=None, title="parent")
+    tasks_service.create_task(
+        db_session,
+        project_id=None,
+        parent_task_id=parent.id,
+        title="suggested",
+        review_status=TaskReviewStatus.candidate,
+        estimated_minutes=99,
+    )
+    db_session.commit()
+    rollup = tasks_service.get_rollup(db_session, parent)
+    assert rollup.has_subtasks is False
+    assert rollup.estimated_minutes is None
+
+
+def test_subtask_inherits_priority_and_due_date(db_session: Session) -> None:
+    from datetime import date
+
+    parent = tasks_service.create_task(
+        db_session,
+        project_id=None,
+        title="parent",
+        priority=TaskPriority.high,
+        due_date=date(2026, 7, 1),
+    )
+    child = _accepted_subtask(db_session, parent.id, title="child")
+    db_session.commit()
+    assert child.priority == TaskPriority.high
+    assert child.due_date == date(2026, 7, 1)
+
+
+def test_subtask_explicit_values_override_inheritance(db_session: Session) -> None:
+    from datetime import date
+
+    parent = tasks_service.create_task(
+        db_session,
+        project_id=None,
+        title="parent",
+        priority=TaskPriority.high,
+        due_date=date(2026, 7, 1),
+    )
+    child = _accepted_subtask(
+        db_session,
+        parent.id,
+        title="child",
+        priority=TaskPriority.low,
+        due_date=date(2026, 6, 1),
+    )
+    db_session.commit()
+    assert child.priority == TaskPriority.low
+    assert child.due_date == date(2026, 6, 1)
+
+
+def test_parentless_task_defaults_to_medium(db_session: Session) -> None:
+    task = tasks_service.create_task(db_session, project_id=None, title="solo")
+    db_session.commit()
+    assert task.priority == TaskPriority.medium
+
+
+def test_changing_parent_does_not_clobber_children(db_session: Session) -> None:
+    parent = tasks_service.create_task(
+        db_session, project_id=None, title="parent", priority=TaskPriority.low
+    )
+    child = _accepted_subtask(
+        db_session, parent.id, title="child", priority=TaskPriority.urgent
+    )
+    db_session.commit()
+    tasks_service.update_task(db_session, parent, {"priority": TaskPriority.high})
+    db_session.commit()
+    db_session.refresh(child)
+    assert child.priority == TaskPriority.urgent
+
+
+def test_status_change_on_parent_rejected(client: TestClient) -> None:
+    parent_id = client.post("/api/tasks", json={"title": "parent"}).json()["id"]
+    client.post(
+        "/api/tasks", json={"title": "child", "parent_task_id": parent_id}
+    )
+
+    patched = client.patch(
+        f"/api/tasks/{parent_id}", json={"workflow_status": "done"}
+    )
+    assert patched.status_code == 409
+
+    done = client.post(f"/api/tasks/{parent_id}/done")
+    assert done.status_code == 409
+
+
+def test_parent_read_exposes_rolled_up_values(client: TestClient) -> None:
+    parent_id = client.post("/api/tasks", json={"title": "parent"}).json()["id"]
+    client.post(
+        "/api/tasks",
+        json={
+            "title": "child",
+            "parent_task_id": parent_id,
+            "estimated_minutes": 60,
+            "workflow_status": "in_progress",
+        },
+    )
+    body = client.get(f"/api/tasks/{parent_id}").json()
+    assert body["has_subtasks"] is True
+    assert body["estimated_minutes"] == 60
+    assert body["workflow_status"] == "in_progress"
