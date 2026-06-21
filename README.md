@@ -656,6 +656,23 @@ Sprint 12: [DONE] Recurring series management — see a whole recurrence series 
            stop clears repeat/keeps id/no respawn, 422 paths, HTTP happy-paths);
            Recurrence.test.tsx (lazy load + current/skipped marking, stop confirm).
            No schema/migration, no Alembic, no model call, no new dependency.
+Sprint 13: [DONE] AI subsystem quality — three cohesive AI-workflow polish items.
+           (1) Eval regression warning: the Settings → Evals trend now shows a red
+           "▼ regressed" pill when a suite's latest pass rate dropped below its
+           previous run (pure frontend over already-fetched eval_runs history; no
+           backend change). (2) Prompt snapshot on save: put_prompt copies the
+           current prompt to ai/prompts/.history/<name>.<UTC-timestamp>.md before
+           overwriting (microsecond precision so same-second saves don't collide;
+           .history/ is gitignored and excluded from list_prompts' *.md glob), so a
+           score drop after an edit can be diffed/reverted manually. (3) Training
+           corpus QA filters: list_examples gained a status filter mirroring the
+           frontend 3-way taxonomy (corrected / accepted / failure) + a model_profile
+           filter (replacing the old accepted-bool param), and /stats now returns the
+           distinct sorted profiles list; the Training page status dropdown is now
+           3-way and a Profile dropdown was added. Tests: training filter/stats +
+           prompt-snapshot pytest; ruff/mypy/tsc green. Also retired a dead backlog
+           item (inbox summary as note title — already shipped). No schema/migration,
+           no Alembic, no model call, no new dependency.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

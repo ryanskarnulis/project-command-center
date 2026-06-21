@@ -4,7 +4,7 @@ import { Check, Copy, GraduationCap, Search, SlidersHorizontal, Trash2 } from 'l
 import { useTraining } from './useTraining'
 import { diffLines } from './diff'
 import { formatRelative } from '../../utils/dates'
-import type { TrainingExample } from '../../types/training'
+import type { TrainingExample, TrainingStatus } from '../../types/training'
 
 /** Pretty-print a JSON string; fall back to the raw text if it isn't valid JSON
  *  (the extraction failure path stores raw, possibly-invalid model output). */
@@ -206,7 +206,8 @@ export function TrainingPage() {
     stats && stats.total > 0 ? Math.round((stats.accepted / stats.total) * 100) : 0
   const filtered =
     filters.task_name !== undefined ||
-    filters.accepted !== undefined ||
+    filters.status !== undefined ||
+    filters.model_profile !== undefined ||
     (filters.search ?? '') !== ''
 
   function clearFilters() {
@@ -316,18 +317,36 @@ export function TrainingPage() {
             <span>Status</span>
             <select
               aria-label="Filter by status"
-              value={filters.accepted === undefined ? '' : String(filters.accepted)}
+              value={filters.status ?? ''}
               onChange={(e) =>
                 setFilters({
                   ...filters,
-                  accepted:
-                    e.target.value === '' ? undefined : e.target.value === 'true',
+                  status: (e.target.value || undefined) as TrainingStatus | undefined,
                 })
               }
             >
               <option value="">All</option>
-              <option value="true">accepted</option>
-              <option value="false">rejected</option>
+              <option value="corrected">corrected</option>
+              <option value="accepted">accepted</option>
+              <option value="failure">extraction failure</option>
+            </select>
+          </label>
+          <label>
+            <span>Profile</span>
+            <select
+              aria-label="Filter by model profile"
+              value={filters.model_profile ?? ''}
+              onChange={(e) =>
+                setFilters({ ...filters, model_profile: e.target.value || undefined })
+              }
+            >
+              <option value="">All</option>
+              {stats &&
+                stats.profiles.map((profile) => (
+                  <option key={profile} value={profile}>
+                    {profile}
+                  </option>
+                ))}
             </select>
           </label>
         </div>

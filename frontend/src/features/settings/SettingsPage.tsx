@@ -346,6 +346,11 @@ function EvalTrend({ runs }: { runs: EvalRunRecord[] }) {
 
   const ordered = [...runs].reverse()
   const latest = runs[0]
+  // Compare the latest run against the immediately previous one for the same
+  // suite (runs arrive newest-first): a drop flags a prompt/profile edit that
+  // hurt this suite, so it can be caught before it lands in the corpus.
+  const previous = runs[1]
+  const regressed = previous !== undefined && passRate(latest) < passRate(previous)
 
   return (
     <div className="eval-trend">
@@ -365,6 +370,14 @@ function EvalTrend({ runs }: { runs: EvalRunRecord[] }) {
       <span className="eval-trend-summary">
         {Math.round(passRate(latest) * 100)}% · {runs.length} run{runs.length === 1 ? '' : 's'}
       </span>
+      {regressed && (
+        <span
+          className="status-pill tone-red"
+          title={`Down from ${Math.round(passRate(previous) * 100)}% on the previous run`}
+        >
+          ▼ regressed
+        </span>
+      )}
     </div>
   )
 }

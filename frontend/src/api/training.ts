@@ -21,7 +21,8 @@ export async function listTrainingExamples(
 ): Promise<TrainingExample[]> {
   const params = new URLSearchParams()
   if (filters.task_name) params.set('task_name', filters.task_name)
-  if (filters.accepted !== undefined) params.set('accepted', String(filters.accepted))
+  if (filters.status) params.set('status', filters.status)
+  if (filters.model_profile) params.set('model_profile', filters.model_profile)
   if (filters.search) params.set('search', filters.search)
   params.set('limit', String(limit))
   params.set('offset', String(offset))

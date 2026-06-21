@@ -35,6 +35,7 @@ class TrainingStatsRead(BaseModel):
     total: int
     accepted: int
     by_task: dict[str, TaskStat]
+    profiles: list[str] = []
     goal: int = FINE_TUNE_GOAL
 
     @computed_field  # type: ignore[prop-decorator]

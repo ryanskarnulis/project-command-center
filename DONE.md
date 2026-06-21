@@ -745,3 +745,42 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
       `ProjectDetailPage.test.tsx` expectations fixed; provider hooks split out of
       component files for Fast Refresh; effect-driven loading/draft resets refactored
       to satisfy the React 19 hooks lint rules. No schema, backend, or dependency change.
+
+---
+
+## Sprint 13 — AI Subsystem Quality
+
+Three cohesive AI-workflow polish items; no schema/migration, no Alembic, no model
+call, no new dependency.
+
+### Eval regression warning (frontend-only)
+- [x] `SettingsPage.tsx` `EvalTrend` — compares the latest run against the previous
+      one for the same suite (`runs[0]` vs `runs[1]`, already fetched newest-first) and
+      renders a red `status-pill tone-red` "▼ regressed" badge with a "down from N%"
+      title when the pass rate dropped. No backend change.
+
+### Prompt snapshot on save (backend)
+- [x] `services/settings.py` `put_prompt` — `_snapshot_prompt` copies the current
+      on-disk prompt to `ai/prompts/.history/<name>.<UTC-timestamp>.md` (microsecond
+      precision so same-second saves don't collide) before overwriting; logs
+      `prompt_snapshot_saved`. `.history/` is gitignored and not matched by
+      `list_prompts`' top-level `*.md` glob. No new route.
+
+### Training corpus QA filters (backend + frontend)
+- [x] `services/training_data.py` — `list_examples` replaced the `accepted` bool param
+      with a `status` Literal (corrected / accepted / failure) mirroring the frontend
+      `statusOf` taxonomy + added a `model_profile` filter; `example_stats` now also
+      returns the distinct sorted `profiles` list.
+- [x] `routes_training.py` + `schemas/training.py` — `status`/`model_profile` query
+      params (validated Literal); `TrainingStatsRead.profiles`.
+- [x] `types/training.ts` / `api/training.ts` / `TrainingPage.tsx` — 3-way Status
+      dropdown + new Profile dropdown (from `stats.profiles`); `filtered`/`clearFilters`
+      updated.
+
+### Cleanup
+- [x] Retired dead backlog item "Surface AI inbox summary as note title" — already
+      live (`InboxPage` renders `item.summary ?? item.raw_text`).
+
+### Verification
+- [x] `pytest` green (new training filter/stats + prompt-snapshot tests);
+      `ruff`/`mypy --strict` clean on changed backend modules; `tsc --noEmit` clean.

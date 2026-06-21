@@ -109,14 +109,15 @@ promoted — pick the next strongest themed group from the backlog below when re
 
 ### AI Improvements
 
-- [ ] **Eval regression warning** — after each eval run, compare the new pass rate for
-      each suite against the previous run stored in `eval_runs`; surface a red warning
-      badge in the Settings Evals section if any suite regressed. Frontend-only; uses the
-      existing eval run history endpoint.
-- [ ] **Prompt snapshot on save** — when a prompt file is saved via the Settings UI, write
-      a timestamped copy to `ai/prompts/.history/<name>.<timestamp>.md` before overwriting.
-      Lets you diff before/after a score drop and revert manually. Backend change in the
-      prompt-save route; no schema/migration.
+- [x] **Eval regression warning** — shipped (README Sprint 13). `EvalTrend` in the
+      Settings Evals section shows a red "▼ regressed" pill when a suite's latest pass
+      rate drops below its previous run. Pure frontend over the already-fetched
+      `eval_runs` history (compare `runs[0]` vs `runs[1]`); no backend change.
+- [x] **Prompt snapshot on save** — shipped (README Sprint 13). `put_prompt`
+      (`services/settings.py`) copies the current prompt to
+      `ai/prompts/.history/<name>.<UTC-timestamp>.md` (microsecond precision) before
+      overwriting. `.history/` is gitignored and excluded from `list_prompts`. No new
+      route, no schema/migration.
 - [x] **AI "break this down"** — shipped (README Sprint 10a / DONE.md). Per-task
       `POST /api/tasks/{id}/break-down` runs a new `break_down_task` workflow (gateway →
       Pydantic `BreakdownOutput` → candidate children via `create_task(parent_task_id=...)`),
@@ -125,14 +126,15 @@ promoted — pick the next strongest themed group from the backlog below when re
       suite (6/6 on gemma4:e2b). One nullable `tasks.breakdown_output_json` column +
       migration (needed to hold the original output between generate- and review-time for
       directive #4 — the backlog's "no new schema" hope was not achievable).
-- [ ] **Surface AI inbox summary as note title** — the extraction response already returns
-      a `summary` field (stored on `inbox_items.summary`); use it as the display title in
-      the inbox list instead of truncating raw text. Frontend-only change; no
-      backend/schema work.
-- [ ] **Training corpus QA filters** — the Training page computes corrected / accepted /
-      extraction-failure status, but the filter only exposes accepted vs rejected. Add
-      derived status, model/profile, and "corrected only" filters before the custom-model
-      export phase so corpus cleanup is easier.
+- [x] **Surface AI inbox summary as note title** — already shipped (no sprint of its
+      own); `InboxPage` already renders `item.summary ?? item.raw_text` in both the list
+      and detail views. Retired as a dead backlog entry in Sprint 13.
+- [x] **Training corpus QA filters** — shipped (README Sprint 13). `list_examples`
+      gained a `status` filter mirroring the frontend 3-way taxonomy
+      (corrected / accepted / failure) + a `model_profile` filter (replacing the old
+      accepted-bool param); `/stats` now returns the distinct sorted `profiles` list.
+      Training page Status dropdown is now 3-way and a Profile dropdown was added.
+      Backend pytest added; no schema/migration.
 
 ### Discord (follow-ups)
 

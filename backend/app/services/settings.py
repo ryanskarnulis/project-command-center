@@ -8,6 +8,7 @@ each suite's ``run()`` synchronously (single-user local app — no Celery).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -159,10 +160,29 @@ def get_prompt(name: str) -> PromptRead:
 
 
 def put_prompt(name: str, text: str) -> PromptRead:
-    path = _prompt_path(name)
+    path = _prompt_path(name)  # also guards against traversal in ``name``
+    _snapshot_prompt(name, path)
     path.write_text(text)
     logger.info("prompt_updated", prompt=name, chars=len(text))
     return PromptRead(name=name, text=text)
+
+
+def _snapshot_prompt(name: str, path: Path) -> None:
+    """Copy the current prompt content to ``.history/`` before it's overwritten.
+
+    Lets a score drop after a prompt edit be diffed against the previous version
+    and reverted manually. ``_prompt_path`` guarantees the file already exists, so
+    there is always content to snapshot. The timestamp is filesystem-safe (no
+    colons) so the snapshot reads back as a normal file on every platform; the
+    ``.history`` subdirectory is not matched by ``list_prompts``' ``*.md`` glob.
+    """
+    history_dir = gateway._PROMPTS_DIR / ".history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    # Microsecond precision so two saves in the same second don't collide.
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S_%f")
+    snapshot = history_dir / f"{name}.{timestamp}.md"
+    snapshot.write_text(path.read_text())
+    logger.info("prompt_snapshot_saved", prompt=name, snapshot=str(snapshot))
 
 
 # --- Provider introspection -------------------------------------------------

@@ -192,6 +192,26 @@ class TestPrompts:
         assert got.json()["text"] == "new body\n"
         assert (isolated_prompts / "extract_tasks.md").read_text() == "new body\n"
 
+    def test_put_prompt_snapshots_previous_content(
+        self, client: TestClient, isolated_prompts: Path
+    ) -> None:
+        # First save snapshots the seeded "original prompt\n"; second save
+        # snapshots "v2\n". The live file always holds the newest content.
+        client.put("/api/settings/prompts/extract_tasks.md", json={"text": "v2\n"})
+        client.put("/api/settings/prompts/extract_tasks.md", json={"text": "v3\n"})
+        assert (isolated_prompts / "extract_tasks.md").read_text() == "v3\n"
+
+        history = isolated_prompts / ".history"
+        snapshots = sorted(history.glob("extract_tasks.md.*.md"))
+        assert len(snapshots) == 2
+        saved = {s.read_text() for s in snapshots}
+        assert saved == {"original prompt\n", "v2\n"}
+
+        # Snapshots in .history/ don't leak into the prompt list (it globs *.md
+        # at the top level only).
+        names = {p["name"] for p in client.get("/api/settings/prompts").json()}
+        assert names == {"extract_tasks.md"}
+
     def test_get_unknown_prompt_404(
         self, client: TestClient, isolated_prompts: Path
     ) -> None:

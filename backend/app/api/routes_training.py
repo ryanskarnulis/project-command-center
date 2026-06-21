@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -21,7 +22,7 @@ router = APIRouter(prefix="/training-examples", tags=["training"])
 @router.get("/stats", response_model=TrainingStatsRead)
 def get_stats(db: Session = Depends(get_db)) -> TrainingStatsRead:
     """Corpus totals + per-task breakdown + progress toward the fine-tune goal."""
-    total, accepted, by_task = training_data.example_stats(db)
+    total, accepted, by_task, profiles = training_data.example_stats(db)
     return TrainingStatsRead(
         total=total,
         accepted=accepted,
@@ -29,27 +30,32 @@ def get_stats(db: Session = Depends(get_db)) -> TrainingStatsRead:
             task: TaskStat(count=stat["count"], accepted=stat["accepted"])
             for task, stat in by_task.items()
         },
+        profiles=profiles,
     )
 
 
 @router.get("", response_model=list[TrainingExampleRead])
 def list_examples(
     task_name: str | None = Query(default=None),
-    accepted: bool | None = Query(default=None),
+    status: Literal["corrected", "accepted", "failure"] | None = Query(default=None),
+    model_profile: str | None = Query(default=None),
     search: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> Sequence[AITrainingExample]:
-    """Training examples, newest-first, with optional task/accepted/search filters.
+    """Training examples, newest-first, with optional filters.
 
-    ``search`` matches a case-insensitive substring against the input text or the
-    model output JSON (server-side, so it stays correct under pagination).
+    ``status`` is the three-way taxonomy (corrected / accepted / failure);
+    ``model_profile`` filters to one profile. ``search`` matches a case-insensitive
+    substring against the input text or the model output JSON (server-side, so it
+    stays correct under pagination).
     """
     return training_data.list_examples(
         db,
         task_name=task_name,
-        accepted=accepted,
+        status=status,
+        model_profile=model_profile,
         search=search,
         limit=limit,
         offset=offset,

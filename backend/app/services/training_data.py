@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Literal
 
 import structlog
 from sqlalchemy import func, or_, select
@@ -55,11 +56,15 @@ def record_example(
     return example
 
 
+TrainingStatus = Literal["corrected", "accepted", "failure"]
+
+
 def list_examples(
     db: Session,
     *,
     task_name: str | None = None,
-    accepted: bool | None = None,
+    status: TrainingStatus | None = None,
+    model_profile: str | None = None,
     search: str | None = None,
     limit: int = 50,
     offset: int = 0,
@@ -70,6 +75,10 @@ def list_examples(
     never hard-deleted — but a soft-deleted row should not count toward the
     fine-tuning corpus or show in the viewer).
 
+    ``status`` mirrors the frontend's three-way taxonomy (a correction outranks
+    the accepted flag): ``corrected`` = has a correction; ``accepted`` = accepted
+    with no correction; ``failure`` = neither (an extraction/validation failure).
+
     ``search`` is a case-insensitive substring match over ``input_text`` and
     ``model_output_json``. It runs server-side (not over the loaded page) so it
     stays correct under pagination. Substring semantics only — a ``%`` or ``_``
@@ -79,8 +88,20 @@ def list_examples(
     stmt = active(AITrainingExample)
     if task_name is not None:
         stmt = stmt.where(AITrainingExample.task_name == task_name)
-    if accepted is not None:
-        stmt = stmt.where(AITrainingExample.accepted == accepted)
+    if model_profile is not None:
+        stmt = stmt.where(AITrainingExample.model_profile == model_profile)
+    if status == "corrected":
+        stmt = stmt.where(AITrainingExample.corrected_output_json.is_not(None))
+    elif status == "accepted":
+        stmt = stmt.where(
+            AITrainingExample.accepted.is_(True),
+            AITrainingExample.corrected_output_json.is_(None),
+        )
+    elif status == "failure":
+        stmt = stmt.where(
+            AITrainingExample.accepted.is_(False),
+            AITrainingExample.corrected_output_json.is_(None),
+        )
     if search is not None and search.strip():
         term = f"%{search.strip()}%"
         stmt = stmt.where(
@@ -93,18 +114,22 @@ def list_examples(
             "training_examples_searched",
             term=search.strip(),
             task_name=task_name,
-            accepted=accepted,
+            status=status,
         )
     stmt = stmt.order_by(AITrainingExample.id.desc()).limit(limit).offset(offset)
     return db.execute(stmt).scalars().all()
 
 
-def example_stats(db: Session) -> tuple[int, int, dict[str, dict[str, int]]]:
-    """Return (total, accepted, by_task) over active training examples.
+def example_stats(
+    db: Session,
+) -> tuple[int, int, dict[str, dict[str, int]], list[str]]:
+    """Return (total, accepted, by_task, profiles) over active training examples.
 
     ``by_task`` maps ``task_name -> {"count": N, "accepted": M}`` via a single
     ``GROUP BY`` query, mirroring the dashboard's grouped-aggregate approach. The
-    inner dict is coerced to ``TaskStat`` at the schema boundary.
+    inner dict is coerced to ``TaskStat`` at the schema boundary. ``profiles`` is
+    the distinct, sorted list of ``model_profile`` values, used to populate the
+    Training page's profile filter dropdown.
     """
     rows = db.execute(
         select(
@@ -123,7 +148,18 @@ def example_stats(db: Session) -> tuple[int, int, dict[str, dict[str, int]]]:
         by_task[task_name] = {"count": int(count), "accepted": int(accepted_count)}
         total += int(count)
         accepted += int(accepted_count)
-    return total, accepted, by_task
+
+    profiles = list(
+        db.execute(
+            select(AITrainingExample.model_profile)
+            .where(AITrainingExample.deleted_at.is_(None))
+            .distinct()
+            .order_by(AITrainingExample.model_profile)
+        )
+        .scalars()
+        .all()
+    )
+    return total, accepted, by_task, profiles
 
 
 # --- Trash / restore / purge -----------------------------------------------

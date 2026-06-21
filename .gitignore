@@ -19,6 +19,7 @@ dist/
 
 # AI runtime overrides (written by the Settings UI; never committed)
 backend/app/ai/profiles.local.yaml
+backend/app/ai/prompts/.history/
 
 # Database & backups
 data/app.db

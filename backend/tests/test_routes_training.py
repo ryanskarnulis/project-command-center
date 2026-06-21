@@ -79,18 +79,59 @@ def test_list_returns_full_triples(client: TestClient, db_session: Session) -> N
     assert {"input_text", "model_output_json", "corrected_output_json"} <= first.keys()
 
 
-def test_list_filters_by_task_and_accepted(
-    client: TestClient, db_session: Session
-) -> None:
+def test_list_filters_by_task(client: TestClient, db_session: Session) -> None:
     _seed(db_session)
 
     by_task = client.get("/api/training-examples?task_name=task_extraction").json()
     assert len(by_task) == 2
     assert all(r["task_name"] == "task_extraction" for r in by_task)
 
-    accepted = client.get("/api/training-examples?accepted=true").json()
-    assert len(accepted) == 2
-    assert all(r["accepted"] for r in accepted)
+
+def test_list_filters_by_status(client: TestClient, db_session: Session) -> None:
+    _seed(db_session)
+    # Seed rows map to one of each status: the accepted-with-correction row is
+    # "corrected" (a correction outranks the accepted flag), the accepted row
+    # with no correction is "accepted", and the un-accepted row is "failure".
+    corrected = client.get("/api/training-examples?status=corrected").json()
+    assert [r["input_text"] for r in corrected] == ["finish firewall cleanup by Friday"]
+
+    accepted = client.get("/api/training-examples?status=accepted").json()
+    assert [r["task_name"] for r in accepted] == ["project_matching"]
+
+    failure = client.get("/api/training-examples?status=failure").json()
+    assert [r["input_text"] for r in failure] == ["random note"]
+
+
+def test_list_filters_by_model_profile_and_composes_with_status(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed(db_session)
+
+    by_profile = client.get(
+        "/api/training-examples?model_profile=task_extraction"
+    ).json()
+    assert len(by_profile) == 2
+    assert all(r["model_profile"] == "task_extraction" for r in by_profile)
+
+    # Filters compose: task_extraction profile + failure status → only "random note".
+    composed = client.get(
+        "/api/training-examples?model_profile=task_extraction&status=failure"
+    ).json()
+    assert [r["input_text"] for r in composed] == ["random note"]
+
+
+def test_list_rejects_unknown_status(client: TestClient, db_session: Session) -> None:
+    _seed(db_session)
+    assert client.get("/api/training-examples?status=bogus").status_code == 422
+
+
+def test_stats_returns_distinct_profiles(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed(db_session)
+    body = client.get("/api/training-examples/stats").json()
+    # Sorted, distinct, soft-deleted excluded.
+    assert body["profiles"] == ["project_matching", "task_extraction"]
 
 
 def test_list_filters_by_search(client: TestClient, db_session: Session) -> None:

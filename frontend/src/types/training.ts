@@ -20,12 +20,16 @@ export interface TrainingStats {
   total: number
   accepted: number
   by_task: Record<string, TaskStat>
+  profiles: string[]
   goal: number
   remaining: number
 }
 
+export type TrainingStatus = 'corrected' | 'accepted' | 'failure'
+
 export interface TrainingFilters {
   task_name?: string
-  accepted?: boolean
+  status?: TrainingStatus
+  model_profile?: string
   search?: string
 }
