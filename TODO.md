@@ -11,10 +11,9 @@ until promoted.
 
 ## Next sprint (proposed): pick from backlog
 
-The previous "UX Foundation + Global Search" sprint shipped (DONE.md Sprint 9j). The
-strongest queued candidate is the **Today / daily schedule** view (see below) — a
-daily-use surface that leverages the estimate + dependency data already built. Promote
-it here when ready, or pick another themed group below.
+The "Today / daily schedule" view shipped (README Sprint 9k / CURRENT.md). No slice is
+currently promoted — pick the next strongest themed group from the backlog below when
+ready. Candidates: command-bar slash actions, task notes, or recurring task stubs.
 
 ---
 
@@ -36,14 +35,15 @@ it here when ready, or pick another themed group below.
 
 ### Today / Daily Schedule
 
-- [ ] **AI-generated daily schedule** — a `/today` route (or dashboard section) that does
-      more than filter due-today tasks: builds a prioritized schedule for the day using
-      open tasks, their estimates, priorities, and due dates, filling idle time even when
-      nothing is formally due. Initial version: pure Python scheduling logic (no model
-      call) that bins tasks into time blocks and surfaces them in order. Future slices:
-      (1) AI reordering with a brief "why this order" rationale, (2) calendar integration
-      to schedule around meetings once calendar sync is unblocked (currently on the README
-      "do not build" list — revisit when ready).
+- [x] **Deterministic daily schedule** — shipped (README Sprint 9k). `/today` route +
+      `GET /api/today`: pure Python scheduler bins accepted, not-done tasks into sequential
+      time blocks ranked by in-progress→open / due urgency / priority, surfaces overflow
+      and blocked tasks separately, and fills idle time even when nothing is formally due.
+- [ ] **AI reordering with a "why this order" rationale** — future slice on top of the
+      deterministic plan: send the ranked plan through `ai/gateway.py` for an optional
+      reorder + brief rationale, still guarded by the Python scheduler (suggestions only).
+- [ ] **Calendar-aware scheduling** — schedule around meetings once calendar sync is
+      unblocked (currently on the README "do not build" list — revisit when ready).
 
 ### Task Comments / Notes
 

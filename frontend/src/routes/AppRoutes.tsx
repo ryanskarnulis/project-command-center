@@ -6,6 +6,7 @@ import { ProjectsPage } from '../features/projects/ProjectsPage'
 import { SettingsPage } from '../features/settings/SettingsPage'
 import { TaskDetailPage } from '../features/tasks/TaskDetailPage'
 import { TasksPage } from '../features/tasks/TasksPage'
+import { TodayPage } from '../features/today/TodayPage'
 import { TrainingPage } from '../features/training/TrainingPage'
 import { TrashPage } from '../features/trash/TrashPage'
 
@@ -14,6 +15,7 @@ export function AppRoutes() {
     <Routes>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="/dashboard" element={<DashboardPage />} />
+      <Route path="/today" element={<TodayPage />} />
       <Route path="/inbox" element={<InboxPage />} />
       <Route path="/inbox/:inboxId" element={<InboxPage />} />
       <Route path="/tasks" element={<TasksPage />} />

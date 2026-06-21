@@ -18,6 +18,7 @@ from app.api import (
     routes_settings,
     routes_task_dependencies,
     routes_tasks,
+    routes_today,
     routes_training,
     routes_trash,
 )
@@ -37,6 +38,7 @@ api_router.include_router(routes_settings.router)
 api_router.include_router(routes_training.router)
 api_router.include_router(routes_trash.router)
 api_router.include_router(routes_search.router)
+api_router.include_router(routes_today.router)
 
 
 @asynccontextmanager

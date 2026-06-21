@@ -105,10 +105,7 @@ function DueSoonFocusCard({
   overdueCount: number
 }) {
   return (
-    <Link
-      to="/tasks?overdue=1&dueSoon=1&sort=due_date"
-      className="metric-card focus-due-card"
-    >
+    <Link to="/today" className="metric-card focus-due-card">
       <div className="metric-icon tone-green">
         <ListChecks size={26} aria-hidden="true" />
       </div>

@@ -501,6 +501,18 @@ Sprint 9j: [DONE] UX foundation + global search. Foundation: shared primitives i
            Card/Badge/AsyncState, keyboard nav, click-through (task→/tasks/:id,
            project→/projects/:id, inbox→/inbox/:id). Input kept generic for future
            /done, /new, and AI chat. New search + CommandSearch tests; pytest green.
+Sprint 9k: [DONE] Today / daily schedule — a deterministic /today view that turns
+           accepted, not-done tasks into a plan for the day. Pure Python scheduler
+           (services/today.py): ranks by in-progress→open, due urgency, priority,
+           then shorter-as-tiebreaker; packs sequential blocks until capacity is
+           exhausted; surfaces overflow in ranked order and blocked tasks (unfinished
+           dependency) separately, never scheduled. GET /api/today with date/
+           start_time/available_minutes, validated at the boundary. Frontend /today
+           page (timeline + overflow + blocked + empty states) reached from the
+           dashboard "Today's Tasks / Due Soon" tile; not added to the sidebar.
+           Missing estimates default to 30 min, labelled "assumed". New backend
+           today + route tests and a TodayPage test; pytest green. No model call,
+           no schema change, no Alembic, no new dependency.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 Sprint 11 (backlog): AI "break this down" — a per-task action that sends the
