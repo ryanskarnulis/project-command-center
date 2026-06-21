@@ -53,6 +53,8 @@ const trash: Trash = {
       inbox_item_id: null,
       parent_task_id: null,
       estimated_minutes: null,
+      repeat_interval: null,
+      recurrence_id: null,
       is_blocked: false,
       title: 'Pay invoice',
       description: null,

@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react'
+import { Repeat } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Badge } from '../../components/Badge'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { dueStatus, formatDueDate } from '../../utils/dates'
 import { formatDuration } from '../../utils/duration'
+import { formatRepeatInterval } from '../../utils/recurrence'
 
 interface Props {
   task: Task
@@ -38,6 +40,12 @@ export function TaskCard({ task, projects, actions }: Props) {
           )}
           {task.estimated_minutes !== null && (
             <Badge tone="neutral">~{formatDuration(task.estimated_minutes)}</Badge>
+          )}
+          {task.repeat_interval && (
+            <Badge tone="purple" className="repeat-badge">
+              <Repeat size={12} aria-hidden="true" />
+              {formatRepeatInterval(task.repeat_interval)}
+            </Badge>
           )}
           {task.review_status === 'candidate' && task.confidence !== null && (
             <Badge tone="neutral">conf {task.confidence.toFixed(2)}</Badge>

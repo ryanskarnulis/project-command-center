@@ -1,252 +1,315 @@
 # Current Sprint
 
-## Next Sprint — Today / Daily Schedule
+## Next Sprint — Recurring Task Stubs
 
-Build a daily-use `/today` surface that turns the existing task data into a
-practical plan for the day. This is the strongest next sprint from `TODO.md`
-because it uses features already shipped — due dates, priorities, workflow
-status, estimates, and dependency-derived blocking — without crossing into the
-README's "do not build yet" list.
+Add optional recurrence to tasks so that when a recurring task is marked
+done, the next occurrence is automatically created with the due date
+advanced by the configured interval.
 
-**Decision:** Defer README Sprint 10 (`ai_training_examples` export →
-Unsloth fine-tune → llama.cpp swap) until the training corpus reaches the
-200-example gate. This sprint promotes the TODO "Today / Daily Schedule" backlog
-item instead.
+**Scope guard:** pure Python service layer, no AI involvement, no calendar
+sync. Each recurrence is an independent task row. The repeat field uses the
+same natural-text input pattern as `estimated_minutes`. A `recurrence_id`
+UUID chains the series so "edit all future" and "skip" can target the right
+rows. No `/today` scheduler changes in v1.
 
-**Scope guard:** initial scheduler is pure Python, no model call. No calendar
-sync, no external calendar integration, no custom model work, no autonomous
-planning, no schema changes, and no Alembic migration. The app owns the logic:
-the schedule is deterministic, explainable, and guarded by existing task state.
+---
 
-**UI entry point:** do not add Today to the sidebar. The schedule opens from the
-existing dashboard "Today's Tasks / Due Soon" focus tile. Clicking the tile's
-"View due work" action (and optionally the tile body if that fits the existing
-card pattern) navigates to `/today`.
+### Design decisions (settled before planning)
 
-### Product goal
+**Interval format**
+Natural text input mirroring the estimate field: `daily`, `weekly`,
+`every 2 weeks` … `every 12 weeks`, `monthly`, `every 2 months` …
+`every 12 months`. Stored as a JSON column `repeat_interval` on `tasks`:
+`{ "unit": "day" | "week" | "month", "every": 1–12 }`. JSON avoids integer
+drift on month math. `null` means non-recurring.
 
-The user opens `/today` and sees:
+**Due date inheritance**
+Next occurrence inherits the *original* due date offset — e.g. a weekly
+task due Monday always lands on the next Monday, regardless of when the
+user actually marks it done.
 
-- A prioritized timeline of work blocks for the selected day.
-- Overdue and due-today work pulled forward automatically.
-- High-priority and in-progress tasks used to fill available capacity when
-  nothing is formally due.
-- Blocked tasks called out separately instead of being scheduled.
-- Unscheduled overflow shown honestly when the day is full.
+**Require due date**
+`repeat_interval` is only valid when `due_date` is set. The backend rejects
+a `repeat_interval` with no `due_date` (422). The UI disables the repeat
+field when due date is blank and shows a tooltip explaining why.
 
-### Scheduling rules for v1
+**Skip mechanism**
+"Skip this occurrence" button on `TaskDetailPage`. Marks the current task
+`workflow_status=done` but passes a `skip_recurrence=true` flag to the
+complete endpoint, suppressing next-occurrence creation.
 
-- Source tasks: active, accepted tasks with `workflow_status != done`.
-- Exclude from timeline: tasks where derived `is_blocked` is true.
-- Still surface blocked tasks in a separate "Blocked" section.
-- Default unsized tasks to 30 planning minutes, but label that estimate as
-  assumed so the UI does not pretend it came from the task.
-- Score tasks deterministically:
-  - `in_progress` before `open`
-  - overdue before due today
-  - due soon before no due date
-  - priority order: urgent, high, medium, low
-  - shorter tasks win only as a tie-breaker when the day has limited room
-- Build sequential blocks from the requested start time until available minutes
-  are exhausted.
-- Return overflow tasks in ranked order, not silently hidden.
+**`recurrence_id`**
+A `UUID` column on `tasks`, nullable. Set on the first task in the series
+when `repeat_interval` is first saved, and copied to every auto-created
+occurrence. Allows "edit all future" to `UPDATE tasks SET ... WHERE
+recurrence_id = ? AND due_date >= ?` and "skip" to work without a separate
+join table.
+
+**Edit scope**
+- Editing `repeat_interval`, `title`, `description`, `priority`, or
+  `estimated_minutes` on a recurring task offers a choice: **This task
+  only** or **This and all future occurrences**.
+- "All future" patches rows with the same `recurrence_id` and
+  `due_date >= this task's due_date` (already-done occurrences are left
+  alone).
+- For `due_date` edits, only "this task" makes sense (each occurrence has
+  its own date). The UI skips the prompt for due-date-only edits.
+
+**New occurrence on completion**
+When `workflow_status` is set to `done` on a task with a non-null
+`repeat_interval` (and `skip_recurrence` is not set), `services/tasks.py`
+auto-creates the next occurrence:
+- Same `title`, `description`, `priority`, `estimated_minutes`,
+  `repeat_interval`, `recurrence_id`, `project_id`.
+- `due_date` = current task's `due_date` + interval.
+- `review_status = accepted` (skips candidate queue).
+- `workflow_status = open`.
+- `parent_task_id = null` (occurrences are top-level).
+
+**No occurrence on reopen**
+Reopening a done recurring task does not delete the already-created next
+occurrence. The user manages any duplicate manually.
+
+---
+
+### Schema changes (Alembic migration required)
+
+On `tasks`:
+- `repeat_interval`: `JSON | NULL` — `{ "unit": "day"|"week"|"month", "every": int }`
+- `recurrence_id`: `UUID (char(36)) | NULL` — shared across a series
+- No new table.
+
+---
+
+### API changes
+
+**`PATCH /api/tasks/{id}`** gains:
+- `repeat_interval: { unit, every } | null` — set/clear recurrence.
+- `skip_recurrence: bool = false` — when `workflow_status=done` is patched
+  in the same request, suppresses next-occurrence creation.
+- `edit_scope: "this" | "future" = "this"` — when present with any other
+  field change on a recurring task, applies the edit forward.
+
+**New occurrence creation** is internal to `services/tasks.py`; no new
+route.
+
+---
 
 ### Files in play
 
 Backend:
-
-- `backend/app/schemas/today.py` — response/request-facing plan schemas.
-- `backend/app/services/today.py` — deterministic scheduling logic.
-- `backend/app/api/routes_today.py` — `GET /api/today`.
-- `backend/app/main.py` — register the new router.
-- `backend/tests/test_routes_today.py` — route + scheduling behavior tests.
+- `backend/app/db/models.py` — add `repeat_interval` + `recurrence_id` to `Task`.
+- `backend/alembic/versions/<hash>_add_recurrence_fields.py` — migration.
+- `backend/app/schemas/tasks.py` — `RepeatInterval` model, update `TaskUpdate` + `TaskRead`.
+- `backend/app/services/tasks.py` — recurrence logic in `update_task`: next-occurrence
+  creation, skip flag, edit-scope forward-patch.
+- `backend/tests/test_recurrence.py` — recurrence behavior tests.
 
 Frontend:
+- `frontend/src/types/tasks.ts` — add `repeat_interval`, `recurrence_id` to `Task`.
+- `frontend/src/features/tasks/RepeatIntervalInput.tsx` — natural-text input
+  component (mirrors `EstimateInput`).
+- `frontend/src/features/tasks/EditScopeModal.tsx` — "This task only / This
+  and all future" prompt, shown before applying edits to recurring tasks.
+- `frontend/src/features/tasks/TaskDetailPage.tsx` — repeat field, skip button,
+  edit-scope prompt wiring.
+- `frontend/src/features/tasks/TaskCard.tsx` — small repeat badge.
+- `frontend/src/utils/recurrence.ts` — `parseRepeatInterval(text)` +
+  `formatRepeatInterval(interval)`.
+- `frontend/src/index.css` — repeat badge style on existing tokens.
 
-- `frontend/src/types/today.ts` — Today plan types.
-- `frontend/src/api/today.ts` — API call with query params.
-- `frontend/src/features/today/useTodayPlan.ts` — loading/error/refetch hook.
-- `frontend/src/features/today/TodayPage.tsx` — timeline and sections.
-- `frontend/src/features/today/TodayPage.test.tsx` — page smoke/behavior tests.
-- `frontend/src/routes/AppRoutes.tsx` — add `/today`.
-- `frontend/src/features/dashboard/DashboardPage.tsx` — wire the "Today's Tasks
-  / Due Soon" tile to `/today`.
-- `frontend/src/index.css` — today-* styles using existing design tokens.
+---
 
 ### Chunk plan
 
-**Chunk A — Backend plan contract + scheduler** ✅ done
+---
 
-- Add `today` schemas for plan metadata, scheduled blocks, overflow tasks, and
-  blocked tasks.
-- Implement `services/today.py` with a small pure function for ranking and a
-  service function that loads open accepted tasks, resolves blocked IDs in bulk,
-  and returns a plan.
-- Use frontend-passed `date` for the target day; default on the backend only
-  when omitted.
-- Add tests for overdue-first ordering, blocked exclusion, assumed estimates,
-  and overflow behavior.
+**Chunk A — DB model + Alembic migration**
 
-Landed:
-- `backend/app/schemas/today.py` — `DueSignal` enum + `ScheduledBlock`,
-  `OverflowTask`, `BlockedTask`, `TodayPlan`.
-- `backend/app/services/today.py` — pure `_rank_key`/`_due_signal`/`_pack`
-  helpers + `get_today_plan()`; bulk blocked-ID resolution (no N+1); blocked
-  tasks surfaced separately; stop-at-first-nonfit packing.
-- `backend/tests/test_today.py` — 8 tests (due-urgency order, in-progress-first,
-  priority order, blocked exclusion + surfacing, done-dependency unblock, assumed
-  estimate, ranked overflow, sequential block times).
-- Verification: `pytest tests/test_today.py` → 8 passed; `mypy --strict` clean;
-  `ruff check` clean. No route, no `main.py` change, no migration, no model call.
+- Add `repeat_interval: Mapped[dict | None]` (JSON) and
+  `recurrence_id: Mapped[str | None]` (char(36)) to `Task` in `models.py`.
+- `alembic revision --autogenerate -m "add recurrence fields"`.
+- Review generated file; apply `alembic upgrade head`.
+- No service, schema, or frontend changes.
 
-**Chunk B — Backend route** ✅ done
+Verification: `alembic upgrade head` clean; `.schema tasks` shows both columns.
 
-- Add `GET /api/today`.
-- Query params:
-  - `date=YYYY-MM-DD` optional target date.
-  - `start_time=HH:MM` optional, default `09:00`.
-  - `available_minutes` optional, default `360`, with a sane bounded range.
-- Register the router in `main.py`.
-- Log `today_plan_generated` with task counts and selected date.
+---
 
-Landed:
-- `backend/app/api/routes_today.py` — `GET /api/today` with `tags=["today"]`.
-  Validation pushed to the boundary so the scheduler never sees junk: `date`
-  typed as `date | None` (FastAPI rejects bad ISO → 422), defaults to
-  `date.today()` when omitted; `start_time` constrained by regex
-  `^([01]\d|2[0-3]):[0-5]\d$`; `available_minutes` bounded `ge=15, le=1440`.
-  Query defaults reuse the service's `DEFAULT_*` constants so route and scheduler
-  can't drift. Logs `today_plan_generated` with date, start_time,
-  available/used minutes, and scheduled/overflow/blocked counts.
-- `backend/app/main.py` — import + register `routes_today.router`. Endpoint is
-  `GET /api/today`.
-- `backend/tests/test_routes_today.py` — 6 tests (happy path, default-to-today,
-  start/capacity pass-through with overflow, malformed start_time → 422,
-  out-of-range capacity → 422, malformed date → 422).
-- Verification: `pytest tests/test_routes_today.py` → 6 passed; `mypy --strict`
-  clean; `ruff check` clean. No schema change, no migration, no model call.
+**Chunk B — Pydantic schemas**
 
-**Chunk C — Frontend data layer + route** ✅ done
+- Add `RepeatInterval(BaseModel)`: `unit: Literal["day","week","month"]`,
+  `every: int` (ge=1, le=12). Must always emit both fields (no defaults —
+  see project memory on required-nullable fields).
+- Update `TaskRead`: add `repeat_interval: RepeatInterval | None`,
+  `recurrence_id: str | None`.
+- Update `TaskUpdate`: add `repeat_interval: RepeatInterval | None = UNSET`,
+  `skip_recurrence: bool = False`,
+  `edit_scope: Literal["this","future"] = "this"`.
+- Validator on `TaskUpdate`: if `repeat_interval` is set and `due_date` is
+  not provided, reject with a clear message (422). If the task being updated
+  already has a `due_date` this check relaxes — the validator can't see DB
+  state, so the service layer re-checks and raises `HTTPException(422)`.
+- `mypy --strict` + `ruff check` clean.
 
-- Add Today types and API wrapper.
-- Add `useTodayPlan` with date/start/capacity state and refetch behavior.
-- Register `/today`.
-- Leave the sidebar navigation unchanged.
-- Update the dashboard "Today's Tasks / Due Soon" tile action from a due-work
-  task filter link to `/today`.
+Verification: schema unit tests (inline doctest or small pytest) confirm
+`RepeatInterval` serializes correctly and rejects bad `every` values.
 
-Landed:
-- `frontend/src/types/today.ts` — `DueSignal` + `ScheduledBlock`, `OverflowTask`,
-  `BlockedTask`, `TodayPlan`, mirroring the Pydantic schemas and reusing
-  `TaskPriority`/`TaskWorkflowStatus`.
-- `frontend/src/api/today.ts` — `getTodayPlan({ date?, startTime?, availableMinutes? })`;
-  omitted params fall through to backend defaults so state and request never drift.
-- `frontend/src/features/today/useTodayPlan.ts` — date/start/capacity state +
-  `refetch`; same `active`-flag cleanup pattern as the other refetch hooks.
-- `frontend/src/routes/AppRoutes.tsx` — `/today` route; sidebar untouched.
-- `frontend/src/features/dashboard/DashboardPage.tsx` — focus tile now links to
-  `/today` (was the `/tasks?overdue=...` filter).
+---
 
-**Chunk D — Today page timeline** ✅ done
+**Chunk C — Service layer recurrence logic**
 
-- Build the `/today` page with the existing page-header/card/filter visual
-  language.
-- Show date, start time, and capacity controls.
-- Render scheduled blocks as a readable timeline with start/end time, estimate,
-  priority, due signal, project/task link, and the deterministic reason.
-- Reuse `TaskCard` where it helps, but keep timeline rows compact enough for
-  daily scanning.
+All changes in `services/tasks.py`:
 
-Landed:
-- `frontend/src/features/today/TodayPage.tsx` — `section-heading` header, a
-  controls row (date/start-time/capacity), a capacity summary line, and an
-  ordered timeline of compact rows. Reuses the shared `priority-pill`,
-  `status-pill workflow-*`, and `due-*` pill classes rather than `TaskCard`,
-  which is too tall for daily scanning. Assumed estimates carry an "assumed" tag.
-- Capacity is a preset `<select>` (2h/4h/6h/8h/10h) bounded inside the backend's
-  15–1440 range; an off-preset value is injected so a deep-linked value still
-  renders.
+1. **`_next_due_date(due_date, interval) -> date`** — pure function:
+   - `day`: `due_date + timedelta(days=every)`
+   - `week`: `due_date + timedelta(weeks=every)`
+   - `month`: `dateutil.relativedelta` if already a dep; otherwise manual
+     month math with day-clamping. Check `pyproject.toml` first — do not
+     add `python-dateutil` without asking.
+2. **`_create_next_occurrence(db, task) -> Task`** — clones the completed
+   task row, advances `due_date`, copies `recurrence_id`.
+3. **`update_task` changes:**
+   - If `workflow_status=done` and task has `repeat_interval` and not
+     `skip_recurrence`: call `_create_next_occurrence`.
+   - If `edit_scope="future"` and task has `recurrence_id`: bulk-patch
+     rows with same `recurrence_id` and `due_date >= task.due_date`
+     for the changed fields (exclude `due_date`, `workflow_status`,
+     `skip_recurrence`, `edit_scope` from the forward patch).
+   - If `repeat_interval` is being set for the first time (was null):
+     generate and assign a new `recurrence_id` UUID.
+   - If `repeat_interval` is being cleared: leave `recurrence_id` as-is
+     (the history chain stays readable) but stop generating occurrences.
 
-**Chunk E — Overflow, blocked, and empty states** ✅ done
+Verification: `pytest tests/test_recurrence.py` — write tests in this chunk:
+- Complete non-recurring task → no new task created.
+- Complete recurring task → next occurrence has correct due date, same
+  `recurrence_id`, `review_status=accepted`, `workflow_status=open`.
+- Complete with `skip_recurrence=true` → no next occurrence.
+- `edit_scope="future"` → patches forward rows, leaves past rows alone.
+- `edit_scope="this"` → patches only the target row.
+- Setting `repeat_interval` on a task with no `due_date` → 422.
+- Month interval: Jan 31 + 1 month → Feb 28 (not a crash).
+- Setting `repeat_interval` first time → `recurrence_id` populated.
+- Clearing `repeat_interval` → no new occurrence on next complete.
 
-- Add separate sections for:
-  - Overflow tasks that did not fit.
-  - Blocked tasks with a dependency warning.
-  - Empty plan states when there are no open tasks or no schedulable tasks.
-- Link each task to `/tasks/:id`.
-- Keep blocked tasks out of the schedule unless dependencies are resolved.
+---
 
-Landed (in `TodayPage.tsx`):
-- "Didn't fit" section — ranked overflow rows, each linking to `/tasks/:id`.
-- "Blocked" section — dependency warning listing the unfinished blocking task
-  ids, each linked.
-- Empty state distinguishes "no open tasks" from "everything is blocked"
-  (scheduled empty + blocked present + no overflow).
+**Chunk D — Frontend utilities + RepeatIntervalInput**
 
-**Chunk F — Tests and documentation touch-up** ✅ done
+- `frontend/src/utils/recurrence.ts`:
+  - `parseRepeatInterval(text: string): RepeatInterval | null` — parses
+    `"daily"`, `"weekly"`, `"every 2 weeks"`, `"monthly"`,
+    `"every 3 months"`. Returns `null` on unrecognized input.
+  - `formatRepeatInterval(interval: RepeatInterval): string` — inverse.
+  - Unit tests inline or in a `.test.ts` file.
+- `frontend/src/features/tasks/RepeatIntervalInput.tsx`:
+  - Text input with the same interaction as `EstimateInput` (type, blur
+    to parse, show formatted value, show error on unrecognized).
+  - Disabled with tooltip `"Set a due date to enable recurrence"` when
+    `due_date` is blank.
+  - Shows `null` as empty / placeholder `"e.g. weekly, every 2 months"`.
 
-- Add frontend tests for loading, scheduled timeline rendering, and blocked /
-  overflow sections.
-- Run targeted backend and frontend tests.
-- Update `README.md` sprint plan and `TODO.md` only after implementation lands,
-  moving this sprint from proposed/current to done/follow-up status.
+Verification: `tsc --noEmit` clean; parse/format round-trips correct.
 
-Landed:
-- `frontend/src/features/today/TodayPage.test.tsx` — 3 tests (scheduled timeline
-  renders with task link + assumed tag + reason; overflow + blocked sections with
-  dependency warning; empty state). `npm run test -- TodayPage` → 3 passed.
-- `frontend/src/index.css` — `today-*` styles on existing tokens; no framework.
-- Verification: `tsc --noEmit` clean; `pytest tests/test_routes_today.py` +
-  `tests/test_today.py` still green. Lint: the one `set-state-in-effect` notice on
-  `useTodayPlan` matches the existing refetch-hook convention (`useCompletedTasks`,
-  `useSearch`), which already trips the same rule repo-wide.
-- `README.md` sprint status and `TODO.md` updated to mark Today / Daily Schedule
-  shipped.
+---
+
+**Chunk E — TaskDetailPage wiring + EditScopeModal**
+
+- `frontend/src/features/tasks/EditScopeModal.tsx`:
+  - Simple modal: "Apply to this task only" / "Apply to this and all future
+    occurrences". Reuses existing `Modal` component.
+  - Shown when the user saves any field change on a task where
+    `recurrence_id` is non-null and `edit_scope` matters (not for
+    `due_date`-only edits).
+- `TaskDetailPage.tsx` changes:
+  - Add repeat field row (uses `RepeatIntervalInput`), positioned after due
+    date.
+  - On save of any field, if task is recurring, intercept → show
+    `EditScopeModal` → pass chosen `edit_scope` to the `PATCH` call.
+  - Add "Skip this occurrence" button in the task actions area (near the
+    workflow status control). Calls `PATCH` with
+    `{ workflow_status: "done", skip_recurrence: true }`. Confirm with a
+    short inline prompt before firing ("Skip and mark done — the next
+    occurrence won't be created. Continue?").
+- `TaskCard.tsx`: add a small repeat badge (e.g. a refresh icon + interval
+  label) when `repeat_interval` is non-null, alongside the estimate badge.
+- `frontend/src/index.css`: repeat badge styles on existing tokens.
+
+Verification: open a recurring task in the browser —
+1. Edit title → EditScopeModal appears → choose "future" → confirm forward
+   rows updated.
+2. Mark done → next occurrence appears in task list with correct due date.
+3. Skip → no next occurrence.
+4. Repeat field disabled when due date is blank.
+
+---
+
+**Chunk F — Tests + docs**
+
+- Frontend tests (in `TaskDetailPage.test.tsx` or a new
+  `Recurrence.test.tsx`):
+  - Repeat field renders and is disabled without a due date.
+  - EditScopeModal appears on save for a recurring task.
+  - Skip button calls PATCH with `skip_recurrence: true`.
+- `npm run test -- Recurrence` (or the relevant file) must pass.
+- Update `README.md`: add Sprint 9L (or next letter) entry marking
+  recurring task stubs shipped.
+- Update `TODO.md`: mark recurring tasks done; leave command-bar slash
+  actions and eval regression warning as next candidates.
+
+Verification: `pytest tests/test_recurrence.py` still green; `tsc --noEmit`
+clean; `npm run test` on the new test file passes.
+
+---
 
 ### Out of scope
 
-- AI reordering or "why this order" prose.
-- Calendar sync or scheduling around meetings.
-- Persisted workday preferences.
-- Recurring tasks.
-- Kanban.
-- Command-bar slash actions.
-- Training export / fine-tuning / llama.cpp swap.
+- Recurring subtasks (parent_task_id on occurrences).
+- "Edit all past" occurrences.
+- UI to view the full recurrence chain.
+- Recurrence on the `/today` scheduler (v1 treats occurrences as regular tasks).
+- Calendar sync.
+- Any item on the README "do not build yet" list.
+
+---
 
 ### Done criteria
 
-- `/today` works end-to-end: frontend → `GET /api/today` → deterministic Python
-  scheduler → timeline UI.
-- The dashboard "Today's Tasks / Due Soon" tile opens the schedule page.
-- Overdue/due-today/high-priority/in-progress tasks sort predictably.
-- Blocked tasks are never placed into active schedule blocks.
-- Missing estimates are handled without crashing and are visibly marked as
-  assumed.
-- Overflow is visible when capacity is full.
-- At least one backend happy-path test and one scheduling edge-case test pass.
-- At least one frontend Today page smoke test passes.
-- No model calls, no schema migration, no new dependency.
+1. `PATCH /api/tasks/{id}` with `repeat_interval` set persists the field.
+2. Marking a recurring task done auto-creates the next occurrence with the
+   correct due date.
+3. Skip suppresses next-occurrence creation.
+4. `edit_scope="future"` patches forward occurrences in a single request.
+5. Setting `repeat_interval` without a `due_date` returns 422.
+6. Month-boundary edge case (Jan 31 + 1 month) does not crash.
+7. Repeat field in `TaskDetailPage` is disabled without a due date.
+8. EditScopeModal appears when editing a recurring task.
+9. Repeat badge visible on `TaskCard`.
+10. All backend recurrence tests pass (`pytest tests/test_recurrence.py`).
+11. Frontend recurrence tests pass.
+12. `mypy --strict`, `ruff check`, `tsc --noEmit` clean.
+13. No new dependency added without asking (month math: check for
+    `python-dateutil` in `pyproject.toml` first).
 
-### Verification target
+---
+
+### Verification targets
 
 Backend:
-
 ```bash
-cd backend && pytest tests/test_routes_today.py
+cd backend && pytest tests/test_recurrence.py
+cd backend && mypy --strict app/schemas/tasks.py app/services/tasks.py
 ```
 
 Frontend:
-
 ```bash
-cd frontend && npm run test -- TodayPage
+cd frontend && npm run test -- Recurrence
+cd frontend && npx tsc --noEmit
 ```
-
-Full regression pass is nice if the known flaky `TaskDetailPage.test.tsx` does
-not interfere.
 
 ---
 
 - Completed work lives in `DONE.md`.
 - Incomplete items / follow-ups live in `TODO.md`.
-- The sprint roadmap is in `README.md`; custom-model Sprint 10 remains gated on
-  200+ active `ai_training_examples` rows.
+- The sprint roadmap is in `README.md`.

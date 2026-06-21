@@ -11,9 +11,9 @@ until promoted.
 
 ## Next sprint (proposed): pick from backlog
 
-The "Today / daily schedule" view shipped (README Sprint 9k / CURRENT.md). No slice is
-currently promoted — pick the next strongest themed group from the backlog below when
-ready. Candidates: command-bar slash actions, task notes, or recurring task stubs.
+Recurring task stubs shipped (README Sprint 9L / CURRENT.md). No slice is currently
+promoted — pick the next strongest themed group from the backlog below when ready.
+Candidates: command-bar slash actions, task notes, or the eval regression warning.
 
 ---
 
@@ -55,12 +55,12 @@ ready. Candidates: command-bar slash actions, task notes, or recurring task stub
 
 ### Recurring Tasks
 
-- [ ] **Recurring task stubs** — add a nullable `repeat_interval` field to `tasks`
-      (`daily | weekly | monthly | null`; Alembic migration required). When a task with a
-      repeat_interval is marked workflow_status=`done`, `services/tasks.py` auto-creates
-      the next occurrence with the same title/project/priority/estimate and a `due_date`
-      advanced by the interval. New task gets review_status=`accepted` (skips the candidate
-      queue). No AI involvement; pure Python in the service layer.
+- [x] **Recurring task stubs** — shipped (README Sprint 9L / CURRENT.md). `tasks.repeat_interval`
+      (JSON `{unit, every}`) + `tasks.recurrence_id` (series chain); marking a recurring task
+      done auto-creates the next occurrence (due date advanced, month math day-clamped),
+      `skip_recurrence` suppresses it, `edit_scope="future"` forward-patches the series.
+      `repeat_interval` requires a `due_date` (422). Frontend RepeatIntervalInput +
+      EditScopeModal + skip button + TaskCard repeat badge. Pure Python service layer, no AI.
 
 ### Features
 

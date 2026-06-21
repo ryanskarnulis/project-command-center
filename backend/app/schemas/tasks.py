@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -10,6 +10,19 @@ from app.schemas.common import NonBlankStr, OptionalStrippedStr
 
 # A duration estimate, when present, must be a positive whole number of minutes.
 PositiveMinutes = Annotated[int, Field(gt=0)]
+
+
+class RepeatInterval(BaseModel):
+    """A task recurrence cadence, e.g. ``{"unit": "week", "every": 2}``.
+
+    Both fields are always required (no defaults): per project memory on
+    required-nullable model fields, a default would let json_schema/Ollama omit
+    the field and silently produce ``None``. ``every`` is bounded 1-12 to match
+    the natural-text UI (``daily`` … ``every 12 months``).
+    """
+
+    unit: Literal["day", "week", "month"]
+    every: Annotated[int, Field(ge=1, le=12)]
 
 
 class TaskCreate(BaseModel):
@@ -35,6 +48,14 @@ class TaskUpdate(BaseModel):
     parent_task_id: int | None = None
     estimated_minutes: PositiveMinutes | None = None
     assignee_hint: OptionalStrippedStr = None
+    # Recurrence (Sprint 9L). All three rely on the route's
+    # ``model_dump(exclude_unset=True)``: an absent ``repeat_interval`` is left
+    # untouched, while an explicit ``null`` clears recurrence. The
+    # ``repeat_interval``-without-``due_date`` rejection lives in the service
+    # layer (it needs DB state — the task may already carry a due date), not a
+    # field validator here.
+    repeat_interval: RepeatInterval | None = None
+    edit_scope: Literal["this", "future"] = "this"
 
 
 class TaskRead(BaseModel):
@@ -51,6 +72,8 @@ class TaskRead(BaseModel):
     priority: TaskPriority
     due_date: date | None
     estimated_minutes: int | None
+    repeat_interval: RepeatInterval | None
+    recurrence_id: str | None
     confidence: float | None
     assignee_hint: str | None
     created_at: datetime

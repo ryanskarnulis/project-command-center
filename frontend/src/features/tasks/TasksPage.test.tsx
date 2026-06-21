@@ -52,6 +52,8 @@ const baseTask: Task = {
   priority: 'medium',
   due_date: null,
   estimated_minutes: null,
+  repeat_interval: null,
+  recurrence_id: null,
   confidence: null,
   assignee_hint: null,
   created_at: '2026-06-01T10:00:00Z',

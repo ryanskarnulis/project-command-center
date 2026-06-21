@@ -1,18 +1,32 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Circle, PlayCircle, Trash2 } from 'lucide-react'
+import { CheckCircle2, Circle, PlayCircle, Repeat, SkipForward, Trash2 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { createUnscopedTask, deleteTask, getSubtasks, getTask, listAllTasks, updateTask } from '../../api/tasks'
+import { createUnscopedTask, deleteTask, getSubtasks, getTask, listAllTasks, skipOccurrence, updateTask } from '../../api/tasks'
 import { decideCandidate } from '../../api/inbox'
 import { listProjects } from '../../api/projects'
 import type { Project } from '../../types/project'
-import type { Task, TaskPriority, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
+import type { EditScope, Task, TaskPriority, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { formatDueDate } from '../../utils/dates'
 import { formatDuration, formatDurationInput, parseDurationInput } from '../../utils/duration'
+import { formatRepeatInterval } from '../../utils/recurrence'
+import { EditScopeModal } from './EditScopeModal'
+import { RepeatIntervalInput } from './RepeatIntervalInput'
 import { TaskCard } from './TaskCard'
 import { TaskDependencies } from './TaskDependencies'
 
 const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
 const WORKFLOW_STATUSES: TaskWorkflowStatus[] = ['open', 'in_progress', 'done']
+
+// Field edits that can sensibly cascade to future occurrences of a recurring
+// task; changing one of these on a series prompts the edit-scope choice. A
+// due-date or workflow change is inherently per-occurrence and never prompts.
+const SCOPABLE_FIELDS: (keyof TaskUpdate)[] = [
+  'title',
+  'description',
+  'priority',
+  'estimated_minutes',
+  'repeat_interval',
+]
 
 function workflowLabel(status: TaskWorkflowStatus): string {
   if (status === 'in_progress') return 'In progress'
@@ -70,6 +84,10 @@ export function TaskDetailPage() {
   const [subtaskError, setSubtaskError] = useState<string | null>(null)
   const [addingSubtask, setAddingSubtask] = useState(false)
   const [deciding, setDeciding] = useState(false)
+  // A scopable edit to a recurring task is parked here until the user picks a
+  // scope in EditScopeModal; choosing replays it with the chosen edit_scope.
+  const [pendingScopePatch, setPendingScopePatch] = useState<TaskUpdate | null>(null)
+  const [confirmingSkip, setConfirmingSkip] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -110,7 +128,7 @@ export function TaskDetailPage() {
     return allTasks.filter((candidate) => !blocked.has(candidate.id))
   }, [allTasks, task])
 
-  async function savePatch(data: TaskUpdate) {
+  async function applyPatch(data: TaskUpdate) {
     if (!task) return
     setSaveState('saving')
     setSaveError(null)
@@ -125,6 +143,41 @@ export function TaskDetailPage() {
     }
   }
 
+  // Field edits on a task that belongs to a recurrence chain first ask whether to
+  // apply forward; everything else (and non-recurring tasks) saves straight away.
+  function savePatch(data: TaskUpdate) {
+    const isScopable = Object.keys(data).some((key) =>
+      SCOPABLE_FIELDS.includes(key as keyof TaskUpdate),
+    )
+    if (task?.recurrence_id && isScopable) {
+      setPendingScopePatch(data)
+      return
+    }
+    void applyPatch(data)
+  }
+
+  function resolveScope(scope: EditScope) {
+    const patch = pendingScopePatch
+    setPendingScopePatch(null)
+    if (patch) void applyPatch({ ...patch, edit_scope: scope })
+  }
+
+  async function handleSkip() {
+    if (!task) return
+    setConfirmingSkip(false)
+    setSaveState('saving')
+    setSaveError(null)
+    try {
+      // Skip soft-deletes this occurrence and returns the next one; follow the
+      // series forward so the user lands on the live task, not a deleted row.
+      const next = await skipOccurrence(task.id)
+      navigate(`/tasks/${next.id}`)
+    } catch (e: unknown) {
+      setSaveState('error')
+      setSaveError(e instanceof Error ? e.message : 'Failed to skip occurrence')
+    }
+  }
+
   function saveTitle() {
     if (!task) return
     const next = titleDraft.trim()
@@ -133,13 +186,13 @@ export function TaskDetailPage() {
       setSaveError('Title is required')
       return
     }
-    if (next !== task.title) void savePatch({ title: next })
+    if (next !== task.title) savePatch({ title: next })
   }
 
   function saveDescription() {
     if (!task) return
     const next = descriptionDraft.trim() || null
-    if (next !== task.description) void savePatch({ description: next })
+    if (next !== task.description) savePatch({ description: next })
   }
 
   function saveEstimate() {
@@ -150,13 +203,13 @@ export function TaskDetailPage() {
       setSaveError('Use something like 30m, 2h, or 1 day')
       return
     }
-    if (next !== task.estimated_minutes) void savePatch({ estimated_minutes: next })
+    if (next !== task.estimated_minutes) savePatch({ estimated_minutes: next })
   }
 
   function saveAssignee() {
     if (!task) return
     const next = assigneeDraft.trim() || null
-    if (next !== task.assignee_hint) void savePatch({ assignee_hint: next })
+    if (next !== task.assignee_hint) savePatch({ assignee_hint: next })
   }
 
   function handleTitleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -298,7 +351,7 @@ export function TaskDetailPage() {
               <button
                 type="button"
                 onClick={() =>
-                  void savePatch({
+                  savePatch({
                     workflow_status: task.workflow_status === 'done' ? 'open' : 'done',
                   })
                 }
@@ -310,6 +363,12 @@ export function TaskDetailPage() {
                 )}
                 {task.workflow_status === 'done' ? 'Reopen' : 'Mark done'}
               </button>
+              {task.repeat_interval && task.workflow_status !== 'done' && (
+                <button type="button" onClick={() => setConfirmingSkip(true)}>
+                  <SkipForward size={16} aria-hidden="true" />
+                  Skip this occurrence
+                </button>
+              )}
               <button type="button" className="danger-action" onClick={() => void handleDelete()}>
                 <Trash2 size={16} aria-hidden="true" />
                 Delete
@@ -318,6 +377,29 @@ export function TaskDetailPage() {
           )}
         </div>
       </div>
+
+      {confirmingSkip && (
+        <div className="skip-confirm" role="alertdialog" aria-label="Confirm skip">
+          <p>
+            Skip this occurrence — it&apos;ll move to trash and the next one will
+            be created. Continue?
+          </p>
+          <div className="skip-confirm-actions">
+            <button type="button" onClick={() => void handleSkip()}>
+              Skip occurrence
+            </button>
+            <button type="button" onClick={() => setConfirmingSkip(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      <EditScopeModal
+        open={pendingScopePatch !== null}
+        onChoose={resolveScope}
+        onCancel={() => setPendingScopePatch(null)}
+      />
 
       <section className="task-hero">
         <input
@@ -341,6 +423,12 @@ export function TaskDetailPage() {
           )}
           {task.estimated_minutes !== null && (
             <span className="estimate">~{formatDuration(task.estimated_minutes)}</span>
+          )}
+          {task.repeat_interval && (
+            <span className="repeat-badge">
+              <Repeat size={12} aria-hidden="true" />
+              {formatRepeatInterval(task.repeat_interval)}
+            </span>
           )}
           <span className="source-pill">{projectName}</span>
         </div>
@@ -371,7 +459,7 @@ export function TaskDetailPage() {
             <select
               value={task.workflow_status}
               onChange={(e) =>
-                void savePatch({ workflow_status: e.target.value as TaskWorkflowStatus })
+                savePatch({ workflow_status: e.target.value as TaskWorkflowStatus })
               }
             >
               {WORKFLOW_STATUSES.map((status) => (
@@ -383,7 +471,7 @@ export function TaskDetailPage() {
             Priority
             <select
               value={task.priority}
-              onChange={(e) => void savePatch({ priority: e.target.value as TaskPriority })}
+              onChange={(e) => savePatch({ priority: e.target.value as TaskPriority })}
             >
               {PRIORITIES.map((priority) => (
                 <option key={priority} value={priority}>{priority}</option>
@@ -395,7 +483,15 @@ export function TaskDetailPage() {
             <input
               type="date"
               value={task.due_date ?? ''}
-              onChange={(e) => void savePatch({ due_date: e.target.value || null })}
+              onChange={(e) => savePatch({ due_date: e.target.value || null })}
+            />
+          </label>
+          <label>
+            Repeat
+            <RepeatIntervalInput
+              value={task.repeat_interval}
+              onChange={(next) => savePatch({ repeat_interval: next })}
+              disabled={!task.due_date}
             />
           </label>
           <label>
@@ -403,7 +499,7 @@ export function TaskDetailPage() {
             <select
               value={task.project_id === null ? '' : String(task.project_id)}
               onChange={(e) =>
-                void savePatch({ project_id: e.target.value === '' ? null : Number(e.target.value) })
+                savePatch({ project_id: e.target.value === '' ? null : Number(e.target.value) })
               }
             >
               <option value="">Unassigned</option>
@@ -427,7 +523,7 @@ export function TaskDetailPage() {
             <select
               value={task.parent_task_id === null ? '' : String(task.parent_task_id)}
               onChange={(e) =>
-                void savePatch({ parent_task_id: e.target.value === '' ? null : Number(e.target.value) })
+                savePatch({ parent_task_id: e.target.value === '' ? null : Number(e.target.value) })
               }
             >
               <option value="">None</option>

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import enum
 from datetime import date, datetime
+from typing import Any
 
-from sqlalchemy import ForeignKey, Index, func, text
+from sqlalchemy import JSON, ForeignKey, Index, String, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -108,6 +109,14 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     # Rough effort estimate (Sprint 7 task-model slice). Stored as whole minutes;
     # the UI maps it to human labels. Feeds future scheduling/kanban (not built).
     estimated_minutes: Mapped[int | None] = mapped_column(default=None)
+    # Recurrence (Sprint 9L). ``repeat_interval`` is a JSON blob shaped
+    # ``{"unit": "day"|"week"|"month", "every": 1-12}`` (null = non-recurring);
+    # JSON avoids integer-drift on month math. ``recurrence_id`` is a shared
+    # UUID chaining a series so "edit all future" and "skip" can target the
+    # right rows without a join table. Both are pure persistence — the
+    # next-occurrence logic lives in services/tasks.py.
+    repeat_interval: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+    recurrence_id: Mapped[str | None] = mapped_column(String(36), default=None)
     confidence: Mapped[float | None] = mapped_column(default=None)
     assignee_hint: Mapped[str | None] = mapped_column(default=None)
 

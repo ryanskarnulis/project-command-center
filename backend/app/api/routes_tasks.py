@@ -188,6 +188,19 @@ def mark_task_done(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     return _read_with_blocked(db, updated)
 
 
+@router.post("/tasks/{task_id}/skip", response_model=TaskRead)
+def skip_occurrence(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
+    """Skip a recurring occurrence: soft-delete it, return the next occurrence."""
+    task = _get_task_or_404(db, task_id)
+    next_occurrence = tasks_service.skip_occurrence(db, task)
+    db.commit()
+    db.refresh(next_occurrence)
+    logger.info(
+        "task_occurrence_skipped", task_id=task_id, next_task_id=next_occurrence.id
+    )
+    return _read_with_blocked(db, next_occurrence)
+
+
 @router.post("/tasks/{task_id}/reopen", response_model=TaskRead)
 def reopen_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     task = _get_task_or_404(db, task_id)

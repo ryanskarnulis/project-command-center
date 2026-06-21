@@ -513,6 +513,20 @@ Sprint 9k: [DONE] Today / daily schedule — a deterministic /today view that tu
            Missing estimates default to 30 min, labelled "assumed". New backend
            today + route tests and a TodayPage test; pytest green. No model call,
            no schema change, no Alembic, no new dependency.
+Sprint 9L: [DONE] Recurring task stubs — optional recurrence on tasks. New
+           tasks.repeat_interval (JSON {unit: day|week|month, every: 1-12}, null =
+           non-recurring) + tasks.recurrence_id (char(36), shared across a series);
+           Alembic migration. Pure-Python service layer (services/tasks.py): marking
+           a recurring task done auto-creates the next occurrence (due date advanced
+           by the interval, month math day-clamped — Jan 31 + 1mo → Feb 28, no
+           dateutil dependency), accepted + open + top-level, copying the recurrence_id.
+           PATCH /api/tasks/{id} gains repeat_interval, skip_recurrence (suppress next
+           occurrence on completion), and edit_scope ("this" | "future" forward-patches
+           same-series rows due on/after this one). repeat_interval requires a due_date
+           (422). Frontend: RepeatIntervalInput (natural text — "weekly", "every 2
+           months"), EditScopeModal, "Skip this occurrence" on TaskDetailPage, a repeat
+           badge on TaskCard. New backend recurrence tests + frontend Recurrence tests;
+           pytest green, no model call, no new dependency.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 Sprint 11 (backlog): AI "break this down" — a per-task action that sends the

@@ -1162,6 +1162,7 @@ kbd {
 .due,
 .estimate,
 .confidence,
+.repeat-badge,
 .blocked {
   display: inline-flex;
   align-items: center;
@@ -1506,6 +1507,41 @@ kbd {
 .error {
   color: var(--red);
   font-weight: 700;
+}
+
+/* Recurrence (Sprint 9L): repeat badge, natural-text input, skip confirmation. */
+.repeat-badge {
+  gap: 4px;
+  background: var(--purple-soft);
+  color: var(--purple);
+}
+
+.repeat-input {
+  width: 100%;
+}
+
+.edit-scope-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.skip-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--orange);
+  border-radius: 8px;
+  background: var(--orange-soft);
+}
+
+.skip-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .app-main > main > form,

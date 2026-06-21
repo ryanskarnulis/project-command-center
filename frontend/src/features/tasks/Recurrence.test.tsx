@@ -1,0 +1,150 @@
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { listProjects } from '../../api/projects'
+import { listDependencies } from '../../api/taskDependencies'
+import { getSubtasks, getTask, listAllTasks, skipOccurrence, updateTask } from '../../api/tasks'
+import type { Project } from '../../types/project'
+import type { Task } from '../../types/task'
+import { TaskDetailPage } from './TaskDetailPage'
+
+vi.mock('../../api/tasks', () => ({
+  createUnscopedTask: vi.fn(),
+  deleteTask: vi.fn(),
+  getSubtasks: vi.fn(),
+  getTask: vi.fn(),
+  listAllTasks: vi.fn(),
+  skipOccurrence: vi.fn(),
+  updateTask: vi.fn(),
+}))
+
+vi.mock('../../api/projects', () => ({
+  listProjects: vi.fn(),
+}))
+
+vi.mock('../../api/taskDependencies', () => ({
+  addDependency: vi.fn(),
+  listDependencies: vi.fn(),
+  removeDependency: vi.fn(),
+}))
+
+const baseTask: Task = {
+  id: 7,
+  project_id: 1,
+  inbox_item_id: null,
+  parent_task_id: null,
+  title: 'Water the plants',
+  description: null,
+  review_status: 'accepted',
+  workflow_status: 'open',
+  priority: 'medium',
+  due_date: '2026-06-01',
+  estimated_minutes: null,
+  repeat_interval: { unit: 'week', every: 1 },
+  recurrence_id: 'series-abc',
+  confidence: null,
+  assignee_hint: null,
+  created_at: '2026-06-01T00:00:00Z',
+  updated_at: '2026-06-01T00:00:00Z',
+  is_blocked: false,
+}
+
+const project: Project = {
+  id: 1,
+  name: 'Home',
+  description: null,
+  system_key: null,
+  is_protected: false,
+  created_at: '2026-06-01T00:00:00Z',
+  updated_at: '2026-06-01T00:00:00Z',
+}
+
+const mockGetTask = vi.mocked(getTask)
+const mockGetSubtasks = vi.mocked(getSubtasks)
+const mockListAllTasks = vi.mocked(listAllTasks)
+const mockListProjects = vi.mocked(listProjects)
+const mockListDependencies = vi.mocked(listDependencies)
+const mockUpdateTask = vi.mocked(updateTask)
+const mockSkipOccurrence = vi.mocked(skipOccurrence)
+
+function renderDetail(task: Task) {
+  mockGetTask.mockResolvedValue(task)
+  mockListAllTasks.mockResolvedValue([task])
+  return render(
+    <MemoryRouter initialEntries={['/tasks/7']}>
+      <Routes>
+        <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+describe('Recurrence UI', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetSubtasks.mockResolvedValue([])
+    mockListProjects.mockResolvedValue([project])
+    mockListDependencies.mockResolvedValue([])
+    mockUpdateTask.mockImplementation(async (_id, patch) => ({ ...baseTask, ...patch }))
+  })
+
+  afterEach(cleanup)
+
+  it('renders the repeat field, disabled when there is no due date', async () => {
+    renderDetail({ ...baseTask, due_date: null, repeat_interval: null })
+
+    const repeat = await screen.findByLabelText('Repeat')
+    expect(repeat).toBeDisabled()
+  })
+
+  it('enables the repeat field once a due date is set', async () => {
+    renderDetail(baseTask)
+
+    const repeat = await screen.findByLabelText('Repeat')
+    expect(repeat).toBeEnabled()
+    await waitFor(() => expect(repeat).toHaveValue('weekly'))
+  })
+
+  it('shows EditScopeModal when editing a recurring task and forwards the scope', async () => {
+    const user = userEvent.setup()
+    renderDetail(baseTask)
+
+    const title = await screen.findByLabelText('Task title')
+    await waitFor(() => expect(title).toHaveValue('Water the plants'))
+    await user.clear(title)
+    await user.type(title, 'Water all the plants')
+    await user.tab()
+
+    // The patch is held until a scope is chosen — nothing saved yet.
+    const dialog = await screen.findByRole('dialog', { name: 'Apply to recurring task' })
+    expect(dialog).toBeInTheDocument()
+    expect(mockUpdateTask).not.toHaveBeenCalled()
+
+    await user.click(
+      screen.getByRole('button', { name: 'This and all future occurrences' }),
+    )
+
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({ title: 'Water all the plants', edit_scope: 'future' }),
+      ),
+    )
+  })
+
+  it('skip button confirms then calls the skip endpoint', async () => {
+    const user = userEvent.setup()
+    mockSkipOccurrence.mockResolvedValue({ ...baseTask, id: 8, due_date: '2026-06-08' })
+    renderDetail(baseTask)
+
+    await user.click(await screen.findByRole('button', { name: /Skip this occurrence/ }))
+    // A confirmation gate stands between the click and the request.
+    expect(mockSkipOccurrence).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Skip occurrence' }))
+
+    await waitFor(() => expect(mockSkipOccurrence).toHaveBeenCalledWith(7))
+    // Skip never marks the occurrence done — it soft-deletes and rolls forward.
+    expect(mockUpdateTask).not.toHaveBeenCalled()
+  })
+})

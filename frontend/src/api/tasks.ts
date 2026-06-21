@@ -60,6 +60,11 @@ export async function markTaskDone(id: number): Promise<Task> {
   return (await res.json()) as Task
 }
 
+export async function skipOccurrence(id: number): Promise<Task> {
+  const res = await apiClient(`/api/tasks/${id}/skip`, { method: 'POST' })
+  return (await res.json()) as Task
+}
+
 export async function reopenTask(id: number): Promise<Task> {
   const res = await apiClient(`/api/tasks/${id}/reopen`, { method: 'POST' })
   return (await res.json()) as Task
