@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Task, TaskPriority, TaskReviewStatus, TaskWorkflowStatus
 from app.schemas.today import (
     BlockedTask,
+    BlockingTask,
     DueSignal,
     OverflowTask,
     ScheduledBlock,
@@ -186,7 +187,7 @@ def get_today_plan(
                     project_id=task.project_id,
                     priority=task.priority,
                     due_date=task.due_date,
-                    blocking_task_ids=_unfinished_dependency_ids(db, task.id),
+                    blocking_tasks=_unfinished_dependencies(db, task.id),
                 )
             )
         else:
@@ -208,11 +209,22 @@ def get_today_plan(
     )
 
 
-def _unfinished_dependency_ids(db: Session, task_id: int) -> list[int]:
-    """Active dependencies of ``task_id`` whose target is not yet done."""
-    unfinished: list[int] = []
+def _unfinished_dependencies(db: Session, task_id: int) -> list[BlockingTask]:
+    """Active dependencies of ``task_id`` whose target is not yet done.
+
+    Returns the blocker's title + workflow status (not just the id) so the UI can
+    render a self-explanatory blocked row. Same ``get_task`` loop that already
+    decided "unfinished" — it just keeps the row it had already loaded.
+    """
+    unfinished: list[BlockingTask] = []
     for dep in deps_service.list_dependencies(db, task_id):
         depended = tasks_service.get_task(db, dep.depends_on_task_id)
         if depended is not None and depended.workflow_status != TaskWorkflowStatus.done:
-            unfinished.append(dep.depends_on_task_id)
+            unfinished.append(
+                BlockingTask(
+                    task_id=depended.id,
+                    title=depended.title,
+                    workflow_status=depended.workflow_status,
+                )
+            )
     return unfinished

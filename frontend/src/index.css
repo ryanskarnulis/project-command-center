@@ -3127,6 +3127,14 @@ kbd {
   color: var(--text-muted);
 }
 
+.today-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 .today-estimate {
   display: inline-flex;
   align-items: center;
@@ -3198,6 +3206,33 @@ kbd {
 
 .today-blocked-warning svg {
   color: var(--red);
+}
+
+.today-blocker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.today-blocker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.today-blocker-title {
+  color: var(--text-h);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.today-blocker-title:hover {
+  text-decoration: underline;
 }
 
 .today-empty {

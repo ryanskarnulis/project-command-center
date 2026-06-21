@@ -1,7 +1,15 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CalendarClock, Clock3, Inbox } from 'lucide-react'
+import { AlertTriangle, CalendarClock, Check, Clock3, Inbox, Play } from 'lucide-react'
+import { markTaskDone, updateTask } from '../../api/tasks'
+import { useToast } from '../../components/ToastProvider'
 import type { TaskPriority, TaskWorkflowStatus } from '../../types/task'
-import type { BlockedTask, DueSignal, OverflowTask, ScheduledBlock } from '../../types/today'
+import type {
+  BlockedTask,
+  DueSignal,
+  OverflowTask,
+  ScheduledBlock,
+} from '../../types/today'
 import { formatDuration } from '../../utils/duration'
 import { formatDueDate } from '../../utils/dates'
 import {
@@ -65,7 +73,78 @@ function EstimateLabel({
   )
 }
 
-function ScheduledRow({ block }: { block: ScheduledBlock }) {
+// In-row Start / Mark done actions. Reuses the existing task endpoints and asks
+// the parent to refetch on success so the row re-ranks (Start) or drops out
+// (done). Mark done MUST go through the dedicated done endpoint so recurrence's
+// next-occurrence creation still fires — never a raw PATCH workflow_status=done.
+function TodayRowActions({
+  taskId,
+  title,
+  workflowStatus,
+  onMutated,
+}: {
+  taskId: number
+  title: string
+  workflowStatus: TaskWorkflowStatus
+  onMutated: () => void
+}) {
+  const { withToast } = useToast()
+  const [pending, setPending] = useState(false)
+
+  async function run(action: () => Promise<unknown>, success: string): Promise<void> {
+    if (pending) return
+    setPending(true)
+    try {
+      await withToast(action(), { success })
+      // Success re-ranks or removes this row; refetch unmounts it, so we leave
+      // `pending` set rather than touch state on a tree that's going away.
+      onMutated()
+    } catch {
+      // The error toast already surfaced; keep the row interactive to retry.
+      setPending(false)
+    }
+  }
+
+  return (
+    <div className="today-row-actions">
+      {workflowStatus !== 'in_progress' && (
+        <button
+          type="button"
+          className="task-action"
+          disabled={pending}
+          aria-label={`Start ${title}`}
+          onClick={() =>
+            void run(
+              () => updateTask(taskId, { workflow_status: 'in_progress' }),
+              'Task started',
+            )
+          }
+        >
+          <Play size={15} aria-hidden="true" />
+          Start
+        </button>
+      )}
+      <button
+        type="button"
+        className="task-action"
+        disabled={pending}
+        aria-label={`Mark ${title} done`}
+        onClick={() => void run(() => markTaskDone(taskId), 'Task marked done')}
+      >
+        <Check size={15} aria-hidden="true" />
+        Mark done
+      </button>
+    </div>
+  )
+}
+
+function ScheduledRow({
+  block,
+  onMutated,
+}: {
+  block: ScheduledBlock
+  onMutated: () => void
+}) {
   return (
     <li className="today-block">
       <div className="today-block-time" aria-hidden="true">
@@ -89,11 +168,23 @@ function ScheduledRow({ block }: { block: ScheduledBlock }) {
           <span className="today-reason">{block.reason}</span>
         </div>
       </div>
+      <TodayRowActions
+        taskId={block.task_id}
+        title={block.title}
+        workflowStatus={block.workflow_status}
+        onMutated={onMutated}
+      />
     </li>
   )
 }
 
-function OverflowRow({ task }: { task: OverflowTask }) {
+function OverflowRow({
+  task,
+  onMutated,
+}: {
+  task: OverflowTask
+  onMutated: () => void
+}) {
   return (
     <li className="today-overflow-row">
       <Link to={`/tasks/${task.task_id}`} className="today-block-title">
@@ -102,12 +193,18 @@ function OverflowRow({ task }: { task: OverflowTask }) {
       <PriorityPill priority={task.priority} />
       <DueSignalPill signal={task.due_signal} />
       <EstimateLabel minutes={task.estimated_minutes} assumed={task.estimate_assumed} />
+      <TodayRowActions
+        taskId={task.task_id}
+        title={task.title}
+        workflowStatus={task.workflow_status}
+        onMutated={onMutated}
+      />
     </li>
   )
 }
 
 function BlockedRow({ task }: { task: BlockedTask }) {
-  const count = task.blocking_task_ids.length
+  const count = task.blocking_tasks.length
   return (
     <li className="today-blocked-row">
       <div className="today-blocked-head">
@@ -118,14 +215,18 @@ function BlockedRow({ task }: { task: BlockedTask }) {
       </div>
       <span className="today-blocked-warning">
         <AlertTriangle size={13} aria-hidden="true" />
-        Waiting on {count} unfinished {count === 1 ? 'dependency' : 'dependencies'}:{' '}
-        {task.blocking_task_ids.map((id, index) => (
-          <span key={id}>
-            {index > 0 && ', '}
-            <Link to={`/tasks/${id}`}>#{id}</Link>
-          </span>
-        ))}
+        Waiting on {count} unfinished {count === 1 ? 'dependency' : 'dependencies'}:
       </span>
+      <ul className="today-blocker-list">
+        {task.blocking_tasks.map((blocker) => (
+          <li key={blocker.task_id} className="today-blocker">
+            <Link to={`/tasks/${blocker.task_id}`} className="today-blocker-title">
+              {blocker.title}
+            </Link>
+            <WorkflowPill status={blocker.workflow_status} />
+          </li>
+        ))}
+      </ul>
     </li>
   )
 }
@@ -141,6 +242,7 @@ export function TodayPage() {
     setDate,
     setStartTime,
     setAvailableMinutes,
+    refetch,
   } = useTodayPlan()
 
   const capacityOptions = CAPACITY_PRESETS.includes(availableMinutes)
@@ -216,7 +318,7 @@ export function TodayPage() {
               <h2 id="today-timeline-heading">Timeline</h2>
               <ol className="today-timeline">
                 {plan.scheduled.map((block) => (
-                  <ScheduledRow key={block.task_id} block={block} />
+                  <ScheduledRow key={block.task_id} block={block} onMutated={refetch} />
                 ))}
               </ol>
             </section>
@@ -242,7 +344,7 @@ export function TodayPage() {
               </p>
               <ul className="today-overflow-list">
                 {plan.overflow.map((task) => (
-                  <OverflowRow key={task.task_id} task={task} />
+                  <OverflowRow key={task.task_id} task={task} onMutated={refetch} />
                 ))}
               </ul>
             </section>

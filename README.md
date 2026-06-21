@@ -545,6 +545,20 @@ Sprint 9m: [DONE] Command-bar slash actions — the generic CommandSearch topbar
            filters to accepted + not-done tasks. New parseCommand unit tests + extended
            CommandSearch/search tests; pytest + npm run test green. No model call, no
            schema change, no Alembic, no new dependency.
+Sprint 9n: [DONE] Today / daily schedule actionability — made the read-only /today
+           view the place you run your day from. Slice 1 (frontend-only): in-row
+           Start (→ in_progress via PATCH /api/tasks/{id}) and Mark done (via the
+           dedicated POST /api/tasks/{id}/done, so recurrence's next-occurrence
+           creation is preserved) on every scheduled + overflow row; in-progress rows
+           hide Start; each action refetches the plan (reused useTodayPlan().refetch)
+           so the row re-ranks or drops out, with per-row pending state and useToast
+           errors. Slice 2 (serialization + frontend): BlockedTask.blocking_task_ids
+           (list[int]) replaced by blocking_tasks (list[BlockingTask] = task_id +
+           title + workflow_status), populated from the existing dependency loop;
+           /today blocked rows now show each blocker's title + status pill linking to
+           /tasks/:id instead of bare #id links. New backend today/route tests +
+           TodayPage action/blocked tests; pytest green. No model call, no eval change,
+           no schema/migration, no Alembic, no new dependency.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 Sprint 11 (backlog): AI "break this down" — a per-task action that sends the

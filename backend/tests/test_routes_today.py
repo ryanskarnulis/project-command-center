@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.db.models import TaskPriority
+from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
 
 
@@ -69,6 +70,25 @@ def test_today_route_rejects_out_of_range_capacity(
     assert (
         client.get("/api/today", params={"available_minutes": 5000}).status_code == 422
     )
+
+
+def test_today_route_blocked_row_carries_dependency_detail(
+    client: TestClient, db_session: Session
+) -> None:
+    blocker = _task(db_session, "finish the API")
+    dependent = _task(db_session, "ship the UI")
+    deps_service.add_dependency(db_session, dependent, blocker)
+    db_session.commit()
+
+    response = client.get("/api/today", params={"date": "2026-06-20"})
+
+    assert response.status_code == 200
+    blocked = response.json()["blocked"]
+    assert [b["task_id"] for b in blocked] == [dependent]
+    # blocking_tasks (not bare ids) so the row is self-explanatory in the UI.
+    assert blocked[0]["blocking_tasks"] == [
+        {"task_id": blocker, "title": "finish the API", "workflow_status": "open"}
+    ]
 
 
 def test_today_route_rejects_malformed_date(

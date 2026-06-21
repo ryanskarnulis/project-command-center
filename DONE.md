@@ -627,3 +627,40 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
 - [x] `parseCommand` unit tests + extended `CommandSearch`/search tests (search-service test
       asserts the two new task fields, null for other kinds). `pytest` + `npm run test` green.
 - [x] No AI surface, no model call, no schema change, no Alembic, no new dependency.
+
+---
+
+## Sprint 9n — Today / Daily Schedule Actionability
+> Goal: turn the read-only `/today` view into the place you run your day from — act on rows in place, and make blocked rows self-explanatory.
+
+### Slice 1 — Today quick actions (frontend-only)
+- [x] `Start` and `Mark done` actions on every scheduled and overflow row
+      (`TodayRowActions` in `frontend/src/features/today/TodayPage.tsx`), styled with the
+      shared `.task-action` button.
+- [x] Mark done goes through the dedicated `POST /api/tasks/{id}/done` (`markTaskDone`), so
+      recurrence's next-occurrence creation (Sprint 9L) is preserved — never a raw
+      `PATCH workflow_status=done`.
+- [x] Start sends `PATCH /api/tasks/{id}` `{ workflow_status: "in_progress" }`
+      (`updateTask`); in-progress rows hide Start (they're already started) but still offer
+      Mark done.
+- [x] Both actions refetch the plan on success via the already-exposed
+      `useTodayPlan().refetch()`, so the row re-ranks (Start pulls it up the timeline) or
+      drops out (done). Per-row pending state disables the buttons mid-flight so a
+      double-click can't double-fire; errors surface through the existing `useToast`.
+- [x] No backend change — all three endpoints already existed.
+
+### Slice 2 — Blocked dependency clarity (backend serialization + frontend)
+- [x] `app/schemas/today.py` — new `BlockingTask` (`task_id`, `title`, `workflow_status`);
+      `BlockedTask.blocking_task_ids: list[int]` replaced by `blocking_tasks:
+      list[BlockingTask]`. Serialization-shape change only — **no DB column, no migration**.
+- [x] `app/services/today.py` — `_unfinished_dependency_ids` → `_unfinished_dependencies`,
+      returning `BlockingTask`s from the same `get_task` loop it already ran (no new query).
+- [x] `frontend/src/types/today.ts` + `TodayPage.tsx` `BlockedRow` — each blocker renders as
+      its title + a workflow-status pill linking to `/tasks/:id`, replacing the bare `#id`
+      list; the "Waiting on N unfinished dependencies" lead-in is kept.
+- [x] Blocked-row blocker actions were left out of scope (the plan gated them behind "only if
+      free"); slice stays a clarity change, not a third action surface.
+- [x] Backend `test_today.py` + `test_routes_today.py` assert the enriched blocked payload;
+      `TodayPage.test.tsx` covers Start/Mark-done clicks (+ refetch) and the richer blocked
+      row. `pytest` (221) + the `TodayPage` suite green; `tsc`/eslint/`mypy --strict` clean.
+- [x] No model call, no eval change, no schema/migration, no Alembic, no new dependency.

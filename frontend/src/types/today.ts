@@ -34,14 +34,21 @@ export interface OverflowTask {
   estimate_assumed: boolean
 }
 
+export interface BlockingTask {
+  task_id: number
+  title: string
+  workflow_status: TaskWorkflowStatus
+}
+
 export interface BlockedTask {
   task_id: number
   title: string
   project_id: number | null
   priority: TaskPriority
   due_date: string | null
-  // Active dependencies that are not yet done — what the UI warns about.
-  blocking_task_ids: number[]
+  // Active dependencies that are not yet done — what the UI warns about. Each
+  // carries title + workflow status so a blocked row is self-explanatory.
+  blocking_tasks: BlockingTask[]
 }
 
 export interface TodayPlan {

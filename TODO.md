@@ -11,8 +11,9 @@ until promoted.
 
 ## Next sprint (proposed): pick from backlog
 
-Recurring task stubs shipped (README Sprint 9L / DONE.md). No slice is currently
-promoted — pick the next strongest themed group from the backlog below when ready.
+Command-bar slash actions shipped (README Sprint 9m / DONE.md). No slice is
+currently promoted — pick the next strongest themed group from the backlog below
+when ready.
 
 ---
 
@@ -56,12 +57,14 @@ promoted — pick the next strongest themed group from the backlog below when re
       `GET /api/today`: pure Python scheduler bins accepted, not-done tasks into sequential
       time blocks ranked by in-progress→open / due urgency / priority, surfaces overflow
       and blocked tasks separately, and fills idle time even when nothing is formally due.
-- [ ] **Today quick actions** — add Mark done / Start in-progress actions directly in
-      scheduled and overflow rows, reusing existing task endpoints and refreshing the plan.
-      Keep recurrence-safe completion by using `POST /api/tasks/{id}/done`.
-- [ ] **Blocked dependency clarity** — `/today` blocked rows list dependency IDs only.
-      Include dependency titles/statuses and links so the user can resolve blockers without
-      opening each `#id` blindly.
+- [x] **Today quick actions** — shipped (README Sprint 9n / DONE.md). In-row Mark done
+      (`POST /api/tasks/{id}/done`, recurrence-safe) + Start (`PATCH workflow_status=in_progress`)
+      on scheduled + overflow rows; in-progress rows hide Start; each action refetches the plan
+      (`useTodayPlan().refetch`) with per-row pending state and `useToast` errors. Frontend-only.
+- [x] **Blocked dependency clarity** — shipped (README Sprint 9n / DONE.md). `BlockedTask`
+      now carries `blocking_tasks` (title + workflow_status, replacing bare `blocking_task_ids`)
+      from the existing dependency loop (no new query, no migration); `/today` blocked rows
+      render each blocker's title + status pill linking to `/tasks/:id`.
 - [ ] **AI reordering with a "why this order" rationale** — future slice on top of the
       deterministic plan: send the ranked plan through `ai/gateway.py` for an optional
       reorder + brief rationale, still guarded by the Python scheduler (suggestions only).

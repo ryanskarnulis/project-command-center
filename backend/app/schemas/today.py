@@ -61,6 +61,18 @@ class OverflowTask(BaseModel):
     estimate_assumed: bool
 
 
+class BlockingTask(BaseModel):
+    """An unfinished dependency that is keeping a blocked task off the schedule.
+
+    Carries the blocker's title and workflow status so the UI can show *what* the
+    task is waiting on (and how close it is to done) without a second fetch per id.
+    """
+
+    task_id: int
+    title: str
+    workflow_status: TaskWorkflowStatus
+
+
 class BlockedTask(BaseModel):
     """A task kept out of the schedule because a dependency is unfinished."""
 
@@ -69,8 +81,9 @@ class BlockedTask(BaseModel):
     project_id: int | None
     priority: TaskPriority
     due_date: date | None
-    # Active dependencies that are not yet done — what the UI warns about.
-    blocking_task_ids: list[int]
+    # Active dependencies that are not yet done — what the UI warns about. Each
+    # carries title + workflow status so a blocked row is self-explanatory.
+    blocking_tasks: list[BlockingTask]
 
 
 class TodayPlan(BaseModel):

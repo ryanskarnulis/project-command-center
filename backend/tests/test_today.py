@@ -85,7 +85,11 @@ def test_blocked_task_excluded_and_surfaced(db_session: Session) -> None:
     assert dependent not in scheduled_ids
     assert blocker in scheduled_ids
     assert [b.task_id for b in plan.blocked] == [dependent]
-    assert plan.blocked[0].blocking_task_ids == [blocker]
+    blocking = plan.blocked[0].blocking_tasks
+    assert [b.task_id for b in blocking] == [blocker]
+    # The blocker carries its title + workflow status so the row is self-explanatory.
+    assert blocking[0].title == "blocker"
+    assert blocking[0].workflow_status == TaskWorkflowStatus.open
 
 
 def test_done_dependency_unblocks_task(db_session: Session) -> None:
