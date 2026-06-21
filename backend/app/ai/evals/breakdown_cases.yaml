@@ -1,0 +1,53 @@
+# Eval cases for the break_down_task workflow. Structural assertions only (counts,
+# title substrings, needs_review, confidence spread) — never exact-string matches,
+# so a reasonable model rewording still passes. Mirrors extraction_cases.yaml.
+
+- name: decomposable_deploy_pipeline
+  title: Set up a CI/CD pipeline for the web app
+  description: >-
+    Build, test, and deploy the frontend automatically on every push to main.
+  expect:
+    min_subtasks: 3
+    max_subtasks: 8
+    needs_review: false
+
+- name: decomposable_office_move
+  title: Move the team to the new office
+  description: >-
+    Relocate eight people, their desks, monitors, and the network gear over a weekend.
+  expect:
+    min_subtasks: 3
+    needs_review: false
+    confidence_varies: true
+
+- name: decomposable_db_migration
+  title: Migrate the database from SQLite to Postgres
+  description: null
+  expect:
+    min_subtasks: 3
+    title_contains: ["migrat"]
+
+- name: vague_improve_performance
+  title: Make the app faster
+  description: It feels sluggish lately.
+  expect:
+    needs_review: true
+    low_confidence_present: true
+
+# An atomic task should stay shallow — the inverse of the decomposable cases
+# above (>=3 subtasks). gemma4:e2b rarely emits zero subtasks or sets
+# needs_review on an atomic task, so this asserts only the reliable signal
+# (no project-style fan-out); revisit needs_review behaviour with the custom model.
+- name: already_atomic_reply
+  title: Reply "yes" to Dana's lunch invite
+  description: null
+  expect:
+    max_subtasks: 2
+
+- name: decomposable_onboarding
+  title: Onboard the new backend engineer
+  description: >-
+    Get them a laptop, accounts, repo access, and a first starter task.
+  expect:
+    min_subtasks: 3
+    needs_review: false

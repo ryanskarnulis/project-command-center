@@ -37,19 +37,20 @@ export function useTodayPlan(): UseTodayPlan {
     DEFAULT_AVAILABLE_MINUTES,
   )
   const [plan, setPlan] = useState<TodayPlan | null>(null)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [loadedKey, setLoadedKey] = useState<string | null>(null)
   // Bumped by refetch() to force a reload without changing the controls.
   const [reloadToken, setReloadToken] = useState(0)
+  const requestKey = JSON.stringify([date, startTime, availableMinutes, reloadToken])
 
   useEffect(() => {
     let active = true
-    setLoading(true)
     getTodayPlan({ date, startTime, availableMinutes })
       .then((result) => {
         if (!active) return
         setPlan(result)
         setError(null)
+        setLoadedKey(requestKey)
       })
       .catch((err: unknown) => {
         if (!active) return
@@ -60,14 +61,12 @@ export function useTodayPlan(): UseTodayPlan {
               ? err.message
               : 'Failed to load the day plan'
         setError(message)
-      })
-      .finally(() => {
-        if (active) setLoading(false)
+        setLoadedKey(requestKey)
       })
     return () => {
       active = false
     }
-  }, [date, startTime, availableMinutes, reloadToken])
+  }, [date, startTime, availableMinutes, requestKey])
 
   const refetch = useCallback(() => {
     setReloadToken((token) => token + 1)
@@ -75,7 +74,7 @@ export function useTodayPlan(): UseTodayPlan {
 
   return {
     plan,
-    loading,
+    loading: loadedKey !== requestKey,
     error,
     date,
     startTime,

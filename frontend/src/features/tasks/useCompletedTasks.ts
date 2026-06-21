@@ -10,41 +10,44 @@ interface UseCompletedTasks {
   reload: () => void
 }
 
+function completedTasksKey(projectId: number | undefined, refreshKey: number): string {
+  return JSON.stringify([projectId ?? null, refreshKey])
+}
+
 export function useCompletedTasks(
   projectId?: number,
   enabled = true,
 ): UseCompletedTasks {
   const [tasks, setTasks] = useState<Task[]>([])
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [loadedKey, setLoadedKey] = useState<string | null>(null)
 
   const reload = useCallback(() => setRefreshKey((k) => k + 1), [])
+  const requestKey = completedTasksKey(projectId, refreshKey)
 
   // Lazy: only fetch while enabled (e.g. the "Done" view is selected). Each time
   // it becomes enabled it refetches, so completed data is fresh when reopened.
   useEffect(() => {
     if (!enabled) return
     let active = true
-    setLoading(true)
     listCompletedTasks(projectId)
       .then((data) => {
         if (!active) return
         setTasks(data)
         setError(null)
+        setLoadedKey(requestKey)
       })
       .catch((e: unknown) => {
         if (active) {
           setError(e instanceof Error ? e.message : 'Failed to load completed tasks')
+          setLoadedKey(requestKey)
         }
-      })
-      .finally(() => {
-        if (active) setLoading(false)
       })
     return () => {
       active = false
     }
-  }, [projectId, refreshKey, enabled])
+  }, [projectId, requestKey, enabled])
 
   const reopen = useCallback(async (id: number) => {
     setError(null)
@@ -57,5 +60,5 @@ export function useCompletedTasks(
     }
   }, [])
 
-  return { tasks, loading, error, reopen, reload }
+  return { tasks, loading: enabled && loadedKey !== requestKey, error, reopen, reload }
 }

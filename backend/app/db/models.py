@@ -119,6 +119,12 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     recurrence_id: Mapped[str | None] = mapped_column(String(36), default=None)
     confidence: Mapped[float | None] = mapped_column(default=None)
     assignee_hint: Mapped[str | None] = mapped_column(default=None)
+    # Raw "break this down" model output (Sprint 10a), held on the parent task
+    # only between generating subtask candidates and reviewing them. The
+    # correction (accepted/edited subtasks vs this original) is captured to
+    # ai_training_examples at review time (prime directive #4); this column is
+    # cleared once the breakdown is reviewed. Null = no pending breakdown.
+    breakdown_output_json: Mapped[str | None] = mapped_column(default=None)
 
     project: Mapped[Project | None] = relationship(back_populates="tasks")
     inbox_item: Mapped[InboxItem | None] = relationship(back_populates="candidates")

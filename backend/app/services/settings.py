@@ -16,7 +16,12 @@ import yaml
 from pydantic import ValidationError
 
 from app.ai import gateway
-from app.ai.evals import run_evals, run_match_evals, run_summary_evals
+from app.ai.evals import (
+    run_breakdown_evals,
+    run_evals,
+    run_match_evals,
+    run_summary_evals,
+)
 from app.schemas.settings import (
     EvalCaseResult,
     EvalRunResult,
@@ -30,6 +35,7 @@ logger = structlog.get_logger(__name__)
 
 _EVAL_SUITES: dict[str, Callable[[], list[dict[str, Any]]]] = {
     "task_extraction": run_evals.run,
+    "break_down_task": run_breakdown_evals.run,
     "project_matching": run_match_evals.run,
     "summary": run_summary_evals.run,
 }

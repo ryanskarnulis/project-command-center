@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { RepeatInterval } from '../../types/task'
 import { formatRepeatInterval, parseRepeatInterval } from '../../utils/recurrence'
 
@@ -10,6 +10,12 @@ interface Props {
   disabled?: boolean
 }
 
+interface DraftState {
+  source: string
+  draft: string
+  error: string | null
+}
+
 /**
  * Natural-text recurrence input, mirroring the inline estimate field: the user
  * types `weekly`, `every 2 months`, etc., and on blur the text is parsed. A
@@ -17,28 +23,33 @@ interface Props {
  * surfaces an inline error and is not saved. An empty field clears recurrence.
  */
 export function RepeatIntervalInput({ value, onChange, disabled = false }: Props) {
-  const [draft, setDraft] = useState('')
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    setDraft(value ? formatRepeatInterval(value) : '')
-    setError(null)
-  }, [value])
+  const source = value ? formatRepeatInterval(value) : ''
+  const [draftState, setDraftState] = useState<DraftState>({
+    source,
+    draft: source,
+    error: null,
+  })
+  const isCurrent = draftState.source === source
+  const draft = isCurrent ? draftState.draft : source
+  const error = isCurrent ? draftState.error : null
 
   function commit() {
     const trimmed = draft.trim()
     if (trimmed === '') {
-      setError(null)
+      setDraftState({ source, draft: '', error: null })
       if (value !== null) onChange(null)
       return
     }
     const parsed = parseRepeatInterval(trimmed)
     if (parsed === null) {
-      setError('Try "weekly", "every 2 weeks", or "every 3 months"')
+      setDraftState({
+        source,
+        draft,
+        error: 'Try "weekly", "every 2 weeks", or "every 3 months"',
+      })
       return
     }
-    setError(null)
-    setDraft(formatRepeatInterval(parsed))
+    setDraftState({ source, draft: formatRepeatInterval(parsed), error: null })
     if (!value || value.unit !== parsed.unit || value.every !== parsed.every) {
       onChange(parsed)
     }
@@ -49,7 +60,9 @@ export function RepeatIntervalInput({ value, onChange, disabled = false }: Props
       <input
         aria-label="Repeat"
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) =>
+          setDraftState({ source, draft: e.target.value, error: null })
+        }
         onBlur={commit}
         disabled={disabled}
         placeholder="e.g. weekly, every 2 months"

@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { FolderX, GraduationCap, Inbox, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { useTrash, type TrashKind } from './useTrash'
-import { useTrashCount } from './TrashCountContext'
+import { useTrashCount } from './trashCountContext'
 import { TaskCard } from '../tasks/TaskCard'
 import { ProjectCard } from '../projects/ProjectCard'
 import { buildProjectStats, type ProjectStats } from '../../utils/projectStatus'

@@ -173,7 +173,9 @@ project_aliases
 tasks                  (includes review_status: candidate | accepted | rejected;
                         workflow_status: open | in_progress | done;
                         nullable parent_task_id self-FK for subtask nesting;
-                        nullable estimated_minutes effort estimate)
+                        nullable estimated_minutes effort estimate;
+                        nullable breakdown_output_json holding the "break this down"
+                        model output between generating and reviewing subtasks)
 task_dependencies      ("A depends_on B" edges; B must be done before A starts)
 inbox_items            (includes input_hash for idempotency)
 activity_events
@@ -574,12 +576,27 @@ Sprint 9o: [DONE] Command bar completion — finished the two stubbed behaviours
            change. New Vitest shortcut tests + pytest ordering tests; pytest green,
            Vitest green (pre-existing ProjectDetailPage flake aside). No schema change,
            no Alembic, no eval/Pydantic obligation, no new dependency.
+Sprint 10a: [DONE] AI "break this down" — a second correctable AI surface that
+           feeds the training corpus. Per-task POST /api/tasks/{id}/break-down runs
+           a new break_down_task workflow (ai/workflows/break_down_task.py): gateway
+           call through the break_down_task profile → Pydantic BreakdownOutput
+           validation → candidate subtasks created as children via
+           create_task(parent_task_id=...) (project inherited from the parent).
+           Idempotent (existing candidate children or a pending breakdown short-
+           circuit the model call); invalid output records a training-failure row and
+           returns 422. Reviewed on TaskDetailPage — suggested subtasks render as
+           TaskCards with Approve/Dismiss; POST /api/tasks/{id}/breakdown/review
+           (services/breakdown.py) approves (flip to accepted, with edits) or
+           dismisses (soft-delete), and once all are decided writes exactly one
+           ai_training_examples correction row (full input/output/corrected) and
+           clears the holding column. New tasks.breakdown_output_json nullable column
+           + migration 5b5f79d37b6e (holds the original model output between
+           generate- and review-time so the correction can be captured — directive
+           #4). New break_down_task profile + ai/prompts/break_down_task.md + eval
+           suite (ai/evals/breakdown_cases.yaml + run_breakdown_evals.py, registered
+           in the settings eval runner; 6/6 on gemma4:e2b). No new dependency.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
-Sprint 11 (backlog): AI "break this down" — a per-task action that sends the
-           task's title + description through ai/gateway.py to suggest subtasks,
-           surfaced as candidates (review_status="candidate") for review/accept,
-           reusing the extract_tasks workflow + eval + training-capture pattern.
 ```
 
 ## First vertical slice
@@ -653,16 +670,24 @@ Autonomous agents
 ## Dev commands
 
 ```
-ollama serve
-cd backend && python -m app.main   # reload on; binds API_HOST from .env (default 127.0.0.1, set 0.0.0.0 for LAN)
-cd frontend && npm run dev   # binds DEV_HOST from .env (default 127.0.0.1, set 0.0.0.0 for LAN)
-cd backend && python -m app.integrations.discord.bot   # Discord bot (needs DISCORD_BOT_TOKEN + BACKEND_SHARED_SECRET)
-cd backend && python -m app.ai.evals.run_evals         # task_extraction eval cases (needs Ollama)
-cd backend && python -m app.ai.evals.run_match_evals   # project_matching eval cases (needs Ollama)
-cd backend && python -m app.ai.evals.run_summary_evals # project summary eval cases (needs Ollama)
-cd backend && ./.venv/bin/alembic upgrade head         # apply DB migrations
-./scripts/backup_db.sh                                 # snapshot data/app.db → data/backups/
+./main.sh                 # bootstrap env/deps, migrate, start Ollama + backend + frontend
+                          # and start Discord when DISCORD_BOT_TOKEN +
+                          # BACKEND_SHARED_SECRET are set
+./test.sh                 # backend pytest/ruff/mypy + frontend Vitest/lint/build
+./test.sh --ai-evals      # also run the Ollama-backed AI eval suites
+./scripts/backup_db.sh    # snapshot data/app.db → data/backups/
 ```
+
+`main.sh` creates missing `backend/.env` and `frontend/.env` from the example
+files, creates `backend/.venv` when needed, installs existing declared
+dependencies when local installs are missing, runs Alembic migrations, and keeps
+all dev processes in the foreground until `Ctrl-C`. It binds through the existing
+`.env` settings: `API_HOST` defaults to `127.0.0.1` for the backend, and
+`DEV_HOST` defaults to `127.0.0.1` for Vite.
+
+AI evals are opt-in for `test.sh` because they require Ollama and the configured
+local model. The default quality gate stays deterministic and does not hide known
+frontend flakes by skipping tests.
 
 When `API_HOST=0.0.0.0`, LAN clients can reach read APIs, but Settings writes
 remain localhost-only and return `403` from non-loopback clients.

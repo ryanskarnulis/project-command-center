@@ -192,8 +192,10 @@ describe('ProjectDetailPage', () => {
   })
 
   it('mounts the activity feed for the project', async () => {
+    const user = userEvent.setup()
     renderDetail()
 
+    await user.click(await screen.findByRole('button', { name: 'Activity' }))
     expect(await screen.findByText('No activity yet.')).toBeInTheDocument()
     expect(mockGetProjectActivity).toHaveBeenCalled()
   })

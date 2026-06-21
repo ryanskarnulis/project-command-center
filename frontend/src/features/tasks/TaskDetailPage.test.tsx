@@ -4,17 +4,19 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
 import { listDependencies } from '../../api/taskDependencies'
-import { getSubtasks, getTask, listAllTasks, updateTask } from '../../api/tasks'
+import { breakDownTask, getSubtasks, getTask, listAllTasks, reviewBreakdown, updateTask } from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { TaskDetailPage } from './TaskDetailPage'
 
 vi.mock('../../api/tasks', () => ({
+  breakDownTask: vi.fn(),
   createUnscopedTask: vi.fn(),
   deleteTask: vi.fn(),
   getSubtasks: vi.fn(),
   getTask: vi.fn(),
   listAllTasks: vi.fn(),
+  reviewBreakdown: vi.fn(),
   updateTask: vi.fn(),
 }))
 
@@ -65,6 +67,16 @@ const mockListAllTasks = vi.mocked(listAllTasks)
 const mockListProjects = vi.mocked(listProjects)
 const mockListDependencies = vi.mocked(listDependencies)
 const mockUpdateTask = vi.mocked(updateTask)
+const mockBreakDownTask = vi.mocked(breakDownTask)
+const mockReviewBreakdown = vi.mocked(reviewBreakdown)
+
+const suggestedSubtask: Task = {
+  ...task,
+  id: 21,
+  parent_task_id: 7,
+  title: 'Back up the config first',
+  review_status: 'candidate',
+}
 
 function renderDetail() {
   return render(
@@ -85,6 +97,13 @@ describe('TaskDetailPage', () => {
     mockListProjects.mockResolvedValue([project])
     mockListDependencies.mockResolvedValue([])
     mockUpdateTask.mockImplementation(async (_id, patch) => ({ ...task, ...patch }))
+    mockBreakDownTask.mockResolvedValue([suggestedSubtask])
+    mockReviewBreakdown.mockResolvedValue({
+      approved: 1,
+      dismissed: 0,
+      finalized: true,
+      training_example_id: 5,
+    })
   })
 
   afterEach(cleanup)
@@ -131,6 +150,27 @@ describe('TaskDetailPage', () => {
     expect(mockUpdateTask).toHaveBeenCalledWith(
       7,
       expect.objectContaining({ workflow_status: 'in_progress' }),
+    )
+  })
+
+  it('breaks a task down and approves a suggested subtask', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Break this down' }))
+
+    await waitFor(() => expect(mockBreakDownTask).toHaveBeenCalledWith(7))
+    // The suggested subtask renders as a card (scoped by its link aria-label —
+    // the title also appears in the Parent-task dropdown).
+    expect(
+      await screen.findByRole('link', { name: 'Back up the config first' }),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+
+    await waitFor(() =>
+      expect(mockReviewBreakdown).toHaveBeenCalledWith(7, [
+        { task_id: 21, action: 'approve' },
+      ]),
     )
   })
 

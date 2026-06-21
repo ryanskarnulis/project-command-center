@@ -695,3 +695,53 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
 - [x] `pytest` (225) green; `CommandSearch` Vitest suite green; `tsc` clean. No model call,
       no eval change, no schema/migration, no Alembic, no new dependency. (Pre-existing
       `ProjectDetailPage.test.tsx` flake is unrelated — fails identically on a clean tree.)
+
+## Sprint 10a — AI "Break this down" (per-task subtask suggestion)
+> Goal: add a second correctable AI surface that feeds the training corpus — a per-task action that suggests subtasks as review-queue candidates, reusing the inbox-extraction pattern end to end.
+
+### Slice 1 — schema, profile, prompt, Pydantic I/O
+- [x] `tasks.breakdown_output_json` nullable column + Alembic migration `5b5f79d37b6e`.
+      Holds the raw model output on the parent **only between generating subtasks and
+      reviewing them**, so the correction (accepted/edited vs original) can be captured to
+      `ai_training_examples` at review time (prime directive #4); cleared on review. The
+      backlog's "no new schema" hope was not achievable — the original output must survive
+      from generate-time to review-time, and a nullable column is the honest carrier.
+- [x] `app/ai/schemas.py` — `BreakdownSubtask` / `BreakdownOutput` / `BreakdownInput`,
+      mirroring the extraction schemas (`extra="forbid"`; `confidence` has no default per
+      the required-nullable model-field rule).
+- [x] `break_down_task` profile in `profiles.yaml` (gemma4:e2b, json_schema) +
+      `ai/prompts/break_down_task.md` (decompose within scope; atomic/vague guidance).
+
+### Slice 2 — workflow, review capture, routes, evals
+- [x] `app/ai/workflows/break_down_task.py` mirrors `extract_tasks.py`: idempotent
+      (existing candidate children or a pending `breakdown_output_json` short-circuit the
+      model call), gateway call, Pydantic validation, training-failure capture + 422 on
+      invalid output, candidate children via existing `create_task(parent_task_id=...)`
+      (project inherited from parent).
+- [x] `app/services/breakdown.py` — `review_breakdown`: approve flips a candidate child to
+      accepted (with edits), dismiss soft-deletes it; once no candidates remain, writes one
+      `ai_training_examples` correction row (full input/output/corrected) and clears
+      `breakdown_output_json`. `AlreadyReviewedError` when nothing is pending.
+- [x] `app/api/routes_tasks.py` — `POST /api/tasks/{id}/break-down` (422 on invalid model
+      output) + `POST /api/tasks/{id}/breakdown/review` (409 when nothing pending). New
+      `schemas/tasks.py` schemas (`SubtaskEdit` / `SubtaskDecision` / `BreakdownReviewRequest`
+      / `BreakdownReviewResult`).
+- [x] `ai/evals/breakdown_cases.yaml` + `run_breakdown_evals.py` (exposes `run()`),
+      registered in `services/settings.py` `_EVAL_SUITES`. 6/6 on gemma4:e2b (the atomic
+      case asserts only the reliable no-fan-out signal — the small model won't set
+      `needs_review` on atomic tasks; revisit with the custom model).
+
+### Slice 3 — frontend (TaskDetailPage)
+- [x] `api/tasks.ts` — `breakDownTask(id)` + `reviewBreakdown(id, decisions)`; types in
+      `types/task.ts`. "Break this down" button in the Subtasks heading; suggested candidates
+      render as `TaskCard`s with Approve / Dismiss (per-row in-flight guard), using the
+      page's existing save-state/error feedback. `TaskDetailPage.test.tsx` covers the flow.
+
+### Verification
+- [x] `alembic upgrade head` clean; `pytest` (236 + new breakdown/route tests) green;
+      `mypy --strict` clean on the new/changed modules; `npm run build` clean;
+      `TaskDetailPage.test.tsx` 5/5; `run_breakdown_evals` 6/6. No new dependency.
+- [x] Follow-up frontend quality cleanup — stale `DashboardPage.test.tsx` /
+      `ProjectDetailPage.test.tsx` expectations fixed; provider hooks split out of
+      component files for Fast Refresh; effect-driven loading/draft resets refactored
+      to satisfy the React 19 hooks lint rules. No schema, backend, or dependency change.

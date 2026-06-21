@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useToast } from '../../components/ToastProvider'
+import { useToast } from '../../components/ToastContext'
 import { createProject, deleteProject, listProjects, updateProject } from '../../api/projects'
 import type { Project, ProjectCreate, ProjectUpdate } from '../../types/project'
 

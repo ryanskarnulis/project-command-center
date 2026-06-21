@@ -12,40 +12,51 @@ interface UseSearch {
   total: number
 }
 
+interface SearchState {
+  query: string
+  results: SearchResults
+  loading: boolean
+  error: string | null
+}
+
 /**
  * Debounced global search. Re-queries when `query` settles; a blank query resets to
  * empty without hitting the API. In-flight requests are aborted when the query
  * changes so a slow earlier response can't overwrite a newer one.
  */
 export function useSearch(query: string, debounceMs = 200): UseSearch {
-  const [results, setResults] = useState<SearchResults>(EMPTY)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [state, setState] = useState<SearchState>({
+    query: '',
+    results: EMPTY,
+    loading: false,
+    error: null,
+  })
 
   useEffect(() => {
     const trimmed = query.trim()
     if (trimmed === '') {
-      setResults(EMPTY)
-      setLoading(false)
-      setError(null)
       return
     }
 
     const controller = new AbortController()
-    setLoading(true)
     const timer = setTimeout(() => {
       search(trimmed, controller.signal)
         .then((data) => {
-          setResults(data)
-          setError(null)
+          setState({
+            query: trimmed,
+            results: data,
+            loading: false,
+            error: null,
+          })
         })
         .catch((e: unknown) => {
           if (controller.signal.aborted) return
-          setError(e instanceof Error ? e.message : 'Search failed')
-          setResults(EMPTY)
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) setLoading(false)
+          setState({
+            query: trimmed,
+            results: EMPTY,
+            loading: false,
+            error: e instanceof Error ? e.message : 'Search failed',
+          })
         })
     }, debounceMs)
 
@@ -55,6 +66,12 @@ export function useSearch(query: string, debounceMs = 200): UseSearch {
     }
   }, [query, debounceMs])
 
+  const trimmed = query.trim()
+  const isBlank = trimmed === ''
+  const isCurrent = state.query === trimmed
+  const results = isBlank || !isCurrent ? EMPTY : state.results
+  const loading = !isBlank && (!isCurrent || state.loading)
+  const error = isBlank || !isCurrent ? null : state.error
   const total =
     results.projects.length + results.tasks.length + results.inbox_items.length
 

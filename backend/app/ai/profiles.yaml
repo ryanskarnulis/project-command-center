@@ -16,6 +16,14 @@ task_extraction:
   response_mode: json_schema
   system_prompt: extract_tasks.md
 
+break_down_task:
+  provider: ollama
+  model: gemma4:e2b
+  temperature: 0
+  max_tokens: 2048
+  response_mode: json_schema
+  system_prompt: break_down_task.md
+
 project_matching:
   provider: ollama
   model: gemma4:e2b

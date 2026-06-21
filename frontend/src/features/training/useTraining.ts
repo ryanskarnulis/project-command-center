@@ -11,7 +11,7 @@ import type {
   TrainingStats,
 } from '../../types/training'
 import { ApiError } from '../../api/client'
-import { useTrashCount } from '../trash/TrashCountContext'
+import { useTrashCount } from '../trash/trashCountContext'
 
 function errMessage(err: unknown): string {
   if (err instanceof ApiError) {

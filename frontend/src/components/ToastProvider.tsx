@@ -1,37 +1,18 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react'
-
-export type ToastKind = 'success' | 'error'
+import { ToastContext, type ToastApi, type ToastKind } from './ToastContext'
 
 interface Toast {
   id: number
   kind: ToastKind
   message: string
 }
-
-interface ToastApi {
-  notify: (kind: ToastKind, message: string) => void
-  /** Convenience wrapper: notify success, or an error toast if the promise rejects. */
-  withToast: <T>(
-    promise: Promise<T>,
-    messages: { success: string; error?: string },
-  ) => Promise<T>
-}
-
-// No-op default so components/hooks render fine without a provider (mirrors
-// TrashCountContext) — toasts simply don't show, which never breaks a flow.
-const ToastContext = createContext<ToastApi>({
-  notify: () => {},
-  withToast: async (promise) => promise,
-})
 
 const DISMISS_MS = 4000
 
@@ -118,8 +99,4 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       </div>
     </ToastContext.Provider>
   )
-}
-
-export function useToast(): ToastApi {
-  return useContext(ToastContext)
 }

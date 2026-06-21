@@ -17,6 +17,23 @@ import { buildProjectStats } from '../../utils/projectStatus'
 import { TaskCard } from '../tasks/TaskCard'
 import { ActivityFeed } from './ActivityFeed'
 
+interface ProjectDraft {
+  source: string
+  name: string
+  description: string
+}
+
+const EMPTY_PROJECT_DRAFT: ProjectDraft = { source: '', name: '', description: '' }
+
+function makeProjectDraft(project: Project): ProjectDraft {
+  const description = project.description ?? ''
+  return {
+    source: JSON.stringify([project.id, project.name, description]),
+    name: project.name,
+    description,
+  }
+}
+
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const id = Number(projectId)
@@ -29,15 +46,14 @@ export function ProjectDetailPage() {
 
   const [project, setProject] = useState<Project | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
-  const [tasksLoading, setTasksLoading] = useState(true)
+  const [tasksLoadedProjectId, setTasksLoadedProjectId] = useState<number | null>(null)
   const [tasksError, setTasksError] = useState<string | null>(null)
   const [doneCount, setDoneCount] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const [loadedProjectId, setLoadedProjectId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [nameDraft, setNameDraft] = useState('')
-  const [descriptionDraft, setDescriptionDraft] = useState('')
+  const [projectDraft, setProjectDraft] = useState<ProjectDraft>(EMPTY_PROJECT_DRAFT)
   const [activityKey, setActivityKey] = useState(0)
 
   // AI summary (on-demand; 502-safe).
@@ -53,12 +69,12 @@ export function ProjectDetailPage() {
 
   useEffect(() => {
     let active = true
-    setLoading(true)
     getProject(id)
       .then((p) => {
         if (!active) return
         setProject(p)
         setError(null)
+        setLoadedProjectId(id)
       })
       .catch((e: unknown) => {
         if (!active) return
@@ -66,9 +82,9 @@ export function ProjectDetailPage() {
           navigate('/projects', { replace: true })
         } else {
           setError(e instanceof Error ? e.message : 'Failed to load project')
+          setLoadedProjectId(id)
         }
       })
-      .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [id, navigate])
 
@@ -76,17 +92,18 @@ export function ProjectDetailPage() {
   // rest of the project page usable.
   useEffect(() => {
     let active = true
-    setTasksLoading(true)
     listTasks(id)
       .then((data) => {
         if (!active) return
         setTasks(data)
         setTasksError(null)
+        setTasksLoadedProjectId(id)
       })
       .catch((e: unknown) => {
-        if (active) setTasksError(e instanceof Error ? e.message : 'Failed to load tasks')
+        if (!active) return
+        setTasksError(e instanceof Error ? e.message : 'Failed to load tasks')
+        setTasksLoadedProjectId(id)
       })
-      .finally(() => { if (active) setTasksLoading(false) })
     return () => { active = false }
   }, [id])
 
@@ -109,11 +126,11 @@ export function ProjectDetailPage() {
     return () => { active = false }
   }, [id])
 
-  useEffect(() => {
-    if (!project) return
-    setNameDraft(project.name)
-    setDescriptionDraft(project.description ?? '')
-  }, [project])
+  const loadedProjectDraft = project ? makeProjectDraft(project) : EMPTY_PROJECT_DRAFT
+  const activeProjectDraft =
+    projectDraft.source === loadedProjectDraft.source ? projectDraft : loadedProjectDraft
+  const nameDraft = activeProjectDraft.name
+  const descriptionDraft = activeProjectDraft.description
 
   async function savePatch(data: ProjectUpdate) {
     if (!project) return
@@ -197,11 +214,15 @@ export function ProjectDetailPage() {
     }
   }
 
-  if (loading) return <main className="task-detail"><div className="page-loading">Loading…</div></main>
+  if (loadedProjectId !== id) {
+    return <main className="task-detail"><div className="page-loading">Loading…</div></main>
+  }
   if (error) return <main className="task-detail"><p role="alert" className="error">{error}</p></main>
   if (!project) return null
 
-  const stats = buildProjectStats(tasks, doneCount)
+  const currentTasks = tasksLoadedProjectId === id ? tasks : []
+  const tasksLoading = tasksLoadedProjectId !== id
+  const stats = buildProjectStats(currentTasks, doneCount)
   const saveLabel = saveState === 'saving'
     ? 'Saving…'
     : saveState === 'saved'
@@ -237,7 +258,9 @@ export function ProjectDetailPage() {
           className="task-title-input"
           aria-label="Project name"
           value={nameDraft}
-          onChange={(e) => setNameDraft(e.target.value)}
+          onChange={(e) =>
+            setProjectDraft({ ...activeProjectDraft, name: e.target.value })
+          }
           onBlur={saveName}
           onKeyDown={handleNameKeyDown}
         />
@@ -261,7 +284,9 @@ export function ProjectDetailPage() {
         <textarea
           aria-label="Project description"
           value={descriptionDraft}
-          onChange={(e) => setDescriptionDraft(e.target.value)}
+          onChange={(e) =>
+            setProjectDraft({ ...activeProjectDraft, description: e.target.value })
+          }
           onBlur={saveDescription}
           placeholder="Add a description"
           rows={5}
@@ -296,9 +321,9 @@ export function ProjectDetailPage() {
         {tasksError && <p role="alert">{tasksError}</p>}
         {tasksLoading ? (
           <p>Loading…</p>
-        ) : tasks.length > 0 ? (
+        ) : currentTasks.length > 0 ? (
           <ul className="task-detail-list">
-            {tasks.map((t) => (
+            {currentTasks.map((t) => (
               <li key={t.id}><TaskCard task={t} /></li>
             ))}
           </ul>

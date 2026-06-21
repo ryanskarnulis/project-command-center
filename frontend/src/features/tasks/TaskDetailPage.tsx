@@ -1,7 +1,7 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Circle, PlayCircle, Repeat, SkipForward, Trash2 } from 'lucide-react'
+import { CheckCircle2, Circle, PlayCircle, Repeat, SkipForward, Sparkles, Trash2 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { createUnscopedTask, deleteTask, getSubtasks, getTask, listAllTasks, skipOccurrence, updateTask } from '../../api/tasks'
+import { breakDownTask, createUnscopedTask, deleteTask, getSubtasks, getTask, listAllTasks, reviewBreakdown, skipOccurrence, updateTask } from '../../api/tasks'
 import { decideCandidate } from '../../api/inbox'
 import { listProjects } from '../../api/projects'
 import type { Project } from '../../types/project'
@@ -57,6 +57,35 @@ function descendantIds(task: Task, tasks: Task[]): Set<number> {
   return blocked
 }
 
+interface TaskDraft {
+  source: string
+  title: string
+  description: string
+  estimate: string
+  assignee: string
+}
+
+const EMPTY_TASK_DRAFT: TaskDraft = {
+  source: '',
+  title: '',
+  description: '',
+  estimate: '',
+  assignee: '',
+}
+
+function makeTaskDraft(task: Task): TaskDraft {
+  const description = task.description ?? ''
+  const estimate = formatDurationInput(task.estimated_minutes)
+  const assignee = task.assignee_hint ?? ''
+  return {
+    source: JSON.stringify([task.id, task.title, description, estimate, assignee]),
+    title: task.title,
+    description,
+    estimate,
+    assignee,
+  }
+}
+
 export function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>()
   const id = Number(taskId)
@@ -66,14 +95,11 @@ export function TaskDetailPage() {
   const [subtasks, setSubtasks] = useState<Task[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [allTasks, setAllTasks] = useState<Task[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loadedTaskId, setLoadedTaskId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [titleDraft, setTitleDraft] = useState('')
-  const [descriptionDraft, setDescriptionDraft] = useState('')
-  const [estimateDraft, setEstimateDraft] = useState('')
-  const [assigneeDraft, setAssigneeDraft] = useState('')
+  const [taskDraft, setTaskDraft] = useState<TaskDraft>(EMPTY_TASK_DRAFT)
   const EMPTY_SUBTASK_DRAFT = {
     title: '',
     priority: 'medium' as TaskPriority,
@@ -84,6 +110,9 @@ export function TaskDetailPage() {
   const [subtaskError, setSubtaskError] = useState<string | null>(null)
   const [addingSubtask, setAddingSubtask] = useState(false)
   const [deciding, setDeciding] = useState(false)
+  const [breakingDown, setBreakingDown] = useState(false)
+  // Per-suggested-subtask in-flight guard so a double-click can't double-fire.
+  const [decidingSubtaskId, setDecidingSubtaskId] = useState<number | null>(null)
   // A scopable edit to a recurring task is parked here until the user picks a
   // scope in EditScopeModal; choosing replays it with the chosen edit_scope.
   const [pendingScopePatch, setPendingScopePatch] = useState<TaskUpdate | null>(null)
@@ -91,7 +120,6 @@ export function TaskDetailPage() {
 
   useEffect(() => {
     let active = true
-    setLoading(true)
     Promise.all([getTask(id), getSubtasks(id), listProjects(), listAllTasks()])
       .then(([t, subs, projs, tasks]) => {
         if (!active) return
@@ -100,6 +128,7 @@ export function TaskDetailPage() {
         setProjects(projs)
         setAllTasks(tasks.some((candidate) => candidate.id === t.id) ? tasks : [t, ...tasks])
         setError(null)
+        setLoadedTaskId(id)
       })
       .catch((e: unknown) => {
         if (!active) return
@@ -108,19 +137,19 @@ export function TaskDetailPage() {
           navigate('/tasks', { replace: true })
         } else {
           setError(msg)
+          setLoadedTaskId(id)
         }
       })
-      .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [id, navigate])
 
-  useEffect(() => {
-    if (!task) return
-    setTitleDraft(task.title)
-    setDescriptionDraft(task.description ?? '')
-    setEstimateDraft(formatDurationInput(task.estimated_minutes))
-    setAssigneeDraft(task.assignee_hint ?? '')
-  }, [task])
+  const loadedTaskDraft = task ? makeTaskDraft(task) : EMPTY_TASK_DRAFT
+  const activeTaskDraft =
+    taskDraft.source === loadedTaskDraft.source ? taskDraft : loadedTaskDraft
+  const titleDraft = activeTaskDraft.title
+  const descriptionDraft = activeTaskDraft.description
+  const estimateDraft = activeTaskDraft.estimate
+  const assigneeDraft = activeTaskDraft.assignee
 
   const parentOptions = useMemo(() => {
     if (!task) return []
@@ -253,6 +282,59 @@ export function TaskDetailPage() {
     }
   }
 
+  async function handleBreakDown() {
+    if (!task) return
+    setBreakingDown(true)
+    setSaveError(null)
+    try {
+      const suggested = await breakDownTask(task.id)
+      // Drop any already-listed candidate (idempotent re-run returns the same
+      // rows) before appending, so we never show a subtask twice.
+      const suggestedIds = new Set(suggested.map((s) => s.id))
+      setSubtasks((items) => [
+        ...items.filter((s) => !suggestedIds.has(s.id)),
+        ...suggested,
+      ])
+      setAllTasks((items) => [
+        ...items.filter((s) => !suggestedIds.has(s.id)),
+        ...suggested,
+      ])
+      if (suggested.length === 0) {
+        setSaveState('saved')
+        setSaveError('The model had no subtasks to suggest for this task.')
+      }
+    } catch (e: unknown) {
+      setSaveState('error')
+      setSaveError(e instanceof Error ? e.message : 'Failed to break down task')
+    } finally {
+      setBreakingDown(false)
+    }
+  }
+
+  // Approve/dismiss one suggested subtask. The breakdown's training row is
+  // captured server-side once the last suggestion is decided.
+  async function handleSubtaskDecision(subtaskId: number, action: 'approve' | 'dismiss') {
+    if (!task) return
+    setDecidingSubtaskId(subtaskId)
+    setSaveError(null)
+    try {
+      await reviewBreakdown(task.id, [{ task_id: subtaskId, action }])
+      setSubtasks((items) =>
+        action === 'dismiss'
+          ? items.filter((s) => s.id !== subtaskId)
+          : items.map((s) =>
+              s.id === subtaskId ? { ...s, review_status: 'accepted' } : s,
+            ),
+      )
+      setSaveState('saved')
+    } catch (e: unknown) {
+      setSaveState('error')
+      setSaveError(e instanceof Error ? e.message : 'Failed to record decision')
+    } finally {
+      setDecidingSubtaskId(null)
+    }
+  }
+
   async function handleDelete() {
     if (!task) return
     setSaveState('saving')
@@ -289,12 +371,16 @@ export function TaskDetailPage() {
     }
   }
 
-  if (loading) return <main><p>Loading…</p></main>
+  if (loadedTaskId !== id) return <main><p>Loading…</p></main>
   if (error) return <main><p role="alert">{error}</p></main>
   if (!task) return null
 
   const projectName = projects.find((p) => p.id === task.project_id)?.name ?? 'Unassigned'
   const isCandidate = task.review_status === 'candidate' && task.inbox_item_id !== null
+  // Subtasks suggested by "break this down" stay review_status=candidate until the
+  // user approves/dismisses them; everything else is a real subtask.
+  const suggestedSubtasks = subtasks.filter((s) => s.review_status === 'candidate')
+  const reviewedSubtasks = subtasks.filter((s) => s.review_status !== 'candidate')
   const saveLabel = saveState === 'saving'
     ? 'Saving…'
     : saveState === 'saved'
@@ -406,7 +492,9 @@ export function TaskDetailPage() {
           className="task-title-input"
           aria-label="Task title"
           value={titleDraft}
-          onChange={(e) => setTitleDraft(e.target.value)}
+          onChange={(e) =>
+            setTaskDraft({ ...activeTaskDraft, title: e.target.value })
+          }
           onBlur={saveTitle}
           onKeyDown={handleTitleKeyDown}
         />
@@ -443,7 +531,9 @@ export function TaskDetailPage() {
           <textarea
             aria-label="Task description"
             value={descriptionDraft}
-            onChange={(e) => setDescriptionDraft(e.target.value)}
+            onChange={(e) =>
+              setTaskDraft({ ...activeTaskDraft, description: e.target.value })
+            }
             onBlur={saveDescription}
             placeholder="Add a description"
             rows={5}
@@ -513,7 +603,9 @@ export function TaskDetailPage() {
             <input
               aria-label="Assignee"
               value={assigneeDraft}
-              onChange={(e) => setAssigneeDraft(e.target.value)}
+              onChange={(e) =>
+                setTaskDraft({ ...activeTaskDraft, assignee: e.target.value })
+              }
               onBlur={saveAssignee}
               placeholder="Unassigned"
             />
@@ -537,7 +629,9 @@ export function TaskDetailPage() {
             <input
               aria-label="Estimate"
               value={estimateDraft}
-              onChange={(e) => setEstimateDraft(e.target.value)}
+              onChange={(e) =>
+                setTaskDraft({ ...activeTaskDraft, estimate: e.target.value })
+              }
               onBlur={saveEstimate}
               placeholder="30m, 2h, 1 day"
             />
@@ -549,21 +643,70 @@ export function TaskDetailPage() {
       <section className="task-detail-panel">
         <div className="task-section-heading">
           <h2>Subtasks</h2>
-          <button type="button" onClick={() => setAddingSubtask(true)}>
-            <PlayCircle size={16} aria-hidden="true" />
-            Add subtask
-          </button>
+          <div className="task-section-actions">
+            <button
+              type="button"
+              onClick={() => void handleBreakDown()}
+              disabled={breakingDown}
+            >
+              <Sparkles size={16} aria-hidden="true" />
+              {breakingDown ? 'Breaking down…' : 'Break this down'}
+            </button>
+            <button type="button" onClick={() => setAddingSubtask(true)}>
+              <PlayCircle size={16} aria-hidden="true" />
+              Add subtask
+            </button>
+          </div>
         </div>
-        {subtasks.length > 0 ? (
+        {suggestedSubtasks.length > 0 && (
+          <div className="task-suggested-subtasks">
+            <p className="task-suggested-lead">
+              Suggested subtasks — approve the ones you want, dismiss the rest.
+            </p>
+            <ul className="task-detail-list">
+              {suggestedSubtasks.map((s) => (
+                <li key={s.id}>
+                  <TaskCard
+                    task={s}
+                    projects={projects}
+                    actions={
+                      <>
+                        <button
+                          type="button"
+                          className="task-action"
+                          disabled={decidingSubtaskId === s.id}
+                          onClick={() => void handleSubtaskDecision(s.id, 'approve')}
+                        >
+                          <CheckCircle2 size={14} aria-hidden="true" />
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="task-action danger-action"
+                          disabled={decidingSubtaskId === s.id}
+                          onClick={() => void handleSubtaskDecision(s.id, 'dismiss')}
+                        >
+                          <Trash2 size={14} aria-hidden="true" />
+                          Dismiss
+                        </button>
+                      </>
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {reviewedSubtasks.length > 0 ? (
           <ul className="task-detail-list">
-            {subtasks.map((s) => (
+            {reviewedSubtasks.map((s) => (
               <li key={s.id}>
                 <TaskCard task={s} projects={projects} />
               </li>
             ))}
           </ul>
         ) : (
-          <p>No subtasks yet.</p>
+          suggestedSubtasks.length === 0 && <p>No subtasks yet.</p>
         )}
         {addingSubtask && (
           <form className="task-subtask-form" onSubmit={(e) => void handleAddSubtask(e)}>

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, CalendarClock, Check, Clock3, Inbox, Play } from 'lucide-react'
 import { markTaskDone, updateTask } from '../../api/tasks'
-import { useToast } from '../../components/ToastProvider'
+import { useToast } from '../../components/ToastContext'
 import type { TaskPriority, TaskWorkflowStatus } from '../../types/task'
 import type {
   BlockedTask,

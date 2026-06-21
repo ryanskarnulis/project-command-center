@@ -11,9 +11,10 @@ until promoted.
 
 ## Next sprint (proposed): pick from backlog
 
-Today quick actions + blocked dependency clarity shipped (README Sprint 9n /
-DONE.md). No slice is currently promoted — pick the next strongest themed group
-from the backlog below when ready.
+AI "break this down" shipped (README Sprint 10a / DONE.md). No slice is currently
+promoted — pick the next strongest themed group from the backlog below when ready.
+Strong candidates: Kanban board (needs a drag-and-drop dependency — ask first),
+internal read-only Calendar view, or Recurring series management.
 
 ---
 
@@ -110,11 +111,14 @@ from the backlog below when ready.
       a timestamped copy to `ai/prompts/.history/<name>.<timestamp>.md` before overwriting.
       Lets you diff before/after a score drop and revert manually. Backend change in the
       prompt-save route; no schema/migration.
-- [ ] **AI "break this down"** — per-task action that sends the task's title +
-      description through `ai/gateway.py` to suggest subtasks, returned as candidates
-      (review_status=`candidate`) for the standard review queue. Reuses the `extract_tasks`
-      workflow, eval cases, and training-capture pattern. No new schema beyond what's
-      already there.
+- [x] **AI "break this down"** — shipped (README Sprint 10a / DONE.md). Per-task
+      `POST /api/tasks/{id}/break-down` runs a new `break_down_task` workflow (gateway →
+      Pydantic `BreakdownOutput` → candidate children via `create_task(parent_task_id=...)`),
+      reviewed on TaskDetailPage (Approve/Dismiss) via `POST /api/tasks/{id}/breakdown/review`,
+      which captures one training correction row. New `break_down_task` profile/prompt/eval
+      suite (6/6 on gemma4:e2b). One nullable `tasks.breakdown_output_json` column +
+      migration (needed to hold the original output between generate- and review-time for
+      directive #4 — the backlog's "no new schema" hope was not achievable).
 - [ ] **Surface AI inbox summary as note title** — the extraction response already returns
       a `summary` field (stored on `inbox_items.summary`); use it as the display title in
       the inbox list instead of truncating raw text. Frontend-only change; no

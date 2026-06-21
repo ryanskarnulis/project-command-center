@@ -7,7 +7,7 @@ import { purgeTrainingExample, restoreTrainingExample } from '../../api/training
 import { emptyTrash, getTrash } from '../../api/trash'
 import type { Task } from '../../types/task'
 import type { Trash } from '../../types/trash'
-import { useTrashCount } from './TrashCountContext'
+import { useTrashCount } from './trashCountContext'
 
 const EMPTY: Trash = { projects: [], tasks: [], inbox_items: [], training_examples: [] }
 

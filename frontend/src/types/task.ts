@@ -43,6 +43,27 @@ export interface TaskDependency {
   depends_on_done: boolean
 }
 
+/** Per-subtask edits applied when approving a suggested breakdown subtask. */
+export interface SubtaskEdit {
+  title?: string
+  description?: string | null
+  priority?: TaskPriority
+  estimated_minutes?: number | null
+}
+
+export interface SubtaskDecision {
+  task_id: number
+  action: 'approve' | 'dismiss'
+  edits?: SubtaskEdit
+}
+
+export interface BreakdownReviewResult {
+  approved: number
+  dismissed: number
+  finalized: boolean
+  training_example_id: number | null
+}
+
 export interface TaskCreate {
   title: string
   description?: string | null

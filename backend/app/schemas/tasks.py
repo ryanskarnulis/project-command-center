@@ -58,6 +58,38 @@ class TaskUpdate(BaseModel):
     edit_scope: Literal["this", "future"] = "this"
 
 
+class SubtaskEdit(BaseModel):
+    """Per-subtask edits applied on approve. Only set fields are applied.
+
+    Narrower than the inbox ``ReviewEdit``: a breakdown subtask inherits its
+    parent's project (no ``project_id`` override) and has no due date by default.
+    """
+
+    title: NonBlankStr | None = None
+    description: OptionalStrippedStr = None
+    priority: TaskPriority | None = None
+    estimated_minutes: PositiveMinutes | None = None
+
+
+class SubtaskDecision(BaseModel):
+    """Approve or dismiss one suggested subtask from a task breakdown."""
+
+    task_id: int
+    action: Literal["approve", "dismiss"]
+    edits: SubtaskEdit | None = None  # only used on approve
+
+
+class BreakdownReviewRequest(BaseModel):
+    decisions: list[SubtaskDecision]
+
+
+class BreakdownReviewResult(BaseModel):
+    approved: int
+    dismissed: int
+    finalized: bool
+    training_example_id: int | None = None
+
+
 class TaskRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

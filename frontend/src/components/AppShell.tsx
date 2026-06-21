@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import { useTrashCount } from '../features/trash/TrashCountContext'
+import { useTrashCount } from '../features/trash/trashCountContext'
 import { CommandSearch } from '../features/search/CommandSearch'
 import {
   Bell,

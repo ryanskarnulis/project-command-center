@@ -957,13 +957,16 @@ kbd {
   display: inline-grid;
   place-items: center;
   width: 32px;
+  min-width: 32px;
   height: 32px;
+  min-height: 32px;
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 50%;
   background: var(--blue-soft);
   color: var(--blue);
   cursor: pointer;
+  box-shadow: none;
   transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
@@ -2359,6 +2362,22 @@ kbd {
   min-height: 34px;
   font-size: 13px;
   font-weight: 700;
+}
+
+.task-section-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.task-suggested-subtasks {
+  margin-bottom: 16px;
+}
+
+.task-suggested-lead {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted, #6b7280);
 }
 
 .task-icon-action {

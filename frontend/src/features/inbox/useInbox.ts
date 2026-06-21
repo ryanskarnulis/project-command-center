@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { useToast } from '../../components/ToastProvider'
+import { useToast } from '../../components/ToastContext'
 import { ApiError } from '../../api/client'
 import {
   createInbox,

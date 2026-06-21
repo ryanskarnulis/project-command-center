@@ -51,6 +51,50 @@ class ExtractionInput(BaseModel):
         return f"Today's date: {self.today.isoformat()}\n\nNotes:\n{self.raw_text}"
 
 
+class BreakdownSubtask(BaseModel):
+    """A single subtask the model proposes when breaking down a task.
+
+    ``extra="forbid"`` for the same reason as ``ExtractedTask``: an unexpected key
+    fails validation rather than being silently dropped. ``confidence`` has no
+    default — a field the model must always emit needs no default, or the
+    json_schema marks it optional and Ollama omits it (see project memory).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    description: str | None = None
+    priority: TaskPriority = TaskPriority.medium
+    estimated_minutes: int | None = Field(default=None, gt=0)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class BreakdownOutput(BaseModel):
+    """Full validated output of the ``break_down_task`` workflow."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    subtasks: list[BreakdownSubtask]
+    needs_review: bool
+
+
+class BreakdownInput(BaseModel):
+    """Builder for the user message handed to the breakdown model.
+
+    Unlike extraction there is no ``today`` to inject — a breakdown is about
+    decomposing scope, not resolving relative dates.
+    """
+
+    title: str
+    description: str | None = None
+
+    def to_user_content(self) -> str:
+        lines = [f"Task: {self.title}"]
+        if self.description:
+            lines.append(f"\nDescription:\n{self.description}")
+        return "\n".join(lines)
+
+
 class ProjectChoice(BaseModel):
     """One project offered to the matcher, with the names it goes by."""
 

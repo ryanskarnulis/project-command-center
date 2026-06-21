@@ -4,7 +4,7 @@ import { Sparkles } from 'lucide-react'
 import { Badge, type BadgeTone } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { AsyncState } from '../../components/AsyncState'
-import { useToast } from '../../components/ToastProvider'
+import { useToast } from '../../components/ToastContext'
 import { createInbox, processInbox } from '../../api/inbox'
 import { markTaskDone } from '../../api/tasks'
 import type { SearchKind, SearchResultItem } from '../../types/search'
@@ -47,7 +47,6 @@ const HINT_TEXT: Record<HintVerb, string> = {
 export function CommandSearch() {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
-  const [activeIndex, setActiveIndex] = useState(-1)
   // In-flight lock for /new so a double-Enter can't create two inbox items.
   const [capturing, setCapturing] = useState(false)
   const navigate = useNavigate()
@@ -66,7 +65,6 @@ export function CommandSearch() {
   const reset = useCallback(() => {
     setOpen(false)
     setQuery('')
-    setActiveIndex(-1)
   }, [])
 
   const goto = useCallback(
@@ -180,9 +178,24 @@ export function CommandSearch() {
   }, [command, results, capturing, runNew, runDone, goto])
 
   const flat = useMemo(() => groups.flatMap((g) => g.rows), [groups])
-
-  // A new query or result set invalidates the previous highlight.
-  useEffect(() => setActiveIndex(-1), [query, results])
+  const activeKey = useMemo(
+    () => JSON.stringify([query, flat.map((row) => row.key)]),
+    [query, flat],
+  )
+  const [activeState, setActiveState] = useState({ key: '', index: -1 })
+  const activeIndex = activeState.key === activeKey ? activeState.index : -1
+  const setCurrentActiveIndex = useCallback(
+    (next: number | ((current: number) => number)) => {
+      setActiveState((state) => {
+        const current = state.key === activeKey ? state.index : -1
+        return {
+          key: activeKey,
+          index: typeof next === 'function' ? next(current) : next,
+        }
+      })
+    },
+    [activeKey],
+  )
 
   // Close the dropdown when focus/click leaves the bar.
   useEffect(() => {
@@ -222,10 +235,10 @@ export function CommandSearch() {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       setOpen(true)
-      setActiveIndex((i) => Math.min(i + 1, flat.length - 1))
+      setCurrentActiveIndex((i) => Math.min(i + 1, flat.length - 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      setActiveIndex((i) => Math.max(i - 1, 0))
+      setCurrentActiveIndex((i) => Math.max(i - 1, 0))
     } else if (e.key === 'Enter') {
       const row = flat[activeIndex]
       if (row && !row.disabled) {
@@ -319,7 +332,7 @@ export function CommandSearch() {
                                 : 'command-search-result'
                             }
                             // Pointer enter keeps mouse + keyboard highlight in sync.
-                            onMouseEnter={() => setActiveIndex(index)}
+                            onMouseEnter={() => setCurrentActiveIndex(index)}
                             onClick={row.onSelect}
                           >
                             <Badge tone={row.badge.tone}>
