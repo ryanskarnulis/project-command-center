@@ -4,6 +4,8 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Columns3,
+  List,
   Plus,
   Search,
   SlidersHorizontal,
@@ -21,6 +23,7 @@ import type {
 import { compareTasks, dueStatus } from '../../utils/dates'
 import { parseDurationInput } from '../../utils/duration'
 import { ActivityFeed } from '../projects/ActivityFeed'
+import { KanbanBoard } from './KanbanBoard'
 import { TaskCard } from './TaskCard'
 import { TaskFormModal } from './TaskFormModal'
 import { useCompletedTasks } from './useCompletedTasks'
@@ -41,6 +44,8 @@ interface Filters {
 }
 
 type SortMode = 'smart' | 'due_date' | 'priority' | 'project' | 'newest'
+
+type ViewMode = 'list' | 'board'
 
 const EMPTY_FILTERS: Filters = {
   search: '',
@@ -183,10 +188,15 @@ export function TasksPage() {
   const { projectId } = useParams()
   const id = projectId === undefined ? undefined : Number(projectId)
   const isGlobal = id === undefined
-  const { tasks, loading, error, create, markDone, remove, reload } =
+  const { tasks, loading, error, create, update, markDone, remove, reload } =
     useTasks(id)
 
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
+  // Board vs list is a view toggle over the same data, seeded from ?view= so a
+  // link can deep-link straight to the board.
+  const [view, setView] = useState<ViewMode>(() =>
+    searchParams.get('view') === 'board' ? 'board' : 'list',
+  )
   // Seed once from the URL on mount so the dashboard "Add task" card can deep-link
   // straight into the create modal.
   const [addingTask, setAddingTask] = useState(() =>
@@ -198,14 +208,16 @@ export function TasksPage() {
     filtersFromParams(searchParams),
   )
 
-  // "Done" swaps the displayed list to the completed archive (lazily fetched).
+  // "Done" swaps the list to the completed archive (lazily fetched); the board
+  // always needs it for its Done column.
   const showingCompleted = filters.status === 'done'
   const {
     tasks: completedTasks,
     loading: completedLoading,
     error: completedError,
     reopen,
-  } = useCompletedTasks(id, showingCompleted)
+    reload: reloadCompleted,
+  } = useCompletedTasks(id, showingCompleted || view === 'board')
   const [sortMode, setSortMode] = useState<SortMode>(() =>
     sortFromParams(searchParams),
   )
@@ -264,6 +276,59 @@ export function TasksPage() {
       ),
     [completedTasks, filters, sortMode, projects],
   )
+
+  // The board lays tasks out by workflow_status across three columns, so the
+  // Status filter doesn't apply — keep every other filter, drop status.
+  const boardFilters = useMemo(() => ({ ...filters, status: '' as const }), [
+    filters,
+  ])
+  // The board is a flat layout with no nesting affordance, so it shows only
+  // root tasks — subtasks (parent_task_id !== null) are excluded entirely.
+  const boardActive = useMemo(() => {
+    const source = isActive(boardFilters)
+      ? tasks.filter((t) => matchesFilters(t, boardFilters))
+      : tasks
+    return source.filter((t) => t.parent_task_id === null)
+  }, [tasks, boardFilters])
+  const boardDone = useMemo(
+    () =>
+      completedTasks.filter(
+        (t) => matchesFilters(t, boardFilters) && t.parent_task_id === null,
+      ),
+    [completedTasks, boardFilters],
+  )
+
+  // Route a board move to the right endpoint: Done uses the recurrence-safe
+  // done endpoint, leaving Done uses reopen (→ open), everything else is a PATCH.
+  async function handleSetStatus(t: Task, target: TaskWorkflowStatus) {
+    if (target === 'done') {
+      await markDone(t.id)
+      reloadCompleted()
+    } else if (t.workflow_status === 'done') {
+      await reopen(t.id)
+      if (target === 'in_progress') {
+        await update(t.id, { workflow_status: 'in_progress' })
+      } else {
+        reload()
+      }
+    } else {
+      await update(t.id, { workflow_status: target })
+    }
+    bumpActivity()
+  }
+
+  function selectView(next: ViewMode) {
+    setView(next)
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev)
+        if (next === 'board') params.set('view', 'board')
+        else params.delete('view')
+        return params
+      },
+      { replace: true },
+    )
+  }
 
   const filtersActive = isActive(filters)
   const hasNonStatusFilters =
@@ -506,9 +571,35 @@ export function TasksPage() {
       )}
       <h1>{isGlobal ? 'Open Tasks' : 'Tasks'}</h1>
 
-      <button type="button" onClick={() => setAddingTask(true)}>
-        Add task
-      </button>
+      <div className="task-toolbar">
+        <button type="button" onClick={() => setAddingTask(true)}>
+          Add task
+        </button>
+        <div
+          className="view-toggle"
+          role="group"
+          aria-label="View mode"
+        >
+          <button
+            type="button"
+            className={view === 'list' ? 'selected' : ''}
+            aria-pressed={view === 'list'}
+            onClick={() => selectView('list')}
+          >
+            <List size={16} aria-hidden="true" />
+            List
+          </button>
+          <button
+            type="button"
+            className={view === 'board' ? 'selected' : ''}
+            aria-pressed={view === 'board'}
+            onClick={() => selectView('board')}
+          >
+            <Columns3 size={16} aria-hidden="true" />
+            Board
+          </button>
+        </div>
+      </div>
 
       <div className="task-filters" role="search" aria-label="Filter tasks">
         <div className="task-filters-header">
@@ -546,6 +637,7 @@ export function TasksPage() {
         </label>
 
         <div className="task-filter-grid">
+          {view !== 'board' && (
           <label>
             <span>Status</span>
             <select
@@ -565,6 +657,7 @@ export function TasksPage() {
               <option value="done">Done</option>
             </select>
           </label>
+          )}
 
           <label>
             <span>Priority</span>
@@ -610,6 +703,7 @@ export function TasksPage() {
             </label>
           )}
 
+          {view !== 'board' && (
           <label>
             <span>Sort</span>
             <select
@@ -624,6 +718,7 @@ export function TasksPage() {
               <option value="newest">Newest</option>
             </select>
           </label>
+          )}
         </div>
 
         <div className="task-filter-toggles" aria-label="Quick filters">
@@ -651,7 +746,26 @@ export function TasksPage() {
         </div>
       </div>
 
-      {showingCompleted ? (
+      {view === 'board' ? (
+        <AsyncState
+          loading={loading || completedLoading}
+          error={error ?? completedError}
+          isEmpty={boardActive.length === 0 && boardDone.length === 0}
+          emptyLabel={
+            filtersActive
+              ? 'No tasks match the current filters.'
+              : 'No tasks yet.'
+          }
+        >
+          <KanbanBoard
+            activeTasks={boardActive}
+            completedTasks={boardDone}
+            projects={projects}
+            isGlobal={isGlobal}
+            onSetStatus={handleSetStatus}
+          />
+        </AsyncState>
+      ) : showingCompleted ? (
         <AsyncState
           loading={completedLoading}
           error={completedError}

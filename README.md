@@ -611,6 +611,24 @@ Sprint 10b: [DONE] Internal read-only Calendar view — a month/week calendar ov
            mirroring /today. NOT external Google/iCal sync (stays on do-not-build).
            New backend test_calendar.py + frontend CalendarPage tests; dashboard test
            updated. No schema/migration, no Alembic, no model call, no new dependency.
+Sprint 11: [DONE] Kanban board — a drag-to-move board view over workflow_status
+           (open/in_progress/done) on the existing TasksPage, both global (/tasks)
+           and per-project (/projects/:id/tasks), via a ?view=board toggle (seeded
+           from the URL, written back on toggle). New features/tasks/KanbanBoard.tsx:
+           three flat-card columns reusing TaskCard; native HTML5 drag-and-drop
+           (draggable cards + column drop zones) plus a per-card "Move to" <select>
+           for keyboard/a11y. The Done column is sourced from the completed archive
+           (useCompletedTasks, now also enabled in board mode); Status/Sort filters
+           hide in board mode (the board lays out by status, sorts by compareTasks),
+           every other filter still applies. Moves route to the right endpoint:
+           into Done → recurrence-safe POST /api/tasks/{id}/done; out of Done →
+           reopen (→ open, then PATCH when targeting In progress); else
+           PATCH /api/tasks/{id} {workflow_status}. A derived-is_blocked task is
+           refused entry to In progress/Done with a toast (mirrors the list/Today
+           rule). New KanbanBoard.test.tsx (column layout, move routing, blocked
+           guard, done→out); tsc/eslint/vitest/build green. Frontend-only: no new
+           backend route, no schema/migration, no Alembic, no model call, no new
+           dependency.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

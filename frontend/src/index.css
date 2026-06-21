@@ -3282,3 +3282,120 @@ kbd {
   align-items: center;
   gap: 10px;
 }
+
+/* Visually-hidden label text (kept available to screen readers). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Tasks page: Add-task + List/Board view toggle row. */
+.task-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.view-toggle button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.view-toggle button + button {
+  border-left: 1px solid var(--border);
+}
+
+.view-toggle button.selected {
+  background: var(--blue);
+  color: #fff;
+}
+
+/* Kanban board: three status columns. */
+.kanban-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.kanban-column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2, var(--surface));
+  min-height: 120px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.kanban-column.drag-over {
+  border-color: var(--blue);
+  background: rgba(37, 99, 235, 0.06);
+}
+
+.kanban-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.kanban-column-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.kanban-card {
+  cursor: grab;
+}
+
+.kanban-card:active {
+  cursor: grabbing;
+}
+
+.kanban-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 4px 2px;
+}
+
+.kanban-move select {
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+@media (max-width: 720px) {
+  .kanban-board {
+    grid-template-columns: 1fr;
+  }
+}

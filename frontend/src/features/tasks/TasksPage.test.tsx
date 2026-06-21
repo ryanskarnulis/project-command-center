@@ -270,6 +270,21 @@ describe('TasksPage', () => {
     expect(screen.getByText('Verify rotation')).toBeInTheDocument()
   })
 
+  it('excludes subtasks from the board view, showing only parent tasks', async () => {
+    const user = userEvent.setup()
+    mockListAllTasks.mockResolvedValue([
+      baseTask,
+      { ...baseTask, id: 2, parent_task_id: 1, title: 'Rotate the keys' },
+    ])
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.click(screen.getByRole('button', { name: 'Board' }))
+
+    expect(screen.getByText('Fix the VPN')).toBeInTheDocument()
+    expect(screen.queryByText('Rotate the keys')).not.toBeInTheDocument()
+  })
+
   it('creates a subtask with the parent_task_id when Add subtask is used', async () => {
     const user = userEvent.setup()
     mockCreateUnscopedTask.mockResolvedValue({

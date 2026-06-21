@@ -87,12 +87,15 @@ promoted — pick the next strongest themed group from the backlog below when re
 
 ### Features
 
-- [ ] Kanban board over `workflow_status` (`open`/`in_progress`/`done`) — columns +
-      drag-to-move updating `workflow_status` via existing `PATCH /api/tasks/{id}`; schema
-      already scaffolded (`tasks.workflow_status` + `tasks.estimated_minutes` comment says
-      "feeds future kanban"). Global + per-project boards (mirror `/tasks` vs
-      `/projects/:id/tasks`); reuse `TaskCard`, respect derived `is_blocked`. FE-heavy;
-      likely no new backend route.
+- [x] Kanban board over `workflow_status` (`open`/`in_progress`/`done`) — shipped
+      (README Sprint 11). `?view=board` toggle on `TasksPage` (global `/tasks` +
+      per-project `/projects/:id/tasks`); `KanbanBoard` flat-card columns reusing
+      `TaskCard`. Native HTML5 drag + a per-card "Move to" `<select>` (keyboard/a11y).
+      Done column sourced from the completed archive (`useCompletedTasks`). Moves route
+      to the correct endpoint: into Done → recurrence-safe `POST /done`, out of Done →
+      `reopen` (→ open, then PATCH if In progress), else `PATCH workflow_status`. Refuses
+      moving a derived-`is_blocked` task into In progress/Done (toast). Frontend-only:
+      no new backend route, no schema/migration, no model call, no new dependency.
 - [x] Calendar view — shipped (README Sprint 10b). Internal read-only month/week
       calendar of tasks by `due_date` at `/calendar` (`GET /api/calendar?start=&end=`,
       new `services/calendar.py` — accepted tasks incl. done, candidate/deleted
