@@ -664,3 +664,34 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
       `TodayPage.test.tsx` covers Start/Mark-done clicks (+ refetch) and the richer blocked
       row. `pytest` (221) + the `TodayPage` suite green; `tsc`/eslint/`mypy --strict` clean.
 - [x] No model call, no eval change, no schema/migration, no Alembic, no new dependency.
+
+## Sprint 9o — Command Bar Completion (`Cmd/Ctrl+K` + search relevance)
+> Goal: finish the two stubbed CommandSearch behaviours — make the advertised `Cmd K` hint real, and rank global search by relevance instead of newest-first.
+
+### Slice 1 — Global `Cmd/Ctrl+K` focus shortcut (frontend-only)
+- [x] `frontend/src/features/search/CommandSearch.tsx` — `inputRef` on the `<input>` and a
+      `window` `keydown` `useEffect` matching `(metaKey || ctrlKey) && key === 'k'`;
+      `preventDefault()` (so the browser doesn't grab Ctrl+K), then `focus()` + `select()` +
+      `setOpen(true)`. Listener cleaned up on unmount.
+- [x] Escape behaviour unchanged — the existing `onKeyDown` already blurs the input; the
+      shortcut just re-focuses, no "previously focused element" tracking (out of scope).
+- [x] `CommandSearch.test.tsx` — Cmd+K focuses + selects and the listbox opens after typing;
+      a Ctrl+K variant covers non-mac; a bare `k` keypress is asserted to be a no-op.
+
+### Slice 2 — Search relevance ranking (backend, pure SQL/Python)
+- [x] `backend/app/services/search.py` — replaced per-kind `ORDER BY <pk> DESC` with
+      SQLAlchemy `case()` relevance ordering. `_text_tier()` helper scores 0=exact
+      (`func.lower(col) == func.lower(q)`), 1=prefix, 2=substring on the primary column,
+      3=secondary-only, reusing `_escape_like` for the `q%` / `%q%` patterns.
+- [x] Tasks order by text tier first, then a separate state tie-breaker
+      (`accepted` + not-`done` before done/candidate), then recency. Inbox prefers a
+      `summary` hit over a `raw_text`-only hit.
+- [x] `SearchResults` payload shape identical; `schemas/search.py` now reuses the model
+      task status enums for type alignment. Only ordering within each group differs; the
+      frontend renders groups in received order and needs no change for slice 2.
+- [x] `backend/tests/test_search.py` — ordering assertions: exact title beats a newer
+      description-only match; prefix beats substring; accepted+open beats done at the same
+      tier; inbox summary beats raw-text-only. Existing escape/cap tests still pass.
+- [x] `pytest` (225) green; `CommandSearch` Vitest suite green; `tsc` clean. No model call,
+      no eval change, no schema/migration, no Alembic, no new dependency. (Pre-existing
+      `ProjectDetailPage.test.tsx` flake is unrelated — fails identically on a clean tree.)

@@ -4,9 +4,9 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.db.models import TaskReviewStatus, TaskWorkflowStatus
+
 SearchKind = Literal["project", "task", "inbox"]
-TaskReviewStatus = Literal["candidate", "accepted", "rejected"]
-TaskWorkflowStatus = Literal["open", "in_progress", "done"]
 
 
 class SearchResultItem(BaseModel):

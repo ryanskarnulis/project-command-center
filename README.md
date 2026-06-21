@@ -559,6 +559,21 @@ Sprint 9n: [DONE] Today / daily schedule actionability — made the read-only /t
            /tasks/:id instead of bare #id links. New backend today/route tests +
            TodayPage action/blocked tests; pytest green. No model call, no eval change,
            no schema/migration, no Alembic, no new dependency.
+Sprint 9o: [DONE] Command bar completion — finished the two stubbed behaviours of
+           the CommandSearch topbar. Slice 1 (frontend-only): the advertised "Cmd K"
+           hint is now real — a window keydown listener matches Cmd/Ctrl+K from any
+           route, preventDefault's the browser's own binding, then focuses + selects
+           the input and opens the dropdown (Escape still blurs via the existing
+           onKeyDown). Slice 2 (backend, pure SQL/Python — no model call): global
+           search now ranks by relevance instead of newest-first. A SQLAlchemy case()
+           score per kind orders exact title/name matches above prefix above substring
+           above description/raw-text-only, with id desc as the recency tiebreak; for
+           tasks a separate state tie-breaker floats accepted + not-done work above
+           done/candidate noise only within the same text tier. SearchResults payload shape
+           is unchanged (only ordering within each group differs), so the frontend needs no
+           change. New Vitest shortcut tests + pytest ordering tests; pytest green,
+           Vitest green (pre-existing ProjectDetailPage flake aside). No schema change,
+           no Alembic, no eval/Pydantic obligation, no new dependency.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 Sprint 11 (backlog): AI "break this down" — a per-task action that sends the

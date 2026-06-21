@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -182,6 +182,36 @@ describe('CommandSearch', () => {
     await user.click(screen.getByText('Audit rules'))
 
     await waitFor(() => expect(mockMarkTaskDone).toHaveBeenCalledWith(12))
+  })
+
+  it('focuses and selects the input on Cmd+K and opens the dropdown', async () => {
+    mockSearch.mockResolvedValue(RESULTS)
+    const user = userEvent.setup()
+    renderBar()
+
+    const input = screen.getByRole('combobox', { name: /search projects/i })
+    expect(input).not.toHaveFocus()
+
+    fireEvent.keyDown(window, { key: 'k', metaKey: true })
+
+    expect(input).toHaveFocus()
+
+    // The shortcut opened the bar; typing now surfaces the result listbox.
+    await user.type(input, 'firewall')
+    expect(await screen.findByText('Audit rules')).toBeInTheDocument()
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+  })
+
+  it('also responds to Ctrl+K (non-mac) but not a bare k', async () => {
+    renderBar()
+    const input = screen.getByRole('combobox', { name: /search projects/i })
+
+    // A bare "k" must not hijack focus into the bar.
+    fireEvent.keyDown(window, { key: 'k' })
+    expect(input).not.toHaveFocus()
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    expect(input).toHaveFocus()
   })
 
   it('shows command hints for a bare slash', async () => {

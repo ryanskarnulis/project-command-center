@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.db.models import TaskWorkflowStatus
 from app.services import inbox as inbox_service
 from app.services import projects as projects_service
 from app.services import search as search_service
@@ -93,6 +94,107 @@ def test_search_escapes_like_wildcards(db_session: Session) -> None:
 
     assert [p.title for p in wildcard.projects] == ["50% capacity plan"]
     assert [p.title for p in literal.projects] == ["50% capacity plan"]
+
+
+def test_search_ranks_exact_title_above_newer_description_match(
+    db_session: Session,
+) -> None:
+    """Relevance beats recency: an exact title wins over a newer description-only hit."""
+    project = projects_service.create_project(db_session, name="P")
+    # Older row matches the title exactly (best tier).
+    tasks_service.create_task(db_session, project_id=project.id, title="firewall")
+    # Newer row only matches on description; recency must not float it to the top.
+    tasks_service.create_task(
+        db_session,
+        project_id=project.id,
+        title="zzz top",
+        description="firewall config",
+    )
+    db_session.commit()
+
+    results = search_service.search(db_session, "firewall")
+
+    assert [t.title for t in results.tasks] == ["firewall", "zzz top"]
+
+
+def test_search_ranks_prefix_above_substring(db_session: Session) -> None:
+    """A prefix match outranks a mid-string substring match, even when it's older."""
+    project = projects_service.create_project(db_session, name="P")
+    tasks_service.create_task(
+        db_session, project_id=project.id, title="firewall audit"
+    )  # prefix
+    tasks_service.create_task(
+        db_session, project_id=project.id, title="check the firewall now"
+    )  # substring, newer
+    db_session.commit()
+
+    results = search_service.search(db_session, "firewall")
+
+    assert [t.title for t in results.tasks] == [
+        "firewall audit",
+        "check the firewall now",
+    ]
+
+
+def test_search_prefers_open_over_done_at_same_text_tier(
+    db_session: Session,
+) -> None:
+    """At the same text tier, an accepted+open task outranks a done one (and stays
+    ahead even though the done task is newer)."""
+    project = projects_service.create_project(db_session, name="P")
+    tasks_service.create_task(
+        db_session, project_id=project.id, title="firewall ready"
+    )  # accepted + open
+    tasks_service.create_task(
+        db_session,
+        project_id=project.id,
+        title="firewall closed",
+        workflow_status=TaskWorkflowStatus.done,
+    )  # done, newer
+    db_session.commit()
+
+    results = search_service.search(db_session, "firewall")
+
+    assert [t.title for t in results.tasks] == ["firewall ready", "firewall closed"]
+
+
+def test_search_text_relevance_beats_task_state_bias(db_session: Session) -> None:
+    """A done exact-title hit still outranks an open description-only hit."""
+    project = projects_service.create_project(db_session, name="P")
+    tasks_service.create_task(
+        db_session,
+        project_id=project.id,
+        title="firewall",
+        workflow_status=TaskWorkflowStatus.done,
+    )
+    tasks_service.create_task(
+        db_session,
+        project_id=project.id,
+        title="zzz top",
+        description="firewall config",
+    )
+    db_session.commit()
+
+    results = search_service.search(db_session, "firewall")
+
+    assert [t.title for t in results.tasks] == ["firewall", "zzz top"]
+
+
+def test_search_inbox_prefers_summary_over_raw_text(db_session: Session) -> None:
+    """A summary hit (human-facing line) outranks a raw-text-only hit, even older."""
+    summary_item = inbox_service.create_inbox_item(
+        db_session, raw_text="unrelated body text"
+    )
+    summary_item.summary = "firewall in summary"
+    inbox_service.create_inbox_item(db_session, raw_text="firewall in raw text")
+    db_session.commit()
+
+    results = search_service.search(db_session, "firewall")
+
+    assert [i.title for i in results.inbox_items] == [
+        "firewall in summary",
+        "firewall in raw text",
+    ]
 
 
 def test_search_route_happy_path(client: TestClient, db_session: Session) -> None:

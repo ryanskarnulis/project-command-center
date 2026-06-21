@@ -11,9 +11,9 @@ until promoted.
 
 ## Next sprint (proposed): pick from backlog
 
-Command-bar slash actions shipped (README Sprint 9m / DONE.md). No slice is
-currently promoted — pick the next strongest themed group from the backlog below
-when ready.
+Today quick actions + blocked dependency clarity shipped (README Sprint 9n /
+DONE.md). No slice is currently promoted — pick the next strongest themed group
+from the backlog below when ready.
 
 ---
 
@@ -43,13 +43,16 @@ when ready.
 - [ ] **Command-bar AI chat** — the third future use of the generic input: route a
       leading natural-language query (or a dedicated verb) through `ai/gateway.py`. The
       slash-command seam (`parseCommand` + ActionRows) is in place to hang this off.
-- [ ] **Command-bar focus shortcut** — the UI shows `Cmd K`, but the bar does not yet
-      listen for global `Cmd/Ctrl+K`. Add the shortcut, focus the input, open the dropdown,
-      and test that Escape returns focus cleanly.
-- [ ] **Search relevance pass** — global search currently does deterministic `LIKE` and
-      orders each group newest-first. Rank exact title/name matches before description/raw
-      text matches, prefer accepted/open task results over candidate/done noise, and keep the
-      implementation pure SQL/Python (no model call).
+- [x] **Command-bar focus shortcut** — shipped (README Sprint 9o). Global `Cmd/Ctrl+K`
+      window keydown listener focuses + selects the bar and opens the dropdown
+      (preventDefault on the browser's own binding); Escape still blurs. Vitest covers
+      the mac/non-mac shortcut and the bare-`k` no-op.
+- [x] **Search relevance pass** — shipped (README Sprint 9o). Per-kind SQLAlchemy
+      `case()` relevance score orders exact > prefix > substring > description/raw-text
+      matches (id desc tiebreak); tasks use a separate state tie-breaker so accepted +
+      not-done work outranks done/candidate noise at the same text tier. Pure SQL/Python,
+      no model call, no schema change; `SearchResults` shape unchanged. pytest ordering
+      tests added.
 
 ### Today / Daily Schedule
 
@@ -70,14 +73,6 @@ when ready.
       reorder + brief rationale, still guarded by the Python scheduler (suggestions only).
 - [ ] **Calendar-aware scheduling** — schedule around meetings once calendar sync is
       unblocked (currently on the README "do not build" list — revisit when ready).
-
-### Task Comments / Notes
-
-- [ ] **Task notes** — timestamped log entries appended to a task (separate from the
-      description). New `task_notes` table (`id`, `task_id FK`, `body`, `created_at`;
-      soft-delete via `deleted_at` on the parent task cascade, no own `deleted_at`
-      needed). `GET /api/tasks/{id}/notes` + `POST /api/tasks/{id}/notes`; rendered as an
-      append-only feed at the bottom of `TaskDetailPage`. Alembic migration required.
 
 ### Recurring Tasks
 

@@ -53,6 +53,7 @@ export function CommandSearch() {
   const navigate = useNavigate()
   const { notify } = useToast()
   const containerRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const command = useMemo(() => parseCommand(query), [query])
 
@@ -192,6 +193,21 @@ export function CommandSearch() {
     return () => document.removeEventListener('mousedown', onPointerDown)
   }, [])
 
+  // Global Cmd/Ctrl+K focuses the bar from anywhere (matches the `Cmd K` hint).
+  // preventDefault stops the browser binding Ctrl+K to its own search/URL bar.
+  useEffect(() => {
+    function onKeydown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        inputRef.current?.focus()
+        inputRef.current?.select()
+        setOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKeydown)
+    return () => window.removeEventListener('keydown', onKeydown)
+  }, [])
+
   const trimmed = query.trim()
   const showDropdown = open && trimmed !== ''
   const isHint = command.kind === 'hint'
@@ -229,6 +245,7 @@ export function CommandSearch() {
       <div className="command-search">
         <Sparkles size={18} aria-hidden="true" />
         <input
+          ref={inputRef}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value)
