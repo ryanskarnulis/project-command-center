@@ -140,7 +140,8 @@ project-command-center/
         tasks/
         inbox/
         settings/
-        search/         (CommandSearch + useSearch — the topbar global search)
+        search/         (CommandSearch + useSearch + parseCommand — the topbar
+                         global search and "/new" / "/done" slash commands)
       components/        (shared primitives: Button, Card, Badge, AsyncState,
                          ToastProvider/useToast, AppShell, Modal)
       routes/
@@ -527,6 +528,23 @@ Sprint 9L: [DONE] Recurring task stubs — optional recurrence on tasks. New
            months"), EditScopeModal, "Skip this occurrence" on TaskDetailPage, a repeat
            badge on TaskCard. New backend recurrence tests + frontend Recurrence tests;
            pytest green, no model call, no new dependency.
+Sprint 9m: [DONE] Command-bar slash actions — the generic CommandSearch topbar now
+           switches from search to an action on a leading "/". A pure parser
+           (features/search/parseCommand.ts) maps input to a discriminated command:
+           "/new <text>" captures the text to the inbox and runs extraction, then
+           navigates to the note-review route (reuses createInbox + processInbox; an
+           in-flight lock blocks a double-submit; server-side input-hash dedupe makes
+           repeats idempotent); "/done <query>" reuses GET /api/search and lists only
+           the matching tasks, completing the chosen one via POST /api/tasks/{id}/done
+           (the dedicated endpoint, so recurrence's next-occurrence creation is
+           preserved); a bare "/" (or an argument-less verb) shows a disabled hint row.
+           Search results, the /new confirm row, and /done matches are all unified
+           ActionRows in one keyboard-navigable list. To let /done offer only valid
+           targets, SearchResultItem gained review_status/workflow_status (serialized
+           off existing Task columns — no migration, null for projects/inbox); the bar
+           filters to accepted + not-done tasks. New parseCommand unit tests + extended
+           CommandSearch/search tests; pytest + npm run test green. No model call, no
+           schema change, no Alembic, no new dependency.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 Sprint 11 (backlog): AI "break this down" — a per-task action that sends the

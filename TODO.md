@@ -11,9 +11,8 @@ until promoted.
 
 ## Next sprint (proposed): pick from backlog
 
-Recurring task stubs shipped (README Sprint 9L / CURRENT.md). No slice is currently
+Recurring task stubs shipped (README Sprint 9L / DONE.md). No slice is currently
 promoted — pick the next strongest themed group from the backlog below when ready.
-Candidates: command-bar slash actions, task notes, or the eval regression warning.
 
 ---
 
@@ -25,13 +24,31 @@ Candidates: command-bar slash actions, task notes, or the eval regression warnin
       guard shipped, but declarative `<BrowserRouter>` can't use `useBlocker`; needs a
       `createBrowserRouter` conversion (App/AppRoutes/AppShell) before it can warn on
       in-app nav.
+- [ ] **Shell truthfulness pass** — `AppShell` still has optimistic/static shell chrome:
+      "Focus mode On", disabled topbar notification/search/customize buttons, and
+      "Last synced just now" in a local-first app with no sync. Either make each affordance
+      real or replace it with honest local workspace/status copy.
+- [ ] **Task filter URL sync** — `TasksPage` seeds filters/sort from query params, but
+      edits stay local after mount. Push filter/sort changes back into the URL so dashboard
+      links, browser back/forward, and shared views stay stable.
 
 ### Command Bar / Search
 
-- [ ] **Command-bar slash actions** — extend the now-generic `CommandSearch` input with
-      `/done <task>` and `/new <text>`, then AI chat. The bar, debounce, and keyboard
-      nav already exist; this is parsing a leading `/` and dispatching to the relevant
-      action instead of search.
+- [x] **Command-bar slash actions** — shipped (README Sprint 9m / DONE.md). `/new <text>`
+      (capture → extract → note-review) and `/done <task>` (fuzzy-find → complete via the
+      recurrence-preserving done endpoint) via a pure `parseCommand` parser and unified
+      action rows. `SearchResultItem` gained `review_status`/`workflow_status` (no
+      migration) so `/done` offers only accepted, not-done tasks.
+- [ ] **Command-bar AI chat** — the third future use of the generic input: route a
+      leading natural-language query (or a dedicated verb) through `ai/gateway.py`. The
+      slash-command seam (`parseCommand` + ActionRows) is in place to hang this off.
+- [ ] **Command-bar focus shortcut** — the UI shows `Cmd K`, but the bar does not yet
+      listen for global `Cmd/Ctrl+K`. Add the shortcut, focus the input, open the dropdown,
+      and test that Escape returns focus cleanly.
+- [ ] **Search relevance pass** — global search currently does deterministic `LIKE` and
+      orders each group newest-first. Rank exact title/name matches before description/raw
+      text matches, prefer accepted/open task results over candidate/done noise, and keep the
+      implementation pure SQL/Python (no model call).
 
 ### Today / Daily Schedule
 
@@ -39,6 +56,12 @@ Candidates: command-bar slash actions, task notes, or the eval regression warnin
       `GET /api/today`: pure Python scheduler bins accepted, not-done tasks into sequential
       time blocks ranked by in-progress→open / due urgency / priority, surfaces overflow
       and blocked tasks separately, and fills idle time even when nothing is formally due.
+- [ ] **Today quick actions** — add Mark done / Start in-progress actions directly in
+      scheduled and overflow rows, reusing existing task endpoints and refreshing the plan.
+      Keep recurrence-safe completion by using `POST /api/tasks/{id}/done`.
+- [ ] **Blocked dependency clarity** — `/today` blocked rows list dependency IDs only.
+      Include dependency titles/statuses and links so the user can resolve blockers without
+      opening each `#id` blindly.
 - [ ] **AI reordering with a "why this order" rationale** — future slice on top of the
       deterministic plan: send the ranked plan through `ai/gateway.py` for an optional
       reorder + brief rationale, still guarded by the Python scheduler (suggestions only).
@@ -55,12 +78,15 @@ Candidates: command-bar slash actions, task notes, or the eval regression warnin
 
 ### Recurring Tasks
 
-- [x] **Recurring task stubs** — shipped (README Sprint 9L / CURRENT.md). `tasks.repeat_interval`
+- [x] **Recurring task stubs** — shipped (README Sprint 9L / DONE.md). `tasks.repeat_interval`
       (JSON `{unit, every}`) + `tasks.recurrence_id` (series chain); marking a recurring task
       done auto-creates the next occurrence (due date advanced, month math day-clamped),
       `skip_recurrence` suppresses it, `edit_scope="future"` forward-patches the series.
       `repeat_interval` requires a `due_date` (422). Frontend RepeatIntervalInput +
       EditScopeModal + skip button + TaskCard repeat badge. Pure Python service layer, no AI.
+- [ ] **Recurring series management** — add a small way to see future occurrences by
+      `recurrence_id`, stop recurrence, and apply future edits deliberately. Likely no
+      migration: reuse the existing series id with a filtered endpoint and TaskDetail UI.
 
 ### Features
 
@@ -95,6 +121,10 @@ Candidates: command-bar slash actions, task notes, or the eval regression warnin
       a `summary` field (stored on `inbox_items.summary`); use it as the display title in
       the inbox list instead of truncating raw text. Frontend-only change; no
       backend/schema work.
+- [ ] **Training corpus QA filters** — the Training page computes corrected / accepted /
+      extraction-failure status, but the filter only exposes accepted vs rejected. Add
+      derived status, model/profile, and "corrected only" filters before the custom-model
+      export phase so corpus cleanup is easier.
 
 ### Discord (follow-ups)
 
@@ -103,7 +133,8 @@ Candidates: command-bar slash actions, task notes, or the eval regression warnin
       guarded, same pattern as `/api/discord/inbox`). Bot formats results as a short
       numbered list in the reply.
 - [ ] `/done <task search>` command — fuzzy-match a task title from the bot and mark it
-      workflow_status=`done`. Backend: `PATCH /api/tasks/{id}` already handles this; add a
+      workflow_status=`done`. Backend: use the recurrence-preserving
+      `POST /api/tasks/{id}/done` endpoint after resolving the task; add a
       `GET /api/discord/tasks/search?q=` helper for the bot to resolve the title to an ID
       first. If multiple matches, bot replies with a disambiguation list.
 

@@ -221,6 +221,21 @@ a:focus-visible {
   background: var(--surface-soft);
 }
 
+.command-search-result:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Non-interactive discoverability rows shown for a bare "/" or empty-arg verb. */
+.command-search-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
 .command-search-result-text {
   display: flex;
   flex-direction: column;

@@ -563,3 +563,67 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
 - [x] **Chunk E — Tests + docs**: new route tests (delete drops from list+stats, restore, purge
       409/404, trash round-trip) + updated trash response-shape tests; full pytest green (178+). No
       Alembic. README schema-philosophy + roadmap updated.
+
+---
+
+## Sprint 9k — Today / Daily Schedule
+> Goal: turn accepted, not-done tasks into a useful plan for the day without AI involvement.
+
+- [x] `backend/app/services/today.py` — pure Python scheduler ranks tasks by in-progress/open,
+      due urgency, priority, and shorter estimates as a tie-breaker.
+- [x] `GET /api/today` — validates date, start time, and available minutes at the API boundary.
+- [x] `/today` frontend page — timeline, overflow, blocked-task, and empty states.
+- [x] Dashboard "Today's Tasks / Due Soon" tile links into the schedule view; `/today` is not
+      added to the sidebar.
+- [x] Blocked tasks are surfaced separately and never scheduled.
+- [x] Missing estimates default to 30 minutes and are labelled as assumed.
+- [x] Backend today/service route tests and a TodayPage frontend test shipped.
+- [x] No model call, schema change, Alembic migration, or new dependency.
+
+---
+
+## Sprint 9L — Recurring Task Stubs
+> Goal: add optional recurrence while keeping all control flow in the Python service layer.
+
+- [x] `tasks.repeat_interval` JSON column + `tasks.recurrence_id` series chain added by
+      Alembic migration `20260620_b9f8eaebb17c`.
+- [x] `RepeatInterval` Pydantic schema validates `{unit: day|week|month, every: 1-12}`;
+      recurrence requires a `due_date` and returns 422 otherwise.
+- [x] `PATCH /api/tasks/{id}` accepts `repeat_interval`, `skip_recurrence`, and
+      `edit_scope`.
+- [x] Completing a recurring task creates the next top-level accepted/open occurrence with
+      the due date advanced from the current occurrence, including day-clamped month math
+      (`Jan 31 + 1 month -> Feb 28`).
+- [x] `skip_recurrence=true` marks the current occurrence done without creating the next one.
+- [x] `edit_scope="future"` forward-patches same-series rows due on or after the current
+      task, leaving already-done/past occurrences alone.
+- [x] Frontend shipped `RepeatIntervalInput`, `EditScopeModal`, a task-detail skip button,
+      recurrence-aware save wiring, and a TaskCard repeat badge.
+- [x] Backend recurrence tests and frontend recurrence tests shipped.
+- [x] Pure Python service layer only: no AI, calendar sync, model call, or new dependency.
+
+---
+
+## Sprint 9m — Command-Bar Slash Actions (`/new`, `/done`)
+> Goal: finish the deliberate seam in the generic `CommandSearch` topbar — a leading `/` switches the bar from search into an action — without opening a new concept.
+
+- [x] `frontend/src/features/search/parseCommand.ts` — pure parser maps raw input to a
+      discriminated command: `/new <text>`, `/done <query>`, plain `search`, or a disabled
+      `hint` for a bare `/` or an argument-less verb. Case-insensitive verb, trimmed arg,
+      whitespace-separated (so `/newfoo` is an unknown verb → search).
+- [x] `/new <text>` captures via `createInbox`, runs `processInbox`, then navigates to
+      `/inbox/:id` (the existing note-review route). An in-flight lock blocks a
+      double-submit; server-side input-hash dedupe makes repeats idempotent.
+- [x] `/done <query>` reuses `GET /api/search` (debounced `useSearch`), lists only matching
+      tasks, and completes the chosen one via `POST /api/tasks/{id}/done` — the dedicated
+      endpoint, so recurrence's next-occurrence creation is preserved.
+- [x] `SearchResultItem` gained `review_status`/`workflow_status` (serialized off existing
+      `Task` columns — null for projects/inbox, **no migration**); `/done` filters to
+      `accepted` + not-`done` tasks. Mirrored in `frontend/src/types/search.ts`.
+- [x] Unified `ActionRow` model in `CommandSearch`: search hits, the `/new` confirm row, and
+      `/done` matches are one keyboard-navigable list, each carrying its own `onSelect`.
+- [x] Discoverability: updated placeholder + a one-line hint row (`/new` · `/done`) for a
+      bare `/`. Toasts on success/failure via the existing `useToast`.
+- [x] `parseCommand` unit tests + extended `CommandSearch`/search tests (search-service test
+      asserts the two new task fields, null for other kinds). `pytest` + `npm run test` green.
+- [x] No AI surface, no model call, no schema change, no Alembic, no new dependency.

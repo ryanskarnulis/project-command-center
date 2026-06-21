@@ -1,315 +1,156 @@
 # Current Sprint
 
-## Next Sprint — Recurring Task Stubs
+## Sprint 9m — Command-bar slash actions (`/new`, `/done`)
 
-Add optional recurrence to tasks so that when a recurring task is marked
-done, the next occurrence is automatically created with the due date
-advanced by the configured interval.
+**Status:** `[x]` done — shipped and archived to DONE.md (README Sprint 9m). The
+recommended decision was taken: `SearchResultItem` carries `review_status`/
+`workflow_status` serialized off existing columns (no migration). The plan below is
+kept as the build record.
 
-**Scope guard:** pure Python service layer, no AI involvement, no calendar
-sync. Each recurrence is an independent task row. The repeat field uses the
-same natural-text input pattern as `estimated_minutes`. A `recurrence_id`
-UUID chains the series so "edit all future" and "skip" can target the right
-rows. No `/today` scheduler changes in v1.
+Extend the already-generic `CommandSearch` topbar so a leading `/` switches the bar
+from search into an action. Two actions this slice: `/new <text>` (capture messy
+text into the inbox and run extraction) and `/done <task>` (fuzzy-find a task and
+mark it done). The bar, debounce, keyboard nav, and grouped dropdown already exist
+(Sprint 9j); `CommandSearch` was deliberately built generic for exactly this
+(`KIND_META` routing lives in data, nav runs over a `flat` list — see
+`frontend/src/features/search/CommandSearch.tsx:11`). This is mostly frontend and
+reuses existing backend routes. `/new` feeds the capture → review → training-data
+loop, which is the north star.
 
----
+### Why this slice
 
-### Design decisions (settled before planning)
+- The infrastructure was explicitly stubbed for it; this finishes a deliberate seam
+  rather than opening a new one.
+- `/new` is the fastest path from "thought" to inbox candidate → correction →
+  `ai_training_examples`, the corpus everything else is gated on.
+- No schema change, no migration, no model/profile/eval change, no new dependency.
 
-**Interval format**
-Natural text input mirroring the estimate field: `daily`, `weekly`,
-`every 2 weeks` … `every 12 weeks`, `monthly`, `every 2 months` …
-`every 12 months`. Stored as a JSON column `repeat_interval` on `tasks`:
-`{ "unit": "day" | "week" | "month", "every": 1–12 }`. JSON avoids integer
-drift on month math. `null` means non-recurring.
+### Scope (what ships)
 
-**Due date inheritance**
-Next occurrence inherits the *original* due date offset — e.g. a weekly
-task due Monday always lands on the next Monday, regardless of when the
-user actually marks it done.
+1. **Command parsing layer.** A small pure helper that turns the raw input into a
+   discriminated command:
+   - `/new <text>` → `{ kind: 'new', text }`
+   - `/done <query>` → `{ kind: 'done', query }`
+   - anything else (no leading `/`, or unrecognized verb) → `{ kind: 'search', query }`
+   - bare `/`, `/new`, `/done` with empty argument → a hint/disabled state, not an
+     action.
+   Keep it case-insensitive on the verb; trim the argument. Put it next to the
+   feature (`frontend/src/features/search/parseCommand.ts`) so it's unit-testable
+   without rendering.
 
-**Require due date**
-`repeat_interval` is only valid when `due_date` is set. The backend rejects
-a `repeat_interval` with no `due_date` (422). The UI disables the repeat
-field when due date is blank and shows a tooltip explaining why.
+2. **`/new <text>` — capture + extract.**
+   - Dropdown shows a single confirm action: "Capture & extract: <text>".
+   - On select/Enter: `createInbox({ raw_text })` → `processInbox(id)` →
+     `navigate('/inbox/:id')` to land on the existing note-review route.
+   - Reuses `frontend/src/api/inbox.ts` (`createInbox`, `processInbox`) untouched.
+   - Toast on success/failure via the existing `useToast`. Disable the action while
+     in flight so a double-Enter can't create two inbox items.
+   - Idempotency is already handled server-side (input-hash dedupe), so a repeat
+     `/new` of the same text returns the existing item — no client guard needed
+     beyond the in-flight lock.
 
-**Skip mechanism**
-"Skip this occurrence" button on `TaskDetailPage`. Marks the current task
-`workflow_status=done` but passes a `skip_recurrence=true` flag to the
-complete endpoint, suppressing next-occurrence creation.
+3. **`/done <query>` — resolve + complete.**
+   - Reuse `GET /api/search?q=<query>` (via the existing `useSearch` debounce) and
+     show **only the tasks group** as a disambiguation list.
+   - Selecting a match calls `markTaskDone(id)` (`POST /api/tasks/{id}/done`) — the
+     dedicated done endpoint, **not** `PATCH`, so recurrence (next-occurrence
+     creation) is preserved. (TODO.md's note suggesting PATCH is stale.)
+   - Toast naming the task that was completed; refresh is implicit (the user is on
+     the command bar, not a list). If zero matches, show the standard empty state.
 
-**`recurrence_id`**
-A `UUID` column on `tasks`, nullable. Set on the first task in the series
-when `repeat_interval` is first saved, and copied to every auto-created
-occurrence. Allows "edit all future" to `UPDATE tasks SET ... WHERE
-recurrence_id = ? AND due_date >= ?` and "skip" to work without a separate
-join table.
+4. **Unified action model in `CommandSearch`.** Generalize the current
+   `flat`/`KIND_META`-driven render so each dropdown row is an action with a label,
+   optional badge, and an `onSelect()` — search results, the `/new` confirm row, and
+   `/done` task rows all become rows in one list. Keyboard nav (Arrow/Enter/Escape)
+   already iterates `flat`; it should keep working unchanged once rows carry their
+   own `onSelect`.
 
-**Edit scope**
-- Editing `repeat_interval`, `title`, `description`, `priority`, or
-  `estimated_minutes` on a recurring task offers a choice: **This task
-  only** or **This and all future occurrences**.
-- "All future" patches rows with the same `recurrence_id` and
-  `due_date >= this task's due_date` (already-done occurrences are left
-  alone).
-- For `due_date` edits, only "this task" makes sense (each occurrence has
-  its own date). The UI skips the prompt for due-date-only edits.
+5. **Discoverability.** Update the input placeholder and add a one-line hint row in
+   the dropdown when the query is just `/` (e.g. "`/new` capture · `/done` complete a
+   task"). No separate help system.
 
-**New occurrence on completion**
-When `workflow_status` is set to `done` on a task with a non-null
-`repeat_interval` (and `skip_recurrence` is not set), `services/tasks.py`
-auto-creates the next occurrence:
-- Same `title`, `description`, `priority`, `estimated_minutes`,
-  `repeat_interval`, `recurrence_id`, `project_id`.
-- `due_date` = current task's `due_date` + interval.
-- `review_status = accepted` (skips candidate queue).
-- `workflow_status = open`.
-- `parent_task_id = null` (occurrences are top-level).
+### The one real decision: `/done` matching a non-open task
 
-**No occurrence on reopen**
-Reopening a done recurring task does not delete the already-created next
-occurrence. The user manages any duplicate manually.
+`SearchResultItem` carries no `review_status`/`workflow_status`, so search will
+happily return candidates and already-done tasks. Marking a *candidate* "done" is
+semantically wrong, and offering an already-done task is noise.
 
----
+**Recommended:** add `workflow_status` and `review_status` to `SearchResultItem`
+(`backend/app/schemas/search.py` + populate in `services/search.py`; both already on
+the `Task` row, so it's two extra fields, no migration, no new query). The command
+bar then filters `/done` candidates to `review_status == "accepted" &&
+workflow_status != "done"`. Plain search ignores the new fields, so nothing else
+changes. This is the smallest correct option.
 
-### Schema changes (Alembic migration required)
+**Fallback if we want zero backend change:** resolve only via the existing fields
+and call `markTaskDone`, accepting that it can target a candidate/done task. Cheaper
+but lets the bar do a semantically wrong thing — not recommended.
 
-On `tasks`:
-- `repeat_interval`: `JSON | NULL` — `{ "unit": "day"|"week"|"month", "every": int }`
-- `recurrence_id`: `UUID (char(36)) | NULL` — shared across a series
-- No new table.
+> Assumed we take the recommended option (two serialized fields, no migration).
+> Flag if you'd rather keep the search schema frozen.
 
----
+### Files
 
-### API changes
-
-**`PATCH /api/tasks/{id}`** gains:
-- `repeat_interval: { unit, every } | null` — set/clear recurrence.
-- `skip_recurrence: bool = false` — when `workflow_status=done` is patched
-  in the same request, suppresses next-occurrence creation.
-- `edit_scope: "this" | "future" = "this"` — when present with any other
-  field change on a recurring task, applies the edit forward.
-
-**New occurrence creation** is internal to `services/tasks.py`; no new
-route.
-
----
-
-### Files in play
-
-Backend:
-- `backend/app/db/models.py` — add `repeat_interval` + `recurrence_id` to `Task`.
-- `backend/alembic/versions/<hash>_add_recurrence_fields.py` — migration.
-- `backend/app/schemas/tasks.py` — `RepeatInterval` model, update `TaskUpdate` + `TaskRead`.
-- `backend/app/services/tasks.py` — recurrence logic in `update_task`: next-occurrence
-  creation, skip flag, edit-scope forward-patch.
-- `backend/tests/test_recurrence.py` — recurrence behavior tests.
+Backend (only if recommended decision is taken):
+- `backend/app/schemas/search.py` — add `workflow_status`, `review_status` to
+  `SearchResultItem` (optional/nullable; projects & inbox leave them `None`).
+- `backend/app/services/search.py` — populate the two fields for the tasks group.
 
 Frontend:
-- `frontend/src/types/tasks.ts` — add `repeat_interval`, `recurrence_id` to `Task`.
-- `frontend/src/features/tasks/RepeatIntervalInput.tsx` — natural-text input
-  component (mirrors `EstimateInput`).
-- `frontend/src/features/tasks/EditScopeModal.tsx` — "This task only / This
-  and all future" prompt, shown before applying edits to recurring tasks.
-- `frontend/src/features/tasks/TaskDetailPage.tsx` — repeat field, skip button,
-  edit-scope prompt wiring.
-- `frontend/src/features/tasks/TaskCard.tsx` — small repeat badge.
-- `frontend/src/utils/recurrence.ts` — `parseRepeatInterval(text)` +
-  `formatRepeatInterval(interval)`.
-- `frontend/src/index.css` — repeat badge style on existing tokens.
+- `frontend/src/features/search/parseCommand.ts` — new pure parser.
+- `frontend/src/features/search/CommandSearch.tsx` — command mode, unified action
+  rows, `/new` + `/done` handling, placeholder/hint.
+- `frontend/src/types/search.ts` — mirror the two new optional fields (if added).
+- `frontend/src/api/*` — no new functions; reuse `inbox.ts` + `tasks.ts` + `search.ts`.
+
+### Testing
+
+- Backend: extend the search service test to assert tasks carry
+  `workflow_status`/`review_status` and projects/inbox serialize them as `null`
+  (only if the schema change lands).
+- Frontend: `parseCommand` unit tests (search vs `/new` vs `/done` vs empty-arg vs
+  unknown verb, case-insensitivity). Extend `CommandSearch.test.tsx`: `/new` row
+  appears and triggers capture+navigate (mock `createInbox`/`processInbox`); `/done`
+  lists task matches and calls `markTaskDone` on select; non-slash input still
+  searches as before.
+- `pytest` green; `npm run test` green (watch the known-flaky
+  `TaskDetailPage.test.tsx` — pre-existing, unrelated).
+
+### Done criteria (per CLAUDE.md)
+
+1. `/new` works UI → API → DB → inbox-review UI; `/done` works UI → API → DB.
+2. At least one happy-path test on each new path (above).
+3. No raw `print`/unstructured logging introduced; reused routes already log with
+   request IDs.
+4. No AI surface added (search stays deterministic; `/new` reuses the existing
+   extraction workflow + its eval/validation — nothing new to eval).
+5. No schema change → **no Alembic migration** (the two new fields are serialized
+   off existing columns, not DDL).
+6. README sprint status + Settings/command-bar docs updated; TODO.md item checked
+   off; this slice archived to DONE.md.
+
+### Out of scope (explicitly not this slice)
+
+- AI chat in the command bar (the third future use of the generic input) — later.
+- `/done` Discord command and `GET /api/discord/tasks/search` — separate Discord
+  backlog item.
+- Any new slash verb beyond `/new` and `/done`.
+- Global `Cmd-K` focus wiring if not already present (the `<kbd>Cmd K</kbd>` hint
+  exists; only wire the shortcut if it's trivial — otherwise leave for a polish pass).
 
 ---
 
-### Chunk plan
+## Recently Completed
 
----
-
-**Chunk A — DB model + Alembic migration**
-
-- Add `repeat_interval: Mapped[dict | None]` (JSON) and
-  `recurrence_id: Mapped[str | None]` (char(36)) to `Task` in `models.py`.
-- `alembic revision --autogenerate -m "add recurrence fields"`.
-- Review generated file; apply `alembic upgrade head`.
-- No service, schema, or frontend changes.
-
-Verification: `alembic upgrade head` clean; `.schema tasks` shows both columns.
-
----
-
-**Chunk B — Pydantic schemas**
-
-- Add `RepeatInterval(BaseModel)`: `unit: Literal["day","week","month"]`,
-  `every: int` (ge=1, le=12). Must always emit both fields (no defaults —
-  see project memory on required-nullable fields).
-- Update `TaskRead`: add `repeat_interval: RepeatInterval | None`,
-  `recurrence_id: str | None`.
-- Update `TaskUpdate`: add `repeat_interval: RepeatInterval | None = UNSET`,
-  `skip_recurrence: bool = False`,
-  `edit_scope: Literal["this","future"] = "this"`.
-- Validator on `TaskUpdate`: if `repeat_interval` is set and `due_date` is
-  not provided, reject with a clear message (422). If the task being updated
-  already has a `due_date` this check relaxes — the validator can't see DB
-  state, so the service layer re-checks and raises `HTTPException(422)`.
-- `mypy --strict` + `ruff check` clean.
-
-Verification: schema unit tests (inline doctest or small pytest) confirm
-`RepeatInterval` serializes correctly and rejects bad `every` values.
-
----
-
-**Chunk C — Service layer recurrence logic**
-
-All changes in `services/tasks.py`:
-
-1. **`_next_due_date(due_date, interval) -> date`** — pure function:
-   - `day`: `due_date + timedelta(days=every)`
-   - `week`: `due_date + timedelta(weeks=every)`
-   - `month`: `dateutil.relativedelta` if already a dep; otherwise manual
-     month math with day-clamping. Check `pyproject.toml` first — do not
-     add `python-dateutil` without asking.
-2. **`_create_next_occurrence(db, task) -> Task`** — clones the completed
-   task row, advances `due_date`, copies `recurrence_id`.
-3. **`update_task` changes:**
-   - If `workflow_status=done` and task has `repeat_interval` and not
-     `skip_recurrence`: call `_create_next_occurrence`.
-   - If `edit_scope="future"` and task has `recurrence_id`: bulk-patch
-     rows with same `recurrence_id` and `due_date >= task.due_date`
-     for the changed fields (exclude `due_date`, `workflow_status`,
-     `skip_recurrence`, `edit_scope` from the forward patch).
-   - If `repeat_interval` is being set for the first time (was null):
-     generate and assign a new `recurrence_id` UUID.
-   - If `repeat_interval` is being cleared: leave `recurrence_id` as-is
-     (the history chain stays readable) but stop generating occurrences.
-
-Verification: `pytest tests/test_recurrence.py` — write tests in this chunk:
-- Complete non-recurring task → no new task created.
-- Complete recurring task → next occurrence has correct due date, same
-  `recurrence_id`, `review_status=accepted`, `workflow_status=open`.
-- Complete with `skip_recurrence=true` → no next occurrence.
-- `edit_scope="future"` → patches forward rows, leaves past rows alone.
-- `edit_scope="this"` → patches only the target row.
-- Setting `repeat_interval` on a task with no `due_date` → 422.
-- Month interval: Jan 31 + 1 month → Feb 28 (not a crash).
-- Setting `repeat_interval` first time → `recurrence_id` populated.
-- Clearing `repeat_interval` → no new occurrence on next complete.
-
----
-
-**Chunk D — Frontend utilities + RepeatIntervalInput**
-
-- `frontend/src/utils/recurrence.ts`:
-  - `parseRepeatInterval(text: string): RepeatInterval | null` — parses
-    `"daily"`, `"weekly"`, `"every 2 weeks"`, `"monthly"`,
-    `"every 3 months"`. Returns `null` on unrecognized input.
-  - `formatRepeatInterval(interval: RepeatInterval): string` — inverse.
-  - Unit tests inline or in a `.test.ts` file.
-- `frontend/src/features/tasks/RepeatIntervalInput.tsx`:
-  - Text input with the same interaction as `EstimateInput` (type, blur
-    to parse, show formatted value, show error on unrecognized).
-  - Disabled with tooltip `"Set a due date to enable recurrence"` when
-    `due_date` is blank.
-  - Shows `null` as empty / placeholder `"e.g. weekly, every 2 months"`.
-
-Verification: `tsc --noEmit` clean; parse/format round-trips correct.
-
----
-
-**Chunk E — TaskDetailPage wiring + EditScopeModal**
-
-- `frontend/src/features/tasks/EditScopeModal.tsx`:
-  - Simple modal: "Apply to this task only" / "Apply to this and all future
-    occurrences". Reuses existing `Modal` component.
-  - Shown when the user saves any field change on a task where
-    `recurrence_id` is non-null and `edit_scope` matters (not for
-    `due_date`-only edits).
-- `TaskDetailPage.tsx` changes:
-  - Add repeat field row (uses `RepeatIntervalInput`), positioned after due
-    date.
-  - On save of any field, if task is recurring, intercept → show
-    `EditScopeModal` → pass chosen `edit_scope` to the `PATCH` call.
-  - Add "Skip this occurrence" button in the task actions area (near the
-    workflow status control). Calls `PATCH` with
-    `{ workflow_status: "done", skip_recurrence: true }`. Confirm with a
-    short inline prompt before firing ("Skip and mark done — the next
-    occurrence won't be created. Continue?").
-- `TaskCard.tsx`: add a small repeat badge (e.g. a refresh icon + interval
-  label) when `repeat_interval` is non-null, alongside the estimate badge.
-- `frontend/src/index.css`: repeat badge styles on existing tokens.
-
-Verification: open a recurring task in the browser —
-1. Edit title → EditScopeModal appears → choose "future" → confirm forward
-   rows updated.
-2. Mark done → next occurrence appears in task list with correct due date.
-3. Skip → no next occurrence.
-4. Repeat field disabled when due date is blank.
-
----
-
-**Chunk F — Tests + docs**
-
-- Frontend tests (in `TaskDetailPage.test.tsx` or a new
-  `Recurrence.test.tsx`):
-  - Repeat field renders and is disabled without a due date.
-  - EditScopeModal appears on save for a recurring task.
-  - Skip button calls PATCH with `skip_recurrence: true`.
-- `npm run test -- Recurrence` (or the relevant file) must pass.
-- Update `README.md`: add Sprint 9L (or next letter) entry marking
-  recurring task stubs shipped.
-- Update `TODO.md`: mark recurring tasks done; leave command-bar slash
-  actions and eval regression warning as next candidates.
-
-Verification: `pytest tests/test_recurrence.py` still green; `tsc --noEmit`
-clean; `npm run test` on the new test file passes.
-
----
-
-### Out of scope
-
-- Recurring subtasks (parent_task_id on occurrences).
-- "Edit all past" occurrences.
-- UI to view the full recurrence chain.
-- Recurrence on the `/today` scheduler (v1 treats occurrences as regular tasks).
-- Calendar sync.
-- Any item on the README "do not build yet" list.
-
----
-
-### Done criteria
-
-1. `PATCH /api/tasks/{id}` with `repeat_interval` set persists the field.
-2. Marking a recurring task done auto-creates the next occurrence with the
-   correct due date.
-3. Skip suppresses next-occurrence creation.
-4. `edit_scope="future"` patches forward occurrences in a single request.
-5. Setting `repeat_interval` without a `due_date` returns 422.
-6. Month-boundary edge case (Jan 31 + 1 month) does not crash.
-7. Repeat field in `TaskDetailPage` is disabled without a due date.
-8. EditScopeModal appears when editing a recurring task.
-9. Repeat badge visible on `TaskCard`.
-10. All backend recurrence tests pass (`pytest tests/test_recurrence.py`).
-11. Frontend recurrence tests pass.
-12. `mypy --strict`, `ruff check`, `tsc --noEmit` clean.
-13. No new dependency added without asking (month math: check for
-    `python-dateutil` in `pyproject.toml` first).
-
----
-
-### Verification targets
-
-Backend:
-```bash
-cd backend && pytest tests/test_recurrence.py
-cd backend && mypy --strict app/schemas/tasks.py app/services/tasks.py
-```
-
-Frontend:
-```bash
-cd frontend && npm run test -- Recurrence
-cd frontend && npx tsc --noEmit
-```
-
----
-
-- Completed work lives in `DONE.md`.
-- Incomplete items / follow-ups live in `TODO.md`.
-- The sprint roadmap is in `README.md`.
+- Sprint 9m — Command-bar slash actions: `/new <text>` (capture → extract →
+  note-review) and `/done <task>` (fuzzy-find → complete via the recurrence-preserving
+  done endpoint) on the generic `CommandSearch` bar, via a pure `parseCommand` parser
+  and unified action rows. `SearchResultItem` gained `review_status`/`workflow_status`
+  (no migration) so `/done` offers only accepted, not-done tasks.
+- Sprint 9L — Recurring task stubs: optional `repeat_interval`, `recurrence_id`
+  series chaining, automatic next-occurrence creation, skip-this-occurrence,
+  future-series edits, task-detail/card UI.
+- Sprint 9k — Today / daily schedule: deterministic `/today` route and UI backed by
+  a pure Python scheduler.
+- Sprint 9j — UX foundation + global search (the `CommandSearch` bar this slice
+  extends).

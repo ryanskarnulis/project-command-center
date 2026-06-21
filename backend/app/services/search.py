@@ -121,6 +121,10 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
                 title=t.title,
                 subtitle=names.get(t.project_id) if t.project_id is not None else None,
                 project_id=t.project_id,
+                # Serialized off existing columns (no extra query) so the command
+                # bar can filter /done candidates to accepted, not-done tasks.
+                review_status=t.review_status,
+                workflow_status=t.workflow_status,
             )
             for t in task_rows
         ],

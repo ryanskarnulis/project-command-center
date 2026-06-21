@@ -1,20 +1,47 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { search } from '../../api/search'
+import { createInbox, processInbox } from '../../api/inbox'
+import { markTaskDone } from '../../api/tasks'
 import type { SearchResults } from '../../types/search'
 import { CommandSearch } from './CommandSearch'
 
 vi.mock('../../api/search', () => ({ search: vi.fn() }))
+vi.mock('../../api/inbox', () => ({
+  createInbox: vi.fn(),
+  processInbox: vi.fn(),
+}))
+vi.mock('../../api/tasks', () => ({ markTaskDone: vi.fn() }))
+
 const mockSearch = vi.mocked(search)
+const mockCreateInbox = vi.mocked(createInbox)
+const mockProcessInbox = vi.mocked(processInbox)
+const mockMarkTaskDone = vi.mocked(markTaskDone)
 
 const RESULTS: SearchResults = {
   projects: [
-    { kind: 'project', id: 7, title: 'Firewall Upgrade', subtitle: null, project_id: null },
+    {
+      kind: 'project',
+      id: 7,
+      title: 'Firewall Upgrade',
+      subtitle: null,
+      project_id: null,
+      review_status: null,
+      workflow_status: null,
+    },
   ],
   tasks: [
-    { kind: 'task', id: 12, title: 'Audit rules', subtitle: 'Firewall Upgrade', project_id: 7 },
+    {
+      kind: 'task',
+      id: 12,
+      title: 'Audit rules',
+      subtitle: 'Firewall Upgrade',
+      project_id: 7,
+      review_status: 'accepted',
+      workflow_status: 'open',
+    },
   ],
   inbox_items: [],
 }
@@ -35,6 +62,10 @@ function renderBar() {
 }
 
 describe('CommandSearch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it('shows grouped results and navigates on click', async () => {
     mockSearch.mockResolvedValue(RESULTS)
     const user = userEvent.setup()
@@ -70,5 +101,100 @@ describe('CommandSearch', () => {
     )
 
     expect(await screen.findByText(/No matches for/)).toBeInTheDocument()
+  })
+
+  it('/new captures the text, runs extraction, and navigates to the inbox item', async () => {
+    mockCreateInbox.mockResolvedValue({ id: 99 } as Awaited<
+      ReturnType<typeof createInbox>
+    >)
+    mockProcessInbox.mockResolvedValue([])
+    const user = userEvent.setup()
+    renderBar()
+
+    await user.type(
+      screen.getByRole('combobox', { name: /search projects/i }),
+      '/new buy milk',
+    )
+
+    // The confirm row reflects the captured text; search is never called for /new.
+    await user.click(await screen.findByText(/Capture & extract: buy milk/))
+
+    await waitFor(() =>
+      expect(mockCreateInbox).toHaveBeenCalledWith({ raw_text: 'buy milk' }),
+    )
+    expect(mockProcessInbox).toHaveBeenCalledWith(99)
+    expect(mockSearch).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(screen.getByTestId('location')).toHaveTextContent('/inbox/99'),
+    )
+  })
+
+  it('/done lists only open tasks and completes the selected one', async () => {
+    mockSearch.mockResolvedValue({
+      projects: [],
+      tasks: [
+        {
+          kind: 'task',
+          id: 12,
+          title: 'Audit rules',
+          subtitle: 'Firewall Upgrade',
+          project_id: 7,
+          review_status: 'accepted',
+          workflow_status: 'open',
+        },
+        {
+          kind: 'task',
+          id: 13,
+          title: 'Already finished',
+          subtitle: null,
+          project_id: 7,
+          review_status: 'accepted',
+          workflow_status: 'done',
+        },
+        {
+          kind: 'task',
+          id: 14,
+          title: 'Just a candidate',
+          subtitle: null,
+          project_id: 7,
+          review_status: 'candidate',
+          workflow_status: 'open',
+        },
+      ],
+      inbox_items: [],
+    })
+    mockMarkTaskDone.mockResolvedValue({ id: 12 } as Awaited<
+      ReturnType<typeof markTaskDone>
+    >)
+    const user = userEvent.setup()
+    renderBar()
+
+    await user.type(
+      screen.getByRole('combobox', { name: /search projects/i }),
+      '/done audit',
+    )
+
+    // Open + accepted task is offered; done and candidate tasks are filtered out.
+    expect(await screen.findByText('Audit rules')).toBeInTheDocument()
+    expect(screen.queryByText('Already finished')).not.toBeInTheDocument()
+    expect(screen.queryByText('Just a candidate')).not.toBeInTheDocument()
+
+    await user.click(screen.getByText('Audit rules'))
+
+    await waitFor(() => expect(mockMarkTaskDone).toHaveBeenCalledWith(12))
+  })
+
+  it('shows command hints for a bare slash', async () => {
+    const user = userEvent.setup()
+    renderBar()
+
+    await user.type(
+      screen.getByRole('combobox', { name: /search projects/i }),
+      '/',
+    )
+
+    expect(await screen.findByText('/new')).toBeInTheDocument()
+    expect(screen.getByText('/done')).toBeInTheDocument()
+    expect(mockSearch).not.toHaveBeenCalled()
   })
 })

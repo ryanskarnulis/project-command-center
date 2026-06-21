@@ -1,14 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Sparkles } from 'lucide-react'
 import { Badge, type BadgeTone } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { AsyncState } from '../../components/AsyncState'
+import { useToast } from '../../components/ToastProvider'
+import { createInbox, processInbox } from '../../api/inbox'
+import { markTaskDone } from '../../api/tasks'
 import type { SearchKind, SearchResultItem } from '../../types/search'
+import { parseCommand, type HintVerb } from './parseCommand'
 import { useSearch } from './useSearch'
 
-// Per-kind display metadata. The bar is intentionally generic (it will later host
-// `/done`, `/new`, and AI chat) so routing/labels live in data, not branching JSX.
+// Per-kind display metadata for plain search results. The bar is intentionally
+// generic so routing/labels live in data, not branching JSX.
 const KIND_META: Record<
   SearchKind,
   { label: string; tone: BadgeTone; path: (item: SearchResultItem) => string }
@@ -18,30 +22,166 @@ const KIND_META: Record<
   inbox: { label: 'Inbox', tone: 'orange', path: (i) => `/inbox/${i.id}` },
 }
 
+// One dropdown row, whatever produced it (search hit, /new confirm, /done match).
+// Keyboard nav iterates these uniformly; each carries its own `onSelect`.
+interface ActionRow {
+  key: string
+  badge: { label: string; tone: BadgeTone }
+  title: string
+  subtitle?: string | null
+  onSelect: () => void
+  disabled?: boolean
+}
+
+interface ActionGroup {
+  label: string | null
+  rows: ActionRow[]
+}
+
+const HINT_TEXT: Record<HintVerb, string> = {
+  root: 'Type after the slash to run a command.',
+  new: 'Type something to capture, e.g. /new call the bank tomorrow',
+  done: 'Type a task to find, e.g. /done audit firewall rules',
+}
+
 export function CommandSearch() {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
-  const { results, loading, error, total } = useSearch(query)
+  // In-flight lock for /new so a double-Enter can't create two inbox items.
+  const [capturing, setCapturing] = useState(false)
   const navigate = useNavigate()
+  const { notify } = useToast()
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Ordered, non-empty groups; `flat` mirrors the render order for keyboard nav.
-  const groups = useMemo(
-    () =>
-      (
+  const command = useMemo(() => parseCommand(query), [query])
+
+  // Only search/done hit the backend; /new and hint states pass a blank query so
+  // `useSearch` short-circuits without an API call.
+  const searchQuery =
+    command.kind === 'search' || command.kind === 'done' ? command.query : ''
+  const { results, loading, error } = useSearch(searchQuery)
+
+  const reset = useCallback(() => {
+    setOpen(false)
+    setQuery('')
+    setActiveIndex(-1)
+  }, [])
+
+  const goto = useCallback(
+    (path: string) => {
+      navigate(path)
+      reset()
+    },
+    [navigate, reset],
+  )
+
+  // /new: capture raw text → run extraction → land on the note-review route.
+  const runNew = useCallback(
+    async (text: string) => {
+      if (capturing) return
+      setCapturing(true)
+      try {
+        const item = await createInbox({ raw_text: text })
+        await processInbox(item.id)
+        notify('success', 'Captured to inbox and extracted tasks.')
+        navigate(`/inbox/${item.id}`)
+        reset()
+      } catch (e: unknown) {
+        notify('error', e instanceof Error ? e.message : 'Capture failed.')
+      } finally {
+        setCapturing(false)
+      }
+    },
+    [capturing, navigate, notify, reset],
+  )
+
+  // /done: complete the chosen task via the dedicated endpoint (preserves recurrence).
+  const runDone = useCallback(
+    async (item: SearchResultItem) => {
+      try {
+        await markTaskDone(item.id)
+        notify('success', `Completed “${item.title}”.`)
+        reset()
+      } catch (e: unknown) {
+        notify(
+          'error',
+          e instanceof Error ? e.message : `Couldn't complete “${item.title}”.`,
+        )
+      }
+    },
+    [notify, reset],
+  )
+
+  const groups: ActionGroup[] = useMemo(() => {
+    if (command.kind === 'new') {
+      return [
+        {
+          label: null,
+          rows: [
+            {
+              key: 'new',
+              badge: { label: 'Capture', tone: 'green' },
+              title: capturing
+                ? 'Capturing & extracting…'
+                : `Capture & extract: ${command.text}`,
+              onSelect: () => void runNew(command.text),
+              disabled: capturing,
+            },
+          ],
+        },
+      ]
+    }
+
+    if (command.kind === 'done') {
+      // Only accepted, not-yet-done tasks are valid completion targets; candidates
+      // and already-done tasks are filtered out (status fields come from search).
+      const rows = results.tasks
+        .filter(
+          (t) =>
+            t.review_status === 'accepted' && t.workflow_status !== 'done',
+        )
+        .map<ActionRow>((t) => ({
+          key: `done-${t.id}`,
+          badge: { label: 'Task', tone: 'purple' },
+          title: t.title,
+          subtitle: t.subtitle,
+          onSelect: () => void runDone(t),
+        }))
+      return [{ label: 'Complete a task', rows }]
+    }
+
+    if (command.kind === 'search') {
+      return (
         [
           { label: 'Projects', items: results.projects },
           { label: 'Tasks', items: results.tasks },
           { label: 'Inbox', items: results.inbox_items },
         ] as const
-      ).filter((g) => g.items.length > 0),
-    [results],
-  )
-  const flat = useMemo(() => groups.flatMap((g) => g.items), [groups])
+      )
+        .filter((g) => g.items.length > 0)
+        .map<ActionGroup>((g) => ({
+          label: g.label,
+          rows: g.items.map<ActionRow>((item) => ({
+            key: `${item.kind}-${item.id}`,
+            badge: {
+              label: KIND_META[item.kind].label,
+              tone: KIND_META[item.kind].tone,
+            },
+            title: item.title,
+            subtitle: item.subtitle,
+            onSelect: () => goto(KIND_META[item.kind].path(item)),
+          })),
+        }))
+    }
 
-  // A new result set invalidates the previous highlight.
-  useEffect(() => setActiveIndex(-1), [results])
+    return [] // hint: rendered separately, nothing selectable
+  }, [command, results, capturing, runNew, runDone, goto])
+
+  const flat = useMemo(() => groups.flatMap((g) => g.rows), [groups])
+
+  // A new query or result set invalidates the previous highlight.
+  useEffect(() => setActiveIndex(-1), [query, results])
 
   // Close the dropdown when focus/click leaves the bar.
   useEffect(() => {
@@ -54,12 +194,13 @@ export function CommandSearch() {
 
   const trimmed = query.trim()
   const showDropdown = open && trimmed !== ''
-
-  function go(item: SearchResultItem) {
-    navigate(KIND_META[item.kind].path(item))
-    setOpen(false)
-    setQuery('')
-  }
+  const isHint = command.kind === 'hint'
+  // /new always shows its confirm row; search/done show async + empty states.
+  const showAsyncState = command.kind === 'search' || command.kind === 'done'
+  const emptyLabel =
+    command.kind === 'done'
+      ? `No open tasks match “${command.query}”.`
+      : `No matches for “${trimmed}”.`
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'ArrowDown') {
@@ -70,9 +211,10 @@ export function CommandSearch() {
       e.preventDefault()
       setActiveIndex((i) => Math.max(i - 1, 0))
     } else if (e.key === 'Enter') {
-      if (activeIndex >= 0 && flat[activeIndex]) {
+      const row = flat[activeIndex]
+      if (row && !row.disabled) {
         e.preventDefault()
-        go(flat[activeIndex])
+        row.onSelect()
       }
     } else if (e.key === 'Escape') {
       setOpen(false)
@@ -94,8 +236,8 @@ export function CommandSearch() {
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          placeholder="Search projects, tasks, inbox…"
-          aria-label="Search projects, tasks, and inbox"
+          placeholder="Search, or type / for commands…"
+          aria-label="Search projects, tasks, and inbox, or run a slash command"
           role="combobox"
           aria-expanded={showDropdown}
           aria-controls="command-search-results"
@@ -110,56 +252,81 @@ export function CommandSearch() {
           id="command-search-results"
           role="listbox"
         >
-          <AsyncState
-            loading={loading}
-            error={error}
-            isEmpty={total === 0}
-            loadingLabel="Searching…"
-            emptyLabel={`No matches for “${trimmed}”.`}
-          >
-            {groups.map((group) => (
-              <div key={group.label} className="command-search-group">
-                <p className="command-search-group-label">{group.label}</p>
-                <ul>
-                  {group.items.map((item) => {
-                    globalIndex += 1
-                    const index = globalIndex
-                    return (
-                      <li key={`${item.kind}-${item.id}`}>
-                        <button
-                          type="button"
-                          role="option"
-                          aria-selected={index === activeIndex}
-                          className={
-                            index === activeIndex
-                              ? 'command-search-result active'
-                              : 'command-search-result'
-                          }
-                          // Pointer enter keeps mouse + keyboard highlight in sync.
-                          onMouseEnter={() => setActiveIndex(index)}
-                          onClick={() => go(item)}
-                        >
-                          <Badge tone={KIND_META[item.kind].tone}>
-                            {KIND_META[item.kind].label}
-                          </Badge>
-                          <span className="command-search-result-text">
-                            <span className="command-search-result-title">
-                              {item.title}
-                            </span>
-                            {item.subtitle && (
-                              <span className="command-search-result-subtitle">
-                                {item.subtitle}
+          {isHint ? (
+            <div className="command-search-group">
+              <p className="command-search-group-label">Commands</p>
+              <ul>
+                <li className="command-search-hint">
+                  <Badge tone="green">/new</Badge>
+                  <span>capture a thought → inbox &amp; extract tasks</span>
+                </li>
+                <li className="command-search-hint">
+                  <Badge tone="purple">/done</Badge>
+                  <span>complete a task</span>
+                </li>
+              </ul>
+              {command.kind === 'hint' && command.verb !== 'root' && (
+                <p className="async-empty">{HINT_TEXT[command.verb]}</p>
+              )}
+            </div>
+          ) : (
+            <AsyncState
+              loading={showAsyncState && loading}
+              error={showAsyncState ? error : null}
+              isEmpty={showAsyncState && flat.length === 0}
+              loadingLabel="Searching…"
+              emptyLabel={emptyLabel}
+            >
+              {groups.map((group) => (
+                <div
+                  key={group.label ?? '_'}
+                  className="command-search-group"
+                >
+                  {group.label && (
+                    <p className="command-search-group-label">{group.label}</p>
+                  )}
+                  <ul>
+                    {group.rows.map((row) => {
+                      globalIndex += 1
+                      const index = globalIndex
+                      return (
+                        <li key={row.key}>
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={index === activeIndex}
+                            disabled={row.disabled}
+                            className={
+                              index === activeIndex
+                                ? 'command-search-result active'
+                                : 'command-search-result'
+                            }
+                            // Pointer enter keeps mouse + keyboard highlight in sync.
+                            onMouseEnter={() => setActiveIndex(index)}
+                            onClick={row.onSelect}
+                          >
+                            <Badge tone={row.badge.tone}>
+                              {row.badge.label}
+                            </Badge>
+                            <span className="command-search-result-text">
+                              <span className="command-search-result-title">
+                                {row.title}
                               </span>
-                            )}
-                          </span>
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              </div>
-            ))}
-          </AsyncState>
+                              {row.subtitle && (
+                                <span className="command-search-result-subtitle">
+                                  {row.subtitle}
+                                </span>
+                              )}
+                            </span>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </AsyncState>
+          )}
         </Card>
       )}
     </div>

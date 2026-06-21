@@ -31,6 +31,22 @@ def test_search_matches_each_kind(db_session: Session) -> None:
     assert results.tasks[0].project_id is not None
 
 
+def test_search_tasks_carry_status_fields(db_session: Session) -> None:
+    """Tasks expose review/workflow status (for /done); other kinds leave them None."""
+    _seed(db_session)
+
+    results = search_service.search(db_session, "firewall")
+
+    task = results.tasks[0]
+    assert task.review_status == "accepted"
+    assert task.workflow_status == "open"
+    # The status fields are task-only; projects and inbox items serialize as null.
+    assert results.projects[0].review_status is None
+    assert results.projects[0].workflow_status is None
+    assert results.inbox_items[0].review_status is None
+    assert results.inbox_items[0].workflow_status is None
+
+
 def test_search_is_case_insensitive(db_session: Session) -> None:
     _seed(db_session)
 

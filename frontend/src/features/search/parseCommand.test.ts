@@ -1,0 +1,72 @@
+import { describe, expect, it } from 'vitest'
+import { parseCommand } from './parseCommand'
+
+describe('parseCommand', () => {
+  it('treats plain text (no leading slash) as a search', () => {
+    expect(parseCommand('firewall audit')).toEqual({
+      kind: 'search',
+      query: 'firewall audit',
+    })
+  })
+
+  it('trims surrounding whitespace on a plain search', () => {
+    expect(parseCommand('  firewall  ')).toEqual({
+      kind: 'search',
+      query: 'firewall',
+    })
+  })
+
+  it('parses /new with text into a capture command', () => {
+    expect(parseCommand('/new call the bank tomorrow')).toEqual({
+      kind: 'new',
+      text: 'call the bank tomorrow',
+    })
+  })
+
+  it('parses /done with a query into a completion command', () => {
+    expect(parseCommand('/done audit firewall')).toEqual({
+      kind: 'done',
+      query: 'audit firewall',
+    })
+  })
+
+  it('is case-insensitive on the verb', () => {
+    expect(parseCommand('/NEW thing')).toEqual({ kind: 'new', text: 'thing' })
+    expect(parseCommand('/Done thing')).toEqual({ kind: 'done', query: 'thing' })
+  })
+
+  it('trims the argument', () => {
+    expect(parseCommand('/new    spaced out   ')).toEqual({
+      kind: 'new',
+      text: 'spaced out',
+    })
+  })
+
+  it('returns a root hint for a bare slash', () => {
+    expect(parseCommand('/')).toEqual({ kind: 'hint', verb: 'root' })
+    expect(parseCommand('   /   ')).toEqual({ kind: 'hint', verb: 'root' })
+  })
+
+  it('returns a verb hint when /new has no argument', () => {
+    expect(parseCommand('/new')).toEqual({ kind: 'hint', verb: 'new' })
+    expect(parseCommand('/new   ')).toEqual({ kind: 'hint', verb: 'new' })
+  })
+
+  it('returns a verb hint when /done has no argument', () => {
+    expect(parseCommand('/done')).toEqual({ kind: 'hint', verb: 'done' })
+  })
+
+  it('falls back to search for an unrecognized verb', () => {
+    expect(parseCommand('/foo bar')).toEqual({
+      kind: 'search',
+      query: '/foo bar',
+    })
+  })
+
+  it('requires a whitespace separator so /newfoo is an unknown verb', () => {
+    expect(parseCommand('/newfoo')).toEqual({
+      kind: 'search',
+      query: '/newfoo',
+    })
+  })
+})
