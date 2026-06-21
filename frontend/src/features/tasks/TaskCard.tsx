@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { Badge } from '../../components/Badge'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { dueStatus, formatDueDate } from '../../utils/dates'
@@ -28,7 +29,7 @@ export function TaskCard({ task, projects, actions }: Props) {
           </span>
           <span className={`priority-pill priority-${task.priority}`}>{task.priority}</span>
           {task.is_blocked && task.workflow_status !== 'done' && (
-            <span className="blocked">Blocked</span>
+            <Badge tone="red">Blocked</Badge>
           )}
           {task.due_date && task.workflow_status !== 'done' && (
             <span className={`due due-${due}`}>
@@ -36,10 +37,10 @@ export function TaskCard({ task, projects, actions }: Props) {
             </span>
           )}
           {task.estimated_minutes !== null && (
-            <span className="estimate">~{formatDuration(task.estimated_minutes)}</span>
+            <Badge tone="neutral">~{formatDuration(task.estimated_minutes)}</Badge>
           )}
           {task.review_status === 'candidate' && task.confidence !== null && (
-            <span className="confidence">conf {task.confidence.toFixed(2)}</span>
+            <Badge tone="neutral">conf {task.confidence.toFixed(2)}</Badge>
           )}
           {projectName !== undefined && (
             <span className="source-pill">{projectName}</span>

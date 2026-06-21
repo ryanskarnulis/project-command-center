@@ -1,5 +1,5 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '../../api/client'
 import { getProjectSummary } from '../../api/dashboard'
 import {
@@ -21,6 +21,11 @@ export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const id = Number(projectId)
   const navigate = useNavigate()
+  // When the user reached this page from the dashboard, the breadcrumb points
+  // back there instead of the projects list. State is lost on refresh/direct
+  // navigation, which safely falls back to "← Projects".
+  const fromDashboard =
+    (useLocation().state as { from?: string } | null)?.from === 'dashboard'
 
   const [project, setProject] = useState<Project | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
@@ -208,7 +213,13 @@ export function ProjectDetailPage() {
   return (
     <main className="task-detail">
       <div className="task-detail-header">
-        <p className="breadcrumb"><Link to="/projects">← Projects</Link></p>
+        <p className="breadcrumb">
+          {fromDashboard ? (
+            <Link to="/dashboard">← Dashboard</Link>
+          ) : (
+            <Link to="/projects">← Projects</Link>
+          )}
+        </p>
         <div className="task-detail-actions">
           {saveLabel && (
             <span

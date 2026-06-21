@@ -523,6 +523,21 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
       committed `profiles.yaml` value and the "(overridden)" tags clear (reuses chunk-2 save feedback).
       New route test + pytest green. No schema/migration.
 
+## Sprint 9j — UX Foundation + Global Search
+> Goal: shared component layer, toasts, async state, and global search.
+
+- [x] Consistent empty / loading / error states — shared `AsyncState` component shipped;
+      adopted on TasksPage. Remaining pages can adopt it incrementally.
+- [x] Toasts for success / failure — `ToastProvider`/`useToast` shipped, retrofitted onto
+      task/project/inbox mutation hooks.
+- [x] Shared component layer in `src/components/` — Button / Card / Badge / AsyncState
+      primitives shipped. `ProjectCard` could still adopt them.
+- [x] **Global search** — `GET /api/search?q=` over projects/tasks/inbox, grouped dropdown
+      in the topbar `CommandSearch`, keyboard nav, click-through. Input kept generic for
+      command-bar slash-action follow-up.
+
+---
+
 ## Sprint 9i — Training-Data Pruning (trash → purge)
 > Goal: let the user clean junk rows out of the corpus, but only via the same reversible two-step
 > path (soft-delete → trash → purge) as projects/tasks/inbox. User-approved exception to "treat

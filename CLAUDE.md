@@ -18,9 +18,8 @@ A local-first project and task management web app with AI-assisted task capture.
 
 ## Scope discipline
 
-- **Build one vertical slice at a time.** A slice goes from React UI → API route → service → DB → and back. Don't build three sprints at once even if it seems efficient.
-- **The first slice is inbox → extract → review → accept.** Nothing else gets built until that works end-to-end.
-- **Follow the sprint plan in README.md.** If a request is from a later sprint, flag it: "this is Sprint 4 work, current sprint is 2 — proceed anyway?"
+- **Ship coherent, related work together; don't sprawl.** The core is stable, so a chunk of work can bundle a feature with the shared components or polish it naturally exercises — it doesn't have to be a single isolated slice. Still keep the diffs reviewable (see "Small, reviewable diffs" below) and don't speculatively build unrelated backlog items because they "might" be next.
+- **Work from the backlog in `TODO.md`.** The "Next sprint" entry at the top is what's queued; the rest is unprioritized, theme-grouped backlog. If a request pulls in something well outside the current focus, flag it rather than silently expanding scope.
 - **The "Do not build yet" list in README.md is binding.** No custom models, no calendar sync, no auth, no Celery, no vector DB. If asked for one of these, push back.
 
 ## Code rules

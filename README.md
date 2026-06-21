@@ -140,7 +140,9 @@ project-command-center/
         tasks/
         inbox/
         settings/
-      components/
+        search/         (CommandSearch + useSearch — the topbar global search)
+      components/        (shared primitives: Button, Card, Badge, AsyncState,
+                         ToastProvider/useToast, AppShell, Modal)
       routes/
       types/
 
@@ -487,6 +489,18 @@ Sprint 9i: [DONE] Training-data pruning — let the user clean junk rows out of 
            bulk. FE: per-example "move to trash" button on /training; a Training
            examples section on /trash (restore / delete-forever), nav count + empty-
            trash include it. New route + trash tests; pytest green. No Alembic.
+Sprint 9j: [DONE] UX foundation + global search. Foundation: shared primitives in
+           src/components (Button / Card / Badge built on the existing tone palette,
+           AsyncState for the loading/error/empty baseline) + a toast system
+           (ToastProvider + useToast, mounted in App) retrofitted onto the
+           task/project/inbox mutation hooks. Feature: global search — GET /api/search?q=
+           runs a deterministic, wildcard-escaped LIKE over active projects, tasks, and
+           inbox items (new services/search.py + schemas/search.py, grouped+capped
+           results, no schema/migration/model call). The topbar command bar is now live
+           (CommandSearch): debounced query, grouped dropdown on the shared
+           Card/Badge/AsyncState, keyboard nav, click-through (task→/tasks/:id,
+           project→/projects/:id, inbox→/inbox/:id). Input kept generic for future
+           /done, /new, and AI chat. New search + CommandSearch tests; pytest green.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 Sprint 11 (backlog): AI "break this down" — a per-task action that sends the

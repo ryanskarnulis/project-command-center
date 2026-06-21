@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
   Check,
   ChevronDown,
@@ -9,6 +9,7 @@ import {
   SlidersHorizontal,
   Trash2,
 } from 'lucide-react'
+import { AsyncState } from '../../components/AsyncState'
 import { listProjects } from '../../api/projects'
 import type { Project } from '../../types/project'
 import type {
@@ -50,6 +51,47 @@ const EMPTY_FILTERS: Filters = {
   dueSoon: false,
 }
 
+const STATUS_VALUES: StatusView[] = ['open', 'in_progress', 'blocked', 'done']
+const PRIORITY_VALUES: TaskPriority[] = ['urgent', 'high', 'medium', 'low']
+const SORT_VALUES: SortMode[] = [
+  'smart',
+  'due_date',
+  'priority',
+  'project',
+  'newest',
+]
+
+function isTruthyParam(value: string | null): boolean {
+  return value === '1' || value === 'true'
+}
+
+// Seed filter state from the URL query string so dashboard cards (and any other
+// link) can deep-link into a pre-filtered view. Unknown/invalid values fall back
+// to the empty defaults so a malformed URL can't produce an invalid filter state.
+function filtersFromParams(params: URLSearchParams): Filters {
+  const status = params.get('status')
+  const priority = params.get('priority')
+  const project = params.get('project')
+  const projectId = project !== null && /^\d+$/.test(project) ? Number(project) : ''
+  return {
+    search: params.get('search') ?? EMPTY_FILTERS.search,
+    status: STATUS_VALUES.includes(status as StatusView)
+      ? (status as StatusView)
+      : EMPTY_FILTERS.status,
+    priority: PRIORITY_VALUES.includes(priority as TaskPriority)
+      ? (priority as TaskPriority)
+      : EMPTY_FILTERS.priority,
+    projectId,
+    overdue: isTruthyParam(params.get('overdue')),
+    dueSoon: isTruthyParam(params.get('dueSoon')),
+  }
+}
+
+function sortFromParams(params: URLSearchParams): SortMode {
+  const sort = params.get('sort')
+  return SORT_VALUES.includes(sort as SortMode) ? (sort as SortMode) : 'smart'
+}
+
 function isActive(f: Filters): boolean {
   return (
     f.search.trim() !== '' ||
@@ -78,10 +120,13 @@ function matchesFilters(t: Task, f: Filters): boolean {
   if (f.status === 'blocked' && !t.is_blocked) return false
   if (f.priority && t.priority !== f.priority) return false
   if (f.projectId !== '' && t.project_id !== f.projectId) return false
-  if (f.overdue && dueStatus(t.due_date) !== 'overdue') return false
-  if (f.dueSoon && !['today', 'soon'].includes(dueStatus(t.due_date))) {
-    return false
-  }
+  // Overdue and Due soon combine as OR when both are set: a task passes the due
+  // gate if it matches any enabled due predicate. (They describe mutually
+  // exclusive states, so AND-ing them would always exclude everything.)
+  const dueChecks: boolean[] = []
+  if (f.overdue) dueChecks.push(dueStatus(t.due_date) === 'overdue')
+  if (f.dueSoon) dueChecks.push(['today', 'soon'].includes(dueStatus(t.due_date)))
+  if (dueChecks.length > 0 && !dueChecks.some(Boolean)) return false
   return true
 }
 
@@ -141,9 +186,17 @@ export function TasksPage() {
   const { tasks, loading, error, create, markDone, remove, reload } =
     useTasks(id)
 
-  const [addingTask, setAddingTask] = useState(false)
+  const [searchParams] = useSearchParams()
+  // Seed once from the URL on mount so the dashboard "Add task" card can deep-link
+  // straight into the create modal.
+  const [addingTask, setAddingTask] = useState(() =>
+    isTruthyParam(searchParams.get('new')),
+  )
   const [projects, setProjects] = useState<Project[]>([])
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
+  // Seed once from the URL on mount; filter edits afterward are local state only.
+  const [filters, setFilters] = useState<Filters>(() =>
+    filtersFromParams(searchParams),
+  )
 
   // "Done" swaps the displayed list to the completed archive (lazily fetched).
   const showingCompleted = filters.status === 'done'
@@ -153,7 +206,9 @@ export function TasksPage() {
     error: completedError,
     reopen,
   } = useCompletedTasks(id, showingCompleted)
-  const [sortMode, setSortMode] = useState<SortMode>('smart')
+  const [sortMode, setSortMode] = useState<SortMode>(() =>
+    sortFromParams(searchParams),
+  )
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<number>>(
     () => new Set(),
   )
@@ -597,39 +652,35 @@ export function TasksPage() {
       </div>
 
       {showingCompleted ? (
-        <>
-          {completedLoading && <p>Loading…</p>}
-          {completedError && <p role="alert">{completedError}</p>}
-
+        <AsyncState
+          loading={completedLoading}
+          error={completedError}
+          isEmpty={completedVisible.length === 0}
+          emptyLabel={
+            hasNonStatusFilters
+              ? 'No completed tasks match the current filters.'
+              : 'No completed tasks.'
+          }
+        >
           <ul className="task-list">
             {completedVisible.map(renderCompletedTask)}
           </ul>
-
-          {!completedLoading && completedVisible.length === 0 && (
-            <p>
-              {hasNonStatusFilters
-                ? 'No completed tasks match the current filters.'
-                : 'No completed tasks.'}
-            </p>
-          )}
-        </>
+        </AsyncState>
       ) : (
-        <>
-          {loading && <p>Loading…</p>}
-          {error && <p role="alert">{error}</p>}
-
+        <AsyncState
+          loading={loading}
+          error={error}
+          isEmpty={roots.length === 0}
+          emptyLabel={
+            filtersActive
+              ? 'No tasks match the current filters.'
+              : 'No tasks yet.'
+          }
+        >
           <ul className="task-list">
             {sortTasks(roots, sortMode, projects).map(renderTask)}
           </ul>
-
-          {!loading && roots.length === 0 && (
-            <p>
-              {filtersActive
-                ? 'No tasks match the current filters.'
-                : 'No tasks yet.'}
-            </p>
-          )}
-        </>
+        </AsyncState>
       )}
 
       {!isGlobal && <ActivityFeed projectId={id} refreshKey={activityKey} />}

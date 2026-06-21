@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import { ArrowUp } from 'lucide-react'
+import { Button } from '../../components/Button'
 import { useInbox } from './useInbox'
 import { ReviewQueue } from './ReviewQueue'
 
@@ -143,22 +144,19 @@ export function InboxCapturePanel({
       {emptyCandidates && (
         <section className="capture-summary-panel">
           <p>No tasks were extracted from this note.</p>
-          <button
-            type="button"
+          <Button
             disabled={submitting}
             onClick={() => void handleReview([])}
           >
             {submitting ? 'Dismissing...' : 'Dismiss (no tasks)'}
-          </button>
+          </Button>
         </section>
       )}
 
       {alreadyReviewed && (
         <section className="capture-summary-panel">
           <p>This note was already reviewed - re-reviewing is disabled.</p>
-          <button type="button" onClick={handleNewCapture}>
-            New capture
-          </button>
+          <Button onClick={handleNewCapture}>New capture</Button>
         </section>
       )}
     </section>

@@ -104,6 +104,10 @@ describe('TaskDetailPage', () => {
     renderDetail()
 
     const title = await screen.findByLabelText('Task title')
+    // The input mounts empty and is populated from the task by an effect; wait
+    // for that draft to settle before editing, or the effect can clobber our
+    // typed value mid-interaction and the blur sees no change.
+    await waitFor(() => expect(title).toHaveValue('Patch the router'))
     await user.clear(title)
     await user.type(title, 'Patch the edge router')
     await user.tab()
@@ -133,6 +137,13 @@ describe('TaskDetailPage', () => {
     renderDetail()
 
     const estimate = await screen.findByLabelText('Estimate')
+    // Same draft-population race as the title field. The estimate loads empty
+    // (no signal to wait on directly), but one effect populates every draft at
+    // once — so the title showing its loaded value proves the estimate draft
+    // has settled and won't clobber what we type.
+    await waitFor(() =>
+      expect(screen.getByLabelText('Task title')).toHaveValue('Patch the router'),
+    )
     await user.type(estimate, '2h')
     await user.tab()
 

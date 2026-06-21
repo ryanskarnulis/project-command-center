@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { useToast } from '../../components/ToastProvider'
 import { ApiError } from '../../api/client'
 import {
   createInbox,
@@ -59,6 +60,7 @@ export function useInbox(): UseInbox {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const { notify } = useToast()
 
   const reset = useCallback(() => {
     setInboxItem(null)
@@ -185,6 +187,10 @@ export function useInbox(): UseInbox {
         const res = await decideCandidate(inboxId, taskId, decision)
         // Remove the decided candidate from local state immediately.
         setCandidates((prev) => prev.filter((t) => t.id !== taskId))
+        notify(
+          'success',
+          decision.action === 'approve' ? 'Task approved' : 'Candidate dismissed',
+        )
         if (res.finalized) {
           setNotice(
             `Note finalized — ${decision.action === 'approve' ? '1 task approved' : 'task dismissed'}.`,
@@ -192,12 +198,14 @@ export function useInbox(): UseInbox {
           void loadPending()
         }
       } catch (e: unknown) {
-        setError(messageFor(e, 'Failed to decide candidate'))
+        const message = messageFor(e, 'Failed to decide candidate')
+        setError(message)
+        notify('error', message)
       } finally {
         setSubmitting(false)
       }
     },
-    [loadPending],
+    [loadPending, notify],
   )
 
   return {

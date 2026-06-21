@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useTrashCount } from '../features/trash/TrashCountContext'
+import { CommandSearch } from '../features/search/CommandSearch'
 import {
   Bell,
   Bot,
@@ -16,7 +17,6 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   Target,
   Trash2,
 } from 'lucide-react'
@@ -135,15 +135,7 @@ export function AppShell({ children }: AppShellProps) {
             <strong>Stay focused. Ship impact.</strong>
           </div>
 
-          <div className="command-search" aria-label="AI command search">
-            <Sparkles size={18} aria-hidden="true" />
-            <input
-              disabled
-              placeholder="Ask AI or jump to anything..."
-              aria-label="Ask AI or jump to anything"
-            />
-            <kbd>Cmd K</kbd>
-          </div>
+          <CommandSearch />
 
           <div className="topbar-actions">
             <button type="button" className="icon-button" disabled aria-label="Notifications">

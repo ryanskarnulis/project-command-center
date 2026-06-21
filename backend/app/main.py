@@ -14,6 +14,7 @@ from app.api import (
     routes_discord,
     routes_inbox,
     routes_projects,
+    routes_search,
     routes_settings,
     routes_task_dependencies,
     routes_tasks,
@@ -35,6 +36,7 @@ api_router.include_router(routes_ai.router)
 api_router.include_router(routes_settings.router)
 api_router.include_router(routes_training.router)
 api_router.include_router(routes_trash.router)
+api_router.include_router(routes_search.router)
 
 
 @asynccontextmanager

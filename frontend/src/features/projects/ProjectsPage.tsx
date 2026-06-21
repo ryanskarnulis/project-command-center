@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Plus, Search, SlidersHorizontal } from 'lucide-react'
 import { useProjects } from './useProjects'
 import { ProjectCard } from './ProjectCard'
@@ -12,7 +13,12 @@ type SortMode = 'name' | 'open' | 'updated' | 'created'
 
 export function ProjectsPage() {
   const { projects, loading, error, create, update, remove } = useProjects()
-  const [creating, setCreating] = useState(false)
+  const [searchParams] = useSearchParams()
+  // Seed once from the URL on mount so the dashboard "+" can deep-link straight
+  // into the create modal.
+  const [creating, setCreating] = useState(
+    () => searchParams.get('new') === '1' || searchParams.get('new') === 'true',
+  )
   const [editing, setEditing] = useState<Project | null>(null)
   const [search, setSearch] = useState('')
   const [sortMode, setSortMode] = useState<SortMode>('name')

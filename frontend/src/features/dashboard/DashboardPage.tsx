@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import type { LucideIcon } from 'lucide-react'
 import {
   AlertTriangle,
@@ -34,6 +34,7 @@ interface MetricCardProps {
   action: string
   cornerIcon?: LucideIcon
   cornerLabel?: string
+  cornerTo?: string
   children?: React.ReactNode
 }
 
@@ -55,15 +56,25 @@ function MetricCard({
   action,
   cornerIcon: CornerIcon,
   cornerLabel,
+  cornerTo,
   children,
 }: MetricCardProps) {
+  const navigate = useNavigate()
   return (
     <Link to={to} className="metric-card" aria-label={`${title}: ${action}`}>
-      {CornerIcon && (
-        <span className="metric-corner-action" aria-hidden="true">
-          <CornerIcon size={17} />
-          {cornerLabel && <span>{cornerLabel}</span>}
-        </span>
+      {CornerIcon && cornerTo && (
+        <button
+          type="button"
+          className="metric-corner-action"
+          aria-label={cornerLabel ?? action}
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            navigate(cornerTo)
+          }}
+        >
+          <CornerIcon size={17} aria-hidden="true" />
+        </button>
       )}
       <div className={`metric-icon tone-${tone}`}>
         <Icon size={26} aria-hidden="true" />
@@ -94,7 +105,10 @@ function DueSoonFocusCard({
   overdueCount: number
 }) {
   return (
-    <Link to="/tasks" className="metric-card focus-due-card">
+    <Link
+      to="/tasks?overdue=1&dueSoon=1&sort=due_date"
+      className="metric-card focus-due-card"
+    >
       <div className="metric-icon tone-green">
         <ListChecks size={26} aria-hidden="true" />
       </div>
@@ -293,8 +307,10 @@ export function DashboardPage() {
             detail="Accepted work not done"
             tone="blue"
             to="/tasks"
-            action="Add task"
+            action="View tasks"
             cornerIcon={Plus}
+            cornerLabel="Add task"
+            cornerTo="/tasks?new=1"
           />
           <MetricCard
             icon={Clock3}
@@ -311,7 +327,7 @@ export function DashboardPage() {
             value={dashboard.blockedTasks.length}
             detail="Derived from unfinished dependencies"
             tone="red"
-            to="/tasks"
+            to="/tasks?status=blocked"
             action="View blocked"
           />
           <DueSoonFocusCard
@@ -333,7 +349,7 @@ export function DashboardPage() {
               </div>
               <div className="section-heading-actions">
                 <Link to="/projects">View all projects</Link>
-                <Link to="/projects" className="icon-link" aria-label="Create project">
+                <Link to="/projects?new=1" className="icon-link" aria-label="Create project">
                   <Plus size={16} aria-hidden="true" />
                 </Link>
               </div>
@@ -352,7 +368,10 @@ export function DashboardPage() {
                           <FolderKanban size={18} aria-hidden="true" />
                         </span>
                         <div>
-                          <Link to={`/projects/${row.project_id}/tasks`}>
+                          <Link
+                            to={`/projects/${row.project_id}`}
+                            state={{ from: 'dashboard' }}
+                          >
                             {row.project_name}
                           </Link>
                           <small>{row.open_task_count} open tasks</small>

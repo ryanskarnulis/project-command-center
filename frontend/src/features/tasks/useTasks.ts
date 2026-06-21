@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useToast } from '../../components/ToastProvider'
 import {
   createTask,
   createUnscopedTask,
@@ -26,6 +27,7 @@ export function useTasks(projectId?: number): UseTasks {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const { withToast } = useToast()
 
   const reload = useCallback(() => setRefreshKey((k) => k + 1), [])
 
@@ -53,38 +55,39 @@ export function useTasks(projectId?: number): UseTasks {
 
   const create = useCallback(
     async (data: TaskCreate) => {
-      if (projectId === undefined) {
-        await createUnscopedTask(data)
-      } else {
-        await createTask(projectId, data)
-      }
+      await withToast(
+        projectId === undefined
+          ? createUnscopedTask(data)
+          : createTask(projectId, data),
+        { success: 'Task created' },
+      )
       reload()
     },
-    [projectId, reload],
+    [projectId, reload, withToast],
   )
 
   const update = useCallback(
     async (id: number, data: TaskUpdate) => {
-      await updateTask(id, data)
+      await withToast(updateTask(id, data), { success: 'Task saved' })
       reload()
     },
-    [reload],
+    [reload, withToast],
   )
 
   const markDone = useCallback(
     async (id: number) => {
-      await markTaskDone(id)
+      await withToast(markTaskDone(id), { success: 'Task marked done' })
       reload()
     },
-    [reload],
+    [reload, withToast],
   )
 
   const remove = useCallback(
     async (id: number) => {
-      await deleteTask(id)
+      await withToast(deleteTask(id), { success: 'Task moved to trash' })
       reload()
     },
-    [reload],
+    [reload, withToast],
   )
 
   return { tasks, loading, error, create, update, markDone, remove, reload }

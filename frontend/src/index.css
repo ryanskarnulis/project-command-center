@@ -121,6 +121,213 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
+/* Shared component primitives (src/components). Variant classes only — the base
+   `button`/surface styling lives in the rules above. */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.btn--primary {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #ffffff;
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: #2f6fe0;
+  border-color: #2f6fe0;
+}
+
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--surface-soft);
+}
+
+.btn--danger {
+  background: var(--red-soft);
+  border-color: var(--red-soft);
+  color: var(--red);
+}
+
+.btn--danger:hover:not(:disabled) {
+  border-color: var(--red);
+}
+
+/* Command search: the topbar bar plus its results dropdown. */
+.command-search-wrap {
+  position: relative;
+  flex: 1;
+  max-width: 520px;
+}
+
+.command-search-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 200;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 8px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+}
+
+.command-search-group + .command-search-group {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.command-search-group-label {
+  margin: 4px 8px;
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.command-search-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.command-search-result {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 8px;
+  padding: 8px 8px;
+  min-height: 0;
+}
+
+.command-search-result.active,
+.command-search-result:hover:not(:disabled) {
+  background: var(--surface-soft);
+}
+
+.command-search-result-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.command-search-result-title {
+  font-weight: 640;
+  color: var(--text-h);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-search-result-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-search-dropdown .async-loading,
+.command-search-dropdown .async-empty,
+.command-search-dropdown .async-error {
+  margin: 8px;
+}
+
+/* Shared async-state lines (src/components/AsyncState). */
+.async-loading,
+.async-empty {
+  color: var(--text-muted);
+}
+
+.async-error {
+  color: var(--red);
+  font-weight: 700;
+}
+
+/* Toast stack: fixed, bottom-right, newest at the bottom. */
+.toast-stack {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: min(360px, calc(100vw - 40px));
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-h);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  font-size: 14px;
+  font-weight: 600;
+  animation: toast-in 140ms ease-out;
+}
+
+.toast--success {
+  border-color: var(--green);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.toast--error {
+  border-color: var(--red);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.toast-dismiss {
+  margin-left: auto;
+  min-height: 0;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  font-size: 18px;
+  line-height: 1;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.toast-dismiss:hover:not(:disabled) {
+  background: transparent;
+  opacity: 1;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 h1,
 h2,
 h3,
@@ -731,28 +938,25 @@ kbd {
   position: absolute;
   top: 14px;
   right: 14px;
+  z-index: 1;
   display: inline-grid;
   place-items: center;
   width: 32px;
   height: 32px;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: 50%;
   background: var(--blue-soft);
   color: var(--blue);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
-.metric-card:hover .metric-corner-action {
+.metric-corner-action:hover,
+.metric-corner-action:focus-visible {
   border-color: rgba(59, 130, 246, 0.32);
   background: var(--blue);
   color: #ffffff;
-}
-
-.metric-corner-action span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
 }
 
 .focus-due-card {
@@ -951,6 +1155,7 @@ kbd {
 }
 
 .status-pill,
+.badge,
 .count-badge,
 .source-pill,
 .assignee-pill,
@@ -1256,6 +1461,7 @@ kbd {
 }
 
 .status-pill.tone-blue,
+.badge.tone-blue,
 .due-today,
 .due-soon {
   background: var(--blue-soft);
@@ -1263,24 +1469,34 @@ kbd {
 }
 
 .status-pill.tone-green,
+.badge.tone-green,
 .dep-done {
   background: var(--green-soft);
   color: var(--green);
 }
 
 .status-pill.tone-orange,
+.badge.tone-orange,
 .due-overdue {
   background: var(--orange-soft);
   color: #b45309;
 }
 
 .status-pill.tone-red,
+.badge.tone-red,
 .blocked {
   background: var(--red-soft);
   color: var(--red);
 }
 
+.status-pill.tone-purple,
+.badge.tone-purple {
+  background: var(--purple-soft);
+  color: var(--purple);
+}
+
 .status-pill.tone-neutral,
+.badge.tone-neutral,
 .estimate,
 .due-none {
   background: var(--neutral-soft);
@@ -1895,6 +2111,25 @@ kbd {
 
 .activity-feed {
   margin-top: 6px;
+}
+
+.activity-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  font-weight: 760;
+  box-shadow: none;
+  padding: 4px 6px;
+}
+
+.activity-toggle:hover:not(:disabled) {
+  background: var(--surface-soft);
+  color: var(--blue);
 }
 
 .activity-feed ul {
