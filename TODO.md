@@ -12,8 +12,8 @@ archived in `DONE.md`.
 ## Current focus
 
 The **Planning view (Gantt/calendar)** epic is the active work — see `CURRENT.md`.
-Slices 1–2 are shipped; the next slice is **Bar-resize to edit estimate**
-(slice 3). Everything below is unprioritized backlog until promoted.
+Slices 1–3 are shipped; the next slice is **Dependency lines + conflict warnings
++ autofix** (slice 4). Everything below is unprioritized backlog until promoted.
 
 ---
 

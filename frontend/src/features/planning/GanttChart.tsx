@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { GanttModel } from './ganttModel'
 import { addDays } from './ganttModel'
 import { useDragReschedule } from './useDragReschedule'
+import { useBarResize } from './useBarResize'
 
 // The custom CSS-grid Gantt renderer for the read-only planning slice. No
 // third-party library (the frappe-gantt attempt was abandoned): one grid spans
@@ -52,20 +53,28 @@ function barTone(bar: GanttModel['bars'][number]): string {
 export function GanttChart({
   model,
   onReschedule,
+  onResize,
 }: {
   model: GanttModel
   /** When provided, bars become draggable to set `scheduled_start`. */
   onReschedule?: (taskId: number, newStart: string) => void
+  /** When provided, bars get a right-edge handle to set `estimated_minutes`. */
+  onResize?: (taskId: number, newMinutes: number) => void
 }) {
   const { bars, unscheduled } = model
   const gridRef = useRef<HTMLDivElement>(null)
-  // No-op when read-only (`onReschedule` omitted); the hook stays mounted either
-  // way so the listener lifecycle is stable.
+  // No-op when read-only (callbacks omitted); the hooks stay mounted either way
+  // so the listener lifecycle is stable.
   const { onBarPointerDown, dragState, justDraggedRef } = useDragReschedule(
     gridRef,
     onReschedule ?? (() => {}),
   )
+  const { onHandlePointerDown, resizeState, justResizedRef } = useBarResize(
+    gridRef,
+    onResize ?? (() => {}),
+  )
   const draggable = onReschedule !== undefined
+  const resizable = onResize !== undefined
 
   const axis = useMemo(() => {
     if (bars.length === 0) return null
@@ -139,12 +148,18 @@ export function GanttChart({
         {/* One row per bar: label cell + positioned bar (+ due marker) */}
         {bars.map((bar, r) => {
           const offset = dayDiff(start, bar.start)
-          const len = dayDiff(bar.start, bar.end) + 1
+          const baseLen = dayDiff(bar.start, bar.end) + 1
+          // While resizing this bar, preview the new span; else its real length.
+          const len =
+            resizeState?.barId === bar.id ? resizeState.newSpan : baseLen
           const dueIdx =
             bar.dueDate && bar.dueDate >= start ? dayDiff(start, bar.dueDate) : -1
+          // A parent's estimate is the sum of its subtasks (server rollup), so it
+          // is not directly settable — no resize handle, and a tooltip says why.
+          const barResizable = resizable && !bar.hasSubtasks
           const tooltip = `${bar.name} · ${bar.start} → ${bar.end}${
             bar.dueDate ? ` · due ${bar.dueDate}` : ''
-          }`
+          }${bar.hasSubtasks ? ' · estimate rolls up from subtasks' : ''}`
           return (
             <Fragment key={bar.id}>
               <div
@@ -165,9 +180,14 @@ export function GanttChart({
               )}
               <Link
                 to={`/tasks/${bar.id}`}
+                // Anchors are natively draggable; that hijacks the pointer stream
+                // (browser DnD) so our window pointermove/up never fire. Opt out.
+                draggable={false}
                 className={`gantt-bar ${barTone(bar)}${bar.conflict ? ' is-conflict' : ''}${
                   draggable ? ' is-draggable' : ''
-                }${dragState?.barId === bar.id ? ' is-dragging' : ''}`}
+                }${dragState?.barId === bar.id ? ' is-dragging' : ''}${
+                  resizeState?.barId === bar.id ? ' is-resizing' : ''
+                }`}
                 style={{
                   gridColumn: `${offset + 2} / span ${len}`,
                   gridRow: r + 2,
@@ -181,19 +201,31 @@ export function GanttChart({
                   draggable ? (e) => onBarPointerDown(bar, e) : undefined
                 }
                 onClick={
-                  draggable
+                  draggable || resizable
                     ? (e) => {
-                        // Swallow the click that ends a real drag so it doesn't
-                        // navigate to the task; a plain click still falls through.
-                        if (justDraggedRef.current) {
+                        // Swallow the click that ends a real drag or resize so it
+                        // doesn't navigate; a plain click still falls through.
+                        if (justDraggedRef.current || justResizedRef.current) {
                           e.preventDefault()
                           justDraggedRef.current = false
+                          justResizedRef.current = false
                         }
                       }
                     : undefined
                 }
               >
                 <span className="gantt-bar-text">{bar.name}</span>
+                {barResizable && (
+                  <span
+                    className="gantt-resize-handle"
+                    aria-hidden="true"
+                    onPointerDown={(e) => {
+                      // Stop propagation so a handle press doesn't also start a move.
+                      e.stopPropagation()
+                      onHandlePointerDown(bar, e)
+                    }}
+                  />
+                )}
               </Link>
             </Fragment>
           )

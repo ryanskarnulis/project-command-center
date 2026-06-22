@@ -915,3 +915,33 @@ change, eval change, prompt change, AI training-data change, or new dependency.
       drag-to-reschedule slices build on.
 - [x] Read-only — no drag yet (that is slice 2, the current focus; see `CURRENT.md`).
 - [x] Added a happy-path test for the renderer/model.
+
+---
+
+## Sprint 18 — Gantt interactivity: drag-to-reschedule + bar-resize
+> Goal: slices 2 & 3 of the planning view — make the Gantt bars editable. FE-only;
+> the backend already accepts `scheduled_start` and `estimated_minutes` on
+> `PATCH /api/tasks/{id}`, so no schema/migration/model/eval/prompt change.
+
+- [x] **Slice 2 — drag-to-reschedule:** horizontal bar drag sets `scheduled_start`.
+      New `useDragReschedule` gesture hook (measures the flexing day-column width
+      from the DOM, converts the pointer delta to whole days) + `useProjectGantt.reschedule`
+      (optimistic move, revert-on-error, toast, then refetch to reconcile derived
+      conflict/blocked flags).
+- [x] **Slice 3 — bar-resize to edit estimate:** a right-edge `.gantt-resize-handle`
+      drags to set `estimated_minutes` (one day-column = 480 min, clamped to a 1-day
+      floor). New `useBarResize` gesture hook (mirrors `useDragReschedule`) + a live
+      span preview + `useProjectGantt.resize`. Parent bars expose no handle — their
+      estimate is a server rollup of subtasks and is not directly settable, so a
+      handle there could only no-op; a tooltip explains the rollup instead.
+- [x] **Bugfix:** bars are `<Link>` anchors, which are natively draggable — that
+      hijacks the pointer stream so the window `pointermove`/`pointerup` listeners
+      never fired and *both* gestures were dead in the real browser (unit tests
+      passed because jsdom has no native drag). Fixed with `draggable={false}` on the
+      bar `<Link>`.
+- [x] **Tooling:** added Playwright (frontend devDependency) + a `verifier-browser`
+      skill so the drag gestures — which jsdom cannot exercise — are verifiable in a
+      real headless browser. Verified slice 3 end-to-end this way (leaf resize
+      persisted, parent-override prompt fired, move-drag restored).
+- [x] Extended the `buildGanttModel` unit test for the new bar fields
+      (`hasSubtasks`, `estimatedMinutes`).

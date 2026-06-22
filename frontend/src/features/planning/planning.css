@@ -133,6 +133,7 @@
 /* --- Bars --- */
 
 .gantt-bar {
+  position: relative;
   z-index: 2;
   align-self: center;
   height: 22px;
@@ -162,6 +163,28 @@
 
 .gantt-bar.is-dragging {
   cursor: grabbing;
+  opacity: 0.85;
+  z-index: 5;
+}
+
+/* Bar-resize: a grab strip on the bar's right edge that sets `estimated_minutes`
+   (one day-column = 480 min). `touch-action: none` for the same reason as drag. */
+.gantt-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: ew-resize;
+  touch-action: none;
+  border-radius: 0 6px 6px 0;
+}
+
+.gantt-resize-handle:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.gantt-bar.is-resizing {
   opacity: 0.85;
   z-index: 5;
 }

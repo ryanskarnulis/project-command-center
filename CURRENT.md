@@ -15,20 +15,27 @@ for React, styling un-tameable.
 are all in place. **Slice 2 (drag-to-reschedule)** is now shipped: bars drag
 horizontally to set `scheduled_start` via the existing PATCH, with an optimistic
 move, revert-on-error, and a toast (`useDragReschedule` gesture hook +
-`useProjectGantt.reschedule`).
+`useProjectGantt.reschedule`). **Slice 3 (bar-resize to edit estimate)** is now
+shipped: a right-edge handle on each bar drags to set `estimated_minutes` (one
+day-column = 480 min, min 1 day) via the existing PATCH, with optimistic resize,
+revert-on-error, and a toast. Parent bars (whose estimate is a server rollup of
+their subtasks) expose **no** resize handle — a tooltip says the estimate rolls
+up from subtasks — since a parent estimate is not directly settable. New
+`useBarResize` gesture hook + `useProjectGantt.resize`.
 
 **Status legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ---
 
-## Next up — Slice 3: Bar-resize to edit estimate
+## Next up — Slice 4: Dependency lines + conflict warnings + autofix
 
-Drag a bar's right edge to change `estimated_minutes`; prompt before overriding a
-parent estimate derived from subtask estimates.
+SVG overlay arrows between dependent bars; flag violations (dependent starts
+before its blocker ends); offer an autofix action.
 
-> Known gap from slice 2: drag is currently the **only** UI that writes
-> `scheduled_start` (no date input for it in task detail), so there is no
-> keyboard/non-drag way to schedule. Flagged for a later a11y pass.
+> Known a11y gap (slices 2 & 3): drag is the **only** UI that writes
+> `scheduled_start`, and the right-edge handle the **only** one that writes
+> `estimated_minutes` from the timeline — no keyboard/non-drag path for either.
+> Flagged for a later a11y pass.
 
 ---
 
@@ -39,9 +46,12 @@ parent estimate derived from subtask estimates.
       via the existing task PATCH; optimistic move + revert-on-error + toast. New
       `useDragReschedule` gesture hook (measures the flexing day-column width from the
       DOM) + `useProjectGantt.reschedule`; rebuilt against the real `useToast` API.
-- [ ] **3. Bar-resize to edit estimate** — drag a bar's right edge to change
-      `estimated_minutes`; prompt before overriding a parent estimate derived from
-      subtask estimates.
+- [x] **3. Bar-resize to edit estimate** — shipped. A right-edge handle drags to set
+      `estimated_minutes` (one day-column = 480 min, min 1 day) via the existing task
+      PATCH; optimistic resize + revert-on-error + toast. Parent bars expose no handle
+      (their estimate is a server rollup of subtasks, not directly settable) — a tooltip
+      explains why. New `useBarResize` gesture hook
+      (mirrors `useDragReschedule`) + `useProjectGantt.resize`.
 - [ ] **4. Dependency lines + conflict warnings + autofix** — SVG overlay arrows between
       dependent bars; flag violations (dependent starts before its blocker ends); offer an
       autofix action.

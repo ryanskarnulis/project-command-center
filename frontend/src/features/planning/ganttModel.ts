@@ -42,6 +42,10 @@ export interface GanttBar {
   depth: number
   /** The parent task id (for parent-first ordering), or null at top level. */
   parentId: number | null
+  /** True when the estimate is derived from subtasks — resizing prompts first. */
+  hasSubtasks: boolean
+  /** The stored estimate, so a resize can compute the new value relative to it. */
+  estimatedMinutes: number | null
 }
 
 /** A task with neither a start nor a due date — shown in the side bucket. */
@@ -158,6 +162,8 @@ export function buildGanttModel({ tasks, dependencies }: ProjectGantt): GanttMod
       workflowStatus: task.workflow_status,
       depth: depthOf(task, byId),
       parentId: task.parent_task_id,
+      hasSubtasks: task.has_subtasks,
+      estimatedMinutes: task.estimated_minutes,
     })
   }
 

@@ -725,6 +725,21 @@ Sprint 17: [DONE] Static read-only project Gantt (slice 1 of the re-decomposed
            shared `ProjectTabs` strip (Overview · Tasks · Timeline) was mounted
            on all three project routes. No model call, eval/prompt, or new
            dependency.
+Sprint 18: [DONE] Gantt interactivity (slices 2 & 3 of the planning view) —
+           the bars are now editable. Slice 2 drag-to-reschedule:
+           `useDragReschedule` gesture hook + `useProjectGantt.reschedule` set
+           `scheduled_start` (optimistic move, revert-on-error, toast). Slice 3
+           bar-resize: a right-edge handle (`useBarResize` + `.resize`) sets
+           `estimated_minutes` (one day-column = 480 min, 1-day floor); a live
+           span preview; parent bars expose no handle (their estimate is a
+           server rollup of subtasks, not directly settable) — a tooltip
+           explains why. Bugfix: bars are `<Link>` anchors whose native drag hijacked
+           the pointer stream — both gestures were dead in the browser though
+           unit tests passed (jsdom has no native drag); fixed with
+           `draggable={false}`. Added Playwright (frontend devDependency) + a
+           `verifier-browser` skill to exercise the drags a real browser. FE-only;
+           the task PATCH already accepted both fields — no schema/migration/
+           model/eval/prompt change.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

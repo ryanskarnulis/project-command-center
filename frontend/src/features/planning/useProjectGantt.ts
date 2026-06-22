@@ -11,6 +11,8 @@ interface UseProjectGantt {
   error: string | null
   /** Optimistically move a task's bar, persist via PATCH, revert on error. */
   reschedule: (taskId: number, newStart: string) => Promise<void>
+  /** Optimistically resize a task's estimate, persist via PATCH, revert on error. */
+  resize: (taskId: number, newMinutes: number) => Promise<void>
 }
 
 /** Best-effort message from an unknown error, preferring the API `detail`. */
@@ -89,5 +91,37 @@ export function useProjectGantt(projectId: number): UseProjectGantt {
     [data, load, notify],
   )
 
-  return { data, loading: loadedId !== projectId, error, reschedule }
+  const resize = useCallback(
+    async (taskId: number, newMinutes: number) => {
+      const snapshot = data
+      // Only leaf bars expose a resize handle (a parent's estimate is a server
+      // rollup of its subtasks — see GanttChart `barResizable`), so this always
+      // targets a directly-settable estimate.
+      // Optimistic: re-estimate now so the resize feels instant. The
+      // `buildGanttModel` memo in TimelinePage re-sizes the bar from this state.
+      setData((prev) =>
+        prev === null
+          ? prev
+          : {
+              ...prev,
+              tasks: prev.tasks.map((t) =>
+                t.id === taskId ? { ...t, estimated_minutes: newMinutes } : t,
+              ),
+            },
+      )
+      try {
+        await updateTask(taskId, { estimated_minutes: newMinutes })
+        notify('success', 'Estimate updated')
+        // Reconcile derived values (conflict outline, blocked/blocking) from the
+        // server. No downstream auto-shift — that is a later slice.
+        load()
+      } catch (err: unknown) {
+        setData(snapshot)
+        notify('error', errorMessage(err, 'Failed to update estimate'))
+      }
+    },
+    [data, load, notify],
+  )
+
+  return { data, loading: loadedId !== projectId, error, reschedule, resize }
 }

@@ -19,7 +19,7 @@ export function TimelinePage() {
   const { projectId } = useParams<{ projectId: string }>()
   const id = Number(projectId)
 
-  const { data, loading, error, reschedule } = useProjectGantt(id)
+  const { data, loading, error, reschedule, resize } = useProjectGantt(id)
   const model = useMemo(() => (data ? buildGanttModel(data) : null), [data])
 
   // The planning payload carries no project name; fetch it for the header only.
@@ -46,7 +46,8 @@ export function TimelinePage() {
         <div className="page-title">
           <h1>{project?.name ?? 'Timeline'}</h1>
           <p className="page-subtitle">
-            Scheduled work by start date and estimate — drag a bar to reschedule.
+            Scheduled work by start date and estimate — drag a bar to reschedule,
+            its right edge to re-estimate.
           </p>
         </div>
       </header>
@@ -60,7 +61,7 @@ export function TimelinePage() {
         emptyLabel="No accepted tasks to schedule yet."
       >
         {model && !isEmpty && (
-          <GanttChart model={model} onReschedule={reschedule} />
+          <GanttChart model={model} onReschedule={reschedule} onResize={resize} />
         )}
       </AsyncState>
     </main>

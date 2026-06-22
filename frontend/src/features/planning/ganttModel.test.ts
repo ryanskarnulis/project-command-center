@@ -120,6 +120,23 @@ describe('buildGanttModel', () => {
     expect(model.bars.find((b) => b.id === 2)?.dependsOn).toEqual([])
   })
 
+  it('carries has_subtasks and estimated_minutes onto the bar (for resize)', () => {
+    const model = buildGanttModel({
+      tasks: [
+        task({
+          id: 1,
+          scheduled_start: '2026-06-20',
+          estimated_minutes: 600,
+          has_subtasks: true,
+        }),
+      ],
+      dependencies: [],
+    })
+    const bar = model.bars.find((b) => b.id === 1)
+    expect(bar?.hasSubtasks).toBe(true)
+    expect(bar?.estimatedMinutes).toBe(600)
+  })
+
   it('orders subtasks immediately after their parent with a depth', () => {
     const model = buildGanttModel({
       tasks: [
