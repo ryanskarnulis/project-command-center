@@ -153,6 +153,19 @@
   filter: brightness(0.95);
 }
 
+/* Drag-to-reschedule: `touch-action: none` lets pointer drag work on touch/LAN
+   devices without the browser hijacking it for scroll. */
+.gantt-bar.is-draggable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.gantt-bar.is-dragging {
+  cursor: grabbing;
+  opacity: 0.85;
+  z-index: 5;
+}
+
 .gantt-bar-text {
   overflow: hidden;
   text-overflow: ellipsis;

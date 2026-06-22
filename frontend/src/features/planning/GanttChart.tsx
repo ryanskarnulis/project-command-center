@@ -1,7 +1,8 @@
-import { type CSSProperties, Fragment, useMemo } from 'react'
+import { type CSSProperties, Fragment, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import type { GanttModel } from './ganttModel'
 import { addDays } from './ganttModel'
+import { useDragReschedule } from './useDragReschedule'
 
 // The custom CSS-grid Gantt renderer for the read-only planning slice. No
 // third-party library (the frappe-gantt attempt was abandoned): one grid spans
@@ -48,8 +49,23 @@ function barTone(bar: GanttModel['bars'][number]): string {
   return 'tone-open'
 }
 
-export function GanttChart({ model }: { model: GanttModel }) {
+export function GanttChart({
+  model,
+  onReschedule,
+}: {
+  model: GanttModel
+  /** When provided, bars become draggable to set `scheduled_start`. */
+  onReschedule?: (taskId: number, newStart: string) => void
+}) {
   const { bars, unscheduled } = model
+  const gridRef = useRef<HTMLDivElement>(null)
+  // No-op when read-only (`onReschedule` omitted); the hook stays mounted either
+  // way so the listener lifecycle is stable.
+  const { onBarPointerDown, dragState, justDraggedRef } = useDragReschedule(
+    gridRef,
+    onReschedule ?? (() => {}),
+  )
+  const draggable = onReschedule !== undefined
 
   const axis = useMemo(() => {
     if (bars.length === 0) return null
@@ -85,6 +101,7 @@ export function GanttChart({ model }: { model: GanttModel }) {
   return (
     <div className="gantt-wrap">
       <div
+        ref={gridRef}
         className="gantt"
         style={{ '--gantt-cols': colCount } as CSSProperties}
         role="table"
@@ -148,9 +165,33 @@ export function GanttChart({ model }: { model: GanttModel }) {
               )}
               <Link
                 to={`/tasks/${bar.id}`}
-                className={`gantt-bar ${barTone(bar)}${bar.conflict ? ' is-conflict' : ''}`}
-                style={{ gridColumn: `${offset + 2} / span ${len}`, gridRow: r + 2 }}
+                className={`gantt-bar ${barTone(bar)}${bar.conflict ? ' is-conflict' : ''}${
+                  draggable ? ' is-draggable' : ''
+                }${dragState?.barId === bar.id ? ' is-dragging' : ''}`}
+                style={{
+                  gridColumn: `${offset + 2} / span ${len}`,
+                  gridRow: r + 2,
+                  transform:
+                    dragState?.barId === bar.id && dragState.deltaDays !== 0
+                      ? `translateX(${dragState.deltaDays * dragState.dayWidth}px)`
+                      : undefined,
+                }}
                 title={tooltip}
+                onPointerDown={
+                  draggable ? (e) => onBarPointerDown(bar, e) : undefined
+                }
+                onClick={
+                  draggable
+                    ? (e) => {
+                        // Swallow the click that ends a real drag so it doesn't
+                        // navigate to the task; a plain click still falls through.
+                        if (justDraggedRef.current) {
+                          e.preventDefault()
+                          justDraggedRef.current = false
+                        }
+                      }
+                    : undefined
+                }
               >
                 <span className="gantt-bar-text">{bar.name}</span>
               </Link>

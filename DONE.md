@@ -748,6 +748,46 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
 
 ---
 
+## Sprint 10b — Calendar view
+> Goal: an internal read-only calendar of tasks by due date, reached from the dashboard — not external Google/iCal sync (that stays on the do-not-build list).
+
+- [x] Read-only month/week calendar of tasks by `due_date` at `/calendar`, backed by
+      `GET /api/calendar?start=&end=` and a new `services/calendar.py`.
+- [x] Calendar query returns accepted tasks (including done); candidate and deleted tasks
+      are excluded. Flat `list[TaskRead]` reusing `_reads_with_blocked`.
+- [x] Dashboard "Upcoming Events" tile is now real: soonest-due tasks plus a working
+      **View calendar** link. The calendar is reached only via that tile, not the global nav.
+- [x] No schema/migration, model call, or new dependency.
+
+---
+
+## Sprint 11 — Kanban board over `workflow_status`
+> Goal: a board view over `open` / `in_progress` / `done` reusing existing task cards and endpoints. Frontend-only.
+
+- [x] `?view=board` toggle on `TasksPage` (global `/tasks` and per-project
+      `/projects/:id/tasks`); `KanbanBoard` flat-card columns reusing `TaskCard`.
+- [x] Native HTML5 drag plus a per-card "Move to" `<select>` for keyboard/a11y. The Done
+      column is sourced from the completed archive (`useCompletedTasks`).
+- [x] Moves route to the correct endpoint: into Done → recurrence-safe `POST /done`, out of
+      Done → `reopen` (→ open, then PATCH if In progress), else `PATCH workflow_status`.
+- [x] Refuses moving a derived-`is_blocked` task into In progress/Done (toast).
+- [x] No new backend route, schema/migration, model call, or new dependency.
+
+---
+
+## Sprint 12 — Recurring series management
+> Goal: view and stop a recurring series from the task detail page, building on the Sprint 9L recurrence stubs.
+
+- [x] `GET /api/tasks/{id}/series` returns every occurrence sharing a `recurrence_id`
+      (including soft-deleted skipped rows, oldest first).
+- [x] `POST /api/tasks/{id}/stop-recurrence` clears `repeat_interval` while keeping the
+      chain id intact.
+- [x] Lazy-loaded `RecurrenceSeries` timeline + confirm-gated Stop recurrence on
+      `TaskDetailPage`. Future edits already shipped via `edit_scope` (Sprint 9L).
+- [x] No migration, model call, or new dependency.
+
+---
+
 ## Sprint 13 — AI Subsystem Quality
 
 Three cohesive AI-workflow polish items; no schema/migration, no Alembic, no model
@@ -857,3 +897,21 @@ change, eval change, prompt change, AI training-data change, or new dependency.
       direct dependent tasks via `GET /api/tasks/{id}/dependents`.
 - [x] Added backend and frontend regression tests for the new derived behavior.
       Per user request, tests were not run locally.
+
+---
+
+## Sprint 17 — Static read-only project Gantt (custom renderer)
+> Goal: slice 1 of the re-decomposed planning view — a read-only per-project timeline rendered with a custom CSS/SVG Gantt (no third-party library; the frappe-gantt attempt was abandoned as the wrong shape for React).
+
+- [x] Per-project Timeline tab + `/projects/:id/timeline` route; shared `ProjectTabs`
+      mounted on all three project routes.
+- [x] `GanttChart` custom CSS-grid renderer: day axis, weekend/today shading, today
+      marker, and absolutely-positioned bars from `scheduled_start` + `estimated_minutes`
+      via `ganttModel.ts`.
+- [x] Bars carry status/blocked/blocking colors, conflict outlines, and a per-bar
+      due-date marker; loading/empty handled via `AsyncState`; a display-only unscheduled
+      bucket lists tasks with no `scheduled_start`.
+- [x] Added the `scheduled_start` column + PATCH plumbing (Alembic migration) that later
+      drag-to-reschedule slices build on.
+- [x] Read-only — no drag yet (that is slice 2, the current focus; see `CURRENT.md`).
+- [x] Added a happy-path test for the renderer/model.
