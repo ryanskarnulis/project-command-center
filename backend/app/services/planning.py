@@ -30,6 +30,20 @@ def gantt_tasks(db: Session, project_id: int) -> Sequence[Task]:
     )
 
 
+def all_gantt_tasks(db: Session) -> Sequence[Task]:
+    """Accepted, not-done tasks across *every* project (subtasks included).
+
+    The cross-project counterpart of ``gantt_tasks`` for the global planning
+    surface — ``list_tasks`` with ``project_id=None`` spans all active projects.
+    """
+    return tasks_service.list_tasks(
+        db,
+        None,
+        review_status=TaskReviewStatus.accepted,
+        exclude_done=True,
+    )
+
+
 def gantt_dependencies(
     db: Session, tasks: Sequence[Task]
 ) -> list[TaskDependency]:
@@ -44,7 +58,7 @@ def gantt_dependencies(
 # dependents forward just enough that none starts on or before a blocker finishes
 # (the same rule the frontend's `computeViolations` detects, generalized to a
 # cascade). The function below is side-effect free and unit-tested in isolation;
-# `cascade_downstream` is the DB-facing wrapper that loads state, runs it, and
+# `cascade_from_task` is the DB-facing wrapper that loads state, runs it, and
 # applies the new `scheduled_start` values.
 
 
@@ -176,7 +190,7 @@ def preview_shifts(
     the cascade pushes. A task whose override leaves it where it already was, or
     that the cascade doesn't touch, is omitted (the frontend keeps its real bar).
 
-    This is the read-side twin of ``cascade_downstream``: same rules, same engine,
+    This is the read-side twin of ``cascade_from_task``: same rules, same engine,
     no persistence (CLAUDE.md prime directive #1 — the scheduling math is Python,
     and a what-if must reuse it rather than re-deriving dates in the frontend).
     """
@@ -221,16 +235,23 @@ def preview_shifts(
     return result
 
 
-def cascade_downstream(db: Session, project_id: int, changed_task: Task) -> list[int]:
+def cascade_from_task(db: Session, changed_task: Task) -> list[int]:
     """Shift downstream dependents after ``changed_task`` moved; return shifted ids.
 
-    Loads the project's planning tasks + edges, runs the pure ``compute_shifts``
-    over their current placements, and writes the new ``scheduled_start`` onto each
-    task that must move (in one transaction with the caller's change — the route
-    commits). The triggering task is never itself in the result: the cascade only
-    pushes work that depends on it. A no-op when nothing downstream conflicts.
+    The cross-project cascade: loads accepted, not-done tasks across *all* projects
+    and the edges among them, runs the pure ``compute_shifts`` over their current
+    placements, and writes the new ``scheduled_start`` onto each task that must move
+    (in one transaction with the caller's change — the route commits). Spanning all
+    projects matters because a dependency can cross project boundaries; a per-project
+    load would silently leave a cross-project dependent unshifted. The triggering
+    task is never itself in the result — the cascade only pushes work that depends on
+    it. A no-op when nothing downstream conflicts.
     """
-    tasks = gantt_tasks(db, project_id)
+    return _apply_cascade(db, all_gantt_tasks(db))
+
+
+def _apply_cascade(db: Session, tasks: Sequence[Task]) -> list[int]:
+    """Run ``compute_shifts`` over ``tasks`` and persist the shifts; return ids."""
     edges = gantt_dependencies(db, tasks)
     placements = {
         task.id: Placement(task.scheduled_start, task.estimated_minutes)

@@ -5,6 +5,7 @@ import { computeViolations, violatingDependentIds } from './dependencyConflicts'
 function bar(overrides: Partial<GanttBar> & { id: number }): GanttBar {
   return {
     name: `Task ${overrides.id}`,
+    projectId: 1,
     start: '2026-06-20',
     end: '2026-06-20',
     dependsOn: [],

@@ -27,6 +27,8 @@ export function addDays(iso: string, days: number): string {
 export interface GanttBar {
   id: number
   name: string
+  /** The owning project, for grouping/coloring on the global timeline (Slice 8). */
+  projectId: number
   start: string
   end: string
   /** `depends_on_task_id`s whose bar must finish first (finish-to-start links). */
@@ -52,6 +54,8 @@ export interface GanttBar {
 export interface UnscheduledTask {
   id: number
   name: string
+  /** The owning project, for grouping/coloring on the global timeline (Slice 8). */
+  projectId: number
   isBlocked: boolean
   isBlocking: boolean
 }
@@ -141,6 +145,7 @@ export function buildGanttModel({ tasks, dependencies }: ProjectGantt): GanttMod
       unscheduled.push({
         id: task.id,
         name: task.title,
+        projectId: task.project_id ?? -1,
         isBlocked: task.is_blocked,
         isBlocking: task.is_blocking,
       })
@@ -149,6 +154,7 @@ export function buildGanttModel({ tasks, dependencies }: ProjectGantt): GanttMod
     bars.push({
       id: task.id,
       name: task.title,
+      projectId: task.project_id ?? -1,
       start: span.start,
       end: span.end,
       // Only link to edges whose other endpoint is also drawn as a bar.

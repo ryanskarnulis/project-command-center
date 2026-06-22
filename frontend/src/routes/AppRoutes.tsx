@@ -5,6 +5,7 @@ import { InboxPage } from '../features/inbox/InboxPage'
 import { ProjectDetailPage } from '../features/projects/ProjectDetailPage'
 import { ProjectsPage } from '../features/projects/ProjectsPage'
 import { SettingsPage } from '../features/settings/SettingsPage'
+import { GlobalPlanningPage } from '../features/planning/GlobalPlanningPage'
 import { TimelinePage } from '../features/planning/TimelinePage'
 import { TaskDetailPage } from '../features/tasks/TaskDetailPage'
 import { TasksPage } from '../features/tasks/TasksPage'
@@ -21,6 +22,7 @@ export const routes = [
       { path: '/dashboard', element: <DashboardPage /> },
       { path: '/today', element: <TodayPage /> },
       { path: '/calendar', element: <CalendarPage /> },
+      { path: '/planning', element: <GlobalPlanningPage /> },
       { path: '/inbox', element: <InboxPage /> },
       { path: '/inbox/:inboxId', element: <InboxPage /> },
       { path: '/tasks', element: <TasksPage /> },

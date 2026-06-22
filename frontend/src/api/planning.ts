@@ -1,5 +1,6 @@
 import { apiClient } from './client'
 import type {
+  GlobalGantt,
   ProjectGantt,
   WhatIfOverride,
   WhatIfResult,
@@ -13,6 +14,17 @@ import type {
 export async function getProjectGantt(projectId: number): Promise<ProjectGantt> {
   const res = await apiClient(`/api/projects/${projectId}/gantt`)
   return (await res.json()) as ProjectGantt
+}
+
+/**
+ * Fetch the cross-project planning payload (Slice 8): accepted, not-done tasks
+ * across every project, the edges among them (which may cross projects), and the
+ * projects each belongs to for grouping/coloring. Bar geometry is derived
+ * client-side in `features/planning/ganttModel`, same as the per-project read.
+ */
+export async function getGlobalGantt(): Promise<GlobalGantt> {
+  const res = await apiClient('/api/planning/gantt')
+  return (await res.json()) as GlobalGantt
 }
 
 /**

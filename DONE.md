@@ -945,3 +945,35 @@ change, eval change, prompt change, AI training-data change, or new dependency.
       persisted, parent-override prompt fired, move-drag restored).
 - [x] Extended the `buildGanttModel` unit test for the new bar fields
       (`hasSubtasks`, `estimatedMinutes`).
+
+---
+
+## Sprint 23 — Global cross-project planning surface
+> Goal: slice 8 of the planning view — a `/planning` route rendering every project's scheduled work on one shared axis, bars grouped and colored by project. The renderer/model/axis were already project-agnostic, so the work was the multi-project data shape + grouping/coloring + a cross-project cascade fix.
+
+### Backend
+- [x] `GET /api/planning/gantt` → `GlobalGantt` schema (tasks across all projects +
+      the edges among them, which may cross project boundaries, + a `projects` legend).
+- [x] `services/planning.all_gantt_tasks` — accepted, not-done tasks over *all*
+      projects (`list_tasks(project_id=None, …)`); reuses `gantt_dependencies`.
+- [x] Cross-project cascade fix: new `cascade_from_task` (loads all projects' tasks +
+      edges, runs the unchanged pure `compute_shifts`) replaces the project-scoped
+      `cascade_downstream`; `routes_tasks.update_task` now fires it, so a dependent in
+      another project shifts when its blocker moves.
+- [x] Route tests: global endpoint shape, cross-project edges, projects-with-tasks-only
+      legend, soft-delete exclusion, and a cross-project PATCH cascade in `test_planning.py`.
+
+### Frontend
+- [x] `getGlobalGantt` API + `GlobalGantt`/`GanttProject` types.
+- [x] `projectId` carried onto every `GanttBar` + `UnscheduledTask` in `buildGanttModel`.
+- [x] `projectColors.ts` (pure, deterministic per-project palette) used for bar accents
+      + the page legend.
+- [x] `GanttChart` grows an optional `projects` prop: bars render in labeled per-project
+      sections (a group-header row before each project's bars) with a left project-color
+      accent; omitting the prop keeps the per-project timeline's single flat list.
+- [x] `useGlobalGantt` hook (the cross-project twin of `useProjectGantt`) +
+      `GlobalPlanningPage` (zoom + legend + `AsyncState`, no what-if) at `/planning`;
+      added a "Planning" entry to the sidebar nav.
+- [x] Tests: `GlobalPlanningPage.test.tsx` (grouped sections, legend, drag-reschedule) +
+      a `ganttModel` projectId test.
+- [x] The calendar variant was left to the existing `/calendar` view (out of scope).

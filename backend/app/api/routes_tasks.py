@@ -278,11 +278,11 @@ def update_task(
     # the dependency graph so no downstream dependent starts before its blocker
     # finishes. Server-side and first-class (CLAUDE.md prime directive #1) — the
     # frontend just refetches the gantt to see the shifted bars.
+    # The cascade spans all projects: a dependency can cross project boundaries, so
+    # the downstream dependent that must shift may live in a different project.
     shifted: list[int] = []
-    if _PLACEMENT_FIELDS & fields.keys() and updated.project_id is not None:
-        shifted = planning_service.cascade_downstream(
-            db, updated.project_id, updated
-        )
+    if _PLACEMENT_FIELDS & fields.keys():
+        shifted = planning_service.cascade_from_task(db, updated)
 
     db.commit()
     db.refresh(updated)

@@ -12,6 +12,24 @@ export interface ProjectGantt {
   dependencies: DependencyEdge[]
 }
 
+/** A project's identity for grouping/coloring bars on the global timeline. */
+export interface GanttProject {
+  id: number
+  name: string
+}
+
+/**
+ * The cross-project planning payload (Slice 8): every project's scheduled work
+ * on one axis. A superset of `ProjectGantt` — the same tasks + edges (here
+ * spanning all projects, so edges may cross project boundaries) plus the
+ * `projects` each task belongs to, for the grouped, colored layout.
+ */
+export interface GlobalGantt {
+  tasks: Task[]
+  dependencies: DependencyEdge[]
+  projects: GanttProject[]
+}
+
 /** A staged, unsaved placement change to preview (mirrors the backend). */
 export interface WhatIfOverride {
   task_id: number

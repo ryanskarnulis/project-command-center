@@ -4,8 +4,8 @@ import type { GanttBar } from './ganttModel'
 
 function bar(overrides: Partial<GanttBar> & { id: number }): GanttBar {
   return {
-    id: overrides.id,
     name: `Bar ${overrides.id}`,
+    projectId: 1,
     start: '2026-06-01',
     end: '2026-06-01',
     dependsOn: [],

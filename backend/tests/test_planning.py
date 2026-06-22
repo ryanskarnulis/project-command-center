@@ -109,6 +109,102 @@ def test_gantt_404_unknown_project(
     assert client.get("/api/projects/9999/gantt").status_code == 404
 
 
+# --- Global cross-project gantt (Slice 8) ----------------------------------
+
+
+def test_global_gantt_aggregates_across_projects(
+    client: TestClient, db_session: Session
+) -> None:
+    firewall = _project(db_session, "Firewall")
+    website = _project(db_session, "Website")
+
+    a = _task(db_session, firewall, "fw task", scheduled_start=date(2026, 6, 20))
+    b = _task(db_session, website, "web task", due_date=date(2026, 6, 25))
+    # Filtered out: a done task and an unaccepted candidate must not appear.
+    _task(db_session, firewall, "done", workflow_status=TaskWorkflowStatus.done)
+    _task(db_session, website, "cand", review_status=TaskReviewStatus.candidate)
+
+    response = client.get("/api/planning/gantt")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert sorted(t["id"] for t in body["tasks"]) == sorted([a, b])
+    # Both projects own a bar -> both in the legend; ordered by project id.
+    assert body["projects"] == [
+        {"id": firewall, "name": "Firewall"},
+        {"id": website, "name": "Website"},
+    ]
+
+
+def test_global_gantt_lists_only_projects_with_tasks(
+    client: TestClient, db_session: Session
+) -> None:
+    firewall = _project(db_session, "Firewall")
+    _project(db_session, "Empty")  # no tasks -> must not appear in the legend
+    _task(db_session, firewall, "fw task", scheduled_start=date(2026, 6, 20))
+
+    body = client.get("/api/planning/gantt").json()
+
+    assert [p["id"] for p in body["projects"]] == [firewall]
+
+
+def test_global_gantt_includes_cross_project_edges(
+    client: TestClient, db_session: Session
+) -> None:
+    firewall = _project(db_session, "Firewall")
+    website = _project(db_session, "Website")
+    blocker = _task(db_session, firewall, "blocker", scheduled_start=date(2026, 6, 20))
+    dependent = _task(
+        db_session, website, "dependent", scheduled_start=date(2026, 6, 25)
+    )
+    deps_service.add_dependency(db_session, dependent, blocker)
+    db_session.commit()
+
+    deps = client.get("/api/planning/gantt").json()["dependencies"]
+
+    assert deps == [{"task_id": dependent, "depends_on_task_id": blocker}]
+
+
+def test_global_gantt_excludes_soft_deleted(
+    client: TestClient, db_session: Session
+) -> None:
+    project = _project(db_session, "Firewall")
+    kept = _task(db_session, project, "kept", due_date=date(2026, 6, 25))
+    trashed = _task(db_session, project, "trashed", due_date=date(2026, 6, 26))
+    task = tasks_service.get_task(db_session, trashed)
+    assert task is not None
+    soft_delete(task)
+    db_session.commit()
+
+    body = client.get("/api/planning/gantt").json()
+
+    assert [t["id"] for t in body["tasks"]] == [kept]
+
+
+def test_patch_cascades_across_project_boundaries(
+    client: TestClient, db_session: Session
+) -> None:
+    # The Slice 8 cascade fix: a dependent in another project must shift when its
+    # blocker moves. A per-project cascade would silently leave it unshifted.
+    firewall = _project(db_session, "Firewall")
+    website = _project(db_session, "Website")
+    blocker = _task(db_session, firewall, "blocker", scheduled_start=date(2026, 6, 20))
+    dependent = _task(
+        db_session, website, "dependent", scheduled_start=date(2026, 6, 20)
+    )
+    deps_service.add_dependency(db_session, dependent, blocker)
+    db_session.commit()
+
+    response = client.patch(
+        f"/api/tasks/{blocker}", json={"scheduled_start": "2026-06-25"}
+    )
+    assert response.status_code == 200
+
+    # The dependent lives in the *other* project; it must follow to the 26th.
+    starts = _starts(client, website)
+    assert starts[dependent] == "2026-06-26"
+
+
 # --- Dependency auto-shift through the PATCH route (Slice 5) ----------------
 
 

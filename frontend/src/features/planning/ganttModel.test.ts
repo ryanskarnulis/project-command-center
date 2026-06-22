@@ -137,6 +137,18 @@ describe('buildGanttModel', () => {
     expect(bar?.estimatedMinutes).toBe(600)
   })
 
+  it('carries project_id onto bars and unscheduled items (global grouping)', () => {
+    const model = buildGanttModel({
+      tasks: [
+        task({ id: 1, project_id: 7, scheduled_start: '2026-06-20' }),
+        task({ id: 2, project_id: 9 }), // unscheduled
+      ],
+      dependencies: [],
+    })
+    expect(model.bars.find((b) => b.id === 1)?.projectId).toBe(7)
+    expect(model.unscheduled.find((u) => u.id === 2)?.projectId).toBe(9)
+  })
+
   it('orders subtasks immediately after their parent with a depth', () => {
     const model = buildGanttModel({
       tasks: [

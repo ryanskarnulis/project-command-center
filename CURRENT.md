@@ -63,20 +63,33 @@ hooks divide the measured column width by `daysPerColumn`, so dragging 3/7 of a 
 column moves a bar exactly 3 days (browser-verified Jun 23→26 at week zoom). Blocked
 bars also got a visualization polish — a faint diagonal hatch over the fill so they read
 as "waiting" distinctly from the dependency-conflict ring. New `ganttAxis.test.ts` (pure
-unit) + TimelinePage zoom tests.
+unit) + TimelinePage zoom tests. **Slice 8 (Global cross-project planning surface)** is
+now shipped: a new top-level `/planning` route renders every project's accepted, not-done
+scheduled work on one shared axis, with bars grouped into labeled per-project sections and
+colored by project. A new `GET /api/planning/gantt` returns a `GlobalGantt` (tasks across all
+projects + the edges among them, which may cross project boundaries + a `projects` legend) via
+a new `all_gantt_tasks`; the renderer, `buildGanttModel`, and `ganttAxis` were already
+project-agnostic, so the new work was the multi-project data shape, a `projectId` carried onto
+each bar/unscheduled item, and a project grouping/coloring pass (new pure `projectColors.ts`).
+Drag/resize reuse the same task PATCH; the dependency auto-shift cascade was generalized to
+span projects (new `cascade_from_task` replacing the project-scoped `cascade_downstream`), so a
+dependent in another project now shifts when its blocker moves — the post-PATCH refetch surfaces
+it (no new frontend date math, CLAUDE.md prime directive #1). The calendar variant was left to
+the existing `/calendar` view (out of scope). New `useGlobalGantt` hook + `getGlobalGantt` API +
+`GlobalPlanningPage`; route tests for the global endpoint + cross-project cascade in
+`test_planning.py`, `GlobalPlanningPage.test.tsx`, + a `ganttModel` projectId test.
 
 **Status legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ---
 
-## Next up — Slice 8: Global planning surface + calendar view
+## Next up — Slice 9: Drag from the unscheduled bucket onto the chart
 
-A cross-project timeline (every project's scheduled work on one axis) and the
-calendar variant — reuse the existing `/calendar` work where possible. The Gantt
-renderer, `buildGanttModel`, and the new `ganttAxis` zoom bucketing are all
-project-agnostic, so the main new work is the multi-project data shape and a
-project-grouping/coloring pass over the bars — still no scheduling math in the
-frontend.
+Schedule a task that has no start or due date by dragging it from the side
+"Unscheduled" bucket onto a chart column — setting `scheduled_start` (and, if it
+has no estimate, a default 1-day span) via the existing task PATCH. Extends the
+existing drag gesture from bar-to-bar movement to bucket-to-grid placement; still
+no scheduling math in the frontend.
 
 > Known a11y gap (slices 2 & 3): drag is the **only** UI that writes
 > `scheduled_start`, and the right-edge handle the **only** one that writes
@@ -129,7 +142,13 @@ frontend.
       date math). Drag/resize stay day-resolution by scaling the measured column width by
       `daysPerColumn`. Blocked-bar polish: a diagonal hatch over the fill. New
       `ganttAxis.test.ts` + TimelinePage zoom tests.
-- [ ] **8. Global planning surface + calendar view** — cross-project timeline and the
-      calendar variant (reuse the existing `/calendar` work where possible).
+- [x] **8. Global planning surface** — shipped. A `/planning` route renders every project's
+      accepted, not-done scheduled work on one shared axis, bars grouped into labeled per-project
+      sections and colored by project. New `GET /api/planning/gantt` → `GlobalGantt` (tasks +
+      cross-project edges + a `projects` legend) via `all_gantt_tasks`; `projectId` carried onto
+      each bar + a grouping/coloring pass (`projectColors.ts`). The PATCH cascade was generalized
+      to span projects (`cascade_from_task`), so a cross-project dependent shifts when its blocker
+      moves. The calendar variant stays the existing `/calendar` view. New `useGlobalGantt` +
+      `getGlobalGantt` + `GlobalPlanningPage`; route + page + model tests.
 - [ ] **9. Drag from the unscheduled bucket onto the chart** — schedule a task that has
       no due date or estimate by dragging it in.

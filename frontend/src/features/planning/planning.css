@@ -580,3 +580,65 @@
   background: var(--orange-soft);
   color: #b45309;
 }
+
+/* --- Global cross-project view (Slice 8) --- */
+
+/* A project section header spanning the full width before that project's bars. */
+.gantt-group-head {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--surface-soft);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.gantt-group-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: none;
+}
+
+.gantt-group-name {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* The per-project accent: a left band over the status fill, so blocked/blocking/
+   conflict tones still read while the project color groups the bar visually. */
+.gantt-bar.has-project-color {
+  box-shadow: inset 4px 0 0 0 var(--bar-color);
+}
+
+/* Legend on the global planning page: swatch + project name per project. */
+.planning-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.planning-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.planning-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: none;
+}

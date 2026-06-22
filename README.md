@@ -781,6 +781,30 @@ Sprint 21: [DONE] What-if mode (slice 6 of the planning view) — staged, unsave
            directive #1). New `useWhatIf` hook + `previewWhatIf` API; route-level
            preview tests in `test_planning.py` + TimelinePage what-if tests. No
            schema/migration/model/eval/prompt change (reuses existing columns).
+Sprint 22: [DONE] Zoom levels (slice 7 of the planning view) — a Day/Week/Month
+           segmented control re-buckets the same date-space bars into
+           day/ISO-week/calendar-month columns via a new pure, unit-tested
+           `ganttAxis.ts` (`buildAxis` → columns + `columnOf` map + `daysPerColumn`);
+           `GanttChart` places everything through `columnOf` (no new frontend date
+           math, prime directive #1). Drag/resize stay day-resolution by scaling the
+           measured column width by `daysPerColumn`. Blocked-bar polish: a diagonal
+           hatch over the fill. New `ganttAxis.test.ts` + TimelinePage zoom tests.
+Sprint 23: [DONE] Global cross-project planning surface (slice 8 of the planning
+           view) — a `/planning` route renders every project's accepted, not-done
+           scheduled work on one shared axis, bars grouped into labeled per-project
+           sections and colored by project. New `GET /api/planning/gantt` returns a
+           `GlobalGantt` (tasks + cross-project edges + the `projects` legend) via a
+           new `all_gantt_tasks` over all projects; the renderer (`GanttChart`),
+           `buildGanttModel`, and `ganttAxis` were already project-agnostic, so the
+           new work is the multi-project data shape, a `projectId` carried onto each
+           bar, and a project grouping/coloring pass (`projectColors.ts`). Cascade
+           fix: the PATCH dependency auto-shift now spans projects (new
+           `cascade_from_task` replacing the project-scoped `cascade_downstream`), so
+           a dependent in another project shifts when its blocker moves. New
+           `useGlobalGantt` hook + `getGlobalGantt` API + `GlobalPlanningPage`; route
+           tests for the global endpoint + cross-project cascade in `test_planning.py`,
+           `GlobalPlanningPage.test.tsx` + a `ganttModel` projectId test. No
+           schema/migration/model/eval/prompt change (reuses existing columns).
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

@@ -30,6 +30,31 @@ class ProjectGantt(BaseModel):
     dependencies: list[DependencyEdge]
 
 
+class GanttProject(BaseModel):
+    """A project's identity for grouping/coloring bars on the global timeline.
+
+    Only id + name — bar colors are derived client-side from the project order,
+    so no color is stored (the schema stays untouched for this read-only slice).
+    """
+
+    id: int
+    name: str
+
+
+class GlobalGantt(BaseModel):
+    """The cross-project planning payload: every project's scheduled work at once.
+
+    A superset of ``ProjectGantt`` — the same tasks + edges (here aggregated over
+    all projects, so the edges may cross project boundaries) plus the ``projects``
+    each task belongs to (via ``TaskRead.project_id``), for the grouped, colored
+    layout. Bar geometry is still derived in the frontend.
+    """
+
+    tasks: list[TaskRead]
+    dependencies: list[DependencyEdge]
+    projects: list[GanttProject]
+
+
 class WhatIfOverride(BaseModel):
     """One staged, unsaved placement change for a what-if preview.
 

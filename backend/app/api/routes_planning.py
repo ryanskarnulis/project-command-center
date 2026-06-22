@@ -8,6 +8,8 @@ from app.api.routes_tasks import _reads_with_blocked
 from app.db.session import get_db
 from app.schemas.planning import (
     DependencyEdge,
+    GanttProject,
+    GlobalGantt,
     ProjectGantt,
     WhatIfRequest,
     WhatIfResult,
@@ -54,6 +56,45 @@ def project_gantt(
             )
             for edge in edges
         ],
+    )
+
+
+@router.get("/planning/gantt", response_model=GlobalGantt)
+def global_gantt(db: Session = Depends(get_db)) -> GlobalGantt:
+    """Cross-project planning payload: every project's scheduled work on one axis.
+
+    The global counterpart of ``project_gantt`` — accepted, not-done tasks across
+    *all* projects plus the dependency edges among them (which may cross project
+    boundaries), and the projects each belongs to so the frontend can group and
+    color the bars. Deterministic read; no model call, no schema write. 404s
+    nothing — an empty database yields empty lists.
+    """
+    tasks = planning_service.all_gantt_tasks(db)
+    edges = planning_service.gantt_dependencies(db, tasks)
+    # Only projects that actually own a bar/unscheduled task in the payload — the
+    # legend and grouping shouldn't list empty projects.
+    project_ids = {task.project_id for task in tasks}
+    projects = [
+        GanttProject(id=p.id, name=p.name)
+        for p in projects_service.list_projects(db)
+        if p.id in project_ids
+    ]
+    logger.info(
+        "global_gantt_read",
+        task_count=len(tasks),
+        edge_count=len(edges),
+        project_count=len(projects),
+    )
+    return GlobalGantt(
+        tasks=_reads_with_blocked(db, tasks),
+        dependencies=[
+            DependencyEdge(
+                task_id=edge.task_id,
+                depends_on_task_id=edge.depends_on_task_id,
+            )
+            for edge in edges
+        ],
+        projects=projects,
     )
 
 

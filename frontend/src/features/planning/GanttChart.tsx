@@ -1,12 +1,14 @@
 import { type CSSProperties, Fragment, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import type { GanttModel } from './ganttModel'
+import type { GanttProject } from '../../types/planning'
+import type { GanttBar, GanttModel } from './ganttModel'
 import { buildAxis } from './ganttAxis'
 import type { ZoomLevel } from './ganttAxis'
 import { useDragReschedule } from './useDragReschedule'
 import { useBarResize } from './useBarResize'
 import { DependencyArrows } from './DependencyArrows'
 import { computeViolations, violatingDependentIds } from './dependencyConflicts'
+import { projectColorMap } from './projectColors'
 
 // The custom CSS-grid Gantt renderer for the planning view. No third-party
 // library (the frappe-gantt attempt was abandoned): one grid spans the whole
@@ -14,6 +16,11 @@ import { computeViolations, violatingDependentIds } from './dependencyConflicts'
 // same columns. Bar geometry comes pre-resolved from `buildGanttModel`; the
 // day->column bucketing comes from `buildAxis` (Slice 7 zoom) — this component
 // only places bars into the columns the axis hands it. No scheduling math here.
+
+/** A rendered grid row: a project section header, or a task bar. */
+type Row =
+  | { kind: 'group'; projectId: number }
+  | { kind: 'bar'; bar: GanttBar }
 
 /** The single most attention-worthy status class for a bar's fill. */
 function barTone(bar: GanttModel['bars'][number]): string {
@@ -26,6 +33,7 @@ function barTone(bar: GanttModel['bars'][number]): string {
 export function GanttChart({
   model,
   zoom = 'day',
+  projects,
   onReschedule,
   onResize,
   onAutofix,
@@ -33,6 +41,12 @@ export function GanttChart({
   model: GanttModel
   /** Day/week/month column bucketing of the same date-space bars (Slice 7). */
   zoom?: ZoomLevel
+  /**
+   * When provided (global timeline, Slice 8), bars are grouped into labeled
+   * per-project sections and colored by project. Omitted on the per-project
+   * timeline, where every bar belongs to the one project — a single flat list.
+   */
+  projects?: GanttProject[]
   /** When provided, bars become draggable to set `scheduled_start`. */
   onReschedule?: (taskId: number, newStart: string) => void
   /** When provided, bars get a right-edge handle to set `estimated_minutes`. */
@@ -65,6 +79,32 @@ export function GanttChart({
   const resizable = onResize !== undefined
 
   const axis = useMemo(() => buildAxis(bars, zoom), [bars, zoom])
+  // When grouping by project, a project<->color map (for the bar accent) and a
+  // project<->name map (for the section header). Empty when ungrouped.
+  const colorByProject = useMemo(
+    () => projectColorMap(projects ?? []),
+    [projects],
+  )
+  const nameByProject = useMemo(
+    () => new Map((projects ?? []).map((p) => [p.id, p.name])),
+    [projects],
+  )
+  // The ordered list of grid rows: a group header before each project's first
+  // bar (only when grouping), then that project's bars in model order. Without
+  // `projects` it's just the bars — one flat list, unchanged from before.
+  const rowPlan = useMemo<Row[]>(() => {
+    if (!projects) return bars.map((bar) => ({ kind: 'bar', bar }))
+    const rows: Row[] = []
+    let lastProject: number | null = null
+    for (const bar of bars) {
+      if (bar.projectId !== lastProject) {
+        rows.push({ kind: 'group', projectId: bar.projectId })
+        lastProject = bar.projectId
+      }
+      rows.push({ kind: 'bar', bar })
+    }
+    return rows
+  }, [bars, projects])
 
   if (!axis) return null
 
@@ -109,8 +149,31 @@ export function GanttChart({
           />
         ))}
 
-        {/* One row per bar: label cell + positioned bar (+ due marker) */}
-        {bars.map((bar, r) => {
+        {/* One row per entry: a project section header (global view) or a bar's
+            label cell + positioned bar (+ due marker). Row index drives gridRow. */}
+        {rowPlan.map((row, r) => {
+          if (row.kind === 'group') {
+            const color = colorByProject.get(row.projectId)
+            return (
+              <div
+                key={`group-${row.projectId}`}
+                className="gantt-group-head"
+                style={{ gridColumn: '1 / -1', gridRow: r + 2 }}
+                role="rowheader"
+              >
+                <span
+                  className="gantt-group-swatch"
+                  style={{ background: color }}
+                  aria-hidden="true"
+                />
+                <span className="gantt-group-name">
+                  {nameByProject.get(row.projectId) ?? 'Project'}
+                </span>
+              </div>
+            )
+          }
+          const { bar } = row
+          const barColor = projects ? colorByProject.get(bar.projectId) : undefined
           const offset = columnOf(bar.start)
           const baseLen = columnOf(bar.end) - offset + 1
           // While resizing, preview the new span — `newSpan` is in days, so map it
@@ -133,7 +196,11 @@ export function GanttChart({
             <Fragment key={bar.id}>
               <div
                 className="gantt-label"
-                style={{ gridColumn: 1, gridRow: r + 2, paddingLeft: 8 + bar.depth * 16 }}
+                style={{
+                  gridColumn: 1,
+                  gridRow: r + 2,
+                  paddingLeft: 8 + bar.depth * 16,
+                }}
                 role="rowheader"
                 title={bar.name}
               >
@@ -156,16 +223,23 @@ export function GanttChart({
                 className={`gantt-bar ${barTone(bar)}${bar.conflict ? ' is-conflict' : ''}${
                   violatingIds.has(bar.id) ? ' is-dep-conflict' : ''
                 }${draggable ? ' is-draggable' : ''}${
-                  dragState?.barId === bar.id ? ' is-dragging' : ''
-                }${resizeState?.barId === bar.id ? ' is-resizing' : ''}`}
-                style={{
-                  gridColumn: `${offset + 2} / span ${len}`,
-                  gridRow: r + 2,
-                  transform:
-                    dragState?.barId === bar.id && dragState.deltaDays !== 0
-                      ? `translateX(${dragState.deltaPx}px)`
-                      : undefined,
-                }}
+                  barColor ? ' has-project-color' : ''
+                }${dragState?.barId === bar.id ? ' is-dragging' : ''}${
+                  resizeState?.barId === bar.id ? ' is-resizing' : ''
+                }`}
+                style={
+                  {
+                    gridColumn: `${offset + 2} / span ${len}`,
+                    gridRow: r + 2,
+                    transform:
+                      dragState?.barId === bar.id && dragState.deltaDays !== 0
+                        ? `translateX(${dragState.deltaPx}px)`
+                        : undefined,
+                    // Project accent (global view): a left border the status tones
+                    // layer behind, so blocked/blocking/conflict signals stay legible.
+                    ...(barColor ? { '--bar-color': barColor } : {}),
+                  } as CSSProperties
+                }
                 title={tooltip}
                 onPointerDown={
                   draggable
