@@ -98,6 +98,30 @@ function sortFromParams(params: URLSearchParams): SortMode {
   return SORT_VALUES.includes(sort as SortMode) ? (sort as SortMode) : 'smart'
 }
 
+function viewFromParams(params: URLSearchParams): ViewMode {
+  return params.get('view') === 'board' ? 'board' : 'list'
+}
+
+function paramsFromState(
+  filters: Filters,
+  sortMode: SortMode,
+  view: ViewMode,
+  addingTask: boolean,
+): URLSearchParams {
+  const params = new URLSearchParams()
+  const search = filters.search.trim()
+  if (search !== '') params.set('search', search)
+  if (filters.status !== '') params.set('status', filters.status)
+  if (filters.priority !== '') params.set('priority', filters.priority)
+  if (filters.projectId !== '') params.set('project', String(filters.projectId))
+  if (filters.overdue) params.set('overdue', '1')
+  if (filters.dueSoon) params.set('dueSoon', '1')
+  if (sortMode !== 'smart') params.set('sort', sortMode)
+  if (view === 'board') params.set('view', 'board')
+  if (addingTask) params.set('new', '1')
+  return params
+}
+
 function isActive(f: Filters): boolean {
   return (
     f.search.trim() !== '' ||
@@ -193,21 +217,12 @@ export function TasksPage() {
     useTasks(id)
 
   const [searchParams, setSearchParams] = useSearchParams()
-  // Board vs list is a view toggle over the same data, seeded from ?view= so a
-  // link can deep-link straight to the board.
-  const [view, setView] = useState<ViewMode>(() =>
-    searchParams.get('view') === 'board' ? 'board' : 'list',
-  )
-  // Seed once from the URL on mount so the dashboard "Add task" card can deep-link
-  // straight into the create modal.
-  const [addingTask, setAddingTask] = useState(() =>
-    isTruthyParam(searchParams.get('new')),
-  )
+  // Board/list, filters, sorting, and the create-modal deep link are URL-backed
+  // so links, refreshes, and browser back/forward restore the same task view.
+  const view = viewFromParams(searchParams)
+  const addingTask = isTruthyParam(searchParams.get('new'))
   const [projects, setProjects] = useState<Project[]>([])
-  // Seed once from the URL on mount; filter edits afterward are local state only.
-  const [filters, setFilters] = useState<Filters>(() =>
-    filtersFromParams(searchParams),
-  )
+  const filters = useMemo(() => filtersFromParams(searchParams), [searchParams])
 
   // "Done" swaps the list to the completed archive (lazily fetched); the board
   // always needs it for its Done column.
@@ -219,9 +234,7 @@ export function TasksPage() {
     reopen,
     reload: reloadCompleted,
   } = useCompletedTasks(id, showingCompleted || view === 'board')
-  const [sortMode, setSortMode] = useState<SortMode>(() =>
-    sortFromParams(searchParams),
-  )
+  const sortMode = sortFromParams(searchParams)
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<number>>(
     () => new Set(),
   )
@@ -243,6 +256,7 @@ export function TasksPage() {
   useEffect(() => {
     listProjects().then(setProjects).catch(() => {})
   }, [])
+
   const [activityKey, setActivityKey] = useState(0)
   const bumpActivity = () => setActivityKey((k) => k + 1)
 
@@ -306,17 +320,25 @@ export function TasksPage() {
     bumpActivity()
   }
 
-  function selectView(next: ViewMode) {
-    setView(next)
+  function updateTaskQuery(next: {
+    filters?: Filters
+    sortMode?: SortMode
+    view?: ViewMode
+    addingTask?: boolean
+  }) {
     setSearchParams(
-      (prev) => {
-        const params = new URLSearchParams(prev)
-        if (next === 'board') params.set('view', 'board')
-        else params.delete('view')
-        return params
-      },
+      paramsFromState(
+        next.filters ?? filters,
+        next.sortMode ?? sortMode,
+        next.view ?? view,
+        next.addingTask ?? addingTask,
+      ),
       { replace: true },
     )
+  }
+
+  function selectView(next: ViewMode) {
+    updateTaskQuery({ view: next })
   }
 
   const filtersActive = isActive(filters)
@@ -566,7 +588,7 @@ export function TasksPage() {
       <h1>{isGlobal ? 'Open Tasks' : 'Tasks'}</h1>
 
       <div className="task-toolbar">
-        <button type="button" onClick={() => setAddingTask(true)}>
+        <button type="button" onClick={() => updateTaskQuery({ addingTask: true })}>
           Add task
         </button>
         <div
@@ -608,7 +630,7 @@ export function TasksPage() {
             <button
               type="button"
               className="secondary-action"
-              onClick={() => setFilters(EMPTY_FILTERS)}
+              onClick={() => updateTaskQuery({ filters: EMPTY_FILTERS })}
             >
               Clear filters
             </button>
@@ -623,7 +645,7 @@ export function TasksPage() {
               aria-label="Search tasks"
               value={filters.search}
               onChange={(e) =>
-                setFilters((f) => ({ ...f, search: e.target.value }))
+                updateTaskQuery({ filters: { ...filters, search: e.target.value } })
               }
               placeholder="Title or description"
             />
@@ -638,10 +660,9 @@ export function TasksPage() {
               aria-label="Filter by status"
               value={filters.status}
               onChange={(e) =>
-                setFilters((f) => ({
-                  ...f,
-                  status: e.target.value as StatusView,
-                }))
+                updateTaskQuery({
+                  filters: { ...filters, status: e.target.value as StatusView },
+                })
               }
             >
               <option value="">All statuses</option>
@@ -659,10 +680,12 @@ export function TasksPage() {
               aria-label="Filter by priority"
               value={filters.priority}
               onChange={(e) =>
-                setFilters((f) => ({
-                  ...f,
-                  priority: e.target.value as TaskPriority | '',
-                }))
+                updateTaskQuery({
+                  filters: {
+                    ...filters,
+                    priority: e.target.value as TaskPriority | '',
+                  },
+                })
               }
             >
               <option value="">All priorities</option>
@@ -680,11 +703,13 @@ export function TasksPage() {
                 aria-label="Filter by project"
                 value={filters.projectId === '' ? '' : String(filters.projectId)}
                 onChange={(e) =>
-                  setFilters((f) => ({
-                    ...f,
-                    projectId:
-                      e.target.value === '' ? '' : Number(e.target.value),
-                  }))
+                  updateTaskQuery({
+                    filters: {
+                      ...filters,
+                      projectId:
+                        e.target.value === '' ? '' : Number(e.target.value),
+                    },
+                  })
                 }
               >
                 <option value="">All projects</option>
@@ -703,7 +728,9 @@ export function TasksPage() {
             <select
               aria-label="Sort tasks"
               value={sortMode}
-              onChange={(e) => setSortMode(e.target.value as SortMode)}
+              onChange={(e) =>
+                updateTaskQuery({ sortMode: e.target.value as SortMode })
+              }
             >
               <option value="smart">Smart order</option>
               <option value="due_date">Due date</option>
@@ -721,7 +748,9 @@ export function TasksPage() {
               type="checkbox"
               checked={filters.overdue}
               onChange={(e) =>
-                setFilters((f) => ({ ...f, overdue: e.target.checked }))
+                updateTaskQuery({
+                  filters: { ...filters, overdue: e.target.checked },
+                })
               }
             />
             Overdue
@@ -732,7 +761,9 @@ export function TasksPage() {
               type="checkbox"
               checked={filters.dueSoon}
               onChange={(e) =>
-                setFilters((f) => ({ ...f, dueSoon: e.target.checked }))
+                updateTaskQuery({
+                  filters: { ...filters, dueSoon: e.target.checked },
+                })
               }
             />
             Due soon
@@ -798,7 +829,7 @@ export function TasksPage() {
           mode="create"
           tasks={tasks}
           projects={projects}
-          onClose={() => setAddingTask(false)}
+          onClose={() => updateTaskQuery({ addingTask: false })}
           onSave={async (data) => {
             await create(data)
             bumpActivity()

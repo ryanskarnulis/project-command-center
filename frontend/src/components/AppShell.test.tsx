@@ -63,4 +63,27 @@ describe('AppShell', () => {
     expect(within(nav).getByRole('link', { name: 'Trash' })).toBeInTheDocument()
     expect(within(nav).queryByRole('link', { name: /Trash \(/ })).not.toBeInTheDocument()
   })
+
+  it('shows honest local workspace status instead of fake sync or focus controls', async () => {
+    mockGetTrashCount.mockResolvedValue({ projects: 0, tasks: 0, inbox_items: 0, training_examples: 0 })
+
+    render(
+      <MemoryRouter>
+        <TrashCountProvider>
+          <AppShell>
+            <main>Page</main>
+          </AppShell>
+        </TrashCountProvider>
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('region', { name: 'Workspace status' })).toHaveTextContent(
+      'Local workspace',
+    )
+    expect(screen.getByText('Local-first workspace. No cloud sync configured.')).toBeInTheDocument()
+    expect(screen.queryByText('Focus mode')).not.toBeInTheDocument()
+    expect(screen.queryByText('Last synced just now')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Notifications' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Customize' })).not.toBeInTheDocument()
+  })
 })

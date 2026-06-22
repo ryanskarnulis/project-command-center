@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { Link, RouterProvider, createMemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getEvalRuns,
@@ -57,11 +57,30 @@ function mockOllamaDefaults() {
 }
 
 function renderPage() {
-  return render(
-    <MemoryRouter>
-      <SettingsPage />
-    </MemoryRouter>,
+  const router = createMemoryRouter(
+    [{ path: '/settings', element: <SettingsPage /> }],
+    { initialEntries: ['/settings'] },
   )
+  return render(<RouterProvider router={router} />)
+}
+
+function renderPageWithNav() {
+  const router = createMemoryRouter(
+    [
+      {
+        path: '/settings',
+        element: (
+          <>
+            <SettingsPage />
+            <Link to="/dashboard">Dashboard</Link>
+          </>
+        ),
+      },
+      { path: '/dashboard', element: <main>Dashboard target</main> },
+    ],
+    { initialEntries: ['/settings'] },
+  )
+  return render(<RouterProvider router={router} />)
 }
 
 describe('SettingsPage edit safety', () => {
@@ -92,6 +111,59 @@ describe('SettingsPage edit safety', () => {
 
     expect(saveButton).toBeEnabled()
     expect(screen.getByLabelText('Unsaved changes')).toBeInTheDocument()
+  })
+
+  it('blocks in-app navigation while settings are dirty and can stay', async () => {
+    const user = userEvent.setup()
+    renderPageWithNav()
+
+    const modelSelect = await screen.findByDisplayValue('gemma4:e2b')
+    await user.selectOptions(modelSelect, 'llama3')
+    await user.click(screen.getByRole('link', { name: 'Dashboard' }))
+
+    expect(
+      screen.getByRole('dialog', { name: 'Discard unsaved settings?' }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Stay' }))
+
+    expect(screen.queryByRole('dialog', { name: 'Discard unsaved settings?' })).not.toBeInTheDocument()
+    expect(screen.getByText('Settings')).toBeInTheDocument()
+    expect(screen.queryByText('Dashboard target')).not.toBeInTheDocument()
+  })
+
+  it('allows in-app navigation after confirming unsaved settings should be discarded', async () => {
+    const user = userEvent.setup()
+    renderPageWithNav()
+
+    const modelSelect = await screen.findByDisplayValue('gemma4:e2b')
+    await user.selectOptions(modelSelect, 'llama3')
+    await user.click(screen.getByRole('link', { name: 'Dashboard' }))
+    await user.click(screen.getByRole('button', { name: 'Leave without saving' }))
+
+    expect(await screen.findByText('Dashboard target')).toBeInTheDocument()
+  })
+
+  it('attaches the browser close/reload guard only while settings are dirty', async () => {
+    const user = userEvent.setup()
+    const addSpy = vi.spyOn(window, 'addEventListener')
+    const removeSpy = vi.spyOn(window, 'removeEventListener')
+
+    renderPage()
+
+    const modelSelect = await screen.findByDisplayValue('gemma4:e2b')
+    expect(addSpy).not.toHaveBeenCalledWith('beforeunload', expect.any(Function))
+
+    await user.selectOptions(modelSelect, 'llama3')
+
+    await waitFor(() =>
+      expect(addSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function)),
+    )
+
+    cleanup()
+    expect(removeSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function))
+    addSpy.mockRestore()
+    removeSpy.mockRestore()
   })
 
   it('shows a Saved confirmation that auto-clears, and re-disables Save', async () => {

@@ -1,20 +1,15 @@
-import { BrowserRouter } from 'react-router-dom'
-import { AppShell } from './components/AppShell'
+import { RouterProvider } from 'react-router-dom'
 import { ToastProvider } from './components/ToastProvider'
 import { TrashCountProvider } from './features/trash/TrashCountContext'
-import { AppRoutes } from './routes/AppRoutes'
+import { router } from './routes/AppRoutes'
 
 function App() {
   return (
-    <BrowserRouter>
-      <ToastProvider>
-        <TrashCountProvider>
-          <AppShell>
-            <AppRoutes />
-          </AppShell>
-        </TrashCountProvider>
-      </ToastProvider>
-    </BrowserRouter>
+    <ToastProvider>
+      <TrashCountProvider>
+        <RouterProvider router={router} />
+      </TrashCountProvider>
+    </ToastProvider>
   )
 }
 

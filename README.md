@@ -682,6 +682,16 @@ Sprint 14: [DONE] Security posture hardening — capped inbox capture text at 8,
            added the reverse-proxy caveat to the loopback Settings write guard.
            Credential rotation, auth, rate limiting, migrations, model/provider
            changes, and new dependencies were out of scope.
+Sprint 15: [DONE] UX foundation — converted the frontend to React Router data
+           routing (`createBrowserRouter` + `RouterProvider`) so Settings can use
+           `useBlocker`; Settings now blocks in-app navigation while profile/prompt
+           edits are dirty, alongside the existing browser close/reload guard.
+           `AppShell` no longer shows fake focus/sync/disabled topbar affordances
+           and instead uses honest local workspace/status copy. `TasksPage` now
+           syncs search/status/priority/project/overdue/dueSoon/sort/view/new query
+           params both ways so shared links and browser history restore task views.
+           Frontend tests were added/updated, but per user request were not run here.
+           No backend route, schema/migration, model call, or new dependency.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useBlocker } from 'react-router-dom'
 import {
   Check,
   ClipboardCheck,
@@ -8,6 +9,7 @@ import {
   Wifi,
   WifiOff,
 } from 'lucide-react'
+import { Modal } from '../../components/Modal'
 import { useSettings } from './useSettings'
 import type {
   EvalRunRecord,
@@ -490,6 +492,17 @@ export function SettingsPage() {
     return () => window.removeEventListener('beforeunload', handler)
   }, [anyDirty])
 
+  const blocker = useBlocker(anyDirty)
+  const navigationBlocked = blocker.state === 'blocked'
+
+  function stayOnSettings() {
+    if (blocker.state === 'blocked') blocker.reset()
+  }
+
+  function leaveSettings() {
+    if (blocker.state === 'blocked') blocker.proceed()
+  }
+
   if (loading) return <div className="page-loading">Loading settings…</div>
   if (error) return <p role="alert" className="error">Error: {error}</p>
   if (!profiles || !prompts) return null
@@ -639,6 +652,25 @@ export function SettingsPage() {
           </ul>
         </section>
       )}
+
+      <Modal
+        open={navigationBlocked}
+        title="Discard unsaved settings?"
+        onClose={stayOnSettings}
+      >
+        <p>
+          You have unsaved profile or prompt edits. Leaving Settings will discard
+          those changes.
+        </p>
+        <div className="modal-actions">
+          <button type="button" className="secondary-action" onClick={stayOnSettings}>
+            Stay
+          </button>
+          <button type="button" className="danger-action" onClick={leaveSettings}>
+            Leave without saving
+          </button>
+        </div>
+      </Modal>
     </main>
   )
 }

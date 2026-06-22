@@ -11,9 +11,8 @@ until promoted.
 
 ## Next sprint (proposed): pick from backlog
 
-Security posture hardening shipped (README Sprint 14 / DONE.md). No slice is
-currently promoted — pick the next strongest themed group from the backlog below
-when ready.
+UX foundation shipped (README Sprint 15 / DONE.md). No slice is currently
+promoted — pick the next strongest themed group from the backlog below when ready.
 
 ---
 
@@ -21,17 +20,20 @@ when ready.
 
 ### UX foundation (cross-cutting)
 
-- [ ] In-app route-change blocking for unsaved Settings edits — the `beforeunload`
+- [x] In-app route-change blocking for unsaved Settings edits — the `beforeunload`
       guard shipped, but declarative `<BrowserRouter>` can't use `useBlocker`; needs a
       `createBrowserRouter` conversion (App/AppRoutes/AppShell) before it can warn on
-      in-app nav.
-- [ ] **Shell truthfulness pass** — `AppShell` still has optimistic/static shell chrome:
+      in-app nav. Shipped in Sprint 15 with data-router conversion + Settings discard
+      modal.
+- [x] **Shell truthfulness pass** — `AppShell` still has optimistic/static shell chrome:
       "Focus mode On", disabled topbar notification/search/customize buttons, and
       "Last synced just now" in a local-first app with no sync. Either make each affordance
-      real or replace it with honest local workspace/status copy.
-- [ ] **Task filter URL sync** — `TasksPage` seeds filters/sort from query params, but
+      real or replace it with honest local workspace/status copy. Shipped in Sprint 15:
+      fake controls removed, local workspace/status copy made explicit.
+- [x] **Task filter URL sync** — `TasksPage` seeds filters/sort from query params, but
       edits stay local after mount. Push filter/sort changes back into the URL so dashboard
-      links, browser back/forward, and shared views stay stable.
+      links, browser back/forward, and shared views stay stable. Shipped in Sprint 15:
+      filters/sort/view/create-modal query params now sync both ways.
 
 ### Command Bar / Search
 

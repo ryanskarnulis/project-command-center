@@ -1,6 +1,6 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { RouterProvider, createMemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
 import { createUnscopedTask, listAllTasks, listCompletedTasks, markTaskDone } from '../../api/tasks'
@@ -84,12 +84,12 @@ describe('TasksPage', () => {
     cleanup()
   })
 
-  function renderGlobal() {
-    return render(
-      <MemoryRouter initialEntries={['/tasks']}>
-        <TasksPage />
-      </MemoryRouter>,
+  function renderGlobal(initialEntries: string[] = ['/tasks'], initialIndex = 0) {
+    const router = createMemoryRouter(
+      [{ path: '/tasks', element: <TasksPage /> }],
+      { initialEntries, initialIndex },
     )
+    return { router, ...render(<RouterProvider router={router} />) }
   }
 
   it('renders the task list', async () => {
@@ -207,6 +207,81 @@ describe('TasksPage', () => {
     expect(screen.queryByText('Urgent work')).not.toBeInTheDocument()
   })
 
+  it('hydrates filters and sort mode from query params', async () => {
+    mockListAllTasks.mockResolvedValue([
+      { ...baseTask, title: 'Medium tunnel', description: 'Repair the private tunnel' },
+      {
+        ...baseTask,
+        id: 2,
+        title: 'Urgent tunnel',
+        description: 'Repair the private tunnel',
+        priority: 'urgent',
+      },
+    ])
+
+    renderGlobal(['/tasks?search=tunnel&priority=urgent&sort=newest'])
+
+    expect(await screen.findByText('Urgent tunnel')).toBeInTheDocument()
+    expect(screen.queryByText('Medium tunnel')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Search tasks')).toHaveValue('tunnel')
+    expect(screen.getByLabelText('Filter by priority')).toHaveValue('urgent')
+    expect(screen.getByLabelText('Sort tasks')).toHaveValue('newest')
+  })
+
+  it('writes filter and sort changes back to canonical URL params', async () => {
+    const user = userEvent.setup()
+    const { router } = renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.type(screen.getByLabelText('Search tasks'), 'vpn')
+    await user.selectOptions(screen.getByLabelText('Filter by priority'), 'urgent')
+    await user.selectOptions(screen.getByLabelText('Sort tasks'), 'due_date')
+
+    await waitFor(() => {
+      const params = new URLSearchParams(router.state.location.search)
+      expect(params.get('search')).toBe('vpn')
+      expect(params.get('priority')).toBe('urgent')
+      expect(params.get('sort')).toBe('due_date')
+    })
+  })
+
+  it('clears task filter query params when Clear filters is clicked', async () => {
+    const user = userEvent.setup()
+    mockListAllTasks.mockResolvedValue([
+      { ...baseTask, priority: 'urgent' },
+    ])
+    const { router } = renderGlobal(['/tasks?priority=urgent'])
+
+    await screen.findByText('Fix the VPN')
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+
+    await waitFor(() => {
+      expect(new URLSearchParams(router.state.location.search).get('priority')).toBeNull()
+    })
+  })
+
+  it('restores filters from browser back and forward navigation', async () => {
+    mockListAllTasks.mockResolvedValue([
+      { ...baseTask, title: 'Urgent work', priority: 'urgent' },
+      { ...baseTask, id: 2, title: 'High work', priority: 'high' },
+    ])
+    const { router } = renderGlobal(
+      ['/tasks?priority=urgent', '/tasks?priority=high'],
+      1,
+    )
+
+    expect(await screen.findByText('High work')).toBeInTheDocument()
+    expect(screen.queryByText('Urgent work')).not.toBeInTheDocument()
+
+    await act(async () => {
+      await router.navigate(-1)
+    })
+
+    expect(await screen.findByText('Urgent work')).toBeInTheDocument()
+    expect(screen.queryByText('High work')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Filter by priority')).toHaveValue('urgent')
+  })
+
   it('sorts tasks with the selected sort mode', async () => {
     const user = userEvent.setup()
     mockListAllTasks.mockResolvedValue([
@@ -277,13 +352,16 @@ describe('TasksPage', () => {
       baseTask,
       { ...baseTask, id: 2, parent_task_id: 1, title: 'Rotate the keys' },
     ])
-    renderGlobal()
+    const { router } = renderGlobal()
 
     await screen.findByText('Fix the VPN')
     await user.click(screen.getByRole('button', { name: 'Board' }))
 
     expect(screen.getByText('Fix the VPN')).toBeInTheDocument()
     expect(screen.queryByText('Rotate the keys')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(new URLSearchParams(router.state.location.search).get('view')).toBe('board'),
+    )
   })
 
   it('creates a subtask with the parent_task_id when Add subtask is used', async () => {

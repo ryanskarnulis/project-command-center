@@ -809,3 +809,26 @@ no provider change, and no new dependency.
 - [x] Added backend regression tests for exact-limit and over-limit web/Discord
       inbox capture. Per user request, tests were not run locally.
 - [x] Credential rotation was intentionally left untouched.
+
+---
+
+## Sprint 15 — UX Foundation
+
+Frontend-only UX foundation slice; no backend route, schema/migration, Alembic,
+model call, provider change, or new dependency.
+
+- [x] Frontend routing now uses React Router data routing (`createBrowserRouter` +
+      `RouterProvider`) with `AppShell` as the root layout. All existing routes were
+      preserved.
+- [x] Settings keeps the existing browser close/reload `beforeunload` guard and now
+      blocks in-app route changes while profile/prompt edits are dirty. The blocker
+      uses the existing modal style with `Stay` and `Leave without saving`.
+- [x] `AppShell` no longer shows fake/static chrome: the focus-session claim,
+      disabled notification/search/customize buttons, and fake sync timestamp were
+      replaced with honest local workspace/status copy.
+- [x] `TasksPage` syncs filters, sort, board/list view, and `new=1` task-create deep
+      links into canonical query params. Browser back/forward restores task view
+      state from the URL.
+- [x] Added/updated frontend tests for route rendering inside `AppShell`, Settings
+      route blocking, shell truthfulness, and task URL sync/history behavior. Per
+      user request, tests were not run locally.

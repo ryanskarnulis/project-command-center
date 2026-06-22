@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, createBrowserRouter } from 'react-router-dom'
 import { CalendarPage } from '../features/calendar/CalendarPage'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { InboxPage } from '../features/inbox/InboxPage'
@@ -10,24 +10,28 @@ import { TasksPage } from '../features/tasks/TasksPage'
 import { TodayPage } from '../features/today/TodayPage'
 import { TrainingPage } from '../features/training/TrainingPage'
 import { TrashPage } from '../features/trash/TrashPage'
+import { AppLayout } from './AppLayout'
 
-export function AppRoutes() {
-  return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route path="/dashboard" element={<DashboardPage />} />
-      <Route path="/today" element={<TodayPage />} />
-      <Route path="/calendar" element={<CalendarPage />} />
-      <Route path="/inbox" element={<InboxPage />} />
-      <Route path="/inbox/:inboxId" element={<InboxPage />} />
-      <Route path="/tasks" element={<TasksPage />} />
-      <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
-      <Route path="/projects" element={<ProjectsPage />} />
-      <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
-      <Route path="/projects/:projectId/tasks" element={<TasksPage />} />
-      <Route path="/training" element={<TrainingPage />} />
-      <Route path="/trash" element={<TrashPage />} />
-      <Route path="/settings" element={<SettingsPage />} />
-    </Routes>
-  )
-}
+export const routes = [
+  {
+    element: <AppLayout />,
+    children: [
+      { path: '/', element: <Navigate to="/dashboard" replace /> },
+      { path: '/dashboard', element: <DashboardPage /> },
+      { path: '/today', element: <TodayPage /> },
+      { path: '/calendar', element: <CalendarPage /> },
+      { path: '/inbox', element: <InboxPage /> },
+      { path: '/inbox/:inboxId', element: <InboxPage /> },
+      { path: '/tasks', element: <TasksPage /> },
+      { path: '/tasks/:taskId', element: <TaskDetailPage /> },
+      { path: '/projects', element: <ProjectsPage /> },
+      { path: '/projects/:projectId', element: <ProjectDetailPage /> },
+      { path: '/projects/:projectId/tasks', element: <TasksPage /> },
+      { path: '/training', element: <TrainingPage /> },
+      { path: '/trash', element: <TrashPage /> },
+      { path: '/settings', element: <SettingsPage /> },
+    ],
+  },
+]
+
+export const router = createBrowserRouter(routes)

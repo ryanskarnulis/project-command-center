@@ -3,21 +3,16 @@ import { NavLink } from 'react-router-dom'
 import { useTrashCount } from '../features/trash/trashCountContext'
 import { CommandSearch } from '../features/search/CommandSearch'
 import {
-  Bell,
   Bot,
   Box,
   ChevronDown,
   ClipboardCheck,
   FolderKanban,
-  Gauge,
   HelpCircle,
   LayoutDashboard,
   Library,
-  Search,
   Settings,
   ShieldCheck,
-  SlidersHorizontal,
-  Target,
   Trash2,
 } from 'lucide-react'
 
@@ -112,19 +107,14 @@ export function AppShell({ children }: AppShellProps) {
           </button>
         </nav>
 
-        <section className="focus-session" aria-label="Focus mode status">
+        <section className="focus-session" aria-label="Workspace status">
           <div className="focus-session-icon">
-            <Target size={19} aria-hidden="true" />
+            <ShieldCheck size={19} aria-hidden="true" />
           </div>
           <div>
-            <strong>Focus mode</strong>
-            <span>
-              <i aria-hidden="true" /> On
-            </span>
+            <strong>Local workspace</strong>
+            <span>Saved on this device</span>
           </div>
-          <button type="button" disabled>
-            End session
-          </button>
         </section>
       </aside>
 
@@ -138,16 +128,6 @@ export function AppShell({ children }: AppShellProps) {
           <CommandSearch />
 
           <div className="topbar-actions">
-            <button type="button" className="icon-button" disabled aria-label="Notifications">
-              <Bell size={19} aria-hidden="true" />
-              <span className="notification-dot" aria-hidden="true" />
-            </button>
-            <button type="button" className="icon-button" disabled aria-label="Search">
-              <Search size={19} aria-hidden="true" />
-            </button>
-            <button type="button" className="icon-button" disabled aria-label="Customize">
-              <SlidersHorizontal size={19} aria-hidden="true" />
-            </button>
             <div className="local-profile" aria-label="Local workspace">
               <ShieldCheck size={18} aria-hidden="true" />
               <span>Local</span>
@@ -159,8 +139,8 @@ export function AppShell({ children }: AppShellProps) {
         <div className="app-main">{children}</div>
 
         <footer className="sync-footer">
-          <Gauge size={15} aria-hidden="true" />
-          <span>Last synced just now</span>
+          <ShieldCheck size={15} aria-hidden="true" />
+          <span>Local-first workspace. No cloud sync configured.</span>
         </footer>
       </div>
     </div>
