@@ -673,6 +673,15 @@ Sprint 13: [DONE] AI subsystem quality — three cohesive AI-workflow polish ite
            prompt-snapshot pytest; ruff/mypy/tsc green. Also retired a dead backlog
            item (inbox summary as note title — already shipped). No schema/migration,
            no Alembic, no model call, no new dependency.
+Sprint 14: [DONE] Security posture hardening — capped inbox capture text at 8,000
+           characters for web + Discord (`InboxRawText`) so oversized notes fail
+           Pydantic validation before DB writes or model calls; Discord `/inbox`
+           followups now use `AllowedMentions.none()` on both success and error
+           replies so captured/model text cannot ping roles/users; documented the
+           intentional single-user/trusted-LAN posture for `API_HOST=0.0.0.0`; and
+           added the reverse-proxy caveat to the loopback Settings write guard.
+           Credential rotation, auth, rate limiting, migrations, model/provider
+           changes, and new dependencies were out of scope.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```
@@ -729,7 +738,9 @@ profile-override resets, prompt saves, and eval runs mutate local files or run
 local model work, so LAN clients receive `403` for those writes. Read-only
 Settings routes — including the Ollama health (`/ollama/status`) and
 installed-models (`/models`) introspection — can still be used from another
-device when the API is bound to `0.0.0.0`.
+device when the API is bound to `0.0.0.0`. The loopback check assumes a direct
+bind; reverse-proxy deployments need explicit trusted-proxy handling before
+forwarding Settings writes.
 
 ## Do not build yet
 
@@ -767,8 +778,12 @@ AI evals are opt-in for `test.sh` because they require Ollama and the configured
 local model. The default quality gate stays deterministic and does not hide known
 frontend flakes by skipping tests.
 
-When `API_HOST=0.0.0.0`, LAN clients can reach read APIs, but Settings writes
-remain localhost-only and return `403` from non-loopback clients.
+When `API_HOST=0.0.0.0`, this is intentionally a single-user, trusted-LAN app.
+Normal project/task/inbox/trash/training routes are reachable from LAN clients
+for both reads and writes. Settings writes remain localhost-only and return
+`403` from non-loopback clients, and Discord routes are protected by
+`BACKEND_SHARED_SECRET`. This is not multi-user auth; revisit real auth if the
+app is exposed beyond a trusted home LAN.
 
 ### Backups (Sprint 6)
 

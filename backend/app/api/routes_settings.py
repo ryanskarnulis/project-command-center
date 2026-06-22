@@ -27,7 +27,11 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 
 def require_local_settings_write(request: Request) -> None:
-    """Allow settings mutations only from direct loopback/test clients."""
+    """Allow settings mutations only from direct loopback/test clients.
+
+    This trusts ``request.client.host`` for direct binds. Reverse-proxy deployments
+    need explicit trusted-proxy handling before forwarding settings writes.
+    """
     host = request.client.host if request.client else None
     if host in {"localhost", "testclient"}:
         return

@@ -6,11 +6,11 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from app.db.models import InboxSource, TaskPriority
-from app.schemas.common import NonBlankStr, OptionalStrippedStr
+from app.schemas.common import InboxRawText, NonBlankStr, OptionalStrippedStr
 
 
 class InboxCreate(BaseModel):
-    raw_text: NonBlankStr
+    raw_text: InboxRawText
     source: InboxSource = InboxSource.web
 
 

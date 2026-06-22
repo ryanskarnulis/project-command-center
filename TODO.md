@@ -11,8 +11,9 @@ until promoted.
 
 ## Next sprint (proposed): pick from backlog
 
-AI "break this down" shipped (README Sprint 10a / DONE.md). No slice is currently
-promoted — pick the next strongest themed group from the backlog below when ready.
+Security posture hardening shipped (README Sprint 14 / DONE.md). No slice is
+currently promoted — pick the next strongest themed group from the backlog below
+when ready.
 
 ---
 
@@ -150,26 +151,27 @@ promoted — pick the next strongest themed group from the backlog below when re
 
 ### Security
 
-- [ ] Cap input size — `NonBlankStr` (`schemas/common.py`) has `min_length=1` but no
+- [x] Cap input size — `NonBlankStr` (`schemas/common.py`) has `min_length=1` but no
       `max_length`, and Starlette has no default body limit, so `raw_text` on
       `POST /api/inbox` + `/api/discord/inbox` is unbounded → unbounded model prompt + DB
-      row. Add a `max_length`. Trivial accidental/malicious DoS.
-- [ ] Decide & document the LAN-no-auth posture — with `API_HOST=0.0.0.0`, every
+      row. Shipped as an explicit 8,000-character `InboxRawText` cap for web + Discord
+      inbox capture (README Sprint 14 / DONE.md).
+- [x] Decide & document the LAN-no-auth posture — with `API_HOST=0.0.0.0`, every
       projects/tasks/inbox/trash/training route is open (read **and** write) on the LAN;
       only Discord (shared secret) + Settings writes (loopback-only) are guarded. Auth is
-      on the "do not build yet" list, so this is an accepted risk *if conscious*: document
-      the threat model in `README.md`; revisit real auth if exposure widens beyond a
-      trusted home LAN.
+      on the "do not build yet" list, so this is now documented as an intentional
+      single-user/trusted-LAN posture in `README.md` (README Sprint 14 / DONE.md).
 - [ ] Rotate Discord credentials — `backend/.env` holds a real `DISCORD_BOT_TOKEN` +
       `BACKEND_SHARED_SECRET` (never committed — history is clean — but surfaced in
       review). Regenerate both.
-- [ ] Discord reply mention-safety — set `allowed_mentions=AllowedMentions.none()` on the
+- [x] Discord reply mention-safety — set `allowed_mentions=AllowedMentions.none()` on the
       `/inbox` followup (`integrations/discord/commands.py`) so a model echo can't
-      `@everyone` (defence in depth).
-- [ ] Document the loopback-check proxy caveat — `require_local_settings_write`
+      `@everyone` (defence in depth). Shipped for success + error replies (README Sprint 14 /
+      DONE.md).
+- [x] Document the loopback-check proxy caveat — `require_local_settings_write`
       (`routes_settings.py:28`) reads `request.client.host` directly; correct for a direct
-      bind, but behind a reverse proxy it sees the proxy IP (or is `X-Forwarded-For`-
-      bypassable). Add a one-line comment.
+      bind, but behind a reverse proxy it sees the proxy IP. Comment added in-code (README
+      Sprint 14 / DONE.md).
 - [ ] Rate limiting on model-calling endpoints (`/discord/inbox`, `/projects/{id}/summary`)
       — fine for single-user now; revisit if LAN exposure widens.
 

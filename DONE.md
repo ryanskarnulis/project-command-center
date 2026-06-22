@@ -784,3 +784,28 @@ call, no new dependency.
 ### Verification
 - [x] `pytest` green (new training filter/stats + prompt-snapshot tests);
       `ruff`/`mypy --strict` clean on changed backend modules; `tsc --noEmit` clean.
+
+---
+
+## Sprint 14 — Security Posture Hardening
+
+Focused security backlog slice; no schema/migration, no Alembic, no model call,
+no provider change, and no new dependency.
+
+- [x] Web + Discord inbox capture now use `InboxRawText`, an 8,000-character
+      stripped/nonblank Pydantic type. Oversized `POST /api/inbox` and
+      `POST /api/discord/inbox` payloads fail validation before DB writes or model
+      calls.
+- [x] Discord `/inbox` success and error followups pass
+      `AllowedMentions.none()`, so echoed user/model text cannot ping roles or
+      users.
+- [x] README documents the intentional single-user/trusted-LAN posture:
+      `API_HOST=127.0.0.1` is safest/default; `API_HOST=0.0.0.0` exposes normal
+      app read/write APIs to trusted LAN clients; Settings writes remain
+      loopback-only; Discord routes rely on `BACKEND_SHARED_SECRET`; this is not
+      multi-user auth.
+- [x] `require_local_settings_write` documents its direct-bind assumption and the
+      need for explicit trusted-proxy handling before reverse-proxy use.
+- [x] Added backend regression tests for exact-limit and over-limit web/Discord
+      inbox capture. Per user request, tests were not run locally.
+- [x] Credential rotation was intentionally left untouched.

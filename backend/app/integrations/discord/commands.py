@@ -4,12 +4,13 @@ from typing import Any
 
 import httpx
 import structlog
-from discord import Interaction, app_commands
+from discord import AllowedMentions, Interaction, app_commands
 from discord.ext import commands
 
 from app.config import get_settings
 
 logger = structlog.get_logger(__name__)
+NO_MENTIONS = AllowedMentions.none()
 
 
 class InboxError(Exception):
@@ -76,6 +77,6 @@ def register(bot: commands.Bot) -> None:
         try:
             data = await post_inbox(text)
         except InboxError as exc:
-            await interaction.followup.send(f"⚠️ {exc}")
+            await interaction.followup.send(f"⚠️ {exc}", allowed_mentions=NO_MENTIONS)
             return
-        await interaction.followup.send(format_reply(data))
+        await interaction.followup.send(format_reply(data), allowed_mentions=NO_MENTIONS)

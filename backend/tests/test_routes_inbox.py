@@ -6,7 +6,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.ai import gateway
-from app.db.models import AITrainingExample, TaskReviewStatus
+from app.db.models import AITrainingExample, InboxItem, TaskReviewStatus
+from app.schemas.common import MAX_INBOX_RAW_TEXT_LENGTH
 from app.services import inbox as inbox_service
 from app.services.common import active
 
@@ -149,6 +150,26 @@ def test_create_inbox_strips_raw_text_and_rejects_blank(client: TestClient) -> N
 
     blank = client.post("/api/inbox", json={"raw_text": "   "})
     assert blank.status_code == 422
+
+
+def test_create_inbox_enforces_raw_text_max_length(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_complete(*_: object, **__: object) -> str:
+        raise AssertionError("extraction should not run during inbox create")
+
+    monkeypatch.setattr(gateway, "complete", fail_complete)
+
+    accepted = client.post(
+        "/api/inbox", json={"raw_text": "x" * MAX_INBOX_RAW_TEXT_LENGTH}
+    )
+    assert accepted.status_code == 201
+
+    too_long = client.post(
+        "/api/inbox", json={"raw_text": "x" * (MAX_INBOX_RAW_TEXT_LENGTH + 1)}
+    )
+    assert too_long.status_code == 422
+    assert len(db_session.execute(active(InboxItem)).scalars().all()) == 1
 
 
 def _fake_gateway(match_output: str):

@@ -6,10 +6,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.ai import gateway
+from app.api import routes_discord
 from app.config import Settings, get_settings
 from app.db.models import AITrainingExample, InboxItem, InboxSource, TaskReviewStatus
 from app.main import app
-from app.api import routes_discord
+from app.schemas.common import MAX_INBOX_RAW_TEXT_LENGTH
 from app.services.common import active
 
 _SECRET = "test-secret"
@@ -122,6 +123,36 @@ def test_discord_inbox_rejects_blank_raw_text_before_extraction(
 
     assert resp.status_code == 422
     assert db_session.execute(active(InboxItem)).scalars().all() == []
+
+
+def test_discord_inbox_enforces_raw_text_max_length(
+    client: TestClient,
+    db_session: Session,
+    with_secret: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
+
+    accepted = client.post(
+        "/api/discord/inbox",
+        json={"raw_text": "x" * MAX_INBOX_RAW_TEXT_LENGTH},
+        headers=_HEADERS,
+    )
+    assert accepted.status_code == 200
+
+    def fail_complete(*_: object, **__: object) -> str:
+        raise AssertionError("extraction should not run for invalid input")
+
+    monkeypatch.setattr(gateway, "complete", fail_complete)
+
+    too_long = client.post(
+        "/api/discord/inbox",
+        json={"raw_text": "x" * (MAX_INBOX_RAW_TEXT_LENGTH + 1)},
+        headers=_HEADERS,
+    )
+    assert too_long.status_code == 422
+    rows = db_session.execute(active(InboxItem)).scalars().all()
+    assert len(rows) == 1
 
 
 def test_discord_inbox_runs_project_matching(

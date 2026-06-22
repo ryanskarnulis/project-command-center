@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from app.schemas.common import NonBlankStr
+from app.schemas.common import InboxRawText
 
 
 class DiscordInboxRequest(BaseModel):
-    raw_text: NonBlankStr
+    raw_text: InboxRawText
 
 
 class DiscordInboxResponse(BaseModel):
