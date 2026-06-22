@@ -22,10 +22,53 @@
   grid-auto-rows: var(--gantt-row-h);
   flex: 1 1 auto;
   min-width: 0;
+  /* Positioning context for the absolutely-placed dependency-arrow overlay. */
+  position: relative;
   overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface);
+}
+
+/* --- Dependency arrows (Slice 4) --- */
+
+/* Overlays the bars inside the scrolling grid, so it scrolls with the content. Sits
+   above the bars (z 2) but is non-interactive so it never blocks a drag/click. */
+.gantt-deps {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.gantt-dep-line {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+  opacity: 0.7;
+}
+
+.gantt-dep-line.is-violating {
+  stroke: var(--red);
+  stroke-width: 2;
+  opacity: 1;
+}
+
+.gantt-dep-head {
+  fill: var(--text-muted);
+}
+
+.gantt-dep-head.is-violating {
+  fill: var(--red);
+}
+
+/* A dependent scheduled before its blocker finishes: a warning ring distinct from
+   the deadline `is-conflict` outline. */
+.gantt-bar.is-dep-conflict {
+  border-color: var(--red);
+  box-shadow: 0 0 0 2px var(--red-soft);
 }
 
 /* --- Header row --- */
@@ -231,10 +274,88 @@
   pointer-events: none;
 }
 
+/* --- Side column (conflicts panel + unscheduled bucket) --- */
+
+.gantt-side {
+  flex: 0 0 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.gantt-conflicts {
+  border: 1px solid var(--red-soft);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--surface-soft);
+}
+
+.gantt-conflicts h3 {
+  margin: 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #b91c1c;
+}
+
+.gantt-conflicts-hint {
+  margin: 4px 0 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.gantt-conflicts ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gantt-conflicts li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.gantt-conflict-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-h);
+}
+
+.gantt-conflict-text a {
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+.gantt-conflict-fix {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--red);
+  background: var(--red);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gantt-conflict-fix:hover {
+  filter: brightness(0.95);
+}
+
 /* --- Unscheduled bucket --- */
 
 .gantt-unscheduled {
-  flex: 0 0 220px;
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px;

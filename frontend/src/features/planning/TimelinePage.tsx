@@ -61,7 +61,15 @@ export function TimelinePage() {
         emptyLabel="No accepted tasks to schedule yet."
       >
         {model && !isEmpty && (
-          <GanttChart model={model} onReschedule={reschedule} onResize={resize} />
+          <GanttChart
+            model={model}
+            onReschedule={reschedule}
+            onResize={resize}
+            // Autofix is a single-task reschedule to just after the blocker ends —
+            // the existing optimistic PATCH + revert + toast path. No cascade (that
+            // is the later Python auto-shift slice).
+            onAutofix={reschedule}
+          />
         )}
       </AsyncState>
     </main>

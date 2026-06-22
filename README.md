@@ -740,6 +740,20 @@ Sprint 18: [DONE] Gantt interactivity (slices 2 & 3 of the planning view) —
            `verifier-browser` skill to exercise the drags a real browser. FE-only;
            the task PATCH already accepted both fields — no schema/migration/
            model/eval/prompt change.
+Sprint 19: [DONE] Gantt dependency lines + conflict warnings + autofix (slice 4
+           of the planning view). An SVG overlay (`DependencyArrows`) draws
+           finish-to-start arrows between dependent bars; geometry is measured
+           from the rendered bar rects (not CSS constants) so the lines track the
+           flexing day columns and horizontal scroll. A dependent scheduled on or
+           before its blocker finishes is flagged — red arrow + a warning ring on
+           the bar — and listed in a Conflicts panel with a one-click **Fix** that
+           sets its `scheduled_start` to `blocker.end + 1` via the existing
+           `reschedule` PATCH (one task, one PATCH; no cascade — the downstream
+           graph auto-shift is the next slice, server-side Python). New
+           `dependencyConflicts.ts` (pure violation detection, unit-tested).
+           FE-only; the payload already carried the dependency edges and
+           `is_blocked`/`is_blocking` — no schema/migration/model/eval/prompt
+           change.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

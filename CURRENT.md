@@ -21,21 +21,34 @@ day-column = 480 min, min 1 day) via the existing PATCH, with optimistic resize,
 revert-on-error, and a toast. Parent bars (whose estimate is a server rollup of
 their subtasks) expose **no** resize handle — a tooltip says the estimate rolls
 up from subtasks — since a parent estimate is not directly settable. New
-`useBarResize` gesture hook + `useProjectGantt.resize`.
+`useBarResize` gesture hook + `useProjectGantt.resize`. **Slice 4 (dependency
+lines + conflict warnings + autofix)** is now shipped: an SVG overlay draws
+finish-to-start arrows between dependent bars (measured from the rendered rects so
+they track flexing columns + horizontal scroll); a dependent scheduled on or
+before its blocker finishes is flagged (red arrow + a warning ring on the bar) and
+listed in a Conflicts panel with a one-click **Fix** that nudges its
+`scheduled_start` to `blocker.end + 1` via the existing `reschedule` PATCH (one
+task, one PATCH — no cascade, that is Slice 5). New `dependencyConflicts.ts` (pure,
+unit-tested) + `DependencyArrows.tsx` overlay.
 
 **Status legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ---
 
-## Next up — Slice 4: Dependency lines + conflict warnings + autofix
+## Next up — Slice 5: Python dependency auto-shift (service layer)
 
-SVG overlay arrows between dependent bars; flag violations (dependent starts
-before its blocker ends); offer an autofix action.
+When a task date changes inside a dependency tree, downstream dependents shift per
+the graph. Pure Python in `services/planning.py` with tests; first-class, not
+frontend date math. Slice 4's autofix is the single-task seam this generalizes:
+the per-conflict Fix moves exactly one task; this slice cascades the shift through
+the dependency graph server-side.
 
 > Known a11y gap (slices 2 & 3): drag is the **only** UI that writes
 > `scheduled_start`, and the right-edge handle the **only** one that writes
 > `estimated_minutes` from the timeline — no keyboard/non-drag path for either.
-> Flagged for a later a11y pass.
+> The Slice 4 **Fix** button is a non-drag path that writes `scheduled_start`, but
+> only for conflict resolution — the general a11y gap remains. Flagged for a later
+> a11y pass.
 
 ---
 
@@ -52,9 +65,14 @@ before its blocker ends); offer an autofix action.
       (their estimate is a server rollup of subtasks, not directly settable) — a tooltip
       explains why. New `useBarResize` gesture hook
       (mirrors `useDragReschedule`) + `useProjectGantt.resize`.
-- [ ] **4. Dependency lines + conflict warnings + autofix** — SVG overlay arrows between
-      dependent bars; flag violations (dependent starts before its blocker ends); offer an
-      autofix action.
+- [x] **4. Dependency lines + conflict warnings + autofix** — shipped. SVG overlay draws
+      finish-to-start arrows between dependent bars (geometry measured from the rendered
+      rects, so they track the flexing day columns + horizontal scroll). A dependent
+      scheduled on or before its blocker finishes is flagged (red arrow + bar warning ring)
+      and listed in a Conflicts panel with a one-click **Fix** that sets its
+      `scheduled_start` to `blocker.end + 1` via the existing `reschedule` PATCH (one task,
+      one PATCH — no cascade). New `dependencyConflicts.ts` (pure, unit-tested) +
+      `DependencyArrows.tsx`.
 - [ ] **5. Python dependency auto-shift (service layer)** — when a task date changes
       inside a dependency tree, downstream dependents shift per the graph. Pure Python in
       `services/planning.py` with tests; first-class, not frontend date math.

@@ -4,6 +4,8 @@ import type { GanttModel } from './ganttModel'
 import { addDays } from './ganttModel'
 import { useDragReschedule } from './useDragReschedule'
 import { useBarResize } from './useBarResize'
+import { DependencyArrows } from './DependencyArrows'
+import { computeViolations, violatingDependentIds } from './dependencyConflicts'
 
 // The custom CSS-grid Gantt renderer for the read-only planning slice. No
 // third-party library (the frappe-gantt attempt was abandoned): one grid spans
@@ -54,15 +56,27 @@ export function GanttChart({
   model,
   onReschedule,
   onResize,
+  onAutofix,
 }: {
   model: GanttModel
   /** When provided, bars become draggable to set `scheduled_start`. */
   onReschedule?: (taskId: number, newStart: string) => void
   /** When provided, bars get a right-edge handle to set `estimated_minutes`. */
   onResize?: (taskId: number, newMinutes: number) => void
+  /** When provided, dependency conflicts get a one-click Fix (sets `scheduled_start`). */
+  onAutofix?: (taskId: number, newStart: string) => void
 }) {
   const { bars, unscheduled } = model
   const gridRef = useRef<HTMLDivElement>(null)
+  // Dependency violations (dependent starts on/before its blocker ends) drive the
+  // arrow coloring, the bar warning class, and the conflicts panel — one shared
+  // computation over the same bars the renderer places.
+  const violations = useMemo(() => computeViolations(bars), [bars])
+  const violatingIds = useMemo(
+    () => violatingDependentIds(violations),
+    [violations],
+  )
+  const barById = useMemo(() => new Map(bars.map((b) => [b.id, b])), [bars])
   // No-op when read-only (callbacks omitted); the hooks stay mounted either way
   // so the listener lifecycle is stable.
   const { onBarPointerDown, dragState, justDraggedRef } = useDragReschedule(
@@ -180,14 +194,15 @@ export function GanttChart({
               )}
               <Link
                 to={`/tasks/${bar.id}`}
+                data-bar-id={bar.id}
                 // Anchors are natively draggable; that hijacks the pointer stream
                 // (browser DnD) so our window pointermove/up never fire. Opt out.
                 draggable={false}
                 className={`gantt-bar ${barTone(bar)}${bar.conflict ? ' is-conflict' : ''}${
-                  draggable ? ' is-draggable' : ''
-                }${dragState?.barId === bar.id ? ' is-dragging' : ''}${
-                  resizeState?.barId === bar.id ? ' is-resizing' : ''
-                }`}
+                  violatingIds.has(bar.id) ? ' is-dep-conflict' : ''
+                }${draggable ? ' is-draggable' : ''}${
+                  dragState?.barId === bar.id ? ' is-dragging' : ''
+                }${resizeState?.barId === bar.id ? ' is-resizing' : ''}`}
                 style={{
                   gridColumn: `${offset + 2} / span ${len}`,
                   gridRow: r + 2,
@@ -230,24 +245,67 @@ export function GanttChart({
             </Fragment>
           )
         })}
+
+        {/* Dependency arrows overlay the bars; measured from the rendered rects. */}
+        <DependencyArrows bars={bars} violations={violations} />
       </div>
 
-      {unscheduled.length > 0 && (
-        <aside className="gantt-unscheduled" aria-label="Unscheduled tasks">
-          <h3>Unscheduled</h3>
-          <p className="gantt-unscheduled-hint">No start or due date yet.</p>
-          <ul>
-            {unscheduled.map((task) => (
-              <li key={task.id}>
-                <Link to={`/tasks/${task.id}`} className="gantt-unscheduled-item">
-                  <span className="gantt-unscheduled-title">{task.name}</span>
-                  {task.isBlocking && <span className="gantt-flag flag-blocking">Blocking</span>}
-                  {task.isBlocked && <span className="gantt-flag flag-blocked">Blocked</span>}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </aside>
+      {(unscheduled.length > 0 || violations.length > 0) && (
+        <div className="gantt-side">
+          {violations.length > 0 && (
+            <aside className="gantt-conflicts" aria-label="Scheduling conflicts">
+              <h3>Conflicts</h3>
+              <p className="gantt-conflicts-hint">
+                A task is scheduled before the task it depends on finishes.
+              </p>
+              <ul>
+                {violations.map((v) => {
+                  const dependent = barById.get(v.dependentId)
+                  const blocker = barById.get(v.blockerId)
+                  if (!dependent || !blocker) return null
+                  return (
+                    <li key={`${v.dependentId}->${v.blockerId}`}>
+                      <span className="gantt-conflict-text">
+                        <Link to={`/tasks/${dependent.id}`}>{dependent.name}</Link>{' '}
+                        starts before{' '}
+                        <Link to={`/tasks/${blocker.id}`}>{blocker.name}</Link>{' '}
+                        finishes
+                      </span>
+                      {onAutofix && (
+                        <button
+                          type="button"
+                          className="gantt-conflict-fix"
+                          onClick={() => onAutofix(v.dependentId, v.suggestedStart)}
+                          title={`Move to ${v.suggestedStart}`}
+                        >
+                          Fix
+                        </button>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </aside>
+          )}
+
+          {unscheduled.length > 0 && (
+            <aside className="gantt-unscheduled" aria-label="Unscheduled tasks">
+              <h3>Unscheduled</h3>
+              <p className="gantt-unscheduled-hint">No start or due date yet.</p>
+              <ul>
+                {unscheduled.map((task) => (
+                  <li key={task.id}>
+                    <Link to={`/tasks/${task.id}`} className="gantt-unscheduled-item">
+                      <span className="gantt-unscheduled-title">{task.name}</span>
+                      {task.isBlocking && <span className="gantt-flag flag-blocking">Blocking</span>}
+                      {task.isBlocked && <span className="gantt-flag flag-blocked">Blocked</span>}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </aside>
+          )}
+        </div>
       )}
     </div>
   )
