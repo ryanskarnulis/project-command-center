@@ -107,3 +107,175 @@ def test_gantt_404_unknown_project(
     client: TestClient, db_session: Session
 ) -> None:
     assert client.get("/api/projects/9999/gantt").status_code == 404
+
+
+# --- Dependency auto-shift through the PATCH route (Slice 5) ----------------
+
+
+def _starts(client: TestClient, project: int) -> dict[int, str | None]:
+    body = client.get(f"/api/projects/{project}/gantt").json()
+    return {t["id"]: t["scheduled_start"] for t in body["tasks"]}
+
+
+def test_patch_start_cascades_downstream_dependents(
+    client: TestClient, db_session: Session
+) -> None:
+    project = _project(db_session, "Firewall")
+    # A -> B -> C, single-day each, all initially on the 20th.
+    a = _task(db_session, project, "a", scheduled_start=date(2026, 6, 20))
+    b = _task(db_session, project, "b", scheduled_start=date(2026, 6, 20))
+    c = _task(db_session, project, "c", scheduled_start=date(2026, 6, 20))
+    deps_service.add_dependency(db_session, b, a)
+    deps_service.add_dependency(db_session, c, b)
+    db_session.commit()
+
+    # Move A out to the 25th: B must follow to the 26th, then C to the 27th.
+    response = client.patch(
+        f"/api/tasks/{a}", json={"scheduled_start": "2026-06-25"}
+    )
+    assert response.status_code == 200
+
+    starts = _starts(client, project)
+    assert starts[a] == "2026-06-25"
+    assert starts[b] == "2026-06-26"
+    assert starts[c] == "2026-06-27"
+
+
+def test_patch_start_does_not_shift_dependents_already_clear(
+    client: TestClient, db_session: Session
+) -> None:
+    project = _project(db_session, "Firewall")
+    a = _task(db_session, project, "a", scheduled_start=date(2026, 6, 20))
+    b = _task(db_session, project, "b", scheduled_start=date(2026, 6, 30))
+    deps_service.add_dependency(db_session, b, a)
+    db_session.commit()
+
+    # Nudge A slightly; B already starts well after A finishes -> untouched.
+    client.patch(f"/api/tasks/{a}", json={"scheduled_start": "2026-06-21"})
+
+    starts = _starts(client, project)
+    assert starts[a] == "2026-06-21"
+    assert starts[b] == "2026-06-30"
+
+
+def test_patch_estimate_extends_bar_and_cascades(
+    client: TestClient, db_session: Session
+) -> None:
+    project = _project(db_session, "Firewall")
+    a = _task(
+        db_session, project, "a", scheduled_start=date(2026, 6, 20), estimated_minutes=480
+    )
+    b = _task(db_session, project, "b", scheduled_start=date(2026, 6, 21))
+    deps_service.add_dependency(db_session, b, a)
+    db_session.commit()
+
+    # Grow A to 3 days (1440 min): it now ends the 22nd, so B must move to the 23rd.
+    client.patch(f"/api/tasks/{a}", json={"estimated_minutes": 1440})
+
+    starts = _starts(client, project)
+    assert starts[b] == "2026-06-23"
+
+
+def test_patch_unrelated_field_does_not_cascade(
+    client: TestClient, db_session: Session
+) -> None:
+    project = _project(db_session, "Firewall")
+    # B starts before A finishes (a standing conflict), but editing A's *title*
+    # is not a placement change, so the cascade must not fire and move B.
+    a = _task(
+        db_session, project, "a", scheduled_start=date(2026, 6, 20), estimated_minutes=960
+    )
+    b = _task(db_session, project, "b", scheduled_start=date(2026, 6, 20))
+    deps_service.add_dependency(db_session, b, a)
+    db_session.commit()
+
+    client.patch(f"/api/tasks/{a}", json={"title": "a renamed"})
+
+    starts = _starts(client, project)
+    assert starts[b] == "2026-06-20"
+
+
+# --- What-if preview (Slice 6) ---------------------------------------------
+
+
+def _what_if(
+    client: TestClient, project: int, overrides: list[dict[str, object]]
+) -> dict[int, str]:
+    response = client.post(
+        f"/api/projects/{project}/gantt/what-if", json={"overrides": overrides}
+    )
+    assert response.status_code == 200
+    return {s["task_id"]: s["scheduled_start"] for s in response.json()["shifts"]}
+
+
+def test_what_if_previews_override_and_cascade_without_saving(
+    client: TestClient, db_session: Session
+) -> None:
+    project = _project(db_session, "Firewall")
+    # A -> B -> C, single-day each, all on the 20th.
+    a = _task(db_session, project, "a", scheduled_start=date(2026, 6, 20))
+    b = _task(db_session, project, "b", scheduled_start=date(2026, 6, 20))
+    c = _task(db_session, project, "c", scheduled_start=date(2026, 6, 20))
+    deps_service.add_dependency(db_session, b, a)
+    deps_service.add_dependency(db_session, c, b)
+    db_session.commit()
+
+    shifts = _what_if(
+        client, project, [{"task_id": a, "scheduled_start": "2026-06-25"}]
+    )
+    # The override surfaces alongside the cascaded dependents.
+    assert shifts == {
+        a: "2026-06-25",
+        b: "2026-06-26",
+        c: "2026-06-27",
+    }
+    # Nothing persisted — the real schedule is untouched.
+    assert _starts(client, project) == {
+        a: "2026-06-20",
+        b: "2026-06-20",
+        c: "2026-06-20",
+    }
+
+
+def test_what_if_estimate_override_cascades(
+    client: TestClient, db_session: Session
+) -> None:
+    project = _project(db_session, "Firewall")
+    a = _task(
+        db_session, project, "a", scheduled_start=date(2026, 6, 20), estimated_minutes=480
+    )
+    b = _task(db_session, project, "b", scheduled_start=date(2026, 6, 21))
+    deps_service.add_dependency(db_session, b, a)
+    db_session.commit()
+
+    # Grow A to 3 days: it now ends the 22nd, pushing B to the 23rd. A's own start
+    # is unchanged, so only B surfaces.
+    shifts = _what_if(
+        client, project, [{"task_id": a, "estimated_minutes": 1440}]
+    )
+    assert shifts == {b: "2026-06-23"}
+
+
+def test_what_if_with_no_conflict_returns_only_the_override(
+    client: TestClient, db_session: Session
+) -> None:
+    project = _project(db_session, "Firewall")
+    a = _task(db_session, project, "a", scheduled_start=date(2026, 6, 20))
+    b = _task(db_session, project, "b", scheduled_start=date(2026, 6, 30))
+    deps_service.add_dependency(db_session, b, a)
+    db_session.commit()
+
+    # Move A to the 21st; B at the 30th is already clear, so only A surfaces.
+    shifts = _what_if(
+        client, project, [{"task_id": a, "scheduled_start": "2026-06-21"}]
+    )
+    assert shifts == {a: "2026-06-21"}
+
+
+def test_what_if_404_unknown_project(
+    client: TestClient, db_session: Session
+) -> None:
+    response = client.post(
+        "/api/projects/9999/gantt/what-if", json={"overrides": []}
+    )
+    assert response.status_code == 404

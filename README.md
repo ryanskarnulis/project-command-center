@@ -754,6 +754,33 @@ Sprint 19: [DONE] Gantt dependency lines + conflict warnings + autofix (slice 4
            FE-only; the payload already carried the dependency edges and
            `is_blocked`/`is_blocking` — no schema/migration/model/eval/prompt
            change.
+Sprint 20: [DONE] Python dependency auto-shift (slice 5 of the planning view) —
+           generalizes slice 4's single-task Fix into a server-side cascade.
+           Changing a task's `scheduled_start` or `estimated_minutes` via the task
+           PATCH now pushes every downstream dependent forward just enough that
+           none starts on or before a blocker finishes. Pure, side-effect-free
+           `compute_shifts` in `services/planning.py` (topological walk over the
+           finish-to-start edges, `blocker.end + 1`, unscheduled tasks neither move
+           nor anchor), applied in one transaction by `cascade_downstream` and
+           fired from `routes_tasks.update_task` only when a placement field
+           changed. The timeline's existing post-PATCH refetch surfaces the moved
+           bars — no new frontend date math (prime directive #1). New
+           `test_planning_shift.py` (pure unit) + route-level cascade tests. No
+           schema/migration/model/eval/prompt change (reuses existing columns).
+Sprint 21: [DONE] What-if mode (slice 6 of the planning view) — staged, unsaved
+           schedule experiments. A "What-if mode" toggle on the timeline turns
+           drag/resize/Fix into *staged* changes: each stage POSTs the override set
+           to a new `POST /api/projects/{id}/gantt/what-if`, which layers the
+           overrides onto the real placements and runs the *same* pure
+           `compute_shifts` the committed cascade uses — read-only, nothing
+           persisted (new side-effect-free `preview_shifts` in
+           `services/planning.py`). The chart overlays the returned starts so the
+           hypothetical schedule renders in place; Apply commits each staged change
+           via the ordinary task PATCH (which cascades for real), Discard drops it.
+           No frontend date math — every previewed start comes from Python (prime
+           directive #1). New `useWhatIf` hook + `previewWhatIf` API; route-level
+           preview tests in `test_planning.py` + TimelinePage what-if tests. No
+           schema/migration/model/eval/prompt change (reuses existing columns).
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

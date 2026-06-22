@@ -29,19 +29,41 @@ before its blocker finishes is flagged (red arrow + a warning ring on the bar) a
 listed in a Conflicts panel with a one-click **Fix** that nudges its
 `scheduled_start` to `blocker.end + 1` via the existing `reschedule` PATCH (one
 task, one PATCH — no cascade, that is Slice 5). New `dependencyConflicts.ts` (pure,
-unit-tested) + `DependencyArrows.tsx` overlay.
+unit-tested) + `DependencyArrows.tsx` overlay. **Slice 5 (Python dependency
+auto-shift)** is now shipped: changing a task's `scheduled_start` or
+`estimated_minutes` via the task PATCH cascades the move through the dependency
+graph server-side, pushing every downstream dependent forward just enough that none
+starts on or before a blocker finishes (the generalization of Slice 4's single-task
+Fix). Pure, side-effect-free `compute_shifts` (topological walk, finish-to-start
+`blocker.end + 1`, unscheduled tasks neither move nor anchor) in
+`services/planning.py`, applied in one transaction by `cascade_downstream` and
+fired from `routes_tasks.update_task` only when a placement field changed. The
+timeline's existing post-PATCH refetch surfaces the shifted bars — no new frontend
+date math (CLAUDE.md prime directive #1). New `test_planning_shift.py` (pure unit)
++ route-level cascade tests in `test_planning.py`. **Slice 6 (What-if mode)** is now
+shipped: a "What-if mode" toggle on the timeline turns drag/resize/Fix into *staged*
+changes rather than persisting them. Each stage POSTs the override set to
+`POST /api/projects/{id}/gantt/what-if`, which layers the overrides onto the real
+placements and runs the *same* pure `compute_shifts` the committed cascade uses —
+read-only, nothing persisted (new side-effect-free `preview_shifts` in
+`services/planning.py`, the read-side twin of `cascade_downstream`). The chart
+overlays the returned starts so the hypothetical schedule renders in place; **Apply**
+commits each staged change via the ordinary task PATCH (which cascades for real),
+**Discard** drops it. No new frontend date math — every previewed start comes from
+Python. New `useWhatIf` hook + `previewWhatIf` API; route-level preview tests in
+`test_planning.py` + TimelinePage what-if tests.
 
 **Status legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ---
 
-## Next up — Slice 5: Python dependency auto-shift (service layer)
+## Next up — Slice 7: Zoom levels (day/week/month)
 
-When a task date changes inside a dependency tree, downstream dependents shift per
-the graph. Pure Python in `services/planning.py` with tests; first-class, not
-frontend date math. Slice 4's autofix is the single-task seam this generalizes:
-the per-conflict Fix moves exactly one task; this slice cascades the shift through
-the dependency graph server-side.
+Day/week/month zoom on the timeline axis, plus blocked-task visualization polish.
+The renderer is a single CSS grid keyed off `--gantt-cols` and the per-bar
+`gridColumn` math in `GanttChart`, so a zoom level is a different day→column
+bucketing of the same `buildGanttModel` bars — still no third-party library, still
+no scheduling math in the frontend.
 
 > Known a11y gap (slices 2 & 3): drag is the **only** UI that writes
 > `scheduled_start`, and the right-edge handle the **only** one that writes
@@ -73,11 +95,20 @@ the dependency graph server-side.
       `scheduled_start` to `blocker.end + 1` via the existing `reschedule` PATCH (one task,
       one PATCH — no cascade). New `dependencyConflicts.ts` (pure, unit-tested) +
       `DependencyArrows.tsx`.
-- [ ] **5. Python dependency auto-shift (service layer)** — when a task date changes
-      inside a dependency tree, downstream dependents shift per the graph. Pure Python in
-      `services/planning.py` with tests; first-class, not frontend date math.
-- [ ] **6. What-if mode** — staged, unsaved schedule experiments computed through the
-      same Python shift rules, with commit/discard.
+- [x] **5. Python dependency auto-shift (service layer)** — shipped. Changing a task's
+      `scheduled_start`/`estimated_minutes` via the task PATCH cascades the shift through
+      the dependency graph server-side: a pure, unit-tested `compute_shifts` (topological,
+      finish-to-start `blocker.end + 1`, unscheduled tasks excluded) applied in one
+      transaction by `cascade_downstream`, fired from `routes_tasks.update_task`. The
+      timeline's existing post-PATCH refetch surfaces the moved bars (no new frontend date
+      math). New `test_planning_shift.py` + route-level cascade tests.
+- [x] **6. What-if mode** — shipped. A "What-if mode" toggle turns drag/resize/Fix into
+      *staged* changes: each stage POSTs the override set to
+      `POST /api/projects/{id}/gantt/what-if`, which runs the *same* pure `compute_shifts`
+      over the real placements with the overrides layered on — read-only, nothing
+      persisted (new `preview_shifts`). The chart overlays the returned starts; **Apply**
+      commits via the ordinary task PATCH (which cascades for real), **Discard** drops it.
+      No new frontend date math. New `useWhatIf` hook + `previewWhatIf` API.
 - [ ] **7. Zoom levels (day/week/month)** — plus blocked-task visualization polish.
 - [ ] **8. Global planning surface + calendar view** — cross-project timeline and the
       calendar variant (reuse the existing `/calendar` work where possible).

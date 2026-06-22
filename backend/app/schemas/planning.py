@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from pydantic import BaseModel
 
 from app.schemas.tasks import TaskRead
@@ -26,3 +28,40 @@ class ProjectGantt(BaseModel):
 
     tasks: list[TaskRead]
     dependencies: list[DependencyEdge]
+
+
+class WhatIfOverride(BaseModel):
+    """One staged, unsaved placement change for a what-if preview.
+
+    Either field may be omitted to keep the task's stored value; a supplied
+    ``scheduled_start``/``estimated_minutes`` replaces it for the hypothetical run.
+    Mirrors the two placement fields the task PATCH accepts.
+    """
+
+    task_id: int
+    scheduled_start: date | None = None
+    estimated_minutes: int | None = None
+
+
+class WhatIfRequest(BaseModel):
+    """The staged overrides to preview against a project's real schedule."""
+
+    overrides: list[WhatIfOverride]
+
+
+class WhatIfShift(BaseModel):
+    """A task's previewed ``scheduled_start`` under the staged overrides."""
+
+    task_id: int
+    scheduled_start: date
+
+
+class WhatIfResult(BaseModel):
+    """The hypothetical schedule: every task that ends up on a different day.
+
+    Includes both the directly-overridden tasks and the downstream dependents the
+    cascade pushes. Nothing is persisted — the frontend renders these previewed
+    starts over its real bars until the user commits or discards.
+    """
+
+    shifts: list[WhatIfShift]

@@ -6,7 +6,13 @@ from sqlalchemy.orm import Session
 
 from app.api.routes_tasks import _reads_with_blocked
 from app.db.session import get_db
-from app.schemas.planning import DependencyEdge, ProjectGantt
+from app.schemas.planning import (
+    DependencyEdge,
+    ProjectGantt,
+    WhatIfRequest,
+    WhatIfResult,
+    WhatIfShift,
+)
 from app.services import planning as planning_service
 from app.services import projects as projects_service
 
@@ -48,4 +54,46 @@ def project_gantt(
             )
             for edge in edges
         ],
+    )
+
+
+@router.post("/projects/{project_id}/gantt/what-if", response_model=WhatIfResult)
+def project_gantt_what_if(
+    project_id: int, data: WhatIfRequest, db: Session = Depends(get_db)
+) -> WhatIfResult:
+    """Preview a staged schedule change without saving it.
+
+    Runs the same pure ``compute_shifts`` the committed PATCH cascade uses, over a
+    hypothetical placement set (the project's real tasks with the staged overrides
+    layered on), and returns the resulting starts — the overridden tasks plus the
+    downstream dependents the cascade pushes. Nothing is persisted; committing a
+    what-if is firing the ordinary task PATCHes, which cascade for real. 404s an
+    unknown project. (CLAUDE.md prime directive #1: the scheduling math is Python
+    and reused, not re-derived in the frontend.)
+    """
+    if projects_service.get_project(db, project_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
+        )
+
+    overrides = [
+        planning_service.Override(
+            task_id=o.task_id,
+            scheduled_start=o.scheduled_start,
+            estimated_minutes=o.estimated_minutes,
+        )
+        for o in data.overrides
+    ]
+    shifts = planning_service.preview_shifts(db, project_id, overrides)
+    logger.info(
+        "project_gantt_what_if",
+        project_id=project_id,
+        override_count=len(overrides),
+        shifted_count=len(shifts),
+    )
+    return WhatIfResult(
+        shifts=[
+            WhatIfShift(task_id=task_id, scheduled_start=new_start)
+            for task_id, new_start in sorted(shifts.items())
+        ]
     )

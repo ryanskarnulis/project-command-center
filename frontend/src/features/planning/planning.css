@@ -5,6 +5,89 @@
   margin-bottom: 16px;
 }
 
+/* --- What-if mode (Slice 6) --- */
+
+.planning-page .page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.whatif-toggle {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.whatif-toggle:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.whatif-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--blue);
+  background: var(--blue-soft);
+}
+
+.whatif-bar-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.whatif-bar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.whatif-apply,
+.whatif-discard {
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+
+.whatif-apply {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+
+.whatif-apply:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+.whatif-apply:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.whatif-discard {
+  background: var(--surface);
+  color: var(--text-h);
+}
+
+.whatif-discard:hover {
+  border-color: var(--text-muted);
+}
+
 .gantt-wrap {
   display: flex;
   gap: 20px;

@@ -7,6 +7,7 @@ import { ProjectTabs } from '../projects/ProjectTabs'
 import { GanttChart } from './GanttChart'
 import { buildGanttModel } from './ganttModel'
 import { useProjectGantt } from './useProjectGantt'
+import { useWhatIf } from './useWhatIf'
 import './planning.css'
 
 /**
@@ -19,8 +20,16 @@ export function TimelinePage() {
   const { projectId } = useParams<{ projectId: string }>()
   const id = Number(projectId)
 
-  const { data, loading, error, reschedule, resize } = useProjectGantt(id)
-  const model = useMemo(() => (data ? buildGanttModel(data) : null), [data])
+  const { data, loading, error, reschedule, resize, refetch } =
+    useProjectGantt(id)
+  const whatIf = useWhatIf(id, refetch)
+  // In what-if mode the chart renders the staged/previewed schedule (the backend
+  // returns the shifted starts); otherwise the real payload. Either way the model
+  // is built the same way — bar geometry doesn't know it's a hypothetical.
+  const model = useMemo(() => {
+    if (!data) return null
+    return buildGanttModel(whatIf.active ? whatIf.applyPreview(data) : data)
+  }, [data, whatIf])
 
   // The planning payload carries no project name; fetch it for the header only.
   const [project, setProject] = useState<Project | null>(null)
@@ -46,12 +55,51 @@ export function TimelinePage() {
         <div className="page-title">
           <h1>{project?.name ?? 'Timeline'}</h1>
           <p className="page-subtitle">
-            Scheduled work by start date and estimate — drag a bar to reschedule,
-            its right edge to re-estimate.
+            {whatIf.active
+              ? 'What-if mode: drag to stage changes — nothing is saved until you apply.'
+              : 'Scheduled work by start date and estimate — drag a bar to reschedule, its right edge to re-estimate.'}
           </p>
         </div>
+        {model && !isEmpty && !whatIf.active && (
+          <button
+            type="button"
+            className="whatif-toggle"
+            onClick={whatIf.enter}
+          >
+            What-if mode
+          </button>
+        )}
       </header>
       <ProjectTabs projectId={id} />
+
+      {whatIf.active && (
+        <div className="whatif-bar" role="status">
+          <span className="whatif-bar-label">
+            {whatIf.stagedCount === 0
+              ? 'What-if mode — drag a bar or resize to stage a change.'
+              : `${whatIf.stagedCount} staged change${
+                  whatIf.stagedCount === 1 ? '' : 's'
+                }${whatIf.pending ? ' · previewing…' : ''}`}
+          </span>
+          <span className="whatif-bar-actions">
+            <button
+              type="button"
+              className="whatif-apply"
+              disabled={whatIf.stagedCount === 0 || whatIf.pending}
+              onClick={() => void whatIf.commit()}
+            >
+              Apply
+            </button>
+            <button
+              type="button"
+              className="whatif-discard"
+              onClick={whatIf.discard}
+            >
+              Discard
+            </button>
+          </span>
+        </div>
+      )}
 
       <AsyncState
         loading={loading}
@@ -63,12 +111,11 @@ export function TimelinePage() {
         {model && !isEmpty && (
           <GanttChart
             model={model}
-            onReschedule={reschedule}
-            onResize={resize}
-            // Autofix is a single-task reschedule to just after the blocker ends —
-            // the existing optimistic PATCH + revert + toast path. No cascade (that
-            // is the later Python auto-shift slice).
-            onAutofix={reschedule}
+            // In what-if mode a drag/resize/Fix *stages* the change (re-previewed
+            // server-side) rather than persisting; otherwise it PATCHes for real.
+            onReschedule={whatIf.active ? whatIf.stageStart : reschedule}
+            onResize={whatIf.active ? whatIf.stageEstimate : resize}
+            onAutofix={whatIf.active ? whatIf.stageStart : reschedule}
           />
         )}
       </AsyncState>

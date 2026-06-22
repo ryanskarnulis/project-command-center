@@ -13,6 +13,8 @@ interface UseProjectGantt {
   reschedule: (taskId: number, newStart: string) => Promise<void>
   /** Optimistically resize a task's estimate, persist via PATCH, revert on error. */
   resize: (taskId: number, newMinutes: number) => Promise<void>
+  /** Re-fetch the planning payload (e.g. after a what-if commit persists changes). */
+  refetch: () => void
 }
 
 /** Best-effort message from an unknown error, preferring the API `detail`. */
@@ -80,8 +82,9 @@ export function useProjectGantt(projectId: number): UseProjectGantt {
       try {
         await updateTask(taskId, { scheduled_start: newStart })
         notify('success', 'Task rescheduled')
-        // Reconcile derived flags (conflict outline, blocked/blocking) from the
-        // server. No downstream auto-shift — that is a later slice.
+        // Reconcile from the server: derived flags (conflict outline,
+        // blocked/blocking) *and* any downstream dependents the PATCH auto-shifted
+        // (Slice 5 — the cascade runs server-side, so the refetch surfaces it).
         load()
       } catch (err: unknown) {
         setData(snapshot)
@@ -112,8 +115,9 @@ export function useProjectGantt(projectId: number): UseProjectGantt {
       try {
         await updateTask(taskId, { estimated_minutes: newMinutes })
         notify('success', 'Estimate updated')
-        // Reconcile derived values (conflict outline, blocked/blocking) from the
-        // server. No downstream auto-shift — that is a later slice.
+        // Reconcile from the server: derived values (conflict outline,
+        // blocked/blocking) *and* any downstream dependents the PATCH auto-shifted
+        // (Slice 5 — a longer estimate pushes its end out, cascading the shift).
         load()
       } catch (err: unknown) {
         setData(snapshot)
@@ -123,5 +127,7 @@ export function useProjectGantt(projectId: number): UseProjectGantt {
     [data, load, notify],
   )
 
-  return { data, loading: loadedId !== projectId, error, reschedule, resize }
+  const refetch = useCallback(() => load(), [load])
+
+  return { data, loading: loadedId !== projectId, error, reschedule, resize, refetch }
 }

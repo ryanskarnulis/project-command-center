@@ -19,9 +19,14 @@ from app.schemas.tasks import (
     TaskUpdate,
 )
 from app.services import breakdown as breakdown_service
+from app.services import planning as planning_service
 from app.services import projects as projects_service
 from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
+
+# Patch fields that move a task's Gantt bar (its start or its span), so changing
+# one triggers the downstream dependency auto-shift (Slice 5).
+_PLACEMENT_FIELDS = {"scheduled_start", "estimated_minutes"}
 
 logger = structlog.get_logger(__name__)
 
@@ -259,19 +264,29 @@ def update_task(
     task_id: int, data: TaskUpdate, db: Session = Depends(get_db)
 ) -> TaskRead:
     task = _get_task_or_404(db, task_id)
+    fields = data.model_dump(exclude_unset=True)
     try:
-        updated = tasks_service.update_task(
-            db, task, data.model_dump(exclude_unset=True)
-        )
+        updated = tasks_service.update_task(db, task, fields)
     except tasks_service.TaskCycleError as exc:
         raise _cycle_409(exc) from exc
     except tasks_service.DerivedStatusError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
+
+    # When a placement input (start or estimate) changed, cascade the move through
+    # the dependency graph so no downstream dependent starts before its blocker
+    # finishes. Server-side and first-class (CLAUDE.md prime directive #1) — the
+    # frontend just refetches the gantt to see the shifted bars.
+    shifted: list[int] = []
+    if _PLACEMENT_FIELDS & fields.keys() and updated.project_id is not None:
+        shifted = planning_service.cascade_downstream(
+            db, updated.project_id, updated
+        )
+
     db.commit()
     db.refresh(updated)
-    logger.info("task_updated", task_id=updated.id)
+    logger.info("task_updated", task_id=updated.id, shifted_dependents=len(shifted))
     return _read_with_blocked(db, updated)
 
 

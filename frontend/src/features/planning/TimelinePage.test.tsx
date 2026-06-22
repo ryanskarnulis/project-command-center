@@ -1,18 +1,22 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getProjectGantt } from '../../api/planning'
+import { getProjectGantt, previewWhatIf } from '../../api/planning'
 import { getProject } from '../../api/projects'
 import { updateTask } from '../../api/tasks'
 import { ToastProvider } from '../../components/ToastProvider'
 import type { Task } from '../../types/task'
 import { TimelinePage } from './TimelinePage'
 
-vi.mock('../../api/planning', () => ({ getProjectGantt: vi.fn() }))
+vi.mock('../../api/planning', () => ({
+  getProjectGantt: vi.fn(),
+  previewWhatIf: vi.fn(),
+}))
 vi.mock('../../api/projects', () => ({ getProject: vi.fn() }))
 vi.mock('../../api/tasks', () => ({ updateTask: vi.fn() }))
 
 const mockGetGantt = vi.mocked(getProjectGantt)
+const mockPreviewWhatIf = vi.mocked(previewWhatIf)
 const mockGetProject = vi.mocked(getProject)
 const mockUpdateTask = vi.mocked(updateTask)
 
@@ -154,5 +158,94 @@ describe('TimelinePage drag-to-reschedule', () => {
     fireEvent.pointerUp(window, { clientX: 100 })
 
     expect(mockUpdateTask).not.toHaveBeenCalled()
+  })
+})
+
+describe('TimelinePage what-if mode (Slice 6)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetProject.mockResolvedValue({
+      id: 1,
+      name: 'Launch',
+      description: null,
+      system_key: null,
+      created_at: '2026-06-01T00:00:00Z',
+      updated_at: '2026-06-01T00:00:00Z',
+    } as Awaited<ReturnType<typeof getProject>>)
+    mockGetGantt.mockResolvedValue({
+      tasks: [task({ id: 7, scheduled_start: '2026-06-20', estimated_minutes: 60 })],
+      dependencies: [],
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  async function enterWhatIf() {
+    const toggle = await screen.findByRole('button', { name: 'What-if mode' })
+    fireEvent.click(toggle)
+  }
+
+  it('staging a drag previews via the backend and does not PATCH', async () => {
+    mockPreviewWhatIf.mockResolvedValue({
+      shifts: [{ task_id: 7, scheduled_start: '2026-06-22' }],
+    })
+
+    const { container } = renderTimeline()
+    await enterWhatIf()
+    await dragBarRight(container, 2)
+
+    await waitFor(() => {
+      expect(mockPreviewWhatIf).toHaveBeenCalledWith(1, [
+        { task_id: 7, scheduled_start: '2026-06-22' },
+      ])
+    })
+    // What-if never persists until Apply.
+    expect(mockUpdateTask).not.toHaveBeenCalled()
+    expect(screen.getByText('1 staged change')).toBeInTheDocument()
+  })
+
+  it('Apply commits each staged change via the task PATCH, then exits', async () => {
+    mockPreviewWhatIf.mockResolvedValue({
+      shifts: [{ task_id: 7, scheduled_start: '2026-06-22' }],
+    })
+    mockUpdateTask.mockResolvedValue(task({ id: 7, scheduled_start: '2026-06-22' }))
+
+    const { container } = renderTimeline()
+    await enterWhatIf()
+    await dragBarRight(container, 2)
+    await screen.findByText('1 staged change')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    await waitFor(() => {
+      expect(mockUpdateTask).toHaveBeenCalledWith(7, {
+        scheduled_start: '2026-06-22',
+      })
+    })
+    expect(await screen.findByText('Schedule changes applied')).toBeInTheDocument()
+    // Back out of what-if mode: the toggle returns.
+    expect(
+      await screen.findByRole('button', { name: 'What-if mode' }),
+    ).toBeInTheDocument()
+  })
+
+  it('Discard leaves what-if mode without persisting anything', async () => {
+    mockPreviewWhatIf.mockResolvedValue({
+      shifts: [{ task_id: 7, scheduled_start: '2026-06-22' }],
+    })
+
+    const { container } = renderTimeline()
+    await enterWhatIf()
+    await dragBarRight(container, 2)
+    await screen.findByText('1 staged change')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+
+    expect(mockUpdateTask).not.toHaveBeenCalled()
+    expect(
+      await screen.findByRole('button', { name: 'What-if mode' }),
+    ).toBeInTheDocument()
   })
 })
