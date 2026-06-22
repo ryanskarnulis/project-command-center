@@ -14,6 +14,10 @@ interface Props {
   actions?: ReactNode
 }
 
+function blockingLabel(count: number): string {
+  return `Blocking ${count} ${count === 1 ? 'task' : 'tasks'}`
+}
+
 export function TaskCard({ task, projects, actions }: Props) {
   const due = dueStatus(task.due_date)
   const projectName = projects?.find((p) => p.id === task.project_id)?.name
@@ -30,8 +34,11 @@ export function TaskCard({ task, projects, actions }: Props) {
             {workflowLabel}
           </span>
           <span className={`priority-pill priority-${task.priority}`}>{task.priority}</span>
-          {task.is_blocked && task.workflow_status !== 'done' && (
-            <Badge tone="red">Blocked</Badge>
+          {task.is_blocking && task.workflow_status !== 'done' && (
+            <Badge tone="red">{blockingLabel(task.blocked_task_count)}</Badge>
+          )}
+          {!task.is_blocking && task.is_blocked && task.workflow_status !== 'done' && (
+            <Badge tone="neutral">Blocked</Badge>
           )}
           {task.due_date && task.workflow_status !== 'done' && (
             <span className={`due due-${due}`}>

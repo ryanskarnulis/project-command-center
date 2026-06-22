@@ -32,6 +32,8 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     updated_at: '2026-06-01T00:00:00Z',
     deleted_at: null,
     is_blocked: false,
+    is_blocking: false,
+    blocked_task_count: 0,
     has_subtasks: false,
     ...overrides,
   }

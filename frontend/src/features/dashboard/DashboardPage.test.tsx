@@ -102,7 +102,9 @@ const tasks: Task[] = [
     assignee_hint: null,
     created_at: '2026-06-01T17:00:00Z',
     updated_at: '2026-06-01T17:00:00Z',
-    is_blocked: true,
+    is_blocked: false,
+    is_blocking: true,
+    blocked_task_count: 2,
     has_subtasks: false,
   },
   {
@@ -124,6 +126,8 @@ const tasks: Task[] = [
     created_at: '2026-06-01T17:00:00Z',
     updated_at: '2026-06-01T17:00:00Z',
     is_blocked: false,
+    is_blocking: false,
+    blocked_task_count: 0,
     has_subtasks: false,
   },
 ]
@@ -180,6 +184,8 @@ describe('DashboardPage', () => {
         created_at: '2026-06-01T17:00:00Z',
         updated_at: '2026-06-01T17:00:00Z',
         is_blocked: false,
+        is_blocking: false,
+        blocked_task_count: 0,
         has_subtasks: false,
       },
     ])
@@ -215,7 +221,12 @@ describe('DashboardPage', () => {
     expect(
       await screen.findByRole('link', { name: 'Awaiting Review: Review now' }),
     ).toBeInTheDocument()
-    expect(screen.getByText('1 blocked task')).toBeInTheDocument()
+    const blockers = screen.getByRole('link', { name: 'Blocking Work: View blockers' })
+    expect(blockers).toHaveAttribute('href', '/tasks?status=blocking')
+    expect(screen.getByText('2 downstream tasks waiting')).toBeInTheDocument()
+    expect(screen.getByText('Fix project dashboard')).toBeInTheDocument()
+    expect(screen.getByText('2 tasks')).toBeInTheDocument()
+    expect(screen.queryByText('1 blocked task')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Create project' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Quick Actions' })).not.toBeInTheDocument()
   })

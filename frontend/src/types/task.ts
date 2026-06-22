@@ -32,6 +32,10 @@ export interface Task {
   deleted_at?: string | null
   // Derived server-side: true while any dependency is unfinished.
   is_blocked: boolean
+  // Derived server-side: true when this is the top active blocker for downstream work.
+  is_blocking: boolean
+  // Derived server-side: transitive count of unfinished accepted tasks waiting on it.
+  blocked_task_count: number
   // Derived server-side: true when the task has accepted subtasks. When true,
   // `estimated_minutes` and `workflow_status` carry rolled-up values and are
   // read-only (set them by editing the subtasks instead).
@@ -53,6 +57,15 @@ export interface TaskDependency {
   depends_on_title: string
   depends_on_workflow_status: TaskWorkflowStatus
   depends_on_done: boolean
+}
+
+export interface TaskDependent {
+  id: number
+  task_id: number
+  dependent_task_id: number
+  dependent_title: string
+  dependent_workflow_status: TaskWorkflowStatus
+  dependent_done: boolean
 }
 
 /** Per-subtask edits applied when approving a suggested breakdown subtask. */

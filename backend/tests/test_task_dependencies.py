@@ -2,13 +2,25 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db.models import TaskWorkflowStatus
+from app.db.models import TaskReviewStatus, TaskWorkflowStatus
 from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
 
 
-def _task(db: Session, title: str) -> int:
-    task = tasks_service.create_task(db, project_id=None, title=title)
+def _task(
+    db: Session,
+    title: str,
+    *,
+    review_status: TaskReviewStatus = TaskReviewStatus.accepted,
+    workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open,
+) -> int:
+    task = tasks_service.create_task(
+        db,
+        project_id=None,
+        title=title,
+        review_status=review_status,
+        workflow_status=workflow_status,
+    )
     db.commit()
     return task.id
 
@@ -86,6 +98,14 @@ def test_routes_add_list_remove_and_cycle_409(client: TestClient) -> None:
     assert listed.status_code == 200
     assert len(listed.json()) == 1
 
+    dependents = client.get(f"/api/tasks/{b}/dependents")
+    assert dependents.status_code == 200
+    dependent_body = dependents.json()
+    assert len(dependent_body) == 1
+    assert dependent_body[0]["dependent_task_id"] == a
+    assert dependent_body[0]["dependent_title"] == "a"
+    assert dependent_body[0]["dependent_done"] is False
+
     # b -> a would cycle.
     cycle = client.post(
         f"/api/tasks/{b}/dependencies", json={"depends_on_task_id": a}
@@ -126,6 +146,94 @@ def test_task_list_reports_is_blocked(client: TestClient) -> None:
     client.post(f"/api/tasks/{b}/done")
     rows = {t["id"]: t["is_blocked"] for t in client.get("/api/tasks").json()}
     assert rows[a] is False
+
+
+def test_task_list_reports_simple_top_level_blocker(client: TestClient) -> None:
+    a = client.post("/api/tasks", json={"title": "downstream"}).json()["id"]
+    b = client.post("/api/tasks", json={"title": "root blocker"}).json()["id"]
+    client.post(f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b})
+
+    rows = {t["id"]: t for t in client.get("/api/tasks").json()}
+
+    assert rows[a]["is_blocked"] is True
+    assert rows[a]["is_blocking"] is False
+    assert rows[a]["blocked_task_count"] == 0
+    assert rows[b]["is_blocked"] is False
+    assert rows[b]["is_blocking"] is True
+    assert rows[b]["blocked_task_count"] == 1
+
+
+def test_task_list_marks_only_highest_blocker_in_chain(
+    client: TestClient,
+) -> None:
+    a = client.post("/api/tasks", json={"title": "leaf"}).json()["id"]
+    b = client.post("/api/tasks", json={"title": "middle"}).json()["id"]
+    c = client.post("/api/tasks", json={"title": "root"}).json()["id"]
+    client.post(f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b})
+    client.post(f"/api/tasks/{b}/dependencies", json={"depends_on_task_id": c})
+
+    rows = {t["id"]: t for t in client.get("/api/tasks").json()}
+
+    assert rows[a]["is_blocked"] is True
+    assert rows[a]["is_blocking"] is False
+    assert rows[b]["is_blocked"] is True
+    assert rows[b]["is_blocking"] is False
+    assert rows[b]["blocked_task_count"] == 0
+    assert rows[c]["is_blocked"] is False
+    assert rows[c]["is_blocking"] is True
+    assert rows[c]["blocked_task_count"] == 2
+
+
+def test_top_level_blocker_count_includes_branching_downstream(
+    client: TestClient,
+) -> None:
+    a = client.post("/api/tasks", json={"title": "branch a"}).json()["id"]
+    b = client.post("/api/tasks", json={"title": "branch b"}).json()["id"]
+    c = client.post("/api/tasks", json={"title": "shared blocker"}).json()["id"]
+    client.post(f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": c})
+    client.post(f"/api/tasks/{b}/dependencies", json={"depends_on_task_id": c})
+
+    rows = {t["id"]: t for t in client.get("/api/tasks").json()}
+
+    assert rows[c]["is_blocking"] is True
+    assert rows[c]["blocked_task_count"] == 2
+
+
+def test_top_level_blocker_counts_ignore_done_rejected_and_deleted_tasks(
+    db_session: Session,
+) -> None:
+    blocker = _task(db_session, "active blocker")
+    active = _task(db_session, "active downstream")
+    done = _task(db_session, "done downstream")
+    rejected = _task(
+        db_session, "rejected downstream", review_status=TaskReviewStatus.rejected
+    )
+    deleted = _task(db_session, "deleted downstream")
+    done_blocker = _task(
+        db_session, "done blocker", workflow_status=TaskWorkflowStatus.done
+    )
+    downstream_of_done = _task(db_session, "downstream of done blocker")
+
+    deps_service.add_dependency(db_session, active, blocker)
+    deps_service.add_dependency(db_session, done, blocker)
+    deps_service.add_dependency(db_session, rejected, blocker)
+    deps_service.add_dependency(db_session, deleted, blocker)
+    deps_service.add_dependency(db_session, downstream_of_done, done_blocker)
+
+    done_task = tasks_service.get_task(db_session, done)
+    deleted_task = tasks_service.get_task(db_session, deleted)
+    assert done_task is not None
+    assert deleted_task is not None
+    tasks_service.mark_done(db_session, done_task)
+    tasks_service.soft_delete_task(db_session, deleted_task)
+    db_session.commit()
+
+    counts = deps_service.top_level_blocker_counts(
+        db_session,
+        [blocker, active, done, rejected, deleted, done_blocker, downstream_of_done],
+    )
+
+    assert counts == {blocker: 1}
 
 
 def test_done_dependency_is_not_blocking(client: TestClient) -> None:

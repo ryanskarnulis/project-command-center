@@ -63,6 +63,8 @@ const task: Task = {
   created_at: '2026-06-01T00:00:00Z',
   updated_at: '2026-06-01T00:00:00Z',
   is_blocked: false,
+  is_blocking: false,
+  blocked_task_count: 0,
   has_subtasks: false,
 }
 

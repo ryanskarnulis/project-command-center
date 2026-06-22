@@ -4,6 +4,7 @@ export type Tone = 'blue' | 'green' | 'orange' | 'red' | 'purple' | 'neutral'
 
 interface StatusTask {
   is_blocked: boolean
+  is_blocking: boolean
   due_date: string | null
 }
 
@@ -16,7 +17,8 @@ export function projectStatus(
   openCount: number,
 ): { label: string; tone: Tone } {
   if (openCount === 0) return { label: 'Clear', tone: 'neutral' }
-  if (tasks.some((t) => t.is_blocked)) return { label: 'Blocked', tone: 'red' }
+  if (tasks.some((t) => t.is_blocking)) return { label: 'Blocking', tone: 'red' }
+  if (tasks.some((t) => t.is_blocked)) return { label: 'Waiting', tone: 'neutral' }
   if (tasks.some((t) => dueStatus(t.due_date) === 'overdue')) {
     return { label: 'At Risk', tone: 'orange' }
   }

@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, aliased
 
-from app.db.models import Task, TaskDependency, TaskWorkflowStatus
+from app.db.models import (
+    Task,
+    TaskDependency,
+    TaskReviewStatus,
+    TaskWorkflowStatus,
+)
 from app.services.common import active, soft_delete
 from app.services.tasks import get_task
 
@@ -146,3 +152,56 @@ def blocked_task_ids(db: Session, task_ids: Sequence[int]) -> set[int]:
         .distinct()
     ).scalars()
     return set(rows)
+
+
+def top_level_blocker_counts(db: Session, task_ids: Sequence[int]) -> dict[int, int]:
+    """Top-level blockers in ``task_ids`` mapped to downstream blocked counts.
+
+    A top-level blocker is active, accepted, unfinished, has unfinished accepted
+    downstream work waiting on it, and is not itself waiting on another unfinished
+    dependency. Counts are transitive: in ``A depends on B depends on C``, only
+    ``C`` is returned, with a count of 2.
+    """
+    requested = set(task_ids)
+    if not requested:
+        return {}
+
+    dependent = aliased(Task)
+    blocker = aliased(Task)
+    rows = db.execute(
+        select(TaskDependency.task_id, TaskDependency.depends_on_task_id)
+        .join(dependent, dependent.id == TaskDependency.task_id)
+        .join(blocker, blocker.id == TaskDependency.depends_on_task_id)
+        .where(
+            TaskDependency.deleted_at.is_(None),
+            dependent.deleted_at.is_(None),
+            dependent.review_status == TaskReviewStatus.accepted,
+            dependent.workflow_status != TaskWorkflowStatus.done,
+            blocker.deleted_at.is_(None),
+            blocker.review_status == TaskReviewStatus.accepted,
+            blocker.workflow_status != TaskWorkflowStatus.done,
+        )
+    ).all()
+
+    dependencies_by_task: defaultdict[int, set[int]] = defaultdict(set)
+    dependents_by_blocker: defaultdict[int, set[int]] = defaultdict(set)
+    for dependent_id, blocker_id in rows:
+        dependencies_by_task[int(dependent_id)].add(int(blocker_id))
+        dependents_by_blocker[int(blocker_id)].add(int(dependent_id))
+
+    blocked_ids = set(dependencies_by_task)
+    counts: dict[int, int] = {}
+    for task_id in requested:
+        if task_id in blocked_ids or task_id not in dependents_by_blocker:
+            continue
+        seen: set[int] = set()
+        stack = list(dependents_by_blocker[task_id])
+        while stack:
+            current = stack.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            stack.extend(dependents_by_blocker.get(current, ()))
+        if seen:
+            counts[task_id] = len(seen)
+    return counts

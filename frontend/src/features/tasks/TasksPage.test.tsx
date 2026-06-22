@@ -30,6 +30,7 @@ vi.mock('../../api/projects', () => ({
 
 vi.mock('../../api/taskDependencies', () => ({
   listDependencies: vi.fn(),
+  listDependents: vi.fn(),
   addDependency: vi.fn(),
   removeDependency: vi.fn(),
 }))
@@ -59,6 +60,8 @@ const baseTask: Task = {
   created_at: '2026-06-01T10:00:00Z',
   updated_at: '2026-06-01T10:00:00Z',
   is_blocked: false,
+  is_blocking: false,
+  blocked_task_count: 0,
   has_subtasks: false,
 }
 
@@ -132,6 +135,14 @@ describe('TasksPage', () => {
     expect(await screen.findByText('Blocked')).toBeInTheDocument()
   })
 
+  it('shows a Blocking badge for a top-level blocker', async () => {
+    mockListAllTasks.mockResolvedValue([
+      { ...baseTask, is_blocking: true, blocked_task_count: 2 },
+    ])
+    renderGlobal()
+    expect(await screen.findByText('Blocking 2 tasks')).toBeInTheDocument()
+  })
+
   it('filter by status shows only matching tasks', async () => {
     const user = userEvent.setup()
     mockListAllTasks.mockResolvedValue([baseTask])
@@ -146,6 +157,28 @@ describe('TasksPage', () => {
 
     expect(screen.queryByText('Fix the VPN')).not.toBeInTheDocument()
     expect(await screen.findByText('A done task')).toBeInTheDocument()
+  })
+
+  it('filter by Blocking status shows only top-level blockers', async () => {
+    const user = userEvent.setup()
+    mockListAllTasks.mockResolvedValue([
+      baseTask,
+      {
+        ...baseTask,
+        id: 2,
+        title: 'Shared dependency',
+        is_blocking: true,
+        blocked_task_count: 3,
+      },
+    ])
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.selectOptions(screen.getByLabelText('Filter by status'), 'blocking')
+
+    expect(screen.queryByText('Fix the VPN')).not.toBeInTheDocument()
+    expect(screen.getByText('Shared dependency')).toBeInTheDocument()
+    expect(screen.getByText('Blocking 3 tasks')).toBeInTheDocument()
   })
 
   it('filter by priority shows only matching tasks', async () => {

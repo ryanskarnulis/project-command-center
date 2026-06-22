@@ -22,3 +22,19 @@ class TaskDependencyRead(BaseModel):
     depends_on_title: str
     depends_on_workflow_status: TaskWorkflowStatus
     depends_on_done: bool
+
+
+class TaskDependentRead(BaseModel):
+    """A dependency edge plus the task waiting on this task.
+
+    This is the mirror of ``TaskDependencyRead`` for a task that is blocking
+    downstream work: it names each dependent task and exposes whether that task
+    is already done.
+    """
+
+    id: int
+    task_id: int
+    dependent_task_id: int
+    dependent_title: str
+    dependent_workflow_status: TaskWorkflowStatus
+    dependent_done: bool

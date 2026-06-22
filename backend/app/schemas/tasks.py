@@ -118,6 +118,11 @@ class TaskRead(BaseModel):
     # False so an ORM Task lacking the attribute (e.g. a freshly created task with
     # no dependencies) serializes cleanly; list/detail routes populate it.
     is_blocked: bool = False
+    # Derived (not stored): true when this task is the highest unfinished blocker
+    # in an active dependency chain. ``blocked_task_count`` is the transitive
+    # count of unfinished accepted downstream tasks waiting on it.
+    is_blocking: bool = False
+    blocked_task_count: int = 0
     # Derived (not stored): true when the task has accepted subtasks, in which case
     # ``estimated_minutes`` and ``workflow_status`` above carry the rolled-up values
     # and are read-only in the UI. Defaults to False for the same reason as above.

@@ -1,11 +1,16 @@
 import { apiClient } from './client'
-import type { TaskDependency } from '../types/task'
+import type { TaskDependency, TaskDependent } from '../types/task'
 
 export async function listDependencies(
   taskId: number,
 ): Promise<TaskDependency[]> {
   const res = await apiClient(`/api/tasks/${taskId}/dependencies`)
   return (await res.json()) as TaskDependency[]
+}
+
+export async function listDependents(taskId: number): Promise<TaskDependent[]> {
+  const res = await apiClient(`/api/tasks/${taskId}/dependents`)
+  return (await res.json()) as TaskDependent[]
 }
 
 export async function addDependency(

@@ -11,7 +11,8 @@ interface Props {
 
 /** "Depends on" manager: B must be done before this task can start. */
 export function TaskDependencies({ task, tasks }: Props) {
-  const { dependencies, loading, error, add, remove } = useTaskDependencies(task.id)
+  const { dependencies, dependents, loading, error, add, remove } =
+    useTaskDependencies(task.id)
   const [selected, setSelected] = useState('')
   const [addError, setAddError] = useState<string | null>(null)
 
@@ -35,8 +36,37 @@ export function TaskDependencies({ task, tasks }: Props) {
     }
   }
 
+  const showDependents = task.is_blocking || dependents.length > 0
+  const downstreamLabel = `${task.blocked_task_count} downstream ${
+    task.blocked_task_count === 1 ? 'task' : 'tasks'
+  } waiting`
+
   return (
     <section className="task-dependencies">
+      {showDependents && (
+        <>
+          <div className="task-section-heading">
+            <h2>Blocking</h2>
+            <span>{task.is_blocking ? downstreamLabel : 'Downstream tasks'}</span>
+          </div>
+          <ul className="dependency-list">
+            {dependents.map((d) => (
+              <li key={d.id}>
+                <Link to={`/tasks/${d.dependent_task_id}`}>
+                  {d.dependent_title}
+                </Link>
+                {d.dependent_done ? (
+                  <span className="dep-done">✓ done</span>
+                ) : (
+                  <span className="dep-pending">waiting</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          {dependents.length === 0 && !loading && <p>No dependents.</p>}
+        </>
+      )}
+
       <div className="task-section-heading">
         <h2>Dependencies</h2>
         <span>Must be done first</span>

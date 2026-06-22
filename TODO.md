@@ -11,7 +11,7 @@ until promoted.
 
 ## Next sprint (proposed): pick from backlog
 
-UX foundation shipped (README Sprint 15 / DONE.md). No slice is currently
+Blocking-task emphasis shipped (README Sprint 16 / DONE.md). No slice is currently
 promoted — pick the next strongest themed group from the backlog below when ready.
 
 ---
@@ -109,6 +109,33 @@ promoted — pick the next strongest themed group from the backlog below when re
       the dashboard "Upcoming Events" tile (now real: soonest-due tasks + a real
       **View calendar** link), not the global nav. No schema/migration, no model call,
       no new dependency. NOT external Google/iCal sync (stays on the do-not-build list).
+- [ ] **Calendar/Gantt planning view** — add a project-aware planning surface with
+      calendar and Gantt views, available globally and for an individual project.
+      Tasks can be dragged in either view to update scheduled/due dates, and Gantt
+      bars can be extended to update the task estimate. If a parent task's estimate
+      is currently derived from subtask estimates, prompt before clearing or
+      overriding conflicting subtask estimates. Dependency scheduling should be
+      first-class: when a task date changes inside a dependency tree, downstream
+      dependent tasks automatically shift according to the dependency graph, using
+      Python service-layer rules rather than frontend-only date math. Include a
+      what-if mode for unsaved schedule experiments, dependency lines with conflict
+      warnings and an autofix action, a today marker, blocked-task visualization,
+      day/week/month-style zoom levels, and an unscheduled bucket for tasks with no
+      due date or estimate that can be dragged onto the Gantt/calendar to plan them.
+- [ ] **Project phases** — add first-class project phase/grouping support for
+      planning views, including collapse/expand behavior in the Gantt chart and
+      phase-level summary bars derived from the earliest child start through the
+      latest child due date. Keep this separate from task nesting unless the service
+      model says phases should literally be parent tasks.
+- [x] **Blocking-task emphasis** — shipped (README Sprint 16 / DONE.md).
+      `TaskRead` now derives `is_blocking` + `blocked_task_count` from active
+      accepted unfinished dependency edges; only the highest active blocker in a
+      chain gets the red marker. The dashboard `Blocking Work` tile links to
+      `/tasks?status=blocking`, task cards/detail distinguish red root blockers
+      from neutral downstream `Blocked` tasks, and project status treats root
+      blockers as the high-attention state. Blocking task detail views also list
+      direct dependents via `GET /api/tasks/{id}/dependents`. No migration, model
+      call, eval/prompt change, training-data change, or dependency.
 
 ### AI Improvements
 

@@ -16,32 +16,52 @@ describe('projectStatus', () => {
     expect(projectStatus([], 0)).toEqual({ label: 'Clear', tone: 'neutral' })
   })
 
-  it('is Blocked when any open task is blocked', () => {
-    expect(projectStatus([{ is_blocked: true, due_date: null }], 1).label).toBe('Blocked')
+  it('is Blocking when any open task is a top-level blocker', () => {
+    expect(
+      projectStatus([{ is_blocked: false, is_blocking: true, due_date: null }], 1),
+    ).toEqual({ label: 'Blocking', tone: 'red' })
+  })
+
+  it('is Waiting when tasks are blocked but none are top-level blockers', () => {
+    expect(
+      projectStatus([{ is_blocked: true, is_blocking: false, due_date: null }], 1),
+    ).toEqual({ label: 'Waiting', tone: 'neutral' })
   })
 
   it('is At Risk when any task is overdue', () => {
     expect(
-      projectStatus([{ is_blocked: false, due_date: daysFromNow(-2) }], 1).label,
+      projectStatus(
+        [{ is_blocked: false, is_blocking: false, due_date: daysFromNow(-2) }],
+        1,
+      ).label,
     ).toBe('At Risk')
   })
 
   it('is Due Soon when a task is due within a week', () => {
     expect(
-      projectStatus([{ is_blocked: false, due_date: daysFromNow(5) }], 1).label,
+      projectStatus(
+        [{ is_blocked: false, is_blocking: false, due_date: daysFromNow(5) }],
+        1,
+      ).label,
     ).toBe('Due Soon')
   })
 
   it('is On Track otherwise', () => {
     expect(
-      projectStatus([{ is_blocked: false, due_date: daysFromNow(30) }], 1).label,
+      projectStatus(
+        [{ is_blocked: false, is_blocking: false, due_date: daysFromNow(30) }],
+        1,
+      ).label,
     ).toBe('On Track')
   })
 })
 
 describe('buildProjectStats', () => {
   it('computes counts and progress', () => {
-    const stats = buildProjectStats([{ is_blocked: false, due_date: null }], 3)
+    const stats = buildProjectStats(
+      [{ is_blocked: false, is_blocking: false, due_date: null }],
+      3,
+    )
     expect(stats.open).toBe(1)
     expect(stats.done).toBe(3)
     expect(stats.progress).toBe(0.75)

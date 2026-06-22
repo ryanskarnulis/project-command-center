@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
-import { listDependencies } from '../../api/taskDependencies'
+import { listDependencies, listDependents } from '../../api/taskDependencies'
 import { breakDownTask, getSubtasks, getTask, listAllTasks, reviewBreakdown, updateTask } from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
@@ -27,6 +27,7 @@ vi.mock('../../api/projects', () => ({
 vi.mock('../../api/taskDependencies', () => ({
   addDependency: vi.fn(),
   listDependencies: vi.fn(),
+  listDependents: vi.fn(),
   removeDependency: vi.fn(),
 }))
 
@@ -49,6 +50,8 @@ const task: Task = {
   created_at: '2026-06-01T00:00:00Z',
   updated_at: '2026-06-01T00:00:00Z',
   is_blocked: false,
+  is_blocking: false,
+  blocked_task_count: 0,
   has_subtasks: false,
 }
 
@@ -67,6 +70,7 @@ const mockGetSubtasks = vi.mocked(getSubtasks)
 const mockListAllTasks = vi.mocked(listAllTasks)
 const mockListProjects = vi.mocked(listProjects)
 const mockListDependencies = vi.mocked(listDependencies)
+const mockListDependents = vi.mocked(listDependents)
 const mockUpdateTask = vi.mocked(updateTask)
 const mockBreakDownTask = vi.mocked(breakDownTask)
 const mockReviewBreakdown = vi.mocked(reviewBreakdown)
@@ -97,6 +101,7 @@ describe('TaskDetailPage', () => {
     mockListAllTasks.mockResolvedValue([task])
     mockListProjects.mockResolvedValue([project])
     mockListDependencies.mockResolvedValue([])
+    mockListDependents.mockResolvedValue([])
     mockUpdateTask.mockImplementation(async (_id, patch) => ({ ...task, ...patch }))
     mockBreakDownTask.mockResolvedValue([suggestedSubtask])
     mockReviewBreakdown.mockResolvedValue({
@@ -173,6 +178,32 @@ describe('TaskDetailPage', () => {
         { task_id: 21, action: 'approve' },
       ]),
     )
+  })
+
+  it('shows dependents when the task is blocking downstream work', async () => {
+    mockGetTask.mockResolvedValue({
+      ...task,
+      is_blocking: true,
+      blocked_task_count: 1,
+    })
+    mockListDependents.mockResolvedValue([
+      {
+        id: 99,
+        task_id: 7,
+        dependent_task_id: 12,
+        dependent_title: 'Install the router',
+        dependent_workflow_status: 'open',
+        dependent_done: false,
+      },
+    ])
+
+    renderDetail()
+
+    expect(await screen.findByRole('heading', { name: 'Blocking' })).toBeInTheDocument()
+    expect(screen.getByText('1 downstream task waiting')).toBeInTheDocument()
+    const dependent = screen.getByRole('link', { name: 'Install the router' })
+    expect(dependent).toHaveAttribute('href', '/tasks/12')
+    expect(screen.getByText('waiting')).toBeInTheDocument()
   })
 
   it('saves friendly estimate text inline', async () => {

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
-import { listDependencies } from '../../api/taskDependencies'
+import { listDependencies, listDependents } from '../../api/taskDependencies'
 import { getSubtasks, getTask, getTaskSeries, listAllTasks, skipOccurrence, stopRecurrence, updateTask } from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
@@ -28,6 +28,7 @@ vi.mock('../../api/projects', () => ({
 vi.mock('../../api/taskDependencies', () => ({
   addDependency: vi.fn(),
   listDependencies: vi.fn(),
+  listDependents: vi.fn(),
   removeDependency: vi.fn(),
 }))
 
@@ -50,6 +51,8 @@ const baseTask: Task = {
   created_at: '2026-06-01T00:00:00Z',
   updated_at: '2026-06-01T00:00:00Z',
   is_blocked: false,
+  is_blocking: false,
+  blocked_task_count: 0,
   has_subtasks: false,
 }
 
@@ -68,6 +71,7 @@ const mockGetSubtasks = vi.mocked(getSubtasks)
 const mockListAllTasks = vi.mocked(listAllTasks)
 const mockListProjects = vi.mocked(listProjects)
 const mockListDependencies = vi.mocked(listDependencies)
+const mockListDependents = vi.mocked(listDependents)
 const mockUpdateTask = vi.mocked(updateTask)
 const mockSkipOccurrence = vi.mocked(skipOccurrence)
 const mockGetTaskSeries = vi.mocked(getTaskSeries)
@@ -91,6 +95,7 @@ describe('Recurrence UI', () => {
     mockGetSubtasks.mockResolvedValue([])
     mockListProjects.mockResolvedValue([project])
     mockListDependencies.mockResolvedValue([])
+    mockListDependents.mockResolvedValue([])
     mockUpdateTask.mockImplementation(async (_id, patch) => ({ ...baseTask, ...patch }))
   })
 

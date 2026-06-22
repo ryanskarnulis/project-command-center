@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { breakDownTask, createUnscopedTask, deleteTask, getSubtasks, getTask, listAllTasks, reviewBreakdown, skipOccurrence, updateTask } from '../../api/tasks'
 import { decideCandidate } from '../../api/inbox'
 import { listProjects } from '../../api/projects'
+import { Badge } from '../../components/Badge'
 import type { Project } from '../../types/project'
 import type { EditScope, Task, TaskPriority, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { formatDueDate } from '../../utils/dates'
@@ -32,6 +33,10 @@ const SCOPABLE_FIELDS: (keyof TaskUpdate)[] = [
 function workflowLabel(status: TaskWorkflowStatus): string {
   if (status === 'in_progress') return 'In progress'
   return status[0].toUpperCase() + status.slice(1)
+}
+
+function blockingLabel(count: number): string {
+  return `Blocking ${count} ${count === 1 ? 'task' : 'tasks'}`
 }
 
 /** Ids of `task` itself plus all descendants — invalid parent choices. */
@@ -520,8 +525,11 @@ export function TaskDetailPage() {
           <span className={`status-pill workflow-${task.workflow_status}`}>
             {workflowLabel(task.workflow_status)}
           </span>
-          {task.is_blocked && task.workflow_status !== 'done' && (
-            <span className="blocked">Blocked</span>
+          {task.is_blocking && task.workflow_status !== 'done' && (
+            <Badge tone="red">{blockingLabel(task.blocked_task_count)}</Badge>
+          )}
+          {!task.is_blocking && task.is_blocked && task.workflow_status !== 'done' && (
+            <Badge tone="neutral">Blocked</Badge>
           )}
           <span className={`priority-pill priority-${task.priority}`}>{task.priority}</span>
           {task.due_date && task.workflow_status !== 'done' && (

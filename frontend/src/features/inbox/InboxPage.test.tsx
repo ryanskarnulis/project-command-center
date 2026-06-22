@@ -64,6 +64,8 @@ const candidate: Task = {
   created_at: '2026-06-01T10:00:00Z',
   updated_at: '2026-06-01T10:00:00Z',
   is_blocked: false,
+  is_blocking: false,
+  blocked_task_count: 0,
   has_subtasks: false,
 }
 

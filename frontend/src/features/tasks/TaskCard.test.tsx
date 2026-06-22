@@ -26,6 +26,8 @@ const base: Task = {
   created_at: '2026-06-01T00:00:00',
   updated_at: '2026-06-01T00:00:00',
   is_blocked: false,
+  is_blocking: false,
+  blocked_task_count: 0,
   has_subtasks: false,
 }
 
@@ -71,6 +73,12 @@ describe('TaskCard', () => {
   it('shows Blocked badge when blocked and not done', () => {
     render_card({ is_blocked: true })
     expect(screen.getByText('Blocked')).toBeInTheDocument()
+  })
+
+  it('shows Blocking badge for a top-level blocker', () => {
+    render_card({ is_blocking: true, blocked_task_count: 2 })
+    expect(screen.getByText('Blocking 2 tasks')).toBeInTheDocument()
+    expect(screen.queryByText('Blocked')).not.toBeInTheDocument()
   })
 
   it('hides Blocked badge when task is done', () => {

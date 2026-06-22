@@ -209,8 +209,12 @@ per-task (restoring a parent does not auto-restore children — each is restorab
 from `/trash`). Ordering tasks is separate from nesting: `task_dependencies` holds
 `A depends_on B` edges meaning **B must be workflow-`done` before A can start**.
 "Blocked" is never a stored status — it's derived in Python from the active edges
-and the depended-on tasks' workflow status (`TaskRead.is_blocked`, resolved in one bulk query), and
-the same `services/task_dependencies.py` cycle guard refuses any edge that would
+and the depended-on tasks' workflow status (`TaskRead.is_blocked`, resolved in
+one bulk query). Sprint 16 also derives root-cause blocking signals
+(`TaskRead.is_blocking` + `blocked_task_count`) from the same active dependency
+graph: only the highest unfinished accepted blocker in a chain gets the red
+blocking marker, and the count is transitive downstream work waiting on it. The
+same `services/task_dependencies.py` cycle guard refuses any edge that would
 create an `A→B→A` deadlock (prime directive #1: the app owns the logic).
 
 A parent's **estimate and progress are likewise derived, not stored**
@@ -692,6 +696,19 @@ Sprint 15: [DONE] UX foundation — converted the frontend to React Router data
            params both ways so shared links and browser history restore task views.
            Frontend tests were added/updated, but per user request were not run here.
            No backend route, schema/migration, model call, or new dependency.
+Sprint 16: [DONE] Blocking-task emphasis — `TaskRead` now carries derived
+           `is_blocking` + `blocked_task_count` fields from the active accepted
+           unfinished dependency graph. The service layer marks only top-level
+           root blockers (for `A depends on B depends on C`, only `C` is red) and
+           counts transitive downstream work waiting on them. The dashboard's red
+           dependency card is now `Blocking Work` and links to
+           `/tasks?status=blocking`; task cards/detail and project status reserve
+           red for root blockers while merely blocked downstream tasks are neutral
+           waiting work. `TasksPage` gained a `Blocking` filter, and blocking
+           task detail views show direct dependents via
+           `GET /api/tasks/{id}/dependents`. Tests were added/updated, but per
+           user request were not run here. No migration, Alembic, model/provider,
+           prompt/eval, AI training-data, or dependency change.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

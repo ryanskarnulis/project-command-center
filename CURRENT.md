@@ -1,33 +1,43 @@
-# Sprint 15 — UX Foundation
+# Sprint 16 — Blocking-Task Emphasis
 
 ## Why this sprint
 
-After the security posture slice, the strongest coherent next slice was the UX
-foundation group: make navigation safer, make the app shell tell the truth about
-local-first behavior, and make task views stable through URLs and browser history.
+After the UX foundation slice, the strongest next backlog item was dependency
+attention: the dashboard and task cards were emphasizing downstream blocked work,
+but the real action is usually the highest unfinished task that is blocking the
+chain.
 
 ## What shipped
 
-- Routing now uses React Router's data-router path (`createBrowserRouter` +
-  `RouterProvider`) with `AppShell` as the root layout. All existing routes were
-  preserved.
-- Settings keeps the existing `beforeunload` guard and now also blocks in-app
-  navigation while profile/prompt edits are dirty. The blocker uses the existing
-  modal style with `Stay` and `Leave without saving`.
-- `AppShell` no longer claims unavailable features: the fake focus session,
-  disabled notification/search/customize buttons, and fake sync timestamp were
-  replaced with honest local workspace/status copy.
-- `TasksPage` now syncs filters, sort mode, board/list view, and `new=1` create
-  deep links back to query params. Browser back/forward restores task view state.
-- `TODO.md`, `DONE.md`, and README sprint status were updated.
+- `TaskRead` now carries two derived, non-persistent fields:
+  `is_blocking` and `blocked_task_count`.
+- `services/task_dependencies.py` computes top-level blockers from active,
+  accepted, unfinished dependency edges. In a chain like `A depends on B depends
+  on C`, only `C` is marked as the root blocker and its count includes both
+  downstream tasks.
+- Existing task serializers now populate `is_blocked`, `is_blocking`,
+  `blocked_task_count`, and roll-ups together, so task list/detail/calendar
+  consumers stay consistent without a schema migration.
+- The dashboard's red dependency card is now `Blocking Work`, links to
+  `/tasks?status=blocking`, and lists the top root blockers plus downstream
+  counts. Merely blocked downstream work is still visible, but secondary.
+- `TaskCard`, `TaskDetailPage`, `TasksPage`, and project status logic now reserve
+  red for root blockers; waiting downstream tasks render as neutral `Blocked`.
+- Blocking task detail views now include a read-only `Blocking` section listing
+  direct dependent tasks that are waiting on the current task.
 
 ## Verification
 
-- Added/updated frontend tests covering data-router route rendering, Settings
-  route blocking, shell truthfulness, and task URL sync/history behavior.
+- Added backend tests for simple blocker, chained blocker, branching blocker
+  counts, done/rejected/deleted tasks being ignored, and the dependents route.
+- Added/updated frontend tests for dashboard blocker emphasis, the `Blocking`
+  task filter, task-card badges, project-status precedence, and dependent-task
+  display on task detail.
 - Per user request, tests were **not run** in this environment.
 
 ## Out of scope
 
-- No backend routes, schema migration, model/provider changes, or new dependencies.
-- No frontend state library or CSS framework.
+- No schema migration, model/provider change, eval change, prompt change, AI
+  training-data change, or new dependency.
+- Calendar/Gantt planning, project phases, Discord follow-ups, credential
+  rotation, and rate limiting remain backlog items.

@@ -6,7 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.db.models import TaskDependency, TaskWorkflowStatus
 from app.db.session import get_db
-from app.schemas.task_dependencies import TaskDependencyCreate, TaskDependencyRead
+from app.schemas.task_dependencies import (
+    TaskDependencyCreate,
+    TaskDependencyRead,
+    TaskDependentRead,
+)
 from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
 
@@ -40,6 +44,24 @@ def _to_read(db: Session, edge: TaskDependency) -> TaskDependencyRead:
     )
 
 
+def _to_dependent_read(db: Session, edge: TaskDependency) -> TaskDependentRead:
+    dependent = tasks_service.get_task(db, edge.task_id)
+    # The active edge should always point at an active task, but degrade
+    # gracefully if a dependent task was deleted between reads.
+    title = dependent.title if dependent is not None else "(deleted task)"
+    edge_workflow_status = (
+        dependent.workflow_status if dependent is not None else TaskWorkflowStatus.done
+    )
+    return TaskDependentRead(
+        id=edge.id,
+        task_id=edge.depends_on_task_id,
+        dependent_task_id=edge.task_id,
+        dependent_title=title,
+        dependent_workflow_status=edge_workflow_status,
+        dependent_done=edge_workflow_status == TaskWorkflowStatus.done,
+    )
+
+
 @router.get(
     "/tasks/{task_id}/dependencies", response_model=list[TaskDependencyRead]
 )
@@ -48,6 +70,19 @@ def list_dependencies(
 ) -> list[TaskDependencyRead]:
     _get_task_or_404(db, task_id)
     return [_to_read(db, e) for e in deps_service.list_dependencies(db, task_id)]
+
+
+@router.get(
+    "/tasks/{task_id}/dependents", response_model=list[TaskDependentRead]
+)
+def list_dependents(
+    task_id: int, db: Session = Depends(get_db)
+) -> list[TaskDependentRead]:
+    _get_task_or_404(db, task_id)
+    return [
+        _to_dependent_read(db, e)
+        for e in deps_service.list_dependents(db, task_id)
+    ]
 
 
 @router.post(

@@ -61,11 +61,20 @@ def _rollup_update(rollup: tasks_service.Rollup) -> dict[str, object]:
     return update
 
 
+def _blocking_update(blocked_task_count: int) -> dict[str, object]:
+    return {
+        "is_blocking": blocked_task_count > 0,
+        "blocked_task_count": blocked_task_count,
+    }
+
+
 def _read_with_blocked(db: Session, task: Task) -> TaskRead:
     """A single task's read model with ``is_blocked`` and roll-ups populated."""
+    blocker_counts = deps_service.top_level_blocker_counts(db, [task.id])
     return TaskRead.model_validate(task).model_copy(
         update={
             "is_blocked": deps_service.is_blocked(db, task.id),
+            **_blocking_update(blocker_counts.get(task.id, 0)),
             **_rollup_update(tasks_service.get_rollup(db, task)),
         }
     )
@@ -73,11 +82,17 @@ def _read_with_blocked(db: Session, task: Task) -> TaskRead:
 
 def _reads_with_blocked(db: Session, tasks: Sequence[Task]) -> list[TaskRead]:
     """A task list with ``is_blocked`` and roll-ups resolved in one query each (no N+1)."""
-    blocked = deps_service.blocked_task_ids(db, [t.id for t in tasks])
+    task_ids = [t.id for t in tasks]
+    blocked = deps_service.blocked_task_ids(db, task_ids)
+    blocker_counts = deps_service.top_level_blocker_counts(db, task_ids)
     rollups = tasks_service.compute_rollups(db, tasks)
     return [
         TaskRead.model_validate(t).model_copy(
-            update={"is_blocked": t.id in blocked, **_rollup_update(rollups[t.id])}
+            update={
+                "is_blocked": t.id in blocked,
+                **_blocking_update(blocker_counts.get(t.id, 0)),
+                **_rollup_update(rollups[t.id]),
+            }
         )
         for t in tasks
     ]
@@ -122,7 +137,7 @@ def list_all_tasks(
 
 
 @router.post("/tasks", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
-def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db)) -> Task:
+def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db)) -> TaskRead:
     try:
         task = tasks_service.create_task(
             db,
@@ -142,7 +157,7 @@ def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db)) -> Tas
     db.commit()
     db.refresh(task)
     logger.info("task_created", task_id=task.id, project_id=task.project_id)
-    return task
+    return _read_with_blocked(db, task)
 
 
 @router.post(
@@ -152,7 +167,7 @@ def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db)) -> Tas
 )
 def create_task(
     project_id: int, data: TaskCreate, db: Session = Depends(get_db)
-) -> Task:
+) -> TaskRead:
     _ensure_project(db, project_id)
     try:
         task = tasks_service.create_task(
@@ -173,7 +188,7 @@ def create_task(
     db.commit()
     db.refresh(task)
     logger.info("task_created", task_id=task.id, project_id=project_id)
-    return task
+    return _read_with_blocked(db, task)
 
 
 @router.get("/tasks/{task_id}", response_model=TaskRead)
@@ -339,7 +354,7 @@ def delete_task(task_id: int, db: Session = Depends(get_db)) -> None:
 
 
 @router.post("/tasks/{task_id}/restore", response_model=TaskRead)
-def restore_task(task_id: int, db: Session = Depends(get_db)) -> Task:
+def restore_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     task = tasks_service.get_deleted_task(db, task_id)
     if task is None:
         raise HTTPException(
@@ -350,7 +365,7 @@ def restore_task(task_id: int, db: Session = Depends(get_db)) -> Task:
     db.commit()
     db.refresh(restored)
     logger.info("task_restored", task_id=restored.id)
-    return restored
+    return _read_with_blocked(db, restored)
 
 
 @router.delete("/tasks/{task_id}/purge", status_code=status.HTTP_204_NO_CONTENT)

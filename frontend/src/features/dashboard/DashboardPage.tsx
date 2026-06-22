@@ -11,7 +11,6 @@ import {
   FolderKanban,
   Inbox,
   ListChecks,
-  MinusCircle,
   Plus,
   SlidersHorizontal,
   Target,
@@ -144,11 +143,30 @@ function tasksForProject(tasks: Task[], projectId: number): Task[] {
   return tasks.filter((task) => task.project_id === projectId)
 }
 
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`
+}
+
+function topBlockingTasks(tasks: Task[]): Task[] {
+  return tasks
+    .filter((task) => task.is_blocking && task.workflow_status !== 'done')
+    .sort(
+      (a, b) =>
+        b.blocked_task_count - a.blocked_task_count ||
+        a.title.localeCompare(b.title) ||
+        b.id - a.id,
+    )
+}
+
 function buildInsights(
   tasks: Task[],
   pendingReview: number,
 ): Insight[] {
-  const blocked = tasks.filter((task) => task.is_blocked)
+  const blocking = topBlockingTasks(tasks)
+  const blocked = tasks.filter(
+    (task) =>
+      task.is_blocked && !task.is_blocking && task.workflow_status !== 'done',
+  )
   const overdue = tasks.filter((task) => dueStatus(task.due_date) === 'overdue')
   const dueSoon = tasks.filter((task) => {
     const status = dueStatus(task.due_date, 7)
@@ -156,13 +174,26 @@ function buildInsights(
   })
   const insights: Insight[] = []
 
+  if (blocking.length > 0) {
+    const downstream = blocking.reduce(
+      (sum, task) => sum + task.blocked_task_count,
+      0,
+    )
+    insights.push({
+      icon: AlertTriangle,
+      title: pluralize(blocking.length, 'root blocker'),
+      detail: `${pluralize(downstream, 'downstream task')} waiting on them.`,
+      tone: 'red',
+      to: '/tasks?status=blocking',
+    })
+  }
   if (blocked.length > 0) {
     insights.push({
       icon: AlertTriangle,
-      title: `${blocked.length} blocked ${blocked.length === 1 ? 'task' : 'tasks'}`,
-      detail: 'Resolve dependencies to reopen the lane.',
-      tone: 'red',
-      to: '/tasks',
+      title: pluralize(blocked.length, 'waiting task'),
+      detail: 'These are blocked by unfinished dependencies.',
+      tone: 'neutral',
+      to: '/tasks?status=blocked',
     })
   }
   if (overdue.length > 0) {
@@ -196,7 +227,7 @@ function buildInsights(
     insights.push({
       icon: CheckCircle2,
       title: 'Command center is clear',
-      detail: 'No blocked work, overdue work, or pending captures right now.',
+      detail: 'No blocking work, overdue work, or pending captures right now.',
       tone: 'green',
       to: '/tasks',
     })
@@ -215,7 +246,11 @@ export function DashboardPage() {
   const pendingCount = pendingReviewCount ?? 0
 
   const dashboard = useMemo(() => {
-    const blockedTasks = tasks.filter((task) => task.is_blocked)
+    const blockingTasks = topBlockingTasks(tasks)
+    const downstreamBlockedCount = blockingTasks.reduce(
+      (sum, task) => sum + task.blocked_task_count,
+      0,
+    )
     const dueTasks = [...tasks]
       .filter((task) => dueStatus(task.due_date, 7) !== 'none')
       // Subtasks appear only nested under their parent, not in the due list.
@@ -232,7 +267,8 @@ export function DashboardPage() {
       return status === 'today' || status === 'soon'
     }).length
     return {
-      blockedTasks,
+      blockingTasks,
+      downstreamBlockedCount,
       dueTasks,
       todayCount,
       overdueCount,
@@ -321,14 +357,27 @@ export function DashboardPage() {
             action="Review now"
           />
           <MetricCard
-            icon={MinusCircle}
-            title="Blocked"
-            value={dashboard.blockedTasks.length}
-            detail="Derived from unfinished dependencies"
+            icon={AlertTriangle}
+            title="Blocking Work"
+            value={dashboard.blockingTasks.length}
+            detail={`${pluralize(dashboard.downstreamBlockedCount, 'downstream task')} waiting`}
             tone="red"
-            to="/tasks?status=blocked"
-            action="View blocked"
-          />
+            to="/tasks?status=blocking"
+            action="View blockers"
+          >
+            {dashboard.blockingTasks.length > 0 ? (
+              <ul className="mini-task-list">
+                {dashboard.blockingTasks.slice(0, 2).map((task) => (
+                  <li key={task.id}>
+                    <span>{task.title}</span>
+                    <small>{pluralize(task.blocked_task_count, 'task')}</small>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <small>No root blockers active.</small>
+            )}
+          </MetricCard>
           <DueSoonFocusCard
             tasks={dashboard.dueTasks}
             todayCount={dashboard.todayCount}

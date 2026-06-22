@@ -31,9 +31,9 @@ import { useCompletedTasks } from './useCompletedTasks'
 import { useTasks } from './useTasks'
 
 // The status dropdown doubles as a view selector: the three workflow states plus
-// "Blocked" (a derived filter over active tasks) and "Done" (which swaps to the
-// completed archive as its data source).
-type StatusView = '' | TaskWorkflowStatus | 'blocked'
+// "Blocking"/"Blocked" (derived filters over active tasks) and "Done" (which
+// swaps to the completed archive as its data source).
+type StatusView = '' | TaskWorkflowStatus | 'blocking' | 'blocked'
 
 interface Filters {
   search: string
@@ -57,7 +57,13 @@ const EMPTY_FILTERS: Filters = {
   dueSoon: false,
 }
 
-const STATUS_VALUES: StatusView[] = ['open', 'in_progress', 'blocked', 'done']
+const STATUS_VALUES: StatusView[] = [
+  'open',
+  'in_progress',
+  'blocking',
+  'blocked',
+  'done',
+]
 const PRIORITY_VALUES: TaskPriority[] = ['urgent', 'high', 'medium', 'low']
 const SORT_VALUES: SortMode[] = [
   'smart',
@@ -147,6 +153,7 @@ function matchesFilters(t: Task, f: Filters): boolean {
   if (f.status === 'in_progress' && t.workflow_status !== 'in_progress') {
     return false
   }
+  if (f.status === 'blocking' && !t.is_blocking) return false
   if (f.status === 'blocked' && !t.is_blocked) return false
   if (f.priority && t.priority !== f.priority) return false
   if (f.projectId !== '' && t.project_id !== f.projectId) return false
@@ -668,6 +675,7 @@ export function TasksPage() {
               <option value="">All statuses</option>
               <option value="open">Open</option>
               <option value="in_progress">In progress</option>
+              <option value="blocking">Blocking</option>
               <option value="blocked">Blocked</option>
               <option value="done">Done</option>
             </select>

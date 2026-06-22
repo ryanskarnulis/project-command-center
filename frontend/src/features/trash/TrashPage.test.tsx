@@ -56,6 +56,8 @@ const trash: Trash = {
       repeat_interval: null,
       recurrence_id: null,
       is_blocked: false,
+      is_blocking: false,
+      blocked_task_count: 0,
       has_subtasks: false,
       title: 'Pay invoice',
       description: null,

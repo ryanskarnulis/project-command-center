@@ -832,3 +832,28 @@ model call, provider change, or new dependency.
 - [x] Added/updated frontend tests for route rendering inside `AppShell`, Settings
       route blocking, shell truthfulness, and task URL sync/history behavior. Per
       user request, tests were not run locally.
+
+---
+
+## Sprint 16 — Blocking-Task Emphasis
+
+Dependency-attention slice; no schema/migration, Alembic, model call, provider
+change, eval change, prompt change, AI training-data change, or new dependency.
+
+- [x] `TaskRead` gained derived `is_blocking` and `blocked_task_count` fields.
+- [x] `services/task_dependencies.py` now computes top-level blockers from active,
+      accepted, unfinished dependency edges. A chain such as `A depends on B
+      depends on C` marks only `C` as blocking and counts both downstream tasks.
+- [x] Task serialization populates `is_blocked`, `is_blocking`,
+      `blocked_task_count`, and roll-ups together for list/detail/calendar-style
+      consumers.
+- [x] Dashboard dependency emphasis now surfaces root blockers: the red card is
+      `Blocking Work`, links to `/tasks?status=blocking`, and lists top blockers
+      with downstream counts. Merely blocked downstream tasks are secondary.
+- [x] `TaskCard`, `TaskDetailPage`, `TasksPage`, and shared project-status logic
+      now reserve red for `Blocking`; downstream `Blocked` tasks use neutral
+      waiting treatment. `TasksPage` gained the `Blocking` status filter.
+- [x] Blocking task detail views now show a read-only `Blocking` section listing
+      direct dependent tasks via `GET /api/tasks/{id}/dependents`.
+- [x] Added backend and frontend regression tests for the new derived behavior.
+      Per user request, tests were not run locally.
