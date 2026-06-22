@@ -249,3 +249,76 @@ describe('TimelinePage what-if mode (Slice 6)', () => {
     ).toBeInTheDocument()
   })
 })
+
+describe('TimelinePage zoom levels', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetProject.mockResolvedValue({
+      id: 1,
+      name: 'Launch',
+      description: null,
+      system_key: null,
+      created_at: '2026-06-01T00:00:00Z',
+      updated_at: '2026-06-01T00:00:00Z',
+    } as Awaited<ReturnType<typeof getProject>>)
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  it('switches the grid bucketing from days to weeks and back', async () => {
+    // Mon 2026-06-01 -> spans into a second week; 9 day columns, 2 week columns.
+    mockGetGantt.mockResolvedValue({
+      tasks: [
+        task({ id: 7, scheduled_start: '2026-06-01', estimated_minutes: 480 * 9 }),
+      ],
+      dependencies: [],
+    })
+
+    const { container } = renderTimeline()
+    const grid = await waitFor(() => {
+      const el = container.querySelector('.gantt')
+      if (!el) throw new Error('no grid yet')
+      return el as HTMLElement
+    })
+
+    // Default day zoom: 9 day columns.
+    expect(grid.classList.contains('gantt-zoom-day')).toBe(true)
+    expect(container.querySelectorAll('.gantt-day-head')).toHaveLength(9)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Week' }))
+    expect(grid.classList.contains('gantt-zoom-week')).toBe(true)
+    expect(container.querySelectorAll('.gantt-day-head')).toHaveLength(2)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Day' }))
+    expect(grid.classList.contains('gantt-zoom-day')).toBe(true)
+    expect(container.querySelectorAll('.gantt-day-head')).toHaveLength(9)
+  })
+
+  it('keeps drag day-resolution at week zoom (column spans 7 days)', async () => {
+    mockGetGantt.mockResolvedValue({
+      tasks: [task({ id: 7, scheduled_start: '2026-06-01', estimated_minutes: 60 })],
+      dependencies: [],
+    })
+    mockUpdateTask.mockResolvedValue(task({ id: 7, scheduled_start: '2026-06-03' }))
+
+    const { container } = renderTimeline()
+    await waitFor(() => {
+      if (!container.querySelector('.gantt-bar')) throw new Error('no bar yet')
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Week' }))
+
+    const bar = container.querySelector('.gantt-bar') as HTMLElement
+    stubDayWidth() // one week column = DAY_WIDTH px wide
+    // Dragging 2/7 of a column width should move the bar 2 days, not 2 weeks.
+    fireEvent.pointerDown(bar, { button: 0, clientX: 100 })
+    const dx = (2 / 7) * DAY_WIDTH
+    fireEvent.pointerMove(window, { clientX: 100 + dx })
+    fireEvent.pointerUp(window, { clientX: 100 + dx })
+
+    await waitFor(() => {
+      expect(mockUpdateTask).toHaveBeenCalledWith(7, {
+        scheduled_start: '2026-06-03',
+      })
+    })
+  })
+})

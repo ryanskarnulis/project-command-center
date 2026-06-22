@@ -5,6 +5,7 @@ import { getProject } from '../../api/projects'
 import type { Project } from '../../types/project'
 import { ProjectTabs } from '../projects/ProjectTabs'
 import { GanttChart } from './GanttChart'
+import type { ZoomLevel } from './ganttAxis'
 import { buildGanttModel } from './ganttModel'
 import { useProjectGantt } from './useProjectGantt'
 import { useWhatIf } from './useWhatIf'
@@ -23,6 +24,9 @@ export function TimelinePage() {
   const { data, loading, error, reschedule, resize, refetch } =
     useProjectGantt(id)
   const whatIf = useWhatIf(id, refetch)
+  // Zoom is pure presentation — a different day->column bucketing of the same
+  // bars (Slice 7). It never touches the data or the schedule.
+  const [zoom, setZoom] = useState<ZoomLevel>('day')
   // In what-if mode the chart renders the staged/previewed schedule (the backend
   // returns the shifted starts); otherwise the real payload. Either way the model
   // is built the same way — bar geometry doesn't know it's a hypothetical.
@@ -60,14 +64,35 @@ export function TimelinePage() {
               : 'Scheduled work by start date and estimate — drag a bar to reschedule, its right edge to re-estimate.'}
           </p>
         </div>
-        {model && !isEmpty && !whatIf.active && (
-          <button
-            type="button"
-            className="whatif-toggle"
-            onClick={whatIf.enter}
-          >
-            What-if mode
-          </button>
+        {model && !isEmpty && (
+          <div className="timeline-controls">
+            <div
+              className="gantt-zoom"
+              role="group"
+              aria-label="Timeline zoom level"
+            >
+              {(['day', 'week', 'month'] as const).map((level) => (
+                <button
+                  key={level}
+                  type="button"
+                  className={`gantt-zoom-btn${zoom === level ? ' is-active' : ''}`}
+                  aria-pressed={zoom === level}
+                  onClick={() => setZoom(level)}
+                >
+                  {level[0].toUpperCase() + level.slice(1)}
+                </button>
+              ))}
+            </div>
+            {!whatIf.active && (
+              <button
+                type="button"
+                className="whatif-toggle"
+                onClick={whatIf.enter}
+              >
+                What-if mode
+              </button>
+            )}
+          </div>
         )}
       </header>
       <ProjectTabs projectId={id} />
@@ -111,6 +136,7 @@ export function TimelinePage() {
         {model && !isEmpty && (
           <GanttChart
             model={model}
+            zoom={zoom}
             // In what-if mode a drag/resize/Fix *stages* the change (re-previewed
             // server-side) rather than persisting; otherwise it PATCHes for real.
             onReschedule={whatIf.active ? whatIf.stageStart : reschedule}

@@ -22,12 +22,18 @@ interface ActiveResize {
   startSpan: number
   startClientX: number
   dayWidth: number
+  /** Whole days one column covers (1/7/~30 by zoom); scales px -> days. */
+  daysPerColumn: number
   newSpan: number
   moved: boolean
 }
 
 interface UseBarResize {
-  onHandlePointerDown: (bar: GanttBar, e: React.PointerEvent) => void
+  onHandlePointerDown: (
+    bar: GanttBar,
+    e: React.PointerEvent,
+    daysPerColumn: number,
+  ) => void
   resizeState: ResizeState | null
   /** True for the click immediately following a real resize; consume to suppress it. */
   justResizedRef: RefObject<boolean>
@@ -63,7 +69,10 @@ export function useBarResize(
       if (!drag) return
       const dx = e.clientX - drag.startClientX
       if (Math.abs(dx) > DRAG_THRESHOLD_PX) drag.moved = true
-      const deltaDays = Math.round(dx / drag.dayWidth)
+      // One column spans `daysPerColumn` days, so a day is that fraction of a
+      // column's width — resize stays day-resolution at every zoom level.
+      const pxPerDay = drag.dayWidth / drag.daysPerColumn
+      const deltaDays = Math.round(dx / pxPerDay)
       const newSpan = Math.max(1, drag.startSpan + deltaDays)
       drag.newSpan = newSpan
       setResizeState({ barId: drag.barId, newSpan, dayWidth: drag.dayWidth })
@@ -93,7 +102,7 @@ export function useBarResize(
   }, [])
 
   const onHandlePointerDown = useCallback(
-    (bar: GanttBar, e: React.PointerEvent) => {
+    (bar: GanttBar, e: React.PointerEvent, daysPerColumn: number) => {
       if (e.button !== 0) return // primary button / touch / pen only
       const cell = gridRef.current?.querySelector('.gantt-col-bg')
       const dayWidth = cell?.getBoundingClientRect().width ?? 0
@@ -105,6 +114,7 @@ export function useBarResize(
         startSpan,
         startClientX: e.clientX,
         dayWidth,
+        daysPerColumn,
         newSpan: startSpan,
         moved: false,
       }

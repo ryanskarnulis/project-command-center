@@ -1,48 +1,19 @@
 import { type CSSProperties, Fragment, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import type { GanttModel } from './ganttModel'
-import { addDays } from './ganttModel'
+import { buildAxis } from './ganttAxis'
+import type { ZoomLevel } from './ganttAxis'
 import { useDragReschedule } from './useDragReschedule'
 import { useBarResize } from './useBarResize'
 import { DependencyArrows } from './DependencyArrows'
 import { computeViolations, violatingDependentIds } from './dependencyConflicts'
 
-// The custom CSS-grid Gantt renderer for the read-only planning slice. No
-// third-party library (the frappe-gantt attempt was abandoned): one grid spans
-// the whole chart so the time axis, day backgrounds, today marker, and bars all
-// share the same columns. Bar geometry comes pre-resolved from `buildGanttModel`
-// — this component only places it. Read-only: no drag, no resize (later slices).
-
-/** Whole-day difference `b - a` (UTC math, timezone-safe). */
-function dayDiff(aIso: string, bIso: string): number {
-  const [ay, am, ad] = aIso.split('-').map(Number)
-  const [by, bm, bd] = bIso.split('-').map(Number)
-  const a = Date.UTC(ay, am - 1, ad)
-  const b = Date.UTC(by, bm - 1, bd)
-  return Math.round((b - a) / 86_400_000)
-}
-
-/** Today as a local `YYYY-MM-DD`, matching the stored date strings. */
-function todayISO(): string {
-  const now = new Date()
-  const y = now.getFullYear()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  const d = String(now.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
-const SHORT_MONTHS = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-]
-
-interface DayCell {
-  iso: string
-  dayOfMonth: number
-  /** Month label shown on the first cell of each month (and the very first day). */
-  monthLabel: string | null
-  isWeekend: boolean
-}
+// The custom CSS-grid Gantt renderer for the planning view. No third-party
+// library (the frappe-gantt attempt was abandoned): one grid spans the whole
+// chart so the time axis, day backgrounds, today marker, and bars all share the
+// same columns. Bar geometry comes pre-resolved from `buildGanttModel`; the
+// day->column bucketing comes from `buildAxis` (Slice 7 zoom) — this component
+// only places bars into the columns the axis hands it. No scheduling math here.
 
 /** The single most attention-worthy status class for a bar's fill. */
 function barTone(bar: GanttModel['bars'][number]): string {
@@ -54,11 +25,14 @@ function barTone(bar: GanttModel['bars'][number]): string {
 
 export function GanttChart({
   model,
+  zoom = 'day',
   onReschedule,
   onResize,
   onAutofix,
 }: {
   model: GanttModel
+  /** Day/week/month column bucketing of the same date-space bars (Slice 7). */
+  zoom?: ZoomLevel
   /** When provided, bars become draggable to set `scheduled_start`. */
   onReschedule?: (taskId: number, newStart: string) => void
   /** When provided, bars get a right-edge handle to set `estimated_minutes`. */
@@ -90,68 +64,44 @@ export function GanttChart({
   const draggable = onReschedule !== undefined
   const resizable = onResize !== undefined
 
-  const axis = useMemo(() => {
-    if (bars.length === 0) return null
-    let start = bars[0].start
-    let end = bars[0].end
-    for (const bar of bars) {
-      if (bar.start < start) start = bar.start
-      if (bar.end > end) end = bar.end
-    }
-    const count = dayDiff(start, end) + 1
-    const days: DayCell[] = []
-    for (let i = 0; i < count; i += 1) {
-      const iso = addDays(start, i)
-      const [, m, d] = iso.split('-').map(Number)
-      const dow = new Date(`${iso}T00:00:00Z`).getUTCDay()
-      days.push({
-        iso,
-        dayOfMonth: d,
-        monthLabel: i === 0 || d === 1 ? SHORT_MONTHS[m - 1] : null,
-        isWeekend: dow === 0 || dow === 6,
-      })
-    }
-    const today = todayISO()
-    const todayIdx = today >= start && today <= end ? dayDiff(start, today) : -1
-    return { start, days, todayIdx }
-  }, [bars])
+  const axis = useMemo(() => buildAxis(bars, zoom), [bars, zoom])
 
   if (!axis) return null
 
-  const { start, days, todayIdx } = axis
-  const colCount = days.length
+  const { columns, columnOf, todayIdx, daysPerColumn } = axis
+  const colCount = columns.length
 
   return (
     <div className="gantt-wrap">
       <div
         ref={gridRef}
-        className="gantt"
+        className={`gantt gantt-zoom-${zoom}`}
         style={{ '--gantt-cols': colCount } as CSSProperties}
         role="table"
         aria-label="Project timeline"
       >
-        {/* Header: corner + one cell per day */}
+        {/* Header: corner + one cell per column (day/week/month per zoom) */}
         <div className="gantt-corner" style={{ gridColumn: 1, gridRow: 1 }}>
           Task
         </div>
-        {days.map((day, i) => (
+        {columns.map((col, i) => (
           <div
-            key={day.iso}
-            className={`gantt-day-head${day.isWeekend ? ' is-weekend' : ''}${
+            key={col.iso}
+            className={`gantt-day-head${col.isWeekend ? ' is-weekend' : ''}${
               i === todayIdx ? ' is-today' : ''
             }`}
             style={{ gridColumn: i + 2, gridRow: 1 }}
           >
-            {day.monthLabel && <span className="gantt-month">{day.monthLabel}</span>}
-            <span className="gantt-dom">{day.dayOfMonth}</span>
+            {col.groupLabel && <span className="gantt-month">{col.groupLabel}</span>}
+            <span className="gantt-dom">{col.label}</span>
           </div>
         ))}
 
-        {/* Background day columns (vertical grid lines, weekend + today shading) */}
-        {days.map((day, i) => (
+        {/* Background columns (vertical grid lines, weekend + today shading) */}
+        {columns.map((col, i) => (
           <div
-            key={`bg-${day.iso}`}
-            className={`gantt-col-bg${day.isWeekend ? ' is-weekend' : ''}${
+            key={`bg-${col.iso}`}
+            className={`gantt-col-bg${col.isWeekend ? ' is-weekend' : ''}${
               i === todayIdx ? ' is-today' : ''
             }`}
             style={{ gridColumn: i + 2, gridRow: '2 / -1' }}
@@ -161,13 +111,18 @@ export function GanttChart({
 
         {/* One row per bar: label cell + positioned bar (+ due marker) */}
         {bars.map((bar, r) => {
-          const offset = dayDiff(start, bar.start)
-          const baseLen = dayDiff(bar.start, bar.end) + 1
-          // While resizing this bar, preview the new span; else its real length.
+          const offset = columnOf(bar.start)
+          const baseLen = columnOf(bar.end) - offset + 1
+          // While resizing, preview the new span — `newSpan` is in days, so map it
+          // to whole columns at the current zoom (one column = `daysPerColumn`).
           const len =
-            resizeState?.barId === bar.id ? resizeState.newSpan : baseLen
+            resizeState?.barId === bar.id
+              ? Math.max(1, Math.ceil(resizeState.newSpan / daysPerColumn))
+              : baseLen
           const dueIdx =
-            bar.dueDate && bar.dueDate >= start ? dayDiff(start, bar.dueDate) : -1
+            bar.dueDate && bar.dueDate >= columns[0].iso
+              ? columnOf(bar.dueDate)
+              : -1
           // A parent's estimate is the sum of its subtasks (server rollup), so it
           // is not directly settable — no resize handle, and a tooltip says why.
           const barResizable = resizable && !bar.hasSubtasks
@@ -208,12 +163,14 @@ export function GanttChart({
                   gridRow: r + 2,
                   transform:
                     dragState?.barId === bar.id && dragState.deltaDays !== 0
-                      ? `translateX(${dragState.deltaDays * dragState.dayWidth}px)`
+                      ? `translateX(${dragState.deltaPx}px)`
                       : undefined,
                 }}
                 title={tooltip}
                 onPointerDown={
-                  draggable ? (e) => onBarPointerDown(bar, e) : undefined
+                  draggable
+                    ? (e) => onBarPointerDown(bar, e, daysPerColumn)
+                    : undefined
                 }
                 onClick={
                   draggable || resizable
@@ -237,7 +194,7 @@ export function GanttChart({
                     onPointerDown={(e) => {
                       // Stop propagation so a handle press doesn't also start a move.
                       e.stopPropagation()
-                      onHandlePointerDown(bar, e)
+                      onHandlePointerDown(bar, e, daysPerColumn)
                     }}
                   />
                 )}

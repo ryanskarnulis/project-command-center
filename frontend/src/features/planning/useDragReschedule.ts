@@ -10,7 +10,9 @@ export interface DragState {
   barId: number
   /** Whole days the bar has moved from its start (snaps to day boundaries). */
   deltaDays: number
-  /** Measured width of one day column, so the preview can translate in pixels. */
+  /** Pixel translate for the live preview (deltaDays scaled to the zoom level). */
+  deltaPx: number
+  /** Measured width of one column, kept for callers that still need it. */
   dayWidth: number
 }
 
@@ -19,11 +21,17 @@ interface ActiveDrag {
   start: string
   startClientX: number
   dayWidth: number
+  /** Whole days one column covers (1/7/~30 by zoom); scales px -> days. */
+  daysPerColumn: number
   moved: boolean
 }
 
 interface UseDragReschedule {
-  onBarPointerDown: (bar: GanttBar, e: React.PointerEvent) => void
+  onBarPointerDown: (
+    bar: GanttBar,
+    e: React.PointerEvent,
+    daysPerColumn: number,
+  ) => void
   dragState: DragState | null
   /** True for the click immediately following a real drag; consume to suppress it. */
   justDraggedRef: RefObject<boolean>
@@ -59,13 +67,23 @@ export function useDragReschedule(
       if (!drag) return
       const dx = e.clientX - drag.startClientX
       if (Math.abs(dx) > DRAG_THRESHOLD_PX) drag.moved = true
-      const deltaDays = Math.round(dx / drag.dayWidth)
-      setDragState({ barId: drag.barId, deltaDays, dayWidth: drag.dayWidth })
+      // One column spans `daysPerColumn` days, so a single day is that fraction of
+      // a column's pixel width — drag stays day-resolution at every zoom level.
+      const pxPerDay = drag.dayWidth / drag.daysPerColumn
+      const deltaDays = Math.round(dx / pxPerDay)
+      // The preview translate is still in pixels, so report it in column units.
+      setDragState({
+        barId: drag.barId,
+        deltaDays,
+        deltaPx: deltaDays * pxPerDay,
+        dayWidth: drag.dayWidth,
+      })
     }
     const handleUp = (e: PointerEvent): void => {
       const drag = active.current
       if (!drag) return
-      const deltaDays = Math.round((e.clientX - drag.startClientX) / drag.dayWidth)
+      const pxPerDay = drag.dayWidth / drag.daysPerColumn
+      const deltaDays = Math.round((e.clientX - drag.startClientX) / pxPerDay)
       justDraggedRef.current = drag.moved
       if (drag.moved && deltaDays !== 0) {
         onRescheduleRef.current(drag.barId, addDays(drag.start, deltaDays))
@@ -88,7 +106,7 @@ export function useDragReschedule(
   }, [])
 
   const onBarPointerDown = useCallback(
-    (bar: GanttBar, e: React.PointerEvent) => {
+    (bar: GanttBar, e: React.PointerEvent, daysPerColumn: number) => {
       if (e.button !== 0) return // primary button / touch / pen only
       const cell = gridRef.current?.querySelector('.gantt-col-bg')
       const dayWidth = cell?.getBoundingClientRect().width ?? 0
@@ -99,9 +117,10 @@ export function useDragReschedule(
         start: bar.start,
         startClientX: e.clientX,
         dayWidth,
+        daysPerColumn,
         moved: false,
       }
-      setDragState({ barId: bar.id, deltaDays: 0, dayWidth })
+      setDragState({ barId: bar.id, deltaDays: 0, deltaPx: 0, dayWidth })
     },
     [gridRef],
   )

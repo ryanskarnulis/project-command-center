@@ -51,19 +51,32 @@ overlays the returned starts so the hypothetical schedule renders in place; **Ap
 commits each staged change via the ordinary task PATCH (which cascades for real),
 **Discard** drops it. No new frontend date math — every previewed start comes from
 Python. New `useWhatIf` hook + `previewWhatIf` API; route-level preview tests in
-`test_planning.py` + TimelinePage what-if tests.
+`test_planning.py` + TimelinePage what-if tests. **Slice 7 (Zoom levels)** is now
+shipped: a Day/Week/Month segmented control on the timeline re-buckets the *same*
+date-space bars into day, ISO-week (Monday-anchored), or calendar-month columns. The
+bucketing lives entirely in a new pure, unit-tested `ganttAxis.ts` (`buildAxis` →
+ordered columns + a clamped `columnOf(iso)` date→column map + `daysPerColumn`);
+`GanttChart` places every bar/due-marker/today-cell through `columnOf` instead of raw
+day math, so no scheduling logic moved to the frontend (CLAUDE.md prime directive #1 —
+this is presentation). Drag/resize stay **day-resolution** at every zoom: the gesture
+hooks divide the measured column width by `daysPerColumn`, so dragging 3/7 of a week
+column moves a bar exactly 3 days (browser-verified Jun 23→26 at week zoom). Blocked
+bars also got a visualization polish — a faint diagonal hatch over the fill so they read
+as "waiting" distinctly from the dependency-conflict ring. New `ganttAxis.test.ts` (pure
+unit) + TimelinePage zoom tests.
 
 **Status legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ---
 
-## Next up — Slice 7: Zoom levels (day/week/month)
+## Next up — Slice 8: Global planning surface + calendar view
 
-Day/week/month zoom on the timeline axis, plus blocked-task visualization polish.
-The renderer is a single CSS grid keyed off `--gantt-cols` and the per-bar
-`gridColumn` math in `GanttChart`, so a zoom level is a different day→column
-bucketing of the same `buildGanttModel` bars — still no third-party library, still
-no scheduling math in the frontend.
+A cross-project timeline (every project's scheduled work on one axis) and the
+calendar variant — reuse the existing `/calendar` work where possible. The Gantt
+renderer, `buildGanttModel`, and the new `ganttAxis` zoom bucketing are all
+project-agnostic, so the main new work is the multi-project data shape and a
+project-grouping/coloring pass over the bars — still no scheduling math in the
+frontend.
 
 > Known a11y gap (slices 2 & 3): drag is the **only** UI that writes
 > `scheduled_start`, and the right-edge handle the **only** one that writes
@@ -109,7 +122,13 @@ no scheduling math in the frontend.
       persisted (new `preview_shifts`). The chart overlays the returned starts; **Apply**
       commits via the ordinary task PATCH (which cascades for real), **Discard** drops it.
       No new frontend date math. New `useWhatIf` hook + `previewWhatIf` API.
-- [ ] **7. Zoom levels (day/week/month)** — plus blocked-task visualization polish.
+- [x] **7. Zoom levels (day/week/month)** — shipped. A Day/Week/Month segmented control
+      re-buckets the same date-space bars into day/ISO-week/calendar-month columns via a
+      new pure, unit-tested `ganttAxis.ts` (`buildAxis` → columns + `columnOf` map +
+      `daysPerColumn`); `GanttChart` places everything through `columnOf` (no new frontend
+      date math). Drag/resize stay day-resolution by scaling the measured column width by
+      `daysPerColumn`. Blocked-bar polish: a diagonal hatch over the fill. New
+      `ganttAxis.test.ts` + TimelinePage zoom tests.
 - [ ] **8. Global planning surface + calendar view** — cross-project timeline and the
       calendar variant (reuse the existing `/calendar` work where possible).
 - [ ] **9. Drag from the unscheduled bucket onto the chart** — schedule a task that has

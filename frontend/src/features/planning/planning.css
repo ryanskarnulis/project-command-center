@@ -14,6 +14,57 @@
   gap: 16px;
 }
 
+/* Header controls: zoom segmented control + what-if toggle, right-aligned. */
+.timeline-controls {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* --- Zoom levels (Slice 7) --- */
+
+.gantt-zoom {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.gantt-zoom-btn {
+  padding: 6px 12px;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gantt-zoom-btn:first-child {
+  border-left: none;
+}
+
+.gantt-zoom-btn:hover {
+  color: var(--text-h);
+}
+
+.gantt-zoom-btn.is-active {
+  background: var(--blue);
+  color: #fff;
+}
+
+/* Wider min column at coarser zoom so the multi-day labels ("Jun 8", "Jan") fit. */
+.gantt.gantt-zoom-week {
+  --gantt-day-w: 64px;
+}
+
+.gantt.gantt-zoom-month {
+  --gantt-day-w: 56px;
+}
+
 .whatif-toggle {
   flex: 0 0 auto;
   padding: 6px 14px;
@@ -316,6 +367,8 @@
 }
 
 .gantt-bar-text {
+  position: relative; /* above the blocked-bar ::before hatch */
+  z-index: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -332,6 +385,21 @@
 .gantt-bar.tone-blocked {
   background: var(--orange);
   color: #5b3c00;
+}
+
+/* Blocked bars read as "waiting on something" via a faint diagonal hatch over the
+   fill — distinct from the dependency-conflict ring, which is about bad ordering. */
+.gantt-bar.tone-blocked::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(91, 60, 0, 0.18) 0 4px,
+    transparent 4px 8px
+  );
+  pointer-events: none;
 }
 
 .gantt-bar.tone-blocking {
