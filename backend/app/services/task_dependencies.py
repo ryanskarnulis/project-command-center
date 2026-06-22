@@ -154,6 +154,28 @@ def blocked_task_ids(db: Session, task_ids: Sequence[int]) -> set[int]:
     return set(rows)
 
 
+def edges_among_tasks(db: Session, task_ids: Sequence[int]) -> list[TaskDependency]:
+    """Active edges whose *both* endpoints are in ``task_ids`` (one query).
+
+    Scoped to the supplied task set so the planning payload only draws links
+    between tasks it actually renders (a dependency pointing outside the project's
+    accepted/not-done set has no bar to attach to). Ordered by id for stability.
+    """
+    ids = set(task_ids)
+    if not ids:
+        return []
+    return list(
+        db.execute(
+            active(TaskDependency)
+            .where(TaskDependency.task_id.in_(ids))
+            .where(TaskDependency.depends_on_task_id.in_(ids))
+            .order_by(TaskDependency.id)
+        )
+        .scalars()
+        .all()
+    )
+
+
 def top_level_blocker_counts(db: Session, task_ids: Sequence[int]) -> dict[int, int]:
     """Top-level blockers in ``task_ids`` mapped to downstream blocked counts.
 

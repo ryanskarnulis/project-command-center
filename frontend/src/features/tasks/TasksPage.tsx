@@ -23,6 +23,7 @@ import type {
 import { compareTasks, dueStatus } from '../../utils/dates'
 import { parseDurationInput } from '../../utils/duration'
 import { ActivityFeed } from '../projects/ActivityFeed'
+import { ProjectTabs } from '../projects/ProjectTabs'
 import { KanbanBoard } from './KanbanBoard'
 import { TaskCard } from './TaskCard'
 import { buildTaskTree } from './taskTree'
@@ -593,6 +594,7 @@ export function TasksPage() {
         </p>
       )}
       <h1>{isGlobal ? 'Open Tasks' : 'Tasks'}</h1>
+      {!isGlobal && id !== undefined && <ProjectTabs projectId={id} />}
 
       <div className="task-toolbar">
         <button type="button" onClick={() => updateTaskQuery({ addingTask: true })}>

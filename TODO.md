@@ -11,8 +11,13 @@ until promoted.
 
 ## Next sprint (proposed): pick from backlog
 
-Blocking-task emphasis shipped (README Sprint 16 / DONE.md). No slice is currently
-promoted — pick the next strongest themed group from the backlog below when ready.
+**Drag-to-reschedule** — slice 2 of the re-decomposed planning view (see "Planning view
+(Gantt/calendar)" below). Slice 1 (the static read-only Gantt) shipped in Sprint 17, so the
+`GanttChart` renderer, `ganttModel`, the `/projects/:id/timeline` route, and the
+`scheduled_start` column + PATCH plumbing are all in place. This slice makes the bars
+draggable horizontally: a drag sets `scheduled_start` via the existing task PATCH, with an
+optimistic move + revert-on-error + toast. (The abandoned `useDragReschedule` had a
+`ToastApi.showToast` bug; rebuild against the real toast API.)
 
 ---
 
@@ -109,19 +114,39 @@ promoted — pick the next strongest themed group from the backlog below when re
       the dashboard "Upcoming Events" tile (now real: soonest-due tasks + a real
       **View calendar** link), not the global nav. No schema/migration, no model call,
       no new dependency. NOT external Google/iCal sync (stays on the do-not-build list).
-- [ ] **Calendar/Gantt planning view** — add a project-aware planning surface with
-      calendar and Gantt views, available globally and for an individual project.
-      Tasks can be dragged in either view to update scheduled/due dates, and Gantt
-      bars can be extended to update the task estimate. If a parent task's estimate
-      is currently derived from subtask estimates, prompt before clearing or
-      overriding conflicting subtask estimates. Dependency scheduling should be
-      first-class: when a task date changes inside a dependency tree, downstream
-      dependent tasks automatically shift according to the dependency graph, using
-      Python service-layer rules rather than frontend-only date math. Include a
-      what-if mode for unsaved schedule experiments, dependency lines with conflict
-      warnings and an autofix action, a today marker, blocked-task visualization,
-      day/week/month-style zoom levels, and an unscheduled bucket for tasks with no
-      due date or estimate that can be dragged onto the Gantt/calendar to plan them.
+- **Planning view (Gantt/calendar)** — the old single "Calendar/Gantt planning view"
+      bullet was an epic (~8 features in one) and the first build attempt sprawled, so it's
+      split into the ordered, individually-shippable slices below. Decision: render with a
+      **custom CSS/SVG Gantt**, not a third-party library (the frappe-gantt attempt was
+      abandoned — vanilla-JS imperative lib, wrong shape for React, styling un-tameable).
+      Each slice is a vertical slice with at least one happy-path test.
+  - [x] **1. Static read-only project Gantt (custom renderer)** — shipped (README
+        Sprint 17). Per-project Timeline tab + `/projects/:id/timeline`; `GanttChart`
+        custom CSS-grid renderer (day axis, weekend/today shading, today marker,
+        absolutely-positioned bars from `scheduled_start` + `estimated_minutes` via
+        `ganttModel.ts`, status/blocked/blocking colors + conflict outlines, per-bar
+        due-date marker); loading/empty via `AsyncState`; display-only unscheduled
+        bucket. Shared `ProjectTabs` mounted on all three project routes. Read-only —
+        no drag (slice 2).
+  - [ ] **2. Drag-to-reschedule** — horizontal bar drag sets `scheduled_start` via the
+        existing task PATCH; optimistic move + revert-on-error + toast. (The abandoned
+        `useDragReschedule` had a `ToastApi.showToast` bug; rebuild against the real API.)
+  - [ ] **3. Bar-resize to edit estimate** — drag a bar's right edge to change
+        `estimated_minutes`; prompt before overriding a parent estimate derived from
+        subtask estimates.
+  - [ ] **4. Dependency lines + conflict warnings + autofix** — SVG overlay arrows between
+        dependent bars; flag violations (dependent starts before its blocker ends); offer an
+        autofix action.
+  - [ ] **5. Python dependency auto-shift (service layer)** — when a task date changes
+        inside a dependency tree, downstream dependents shift per the graph. Pure Python in
+        `services/planning.py` with tests; first-class, not frontend date math.
+  - [ ] **6. What-if mode** — staged, unsaved schedule experiments computed through the
+        same Python shift rules, with commit/discard.
+  - [ ] **7. Zoom levels (day/week/month)** — plus blocked-task visualization polish.
+  - [ ] **8. Global planning surface + calendar view** — cross-project timeline and the
+        calendar variant (reuse the existing `/calendar` work where possible).
+  - [ ] **9. Drag from the unscheduled bucket onto the chart** — schedule a task that has
+        no due date or estimate by dragging it in.
 - [ ] **Project phases** — add first-class project phase/grouping support for
       planning views, including collapse/expand behavior in the Gantt chart and
       phase-level summary bars derived from the earliest child start through the

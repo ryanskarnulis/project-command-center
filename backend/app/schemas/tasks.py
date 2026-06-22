@@ -47,6 +47,10 @@ class TaskUpdate(BaseModel):
     workflow_status: TaskWorkflowStatus | None = None
     priority: TaskPriority | None = None
     due_date: date | None = None
+    # Planning/Gantt slice: accepted now (via the shared PATCH route's
+    # exclude_unset) but not yet written by the UI — the drag-to-reschedule slice
+    # wires it. Absent = untouched; explicit null clears the placement.
+    scheduled_start: date | None = None
     project_id: int | None = None
     parent_task_id: int | None = None
     estimated_minutes: PositiveMinutes | None = None
@@ -106,6 +110,7 @@ class TaskRead(BaseModel):
     workflow_status: TaskWorkflowStatus
     priority: TaskPriority
     due_date: date | None
+    scheduled_start: date | None = None
     estimated_minutes: int | None
     repeat_interval: RepeatInterval | None
     recurrence_id: str | None

@@ -18,6 +18,7 @@ import { TaskCard } from '../tasks/TaskCard'
 import { SubtaskGroup } from '../tasks/SubtaskGroup'
 import { buildTaskTree } from '../tasks/taskTree'
 import { ActivityFeed } from './ActivityFeed'
+import { ProjectTabs } from './ProjectTabs'
 
 interface ProjectDraft {
   source: string
@@ -279,6 +280,8 @@ export function ProjectDetailPage() {
         )}
         {saveError && <p role="alert" className="error">{saveError}</p>}
       </section>
+
+      <ProjectTabs projectId={project.id} />
 
       <section className="task-detail-panel task-description-panel">
         <div className="task-section-heading">

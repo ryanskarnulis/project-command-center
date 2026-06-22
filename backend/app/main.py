@@ -14,6 +14,7 @@ from app.api import (
     routes_calendar,
     routes_discord,
     routes_inbox,
+    routes_planning,
     routes_projects,
     routes_search,
     routes_settings,
@@ -41,6 +42,7 @@ api_router.include_router(routes_trash.router)
 api_router.include_router(routes_search.router)
 api_router.include_router(routes_today.router)
 api_router.include_router(routes_calendar.router)
+api_router.include_router(routes_planning.router)
 
 
 @asynccontextmanager

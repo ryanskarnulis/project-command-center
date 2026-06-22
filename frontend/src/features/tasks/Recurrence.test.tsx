@@ -43,6 +43,7 @@ const baseTask: Task = {
   workflow_status: 'open',
   priority: 'medium',
   due_date: '2026-06-01',
+  scheduled_start: null,
   estimated_minutes: null,
   repeat_interval: { unit: 'week', every: 1 },
   recurrence_id: 'series-abc',

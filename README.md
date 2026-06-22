@@ -709,6 +709,22 @@ Sprint 16: [DONE] Blocking-task emphasis — `TaskRead` now carries derived
            `GET /api/tasks/{id}/dependents`. Tests were added/updated, but per
            user request were not run here. No migration, Alembic, model/provider,
            prompt/eval, AI training-data, or dependency change.
+Sprint 17: [DONE] Static read-only project Gantt (slice 1 of the re-decomposed
+           planning view) — a custom CSS-grid/SVG-free Gantt, no third-party
+           library. Backend (already in tree): `tasks.scheduled_start` column +
+           migration, read-only `GET /api/projects/{id}/gantt`
+           (`services/planning.py` gathers accepted, not-done tasks + the
+           dependency edges between them; bar geometry is derived client-side),
+           and `test_planning.py`. Frontend: per-project Timeline tab +
+           `/projects/:id/timeline` route, `buildGanttModel` (pure
+           state→bars mapping, unit-tested), and the `GanttChart` renderer —
+           one CSS grid spanning a day-axis, weekend/today shading, a today
+           marker, status/blocked/blocking bar colors, conflict outlines, a
+           per-bar due-date marker, and a display-only unscheduled bucket.
+           Read-only — no drag/resize/dependency-lines (later slices). The
+           shared `ProjectTabs` strip (Overview · Tasks · Timeline) was mounted
+           on all three project routes. No model call, eval/prompt, or new
+           dependency.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```

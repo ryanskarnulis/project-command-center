@@ -23,6 +23,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     workflow_status: 'open',
     priority: 'high',
     due_date: '2026-06-15',
+    scheduled_start: null,
     estimated_minutes: null,
     repeat_interval: null,
     recurrence_id: null,
