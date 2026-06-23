@@ -21,17 +21,23 @@ MINUTES_PER_DAY = 480  # 8h * 60 — mirrors ganttModel.MINUTES_PER_DAY
 
 
 def gantt_tasks(db: Session, project_id: int) -> Sequence[Task]:
-    """Accepted, not-done tasks for the project (subtasks included)."""
+    """Accepted, not-done top-level tasks for the project (subtasks excluded).
+
+    Subtasks roll their estimate and status up into their parent, so the parent
+    bar already represents them — surfacing the children too just clutters the
+    timeline (see plan). The Tasks list still shows the full hierarchy.
+    """
     return tasks_service.list_tasks(
         db,
         project_id,
         review_status=TaskReviewStatus.accepted,
         exclude_done=True,
+        top_level_only=True,
     )
 
 
 def all_gantt_tasks(db: Session) -> Sequence[Task]:
-    """Accepted, not-done tasks across *every* project (subtasks included).
+    """Accepted, not-done top-level tasks across *every* project (subtasks excluded).
 
     The cross-project counterpart of ``gantt_tasks`` for the global planning
     surface — ``list_tasks`` with ``project_id=None`` spans all active projects.
@@ -41,6 +47,7 @@ def all_gantt_tasks(db: Session) -> Sequence[Task]:
         None,
         review_status=TaskReviewStatus.accepted,
         exclude_done=True,
+        top_level_only=True,
     )
 
 
@@ -197,14 +204,16 @@ def preview_shifts(
     tasks = gantt_tasks(db, project_id)
     edges = gantt_dependencies(db, tasks)
     override_by_id = {o.task_id: o for o in overrides}
+    # Base each span on the rolled-up estimate (the value the bar is drawn from), so
+    # the preview matches the committed cascade — see ``_apply_cascade``.
+    rollups = tasks_service.compute_rollups(db, tasks)
 
     placements: dict[int, Placement] = {}
     for task in tasks:
+        rolled_estimate = rollups[task.id].estimated_minutes
         override = override_by_id.get(task.id)
         if override is None:
-            placements[task.id] = Placement(
-                task.scheduled_start, task.estimated_minutes
-            )
+            placements[task.id] = Placement(task.scheduled_start, rolled_estimate)
             continue
         placements[task.id] = Placement(
             override.scheduled_start
@@ -212,7 +221,7 @@ def preview_shifts(
             else task.scheduled_start,
             override.estimated_minutes
             if override.estimated_minutes is not None
-            else task.estimated_minutes,
+            else rolled_estimate,
         )
 
     edge_pairs = [(edge.task_id, edge.depends_on_task_id) for edge in edges]
@@ -253,8 +262,15 @@ def cascade_from_task(db: Session, changed_task: Task) -> list[int]:
 def _apply_cascade(db: Session, tasks: Sequence[Task]) -> list[int]:
     """Run ``compute_shifts`` over ``tasks`` and persist the shifts; return ids."""
     edges = gantt_dependencies(db, tasks)
+    # Span the bar by its *rolled-up* estimate, not the raw column. A task with
+    # subtasks has its estimate derived from them (``compute_rollups``); that is the
+    # value the Gantt bar is drawn from, so the cascade must use the same one or it
+    # schedules against a span the user never sees — e.g. a parent whose raw column
+    # still holds an old 960 (2 days) but whose subtasks roll up to a 1-day bar, which
+    # would wrongly block a dependent from moving up against the visible bar end.
+    rollups = tasks_service.compute_rollups(db, tasks)
     placements = {
-        task.id: Placement(task.scheduled_start, task.estimated_minutes)
+        task.id: Placement(task.scheduled_start, rollups[task.id].estimated_minutes)
         for task in tasks
     }
     shifts = compute_shifts(

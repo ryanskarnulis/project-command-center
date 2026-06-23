@@ -64,6 +64,51 @@ def test_gantt_returns_accepted_not_done_for_project(
     assert placed_read["scheduled_start"] == "2026-06-20"
 
 
+def test_gantt_excludes_subtasks_keeps_parent(
+    client: TestClient, db_session: Session
+) -> None:
+    # Subtasks roll up into their parent, so only the top-level parent bar should
+    # appear on the timeline — the child is excluded from the payload.
+    project = _project(db_session, "Rollup")
+    parent = _task(
+        db_session,
+        project,
+        "parent",
+        scheduled_start=date(2026, 6, 20),
+    )
+    _task(
+        db_session,
+        project,
+        "child",
+        scheduled_start=date(2026, 6, 21),
+        parent_task_id=parent,
+    )
+
+    response = client.get(f"/api/projects/{project}/gantt")
+
+    assert response.status_code == 200
+    assert [t["id"] for t in response.json()["tasks"]] == [parent]
+
+
+def test_global_gantt_excludes_subtasks(
+    client: TestClient, db_session: Session
+) -> None:
+    project = _project(db_session, "Rollup")
+    parent = _task(db_session, project, "parent", scheduled_start=date(2026, 6, 20))
+    _task(
+        db_session,
+        project,
+        "child",
+        scheduled_start=date(2026, 6, 21),
+        parent_task_id=parent,
+    )
+
+    response = client.get("/api/planning/gantt")
+
+    assert response.status_code == 200
+    assert [t["id"] for t in response.json()["tasks"]] == [parent]
+
+
 def test_gantt_excludes_soft_deleted(
     client: TestClient, db_session: Session
 ) -> None:
@@ -270,6 +315,44 @@ def test_patch_estimate_extends_bar_and_cascades(
 
     starts = _starts(client, project)
     assert starts[b] == "2026-06-23"
+
+
+def test_cascade_spans_blocker_by_rolled_up_estimate_not_raw_column(
+    client: TestClient, db_session: Session
+) -> None:
+    # Regression: a blocker with subtasks spans the *rolled-up* estimate (the value
+    # its bar is drawn from), not its raw ``estimated_minutes`` column. Here the raw
+    # column still holds 960 (2 days, ending the 24th) but the accepted subtasks have
+    # no estimate, so the parent rolls up to a 1-day bar ending the 23rd. A dependent
+    # must be allowed to start the 24th (right after the *visible* bar end); the old
+    # cascade read the raw 960 and wrongly snapped it back to the 25th.
+    project = _project(db_session, "Rollup cascade")
+    blocker = _task(
+        db_session,
+        project,
+        "blocker",
+        scheduled_start=date(2026, 6, 23),
+        estimated_minutes=960,
+    )
+    _task(db_session, project, "blocker child", parent_task_id=blocker)
+    dependent = _task(
+        db_session, project, "dependent", scheduled_start=date(2026, 6, 25)
+    )
+    deps_service.add_dependency(db_session, dependent, blocker)
+    db_session.commit()
+
+    # Pull the dependent up to the 24th — the day right after the rolled-up bar ends.
+    response = client.patch(
+        f"/api/tasks/{dependent}", json={"scheduled_start": "2026-06-24"}
+    )
+    assert response.status_code == 200
+
+    starts = _starts(client, project)
+    assert starts[dependent] == "2026-06-24"
+
+    # And the 23rd is still forbidden (would start on the blocker's last day).
+    client.patch(f"/api/tasks/{dependent}", json={"scheduled_start": "2026-06-23"})
+    assert _starts(client, project)[dependent] == "2026-06-24"
 
 
 def test_patch_unrelated_field_does_not_cascade(

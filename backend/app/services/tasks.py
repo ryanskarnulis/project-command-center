@@ -227,6 +227,7 @@ def list_tasks(
     review_status: TaskReviewStatus | None = None,
     workflow_status: TaskWorkflowStatus | None = None,
     exclude_done: bool = False,
+    top_level_only: bool = False,
 ) -> Sequence[Task]:
     query = active(Task).order_by(Task.id)
     if project_id is not None:
@@ -237,6 +238,8 @@ def list_tasks(
         query = query.where(Task.workflow_status == workflow_status)
     elif exclude_done:
         query = query.where(Task.workflow_status != TaskWorkflowStatus.done)
+    if top_level_only:
+        query = query.where(Task.parent_task_id.is_(None))
     return db.execute(query).scalars().all()
 
 

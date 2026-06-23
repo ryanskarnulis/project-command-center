@@ -16,7 +16,7 @@ import './planning.css'
  * frontend only refetches to surface the shifts.
  */
 export function GlobalPlanningPage() {
-  const { data, loading, error, reschedule, resize } = useGlobalGantt()
+  const { data, loading, error, reschedule, unschedule, resize } = useGlobalGantt()
   const [zoom, setZoom] = useState<ZoomLevel>('day')
 
   const model = useMemo(() => (data ? buildGanttModel(data) : null), [data])
@@ -86,6 +86,8 @@ export function GlobalPlanningPage() {
             onReschedule={reschedule}
             onResize={resize}
             onAutofix={reschedule}
+            onSchedule={reschedule}
+            onUnschedule={unschedule}
           />
         )}
       </AsyncState>

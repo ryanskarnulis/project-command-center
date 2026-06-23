@@ -161,6 +161,67 @@ describe('TimelinePage drag-to-reschedule', () => {
   })
 })
 
+describe('TimelinePage unschedule', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetProject.mockResolvedValue({
+      id: 1,
+      name: 'Launch',
+      description: null,
+      system_key: null,
+      created_at: '2026-06-01T00:00:00Z',
+      updated_at: '2026-06-01T00:00:00Z',
+    } as Awaited<ReturnType<typeof getProject>>)
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  it('clicking the unschedule control clears both dates so the task buckets', async () => {
+    // A remaining due_date would back-schedule into a bar, so unschedule clears it
+    // too — otherwise the task never reaches the unscheduled bucket.
+    // Initial load: one scheduled bar. The post-PATCH refetch returns it cleared,
+    // so it lands in the unscheduled bucket.
+    mockGetGantt
+      .mockResolvedValueOnce({
+        tasks: [
+          task({
+            id: 7,
+            scheduled_start: '2026-06-20',
+            due_date: '2026-06-25',
+            estimated_minutes: 60,
+          }),
+        ],
+        dependencies: [],
+      })
+      .mockResolvedValue({
+        tasks: [task({ id: 7, scheduled_start: null, due_date: null })],
+        dependencies: [],
+      })
+    mockUpdateTask.mockResolvedValue(
+      task({ id: 7, scheduled_start: null, due_date: null }),
+    )
+
+    renderTimeline()
+    const control = await screen.findByRole('button', { name: 'Unschedule task' })
+    fireEvent.click(control)
+
+    await waitFor(() => {
+      expect(mockUpdateTask).toHaveBeenCalledWith(7, {
+        scheduled_start: null,
+        due_date: null,
+      })
+    })
+    expect(await screen.findByText('Task unscheduled')).toBeInTheDocument()
+    // The bar is gone and the task now sits in the unscheduled bucket.
+    await waitFor(() => {
+      expect(document.querySelector('.gantt-bar')).toBeNull()
+    })
+    expect(document.querySelector('.gantt-unscheduled-item')).toHaveTextContent(
+      'Task 7',
+    )
+  })
+})
+
 describe('TimelinePage what-if mode (Slice 6)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -320,5 +381,95 @@ describe('TimelinePage zoom levels', () => {
         scheduled_start: '2026-06-03',
       })
     })
+  })
+})
+
+describe('TimelinePage drag from the unscheduled bucket (Slice 9)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetProject.mockResolvedValue({
+      id: 1,
+      name: 'Launch',
+      description: null,
+      system_key: null,
+      created_at: '2026-06-01T00:00:00Z',
+      updated_at: '2026-06-01T00:00:00Z',
+    } as Awaited<ReturnType<typeof getProject>>)
+    // One scheduled bar 06-20 -> 06-22 (3 day columns) gives the grid an axis;
+    // one unscheduled task lands in the side bucket.
+    mockGetGantt.mockResolvedValue({
+      tasks: [
+        task({ id: 7, scheduled_start: '2026-06-20', estimated_minutes: 480 * 3 }),
+        task({ id: 9, title: 'No dates' }),
+      ],
+      dependencies: [],
+    })
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  /** Give each background column a distinct 50px-wide rect: col i = [i*50, i*50+50). */
+  function stubColumnRects(): void {
+    const cells = document.querySelectorAll('.gantt-col-bg')
+    cells.forEach((cell, i) => {
+      ;(cell as HTMLElement).getBoundingClientRect = () =>
+        ({ left: i * 50, right: i * 50 + 50, width: 50, top: 0, bottom: 34, x: i * 50, y: 0, height: 34, toJSON: () => {} }) as DOMRect
+    })
+  }
+
+  async function dragBucketItemTo(clientX: number) {
+    const item = await waitFor(() => {
+      const el = document.querySelector('.gantt-unscheduled-item')
+      if (!el) throw new Error('no unscheduled item yet')
+      return el as HTMLElement
+    })
+    stubColumnRects()
+    fireEvent.pointerDown(item, { button: 0, clientX: 0, clientY: 0 })
+    fireEvent.pointerMove(window, { clientX, clientY: 0 })
+    fireEvent.pointerUp(window, { clientX, clientY: 0 })
+  }
+
+  it('PATCHes scheduled_start to the dropped column date', async () => {
+    mockUpdateTask.mockResolvedValue(task({ id: 9, scheduled_start: '2026-06-21' }))
+
+    renderTimeline()
+    // Drop over column index 1 ([50,100)) -> 2026-06-21.
+    await dragBucketItemTo(75)
+
+    await waitFor(() => {
+      expect(mockUpdateTask).toHaveBeenCalledWith(9, {
+        scheduled_start: '2026-06-21',
+      })
+    })
+    expect(await screen.findByText('Task rescheduled')).toBeInTheDocument()
+  })
+
+  it('does not PATCH when dropped off the grid columns', async () => {
+    renderTimeline()
+    await dragBucketItemTo(9999)
+
+    await waitFor(() => {
+      // settle: the bar exists so the page is rendered
+      expect(document.querySelector('.gantt-unscheduled-item')).toBeTruthy()
+    })
+    expect(mockUpdateTask).not.toHaveBeenCalled()
+  })
+
+  it('stages via what-if instead of PATCHing when what-if mode is on', async () => {
+    mockPreviewWhatIf.mockResolvedValue({
+      shifts: [{ task_id: 9, scheduled_start: '2026-06-21' }],
+    })
+
+    renderTimeline()
+    const toggle = await screen.findByRole('button', { name: 'What-if mode' })
+    fireEvent.click(toggle)
+    await dragBucketItemTo(75)
+
+    await waitFor(() => {
+      expect(mockPreviewWhatIf).toHaveBeenCalledWith(1, [
+        { task_id: 9, scheduled_start: '2026-06-21' },
+      ])
+    })
+    expect(mockUpdateTask).not.toHaveBeenCalled()
   })
 })

@@ -1,4 +1,8 @@
-# Current focus — Planning view (Gantt/calendar)
+# Planning view (Gantt/calendar) — COMPLETE
+
+> **Status: shipped.** All 9 slices below are done (Sprints 17–24, archived in
+> `DONE.md`). This file is kept as the slice-by-slice design log for the epic. There
+> is no active focus — see `TODO.md` to promote the next piece of work.
 
 The old single "Calendar/Gantt planning view" bullet was an epic (~8 features in
 one) and the first build attempt sprawled, so it's split into the ordered,
@@ -83,13 +87,19 @@ the existing `/calendar` view (out of scope). New `useGlobalGantt` hook + `getGl
 
 ---
 
-## Next up — Slice 9: Drag from the unscheduled bucket onto the chart
-
-Schedule a task that has no start or due date by dragging it from the side
-"Unscheduled" bucket onto a chart column — setting `scheduled_start` (and, if it
-has no estimate, a default 1-day span) via the existing task PATCH. Extends the
-existing drag gesture from bar-to-bar movement to bucket-to-grid placement; still
-no scheduling math in the frontend.
+**Slice 9 (Drag from the unscheduled bucket)** is now shipped — the last queued slice,
+so the planning-view epic is **complete**. An "Unscheduled" item now drags from the side
+bucket onto a chart column to set its `scheduled_start` to that column's date via the
+existing task PATCH. It mirrors the bar-drag pointer-event lifecycle (the codebase opts out
+of native HTML5 DnD), but where bar-drag computes a *delta*, a bucket drop is *absolute*: a
+pure `columnAtClientX` hit-tests the drop x against the rendered `.gantt-col-bg` cells and
+reads the landed column's own `iso` — no date math in the frontend (CLAUDE.md prime directive
+#1). No estimate is written: a `null` estimate already renders a 1-day bar via `spanDays`'s
+floor-of-1, so the "default 1-day span" is emergent (no backend change). Scheduling *is*
+setting `scheduled_start`, so it reuses `useProjectGantt.reschedule` (optimistic + revert +
+toast + refetch) — and what-if staging works for free via `whatIf.stageStart`. New
+`useBucketDrag` hook + `columnAtClientX` (pure, unit-tested) + a floating drag ghost and
+drop-target column highlight. New `useBucketDrag.test.ts` + TimelinePage bucket-drag tests.
 
 > Known a11y gap (slices 2 & 3): drag is the **only** UI that writes
 > `scheduled_start`, and the right-edge handle the **only** one that writes
@@ -150,5 +160,13 @@ no scheduling math in the frontend.
       to span projects (`cascade_from_task`), so a cross-project dependent shifts when its blocker
       moves. The calendar variant stays the existing `/calendar` view. New `useGlobalGantt` +
       `getGlobalGantt` + `GlobalPlanningPage`; route + page + model tests.
-- [ ] **9. Drag from the unscheduled bucket onto the chart** — schedule a task that has
-      no due date or estimate by dragging it in.
+- [x] **9. Drag from the unscheduled bucket onto the chart** — shipped (last slice; epic
+      complete). An unscheduled item drags from the side bucket onto a chart column to set
+      `scheduled_start` to that column's date via the existing task PATCH. Mirrors the
+      bar-drag pointer-event lifecycle but with an *absolute* column hit-test (pure
+      `columnAtClientX` over the rendered `.gantt-col-bg` cells) instead of a delta — no
+      frontend date math. No estimate written: `spanDays`'s floor-of-1 makes the "default
+      1-day span" emergent (no backend change). Reuses `useProjectGantt.reschedule`
+      (optimistic + revert + toast + refetch); what-if staging works for free. New
+      `useBucketDrag` hook + drag ghost + drop-target highlight; `useBucketDrag.test.ts` +
+      TimelinePage bucket-drag tests.

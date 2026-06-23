@@ -6,6 +6,7 @@ import { buildAxis } from './ganttAxis'
 import type { ZoomLevel } from './ganttAxis'
 import { useDragReschedule } from './useDragReschedule'
 import { useBarResize } from './useBarResize'
+import { useBucketDrag } from './useBucketDrag'
 import { DependencyArrows } from './DependencyArrows'
 import { computeViolations, violatingDependentIds } from './dependencyConflicts'
 import { projectColorMap } from './projectColors'
@@ -37,6 +38,8 @@ export function GanttChart({
   onReschedule,
   onResize,
   onAutofix,
+  onSchedule,
+  onUnschedule,
 }: {
   model: GanttModel
   /** Day/week/month column bucketing of the same date-space bars (Slice 7). */
@@ -53,6 +56,10 @@ export function GanttChart({
   onResize?: (taskId: number, newMinutes: number) => void
   /** When provided, dependency conflicts get a one-click Fix (sets `scheduled_start`). */
   onAutofix?: (taskId: number, newStart: string) => void
+  /** When provided, unscheduled bucket items drag onto a column to set `scheduled_start`. */
+  onSchedule?: (taskId: number, newStart: string) => void
+  /** When provided, each bar gets a control to clear `scheduled_start` (take it off the timeline). */
+  onUnschedule?: (taskId: number) => void
 }) {
   const { bars, unscheduled } = model
   const gridRef = useRef<HTMLDivElement>(null)
@@ -79,6 +86,16 @@ export function GanttChart({
   const resizable = onResize !== undefined
 
   const axis = useMemo(() => buildAxis(bars, zoom), [bars, zoom])
+  // Bucket-to-grid placement (Slice 9): drag an unscheduled item onto a column to
+  // set its `scheduled_start` to that column's date. Hook stays mounted (no-op
+  // callback when read-only) so its listener lifecycle is stable; it reads the
+  // column geometry from the live grid, never computing dates here.
+  const {
+    onItemPointerDown,
+    dragState: bucketDrag,
+    justDraggedRef: justBucketDraggedRef,
+  } = useBucketDrag(gridRef, axis?.columns ?? [], onSchedule ?? (() => {}))
+  const schedulable = onSchedule !== undefined
   // When grouping by project, a project<->color map (for the bar accent) and a
   // project<->name map (for the section header). Empty when ungrouped.
   const colorByProject = useMemo(
@@ -106,7 +123,37 @@ export function GanttChart({
     return rows
   }, [bars, projects])
 
-  if (!axis) return null
+  // When there are no scheduled bars the axis is null (nothing to span), but the
+  // unscheduled bucket still needs to render (e.g. after unscheduling the last bar).
+  if (!axis) {
+    if (unscheduled.length === 0) return null
+    return (
+      <div className="gantt-wrap">
+        <div className="gantt-side">
+          <aside className="gantt-unscheduled" aria-label="Unscheduled tasks">
+            <h3>Unscheduled</h3>
+            <p className="gantt-unscheduled-hint">No start or due date yet.</p>
+            <ul>
+              {unscheduled.map((task) => (
+                <li key={task.id}>
+                  <Link
+                    to={`/tasks/${task.id}`}
+                    draggable={false}
+                    className={`gantt-unscheduled-item${schedulable ? ' is-draggable' : ''}`}
+                    onPointerDown={schedulable ? (e) => onItemPointerDown(task, e) : undefined}
+                  >
+                    <span className="gantt-unscheduled-title">{task.name}</span>
+                    {task.isBlocking && <span className="gantt-flag flag-blocking">Blocking</span>}
+                    {task.isBlocked && <span className="gantt-flag flag-blocked">Blocked</span>}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </aside>
+        </div>
+      </div>
+    )
+  }
 
   const { columns, columnOf, todayIdx, daysPerColumn } = axis
   const colCount = columns.length
@@ -143,7 +190,7 @@ export function GanttChart({
             key={`bg-${col.iso}`}
             className={`gantt-col-bg${col.isWeekend ? ' is-weekend' : ''}${
               i === todayIdx ? ' is-today' : ''
-            }`}
+            }${bucketDrag?.hoverCol === i ? ' is-drop-target' : ''}`}
             style={{ gridColumn: i + 2, gridRow: '2 / -1' }}
             aria-hidden="true"
           />
@@ -261,6 +308,23 @@ export function GanttChart({
                 }
               >
                 <span className="gantt-bar-text">{bar.name}</span>
+                {onUnschedule && (
+                  <button
+                    type="button"
+                    className="gantt-unschedule"
+                    aria-label="Unschedule task"
+                    title="Take off the timeline"
+                    // Don't let the press start a drag or navigate the bar link.
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      onUnschedule(bar.id)
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
                 {barResizable && (
                   <span
                     className="gantt-resize-handle"
@@ -326,7 +390,30 @@ export function GanttChart({
               <ul>
                 {unscheduled.map((task) => (
                   <li key={task.id}>
-                    <Link to={`/tasks/${task.id}`} className="gantt-unscheduled-item">
+                    <Link
+                      to={`/tasks/${task.id}`}
+                      // Anchors are natively draggable, which hijacks the pointer
+                      // stream so our window pointermove/up never fire. Opt out.
+                      draggable={false}
+                      className={`gantt-unscheduled-item${
+                        schedulable ? ' is-draggable' : ''
+                      }${bucketDrag?.taskId === task.id ? ' is-dragging' : ''}`}
+                      onPointerDown={
+                        schedulable ? (e) => onItemPointerDown(task, e) : undefined
+                      }
+                      onClick={
+                        schedulable
+                          ? (e) => {
+                              // Swallow the click that ends a real drag so it
+                              // doesn't navigate; a plain click falls through.
+                              if (justBucketDraggedRef.current) {
+                                e.preventDefault()
+                                justBucketDraggedRef.current = false
+                              }
+                            }
+                          : undefined
+                      }
+                    >
                       <span className="gantt-unscheduled-title">{task.name}</span>
                       {task.isBlocking && <span className="gantt-flag flag-blocking">Blocking</span>}
                       {task.isBlocked && <span className="gantt-flag flag-blocked">Blocked</span>}
@@ -336,6 +423,17 @@ export function GanttChart({
               </ul>
             </aside>
           )}
+        </div>
+      )}
+
+      {/* Floating ghost following the pointer while dragging a bucket item. */}
+      {bucketDrag && (
+        <div
+          className="gantt-drag-ghost"
+          style={{ left: bucketDrag.clientX, top: bucketDrag.clientY }}
+          aria-hidden="true"
+        >
+          {bucketDrag.name}
         </div>
       )}
     </div>

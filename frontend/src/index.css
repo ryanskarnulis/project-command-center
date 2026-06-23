@@ -1753,6 +1753,38 @@ kbd {
   border-color: var(--blue);
 }
 
+/* Project section nav (Overview / Tasks / Timeline): pill tabs modeled on the
+   settings nav, with a clear active state. React Router's NavLink adds `.active`. */
+.project-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.project-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 720;
+  text-decoration: none;
+}
+
+.project-tab:hover {
+  color: var(--text-h);
+  background: var(--surface-soft);
+}
+
+.project-tab.active {
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-color: var(--blue);
+}
+
 /* Ollama health panel: live connection state + re-check, above the section nav. */
 .settings-health {
   display: flex;

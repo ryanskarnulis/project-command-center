@@ -11,6 +11,8 @@ interface UseProjectGantt {
   error: string | null
   /** Optimistically move a task's bar, persist via PATCH, revert on error. */
   reschedule: (taskId: number, newStart: string) => Promise<void>
+  /** Optimistically clear a task's scheduled start (take it off the timeline). */
+  unschedule: (taskId: number) => Promise<void>
   /** Optimistically resize a task's estimate, persist via PATCH, revert on error. */
   resize: (taskId: number, newMinutes: number) => Promise<void>
   /** Re-fetch the planning payload (e.g. after a what-if commit persists changes). */
@@ -94,6 +96,38 @@ export function useProjectGantt(projectId: number): UseProjectGantt {
     [data, load, notify],
   )
 
+  const unschedule = useCallback(
+    async (taskId: number) => {
+      const snapshot = data
+      // Clear *both* the start and the due date: a remaining due_date would
+      // back-schedule the task into a bar (see `resolveSpan`), so it'd never reach
+      // the unscheduled bucket — which requires neither date. Optimistic so the bar
+      // drops off the timeline immediately; `buildGanttModel` re-buckets it.
+      setData((prev) =>
+        prev === null
+          ? prev
+          : {
+              ...prev,
+              tasks: prev.tasks.map((t) =>
+                t.id === taskId
+                  ? { ...t, scheduled_start: null, due_date: null }
+                  : t,
+              ),
+            },
+      )
+      try {
+        await updateTask(taskId, { scheduled_start: null, due_date: null })
+        notify('success', 'Task unscheduled')
+        // Reconcile derived flags (blocked/blocking, conflict) and any cascade.
+        load()
+      } catch (err: unknown) {
+        setData(snapshot)
+        notify('error', errorMessage(err, 'Failed to unschedule task'))
+      }
+    },
+    [data, load, notify],
+  )
+
   const resize = useCallback(
     async (taskId: number, newMinutes: number) => {
       const snapshot = data
@@ -129,5 +163,13 @@ export function useProjectGantt(projectId: number): UseProjectGantt {
 
   const refetch = useCallback(() => load(), [load])
 
-  return { data, loading: loadedId !== projectId, error, reschedule, resize, refetch }
+  return {
+    data,
+    loading: loadedId !== projectId,
+    error,
+    reschedule,
+    unschedule,
+    resize,
+    refetch,
+  }
 }

@@ -11,6 +11,8 @@ interface UseGlobalGantt {
   error: string | null
   /** Optimistically move a task's bar, persist via PATCH, revert on error. */
   reschedule: (taskId: number, newStart: string) => Promise<void>
+  /** Optimistically clear a task's scheduled start (take it off the timeline). */
+  unschedule: (taskId: number) => Promise<void>
   /** Optimistically resize a task's estimate, persist via PATCH, revert on error. */
   resize: (taskId: number, newMinutes: number) => Promise<void>
   /** Re-fetch the cross-project payload (e.g. to surface a cascaded shift). */
@@ -91,6 +93,35 @@ export function useGlobalGantt(): UseGlobalGantt {
     [data, load, notify],
   )
 
+  const unschedule = useCallback(
+    async (taskId: number) => {
+      const snapshot = data
+      // Clear both dates — a remaining due_date back-schedules into a bar, so the
+      // task would never reach the unscheduled bucket (which requires neither).
+      setData((prev) =>
+        prev === null
+          ? prev
+          : {
+              ...prev,
+              tasks: prev.tasks.map((t) =>
+                t.id === taskId
+                  ? { ...t, scheduled_start: null, due_date: null }
+                  : t,
+              ),
+            },
+      )
+      try {
+        await updateTask(taskId, { scheduled_start: null, due_date: null })
+        notify('success', 'Task unscheduled')
+        load()
+      } catch (err: unknown) {
+        setData(snapshot)
+        notify('error', errorMessage(err, 'Failed to unschedule task'))
+      }
+    },
+    [data, load, notify],
+  )
+
   const resize = useCallback(
     async (taskId: number, newMinutes: number) => {
       const snapshot = data
@@ -118,5 +149,5 @@ export function useGlobalGantt(): UseGlobalGantt {
 
   const refetch = useCallback(() => load(), [load])
 
-  return { data, loading: !loaded, error, reschedule, resize, refetch }
+  return { data, loading: !loaded, error, reschedule, unschedule, resize, refetch }
 }

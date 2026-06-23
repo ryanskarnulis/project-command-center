@@ -11,9 +11,10 @@ archived in `DONE.md`.
 
 ## Current focus
 
-The **Planning view (Gantt/calendar)** epic is the active work — see `CURRENT.md`.
-Slices 1–3 are shipped; the next slice is **Dependency lines + conflict warnings
-+ autofix** (slice 4). Everything below is unprioritized backlog until promoted.
+The **Planning view (Gantt/calendar)** epic is **complete** — all 9 slices shipped
+(see `CURRENT.md` for the slice log and `DONE.md` Sprints 17–24). There is no active
+focus; everything below is unprioritized backlog until promoted. Pick the next focus
+from the backlog and move it here when starting.
 
 ---
 
@@ -55,9 +56,6 @@ Slices 1–3 are shipped; the next slice is **Dependency lines + conflict warnin
 
 ### Security
 
-- [ ] Rotate Discord credentials — `backend/.env` holds a real `DISCORD_BOT_TOKEN` +
-      `BACKEND_SHARED_SECRET` (never committed — history is clean — but surfaced in
-      review). Regenerate both.
 - [ ] Rate limiting on model-calling endpoints (`/discord/inbox`, `/projects/{id}/summary`)
       — fine for single-user now; revisit if LAN exposure widens.
 

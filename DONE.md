@@ -977,3 +977,24 @@ change, eval change, prompt change, AI training-data change, or new dependency.
 - [x] Tests: `GlobalPlanningPage.test.tsx` (grouped sections, legend, drag-reschedule) +
       a `ganttModel` projectId test.
 - [x] The calendar variant was left to the existing `/calendar` view (out of scope).
+
+---
+
+## Sprint 24 — Drag from the unscheduled bucket
+> Goal: slice 9 of the planning view (the last queued slice — the planning-view epic is now **complete**). An unscheduled item drags from the side bucket onto a chart column to schedule it on that column's date.
+
+### Frontend
+- [x] `useBucketDrag` hook — mirrors the bar-drag pointer-event lifecycle (the codebase
+      opts out of native HTML5 DnD), but where bar-drag computes a *delta* a bucket drop is
+      *absolute*: it resolves the landed column on `pointerup` and schedules to that date.
+- [x] `columnAtClientX` (pure, unit-tested) — hit-tests the drop x against the rendered
+      `.gantt-col-bg` cells and reads the landed column's own `iso`, so no date math runs in
+      the frontend (prime directive #1).
+- [x] No estimate is written: a `null` estimate already renders a 1-day bar via `spanDays`'s
+      floor-of-1, so the default 1-day span is emergent — no backend change.
+- [x] Reuses `useProjectGantt.reschedule` (scheduling *is* setting `scheduled_start`):
+      optimistic + revert-on-error + toast + refetch; what-if staging works for free via
+      `whatIf.stageStart`.
+- [x] A floating drag ghost follows the pointer + a drop-target column highlight.
+- [x] Tests: `useBucketDrag.test.ts` + TimelinePage bucket-drag tests.
+- [x] FE-only — no schema/migration/model/eval/prompt/dependency change.

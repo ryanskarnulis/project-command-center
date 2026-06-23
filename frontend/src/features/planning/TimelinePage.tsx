@@ -21,7 +21,7 @@ export function TimelinePage() {
   const { projectId } = useParams<{ projectId: string }>()
   const id = Number(projectId)
 
-  const { data, loading, error, reschedule, resize, refetch } =
+  const { data, loading, error, reschedule, unschedule, resize, refetch } =
     useProjectGantt(id)
   const whatIf = useWhatIf(id, refetch)
   // Zoom is pure presentation — a different day->column bucketing of the same
@@ -142,6 +142,9 @@ export function TimelinePage() {
             onReschedule={whatIf.active ? whatIf.stageStart : reschedule}
             onResize={whatIf.active ? whatIf.stageEstimate : resize}
             onAutofix={whatIf.active ? whatIf.stageStart : reschedule}
+            onSchedule={whatIf.active ? whatIf.stageStart : reschedule}
+            // Hidden during what-if preview (consistent with the persist gating).
+            onUnschedule={whatIf.active ? undefined : unschedule}
           />
         )}
       </AsyncState>

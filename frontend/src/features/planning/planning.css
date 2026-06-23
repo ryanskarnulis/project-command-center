@@ -274,6 +274,12 @@
   border-left: 2px solid var(--blue);
 }
 
+/* Highlight the column under the pointer while dragging in a bucket item. */
+.gantt-col-bg.is-drop-target {
+  background: var(--blue-soft);
+  box-shadow: inset 0 0 0 2px var(--blue);
+}
+
 /* --- Row label cells (column 1) --- */
 
 .gantt-label {
@@ -364,6 +370,43 @@
 .gantt-bar.is-resizing {
   opacity: 0.85;
   z-index: 5;
+}
+
+/* Unschedule: a low-emphasis × revealed on bar hover/focus that clears
+   `scheduled_start`, taking the task off the timeline. Sits just left of the
+   resize handle's right-edge strip. `touch-action: none` so the press doesn't
+   start a scroll on touch/LAN devices. */
+.gantt-unschedule {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: none;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.gantt-bar:hover .gantt-unschedule,
+.gantt-unschedule:focus-visible {
+  opacity: 1;
+}
+
+.gantt-unschedule:hover {
+  background: rgba(0, 0, 0, 0.45);
 }
 
 .gantt-bar-text {
@@ -552,6 +595,35 @@
 
 .gantt-unscheduled-item:hover {
   border-color: var(--border-strong);
+}
+
+.gantt-unscheduled-item.is-draggable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.gantt-unscheduled-item.is-dragging {
+  cursor: grabbing;
+  opacity: 0.5;
+}
+
+/* Floating label that follows the pointer while a bucket item is dragged. */
+.gantt-drag-ghost {
+  position: fixed;
+  z-index: 50;
+  transform: translate(8px, 8px);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
+  font-size: 13px;
+  color: var(--text-h);
+  pointer-events: none;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gantt-unscheduled-title {

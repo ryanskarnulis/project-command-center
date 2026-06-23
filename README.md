@@ -805,6 +805,23 @@ Sprint 23: [DONE] Global cross-project planning surface (slice 8 of the planning
            tests for the global endpoint + cross-project cascade in `test_planning.py`,
            `GlobalPlanningPage.test.tsx` + a `ganttModel` projectId test. No
            schema/migration/model/eval/prompt change (reuses existing columns).
+Sprint 24: [DONE] Drag from the unscheduled bucket (slice 9 of the planning view —
+           the last queued slice, so the planning-view epic is COMPLETE). An
+           "Unscheduled" item now drags from the side bucket onto a chart column to
+           set its `scheduled_start` to that column's date via the existing task
+           PATCH. It mirrors the bar-drag pointer-event lifecycle (the codebase opts
+           out of native HTML5 DnD), but where bar-drag computes a *delta*, a bucket
+           drop is *absolute*: a pure `columnAtClientX` hit-tests the drop x against
+           the rendered `.gantt-col-bg` cells and reads the landed column's own `iso`
+           — no frontend date math (prime directive #1). No estimate is written: a
+           `null` estimate already renders a 1-day bar via `spanDays`'s floor-of-1, so
+           the default 1-day span is emergent (no backend change). Scheduling *is*
+           setting `scheduled_start`, so it reuses `useProjectGantt.reschedule`
+           (optimistic + revert + toast + refetch) and what-if staging works for free
+           via `whatIf.stageStart`. New `useBucketDrag` hook + `columnAtClientX`
+           (pure, unit-tested) + a floating drag ghost and drop-target column
+           highlight. New `useBucketDrag.test.ts` + TimelinePage bucket-drag tests.
+           FE-only; no schema/migration/model/eval/prompt/dependency change.
 Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
            (gated on 200+ training examples — the /training meter tracks this)
 ```
