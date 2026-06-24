@@ -56,7 +56,6 @@ const candidate: Task = {
   workflow_status: 'open',
   priority: 'medium',
   due_date: null,
-  scheduled_start: null,
   estimated_minutes: null,
   repeat_interval: null,
   recurrence_id: null,

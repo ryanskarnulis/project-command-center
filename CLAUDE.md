@@ -38,7 +38,6 @@ A local-first project and task management web app with AI-assisted task capture.
 - **API calls go through `src/api/`**, not inline in components. Components consume hooks; hooks call the API layer.
 - **Feature folders, not type folders.** `features/inbox/` contains its components, hooks, types. Don't scatter a feature across `components/`, `hooks/`, `types/`.
 - **No state library yet.** React state + context is enough. Don't pull in Redux/Zustand/Jotai until there's a real reason. If you think there's a reason, raise it first.
-- **No CSS framework yet** unless the user asks. Plain CSS modules or vanilla CSS. Keep it boring.
 
 ## AI subsystem rules
 

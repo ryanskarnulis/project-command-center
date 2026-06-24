@@ -19,14 +19,9 @@ from app.schemas.tasks import (
     TaskUpdate,
 )
 from app.services import breakdown as breakdown_service
-from app.services import planning as planning_service
 from app.services import projects as projects_service
 from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
-
-# Patch fields that move a task's Gantt bar (its start or its span), so changing
-# one triggers the downstream dependency auto-shift (Slice 5).
-_PLACEMENT_FIELDS = {"scheduled_start", "estimated_minutes"}
 
 logger = structlog.get_logger(__name__)
 
@@ -274,19 +269,9 @@ def update_task(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
 
-    # When a placement input (start or estimate) changed, cascade the move through
-    # the dependency graph so no downstream dependent starts before its blocker
-    # finishes. Server-side and first-class (CLAUDE.md prime directive #1) — the
-    # frontend just refetches the gantt to see the shifted bars.
-    # The cascade spans all projects: a dependency can cross project boundaries, so
-    # the downstream dependent that must shift may live in a different project.
-    shifted: list[int] = []
-    if _PLACEMENT_FIELDS & fields.keys():
-        shifted = planning_service.cascade_from_task(db, updated)
-
     db.commit()
     db.refresh(updated)
-    logger.info("task_updated", task_id=updated.id, shifted_dependents=len(shifted))
+    logger.info("task_updated", task_id=updated.id)
     return _read_with_blocked(db, updated)
 
 

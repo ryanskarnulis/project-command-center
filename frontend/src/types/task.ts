@@ -22,9 +22,6 @@ export interface Task {
   workflow_status: TaskWorkflowStatus
   priority: TaskPriority
   due_date: string | null
-  // Planning/Gantt slice: the day a task's bar starts (YYYY-MM-DD), or null when
-  // not explicitly placed. Bar length is derived from `estimated_minutes`.
-  scheduled_start: string | null
   estimated_minutes: number | null
   repeat_interval: RepeatInterval | null
   recurrence_id: string | null
@@ -111,9 +108,6 @@ export interface TaskUpdate {
   workflow_status?: TaskWorkflowStatus
   priority?: TaskPriority
   due_date?: string | null
-  // Planning/Gantt slice: accepted by the API but not yet written by the UI (the
-  // drag-to-reschedule slice wires it). Omitted = untouched; null clears it.
-  scheduled_start?: string | null
   project_id?: number | null
   parent_task_id?: number | null
   estimated_minutes?: number | null

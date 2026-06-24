@@ -2,7 +2,7 @@
 
 Outstanding work for Project Command Center. No sprint numbers — everything below
 is **backlog**, grouped by theme. The single exception is the **current focus**,
-which lives in `CURRENT.md` (the Planning view / Gantt slices). Completed work is
+which lives in `CURRENT.md`. Completed work is
 archived in `DONE.md`.
 
 **Status legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
@@ -11,8 +11,7 @@ archived in `DONE.md`.
 
 ## Current focus
 
-The **Planning view (Gantt/calendar)** epic is **complete** — all 9 slices shipped
-(see `CURRENT.md` for the slice log and `DONE.md` Sprints 17–24). There is no active
+There is no active
 focus; everything below is unprioritized backlog until promoted. Pick the next focus
 from the backlog and move it here when starting.
 
@@ -36,11 +35,7 @@ from the backlog and move it here when starting.
 
 ### Features
 
-- [ ] **Project phases** — add first-class project phase/grouping support for
-      planning views, including collapse/expand behavior in the Gantt chart and
-      phase-level summary bars derived from the earliest child start through the
-      latest child due date. Keep this separate from task nesting unless the service
-      model says phases should literally be parent tasks.
+
 
 ### Discord (follow-ups)
 

@@ -5,7 +5,6 @@ import { CommandSearch } from '../features/search/CommandSearch'
 import {
   Bot,
   Box,
-  CalendarRange,
   ChevronDown,
   ClipboardCheck,
   FolderKanban,
@@ -24,7 +23,6 @@ interface AppShellProps {
 const primaryNav = [
   { to: '/dashboard', label: 'Command Center', icon: LayoutDashboard },
   { to: '/projects', label: 'Projects', icon: FolderKanban },
-  { to: '/planning', label: 'Planning', icon: CalendarRange },
   { to: '/training', label: 'Training', icon: ClipboardCheck },
 ]
 

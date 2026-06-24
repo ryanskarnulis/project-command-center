@@ -1,172 +1,147 @@
-# Planning view (Gantt/calendar) — COMPLETE
+# Project phases — CURRENT FOCUS
 
-> **Status: shipped.** All 9 slices below are done (Sprints 17–24, archived in
-> `DONE.md`). This file is kept as the slice-by-slice design log for the epic. There
-> is no active focus — see `TODO.md` to promote the next piece of work.
-
-The old single "Calendar/Gantt planning view" bullet was an epic (~8 features in
-one) and the first build attempt sprawled, so it's split into the ordered,
-individually-shippable slices below. Each slice is a vertical slice with at least
-one happy-path test.
-
-**Decision:** render with a **custom CSS/SVG Gantt**, not a third-party library.
-The frappe-gantt attempt was abandoned — vanilla-JS imperative lib, wrong shape
-for React, styling un-tameable.
-
-**Shipped so far:** Slice 1 (static read-only project Gantt) landed in Sprint 17
-(see `DONE.md`). The `GanttChart` renderer, `ganttModel`, the
-`/projects/:id/timeline` route, and the `scheduled_start` column + PATCH plumbing
-are all in place. **Slice 2 (drag-to-reschedule)** is now shipped: bars drag
-horizontally to set `scheduled_start` via the existing PATCH, with an optimistic
-move, revert-on-error, and a toast (`useDragReschedule` gesture hook +
-`useProjectGantt.reschedule`). **Slice 3 (bar-resize to edit estimate)** is now
-shipped: a right-edge handle on each bar drags to set `estimated_minutes` (one
-day-column = 480 min, min 1 day) via the existing PATCH, with optimistic resize,
-revert-on-error, and a toast. Parent bars (whose estimate is a server rollup of
-their subtasks) expose **no** resize handle — a tooltip says the estimate rolls
-up from subtasks — since a parent estimate is not directly settable. New
-`useBarResize` gesture hook + `useProjectGantt.resize`. **Slice 4 (dependency
-lines + conflict warnings + autofix)** is now shipped: an SVG overlay draws
-finish-to-start arrows between dependent bars (measured from the rendered rects so
-they track flexing columns + horizontal scroll); a dependent scheduled on or
-before its blocker finishes is flagged (red arrow + a warning ring on the bar) and
-listed in a Conflicts panel with a one-click **Fix** that nudges its
-`scheduled_start` to `blocker.end + 1` via the existing `reschedule` PATCH (one
-task, one PATCH — no cascade, that is Slice 5). New `dependencyConflicts.ts` (pure,
-unit-tested) + `DependencyArrows.tsx` overlay. **Slice 5 (Python dependency
-auto-shift)** is now shipped: changing a task's `scheduled_start` or
-`estimated_minutes` via the task PATCH cascades the move through the dependency
-graph server-side, pushing every downstream dependent forward just enough that none
-starts on or before a blocker finishes (the generalization of Slice 4's single-task
-Fix). Pure, side-effect-free `compute_shifts` (topological walk, finish-to-start
-`blocker.end + 1`, unscheduled tasks neither move nor anchor) in
-`services/planning.py`, applied in one transaction by `cascade_downstream` and
-fired from `routes_tasks.update_task` only when a placement field changed. The
-timeline's existing post-PATCH refetch surfaces the shifted bars — no new frontend
-date math (CLAUDE.md prime directive #1). New `test_planning_shift.py` (pure unit)
-+ route-level cascade tests in `test_planning.py`. **Slice 6 (What-if mode)** is now
-shipped: a "What-if mode" toggle on the timeline turns drag/resize/Fix into *staged*
-changes rather than persisting them. Each stage POSTs the override set to
-`POST /api/projects/{id}/gantt/what-if`, which layers the overrides onto the real
-placements and runs the *same* pure `compute_shifts` the committed cascade uses —
-read-only, nothing persisted (new side-effect-free `preview_shifts` in
-`services/planning.py`, the read-side twin of `cascade_downstream`). The chart
-overlays the returned starts so the hypothetical schedule renders in place; **Apply**
-commits each staged change via the ordinary task PATCH (which cascades for real),
-**Discard** drops it. No new frontend date math — every previewed start comes from
-Python. New `useWhatIf` hook + `previewWhatIf` API; route-level preview tests in
-`test_planning.py` + TimelinePage what-if tests. **Slice 7 (Zoom levels)** is now
-shipped: a Day/Week/Month segmented control on the timeline re-buckets the *same*
-date-space bars into day, ISO-week (Monday-anchored), or calendar-month columns. The
-bucketing lives entirely in a new pure, unit-tested `ganttAxis.ts` (`buildAxis` →
-ordered columns + a clamped `columnOf(iso)` date→column map + `daysPerColumn`);
-`GanttChart` places every bar/due-marker/today-cell through `columnOf` instead of raw
-day math, so no scheduling logic moved to the frontend (CLAUDE.md prime directive #1 —
-this is presentation). Drag/resize stay **day-resolution** at every zoom: the gesture
-hooks divide the measured column width by `daysPerColumn`, so dragging 3/7 of a week
-column moves a bar exactly 3 days (browser-verified Jun 23→26 at week zoom). Blocked
-bars also got a visualization polish — a faint diagonal hatch over the fill so they read
-as "waiting" distinctly from the dependency-conflict ring. New `ganttAxis.test.ts` (pure
-unit) + TimelinePage zoom tests. **Slice 8 (Global cross-project planning surface)** is
-now shipped: a new top-level `/planning` route renders every project's accepted, not-done
-scheduled work on one shared axis, with bars grouped into labeled per-project sections and
-colored by project. A new `GET /api/planning/gantt` returns a `GlobalGantt` (tasks across all
-projects + the edges among them, which may cross project boundaries + a `projects` legend) via
-a new `all_gantt_tasks`; the renderer, `buildGanttModel`, and `ganttAxis` were already
-project-agnostic, so the new work was the multi-project data shape, a `projectId` carried onto
-each bar/unscheduled item, and a project grouping/coloring pass (new pure `projectColors.ts`).
-Drag/resize reuse the same task PATCH; the dependency auto-shift cascade was generalized to
-span projects (new `cascade_from_task` replacing the project-scoped `cascade_downstream`), so a
-dependent in another project now shifts when its blocker moves — the post-PATCH refetch surfaces
-it (no new frontend date math, CLAUDE.md prime directive #1). The calendar variant was left to
-the existing `/calendar` view (out of scope). New `useGlobalGantt` hook + `getGlobalGantt` API +
-`GlobalPlanningPage`; route tests for the global endpoint + cross-project cascade in
-`test_planning.py`, `GlobalPlanningPage.test.tsx`, + a `ganttModel` projectId test.
+> Promoted from the `TODO.md` backlog ("Features → Project phases") now that the
+> Planning view (Gantt/calendar) epic is complete (Sprints 17–24). First-class
+> phase/grouping support for tasks, surfaced in the planning views with
+> collapse/expand and phase-level summary bars. Like the planning epic, this is
+> split into ordered, individually-shippable **vertical** slices — each one ships
+> UI → API → DB → UI with at least one happy-path test. **Slice 1 is the next
+> sprint (Sprint 25).**
 
 **Status legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ---
 
-**Slice 9 (Drag from the unscheduled bucket)** is now shipped — the last queued slice,
-so the planning-view epic is **complete**. An "Unscheduled" item now drags from the side
-bucket onto a chart column to set its `scheduled_start` to that column's date via the
-existing task PATCH. It mirrors the bar-drag pointer-event lifecycle (the codebase opts out
-of native HTML5 DnD), but where bar-drag computes a *delta*, a bucket drop is *absolute*: a
-pure `columnAtClientX` hit-tests the drop x against the rendered `.gantt-col-bg` cells and
-reads the landed column's own `iso` — no date math in the frontend (CLAUDE.md prime directive
-#1). No estimate is written: a `null` estimate already renders a 1-day bar via `spanDays`'s
-floor-of-1, so the "default 1-day span" is emergent (no backend change). Scheduling *is*
-setting `scheduled_start`, so it reuses `useProjectGantt.reschedule` (optimistic + revert +
-toast + refetch) — and what-if staging works for free via `whatIf.stageStart`. New
-`useBucketDrag` hook + `columnAtClientX` (pure, unit-tested) + a floating drag ghost and
-drop-target column highlight. New `useBucketDrag.test.ts` + TimelinePage bucket-drag tests.
+## What a "phase" is
 
-> Known a11y gap (slices 2 & 3): drag is the **only** UI that writes
-> `scheduled_start`, and the right-edge handle the **only** one that writes
-> `estimated_minutes` from the timeline — no keyboard/non-drag path for either.
-> The Slice 4 **Fix** button is a non-drag path that writes `scheduled_start`, but
-> only for conflict resolution — the general a11y gap remains. Flagged for a later
-> a11y pass.
+A **phase** is a named, ordered grouping of tasks **within one project** — e.g.
+"Discovery", "Build", "Launch". It is a planning lens, not a scheduling primitive:
+the app still owns all dates and the dependency cascade (CLAUDE.md prime
+directive #1). A phase has no dates of its own — its bar on the Gantt is a
+**derived summary** spanning its member tasks.
+
+## Decisions (read before building)
+
+1. **Phases are a first-class `phases` table, NOT parent tasks.** The `TODO.md`
+   entry says keep phases separate from task nesting "unless the service model
+   says phases should literally be parent tasks." They don't: a phase groups tasks
+   that already nest (a task in a phase can still have subtasks), phases are flat
+   (no phase-in-phase), and a phase carries ordering + a project scope a task
+   parent doesn't. So: a new `phases` table + a nullable `tasks.phase_id` FK.
+   Reusing `parent_task_id` would conflate two orthogonal trees.
+
+2. **Phases are project-scoped and ordered.** `phases.project_id` (FK) +
+   `phases.position` (int) for explicit ordering. A task's `phase_id`, when set,
+   **must point to a phase in the task's own project** — guarded in Python (422 on
+   mismatch), the same posture as the parent-cycle guard.
+
+3. **Phase summary geometry is presentation, derived client-side.** Bar geometry
+   already lives in the pure, unit-tested `ganttModel.ts` (the read-only display
+   rule: *scheduling* is Python, *bar drawing* is frontend). A phase summary bar
+   spans **earliest member-bar start → latest member-bar end**, computed by a new
+   pure `phaseSummary()` there. *(Deviation from the TODO's "earliest start through
+   latest due date" wording: a summary should visually encompass the bars it
+   summarizes; stopping at the latest due date would leave longer-estimate bars
+   poking past the summary. Flagging this — revert to due-date if preferred.)*
+   Phase **identity, order, and membership** come from the backend; only the
+   span math is frontend.
+
+4. **Deleting a phase rehomes its tasks to "ungrouped" (`phase_id = NULL`).**
+   Soft-delete the phase row, NULL out member `phase_id`s in the same transaction
+   — mirrors the project-delete → rehome-to-General pattern. No task is lost or
+   hidden; it just falls into the "No phase" group.
+
+5. **Subtasks inherit their parent's `phase_id` at create-time only.** Same rule
+   as project/priority/due-date inheritance in `create_task` — a sensible default
+   the caller can override; re-phasing a parent later never clobbers children.
+
+6. **AI-free.** No model call, no eval case, no prompt. This is pure
+   app-owns-the-logic CRUD + presentation.
 
 ---
 
-## Remaining slices
+## Slice 1 — Phase model + management *(Sprint 25 — the next sprint)*
 
-- [x] **1. Static read-only project Gantt (custom renderer)** — shipped, Sprint 17.
-- [x] **2. Drag-to-reschedule** — shipped. Horizontal bar drag sets `scheduled_start`
-      via the existing task PATCH; optimistic move + revert-on-error + toast. New
-      `useDragReschedule` gesture hook (measures the flexing day-column width from the
-      DOM) + `useProjectGantt.reschedule`; rebuilt against the real `useToast` API.
-- [x] **3. Bar-resize to edit estimate** — shipped. A right-edge handle drags to set
-      `estimated_minutes` (one day-column = 480 min, min 1 day) via the existing task
-      PATCH; optimistic resize + revert-on-error + toast. Parent bars expose no handle
-      (their estimate is a server rollup of subtasks, not directly settable) — a tooltip
-      explains why. New `useBarResize` gesture hook
-      (mirrors `useDragReschedule`) + `useProjectGantt.resize`.
-- [x] **4. Dependency lines + conflict warnings + autofix** — shipped. SVG overlay draws
-      finish-to-start arrows between dependent bars (geometry measured from the rendered
-      rects, so they track the flexing day columns + horizontal scroll). A dependent
-      scheduled on or before its blocker finishes is flagged (red arrow + bar warning ring)
-      and listed in a Conflicts panel with a one-click **Fix** that sets its
-      `scheduled_start` to `blocker.end + 1` via the existing `reschedule` PATCH (one task,
-      one PATCH — no cascade). New `dependencyConflicts.ts` (pure, unit-tested) +
-      `DependencyArrows.tsx`.
-- [x] **5. Python dependency auto-shift (service layer)** — shipped. Changing a task's
-      `scheduled_start`/`estimated_minutes` via the task PATCH cascades the shift through
-      the dependency graph server-side: a pure, unit-tested `compute_shifts` (topological,
-      finish-to-start `blocker.end + 1`, unscheduled tasks excluded) applied in one
-      transaction by `cascade_downstream`, fired from `routes_tasks.update_task`. The
-      timeline's existing post-PATCH refetch surfaces the moved bars (no new frontend date
-      math). New `test_planning_shift.py` + route-level cascade tests.
-- [x] **6. What-if mode** — shipped. A "What-if mode" toggle turns drag/resize/Fix into
-      *staged* changes: each stage POSTs the override set to
-      `POST /api/projects/{id}/gantt/what-if`, which runs the *same* pure `compute_shifts`
-      over the real placements with the overrides layered on — read-only, nothing
-      persisted (new `preview_shifts`). The chart overlays the returned starts; **Apply**
-      commits via the ordinary task PATCH (which cascades for real), **Discard** drops it.
-      No new frontend date math. New `useWhatIf` hook + `previewWhatIf` API.
-- [x] **7. Zoom levels (day/week/month)** — shipped. A Day/Week/Month segmented control
-      re-buckets the same date-space bars into day/ISO-week/calendar-month columns via a
-      new pure, unit-tested `ganttAxis.ts` (`buildAxis` → columns + `columnOf` map +
-      `daysPerColumn`); `GanttChart` places everything through `columnOf` (no new frontend
-      date math). Drag/resize stay day-resolution by scaling the measured column width by
-      `daysPerColumn`. Blocked-bar polish: a diagonal hatch over the fill. New
-      `ganttAxis.test.ts` + TimelinePage zoom tests.
-- [x] **8. Global planning surface** — shipped. A `/planning` route renders every project's
-      accepted, not-done scheduled work on one shared axis, bars grouped into labeled per-project
-      sections and colored by project. New `GET /api/planning/gantt` → `GlobalGantt` (tasks +
-      cross-project edges + a `projects` legend) via `all_gantt_tasks`; `projectId` carried onto
-      each bar + a grouping/coloring pass (`projectColors.ts`). The PATCH cascade was generalized
-      to span projects (`cascade_from_task`), so a cross-project dependent shifts when its blocker
-      moves. The calendar variant stays the existing `/calendar` view. New `useGlobalGantt` +
-      `getGlobalGantt` + `GlobalPlanningPage`; route + page + model tests.
-- [x] **9. Drag from the unscheduled bucket onto the chart** — shipped (last slice; epic
-      complete). An unscheduled item drags from the side bucket onto a chart column to set
-      `scheduled_start` to that column's date via the existing task PATCH. Mirrors the
-      bar-drag pointer-event lifecycle but with an *absolute* column hit-test (pure
-      `columnAtClientX` over the rendered `.gantt-col-bg` cells) instead of a delta — no
-      frontend date math. No estimate written: `spanDays`'s floor-of-1 makes the "default
-      1-day span" emergent (no backend change). Reuses `useProjectGantt.reschedule`
-      (optimistic + revert + toast + refetch); what-if staging works for free. New
-      `useBucketDrag` hook + drag ghost + drop-target highlight; `useBucketDrag.test.ts` +
-      TimelinePage bucket-drag tests.
+Stand up phases end-to-end **without** touching the Gantt yet: create/order/rename/
+delete phases on a project, assign tasks to them, see the grouping in the task
+list. This is the foundation Slices 2–3 render.
+
+**Backend**
+- [ ] `phases` table — `id`, `project_id` (FK → projects), `name`, `position` (int),
+      `TimestampMixin` + `SoftDeleteMixin` (`deleted_at`, soft-delete like every
+      user-facing table). `tasks.phase_id` — nullable FK → phases, `default=None`.
+- [ ] **Alembic migration** (`alembic revision --autogenerate`, review before apply)
+      — creates `phases` + adds `tasks.phase_id`. One migration, schema-only.
+- [ ] `services/phases.py` (one responsibility — phase things only): `list_phases`
+      (project-scoped, `active()`, ordered by `position`), `create_phase` (appends
+      at next position), `rename_phase`, `reorder_phases` (set positions from an
+      ordered id list), `delete_phase` (soft-delete + NULL member `phase_id`s in one
+      transaction). Activity-log the lifecycle via `services/activity.py` like
+      projects/tasks do.
+- [ ] Guard in `services/tasks.update_task`: setting `phase_id` to a phase outside
+      the task's project → raise → `422` (new `PhaseProjectMismatchError`, mapped in
+      the route). `phase_id` added to the `update_task` field whitelist.
+- [ ] `create_task`: seed `phase_id` from the parent when a subtask omits it
+      (create-time only), alongside the existing project/priority/due inheritance.
+- [ ] Schemas: `PhaseCreate` / `PhaseUpdate` / `PhaseRead` (+ `ReorderRequest`);
+      add `phase_id: int | None` to `TaskRead`, `TaskCreate`, `TaskUpdate`.
+- [ ] Routes (`api/routes_phases.py`): `GET /api/projects/{id}/phases`,
+      `POST /api/projects/{id}/phases`, `PATCH /api/phases/{id}` (rename),
+      `PATCH /api/projects/{id}/phases/reorder`, `DELETE /api/phases/{id}`
+      (soft-delete). Register the router in `main.py`.
+
+**Frontend**
+- [ ] `api/phases.ts` + a `Phase` type; a `usePhases(projectId)` hook.
+- [ ] Phase management on `ProjectDetailPage` — add / rename / reorder / delete,
+      reusing the existing inline-edit + confirm-before-delete patterns (mirrors the
+      alias-management UI from Sprint 9e).
+- [ ] A **Phase** dropdown (scoped to the task's project, "No phase" = null) in
+      `TaskFormModal` and on `TaskDetailPage`'s inline editor; a phase badge on
+      `TaskCard`.
+
+**Done when**
+- [ ] pytest: phase CRUD, ordered list, project-match guard (422), member rehome on
+      delete, subtask phase inheritance. Frontend: phase dropdown + management tests.
+- [ ] Migration committed; README schema section + sprint status updated.
+- [ ] No model/eval/prompt/dependency change.
+
+---
+
+## Slice 2 — Phases in the per-project Gantt *(next)*
+
+The planning payoff: group the per-project timeline by phase, draw a derived
+**summary bar** per phase, and collapse/expand each phase.
+
+- [ ] `ProjectGantt` payload gains `phases: list[GanttPhase]` (id, name, position);
+      `TaskRead.phase_id` already lands in Slice 1, so the renderer can group.
+- [ ] `ganttModel.ts`: group bars by phase (ordered by `position`; phase-less bars
+      in a synthetic "No phase" group, last) + a pure, unit-tested `phaseSummary()`
+      → `{ start, end }` (earliest member start → latest member end).
+- [ ] `GanttChart`: extend the existing `Row` union (`group | bar`) with a `phase`
+      header row carrying its summary bar; per-phase collapse/expand (collapsed →
+      only the summary bar; expanded → summary + member bars). Collapse state is
+      local UI state. The summary bar is read-only (derived — no drag/resize handle,
+      a tooltip explains why, mirroring the parent-bar resize opt-out).
+- [ ] Drag/resize/Fix/what-if all keep operating on member bars unchanged.
+- [ ] Tests: `ganttModel` grouping + `phaseSummary` unit tests; `TimelinePage`
+      collapse/expand + summary-render tests. Reuses the Slice-1 endpoint (only the
+      payload grows) — no schema change.
+
+---
+
+## Slice 3 — Phases on the global `/planning` surface *(later; may be deferred)*
+
+- [ ] `GlobalGantt` gains per-project `phases`; `GanttChart` grouping goes two-level
+      (project section → phase sub-rows → bars), with collapse/expand at both levels.
+- [ ] Tests for the nested grouping. Scope-check before starting — if Slice 2 lands
+      the value, this can stay backlog rather than sprawl.
+
+---
+
+## Out of scope for this epic
+
+- Phase-level dependencies or scheduling (phases have no stored dates; the task
+  dependency graph stays the unit of scheduling).
+- Phase templates / cross-project phase libraries.
+- Any AI involvement (no "suggest phases" workflow — that would be a separate,
+  later, training-data-bearing slice if ever).

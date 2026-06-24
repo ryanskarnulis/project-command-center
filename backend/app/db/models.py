@@ -106,11 +106,6 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     )
     priority: Mapped[TaskPriority] = mapped_column(default=TaskPriority.medium)
     due_date: Mapped[date | None] = mapped_column(default=None)
-    # Planning/Gantt slice: the day a task's bar starts on the timeline. Null = not
-    # explicitly placed; the Gantt back-schedules due-dated work onto the axis and
-    # leaves start/due-less tasks in the unscheduled bucket. Bar length is derived
-    # from ``estimated_minutes`` (8h/day) in the frontend, not stored here.
-    scheduled_start: Mapped[date | None] = mapped_column(default=None)
     # Rough effort estimate (Sprint 7 task-model slice). Stored as whole minutes;
     # the UI maps it to human labels. Feeds future scheduling/kanban (not built).
     estimated_minutes: Mapped[int | None] = mapped_column(default=None)
