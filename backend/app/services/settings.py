@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import structlog
 import yaml
@@ -46,13 +47,13 @@ _EVAL_SUITES: dict[str, Callable[[], list[dict[str, Any]]]] = {
 
 
 def _read_local() -> dict[str, dict[str, Any]]:
-    if gateway._LOCAL_PROFILES_PATH.exists():
-        return yaml.safe_load(gateway._LOCAL_PROFILES_PATH.read_text()) or {}
+    if gateway.local_profiles_path().exists():
+        return yaml.safe_load(gateway.local_profiles_path().read_text()) or {}
     return {}
 
 
 def _write_local(local: dict[str, dict[str, Any]]) -> None:
-    gateway._LOCAL_PROFILES_PATH.write_text(yaml.safe_dump(local, sort_keys=False))
+    gateway.local_profiles_path().write_text(yaml.safe_dump(local, sort_keys=False))
 
 
 def _profile_read(name: str, local: dict[str, dict[str, Any]]) -> ProfileRead:
@@ -71,7 +72,7 @@ def _profile_read(name: str, local: dict[str, dict[str, Any]]) -> ProfileRead:
 
 def list_profiles() -> list[ProfileRead]:
     local = _read_local()
-    return [_profile_read(name, local) for name in gateway._load_raw_merged()]
+    return [_profile_read(name, local) for name in gateway.load_raw_merged()]
 
 
 def update_profile(name: str, update: ProfileUpdate) -> ProfileRead:
@@ -80,7 +81,7 @@ def update_profile(name: str, update: ProfileUpdate) -> ProfileRead:
     Raises ``KeyError`` for an unknown profile (→ 404) and ``ValueError`` if the
     merged result wouldn't form a valid profile (→ 422).
     """
-    merged = gateway._load_raw_merged()
+    merged = gateway.load_raw_merged()
     if name not in merged:
         raise KeyError(name)
 
@@ -109,7 +110,7 @@ def reset_profile_overrides(name: str, field: str | None = None) -> ProfileRead:
     ``name``. No-op safe (returns the unchanged profile) when nothing is
     overridden. Raises ``KeyError`` for an unknown profile (→ 404).
     """
-    merged = gateway._load_raw_merged()
+    merged = gateway.load_raw_merged()
     if name not in merged:
         raise KeyError(name)
 
@@ -141,7 +142,7 @@ def _prompt_path(name: str) -> Path:
     """
     if name != Path(name).name:  # no separators / traversal
         raise KeyError(name)
-    path = gateway._PROMPTS_DIR / name
+    path = gateway.prompts_dir() / name
     if not path.is_file():
         raise KeyError(name)
     return path
@@ -150,7 +151,7 @@ def _prompt_path(name: str) -> Path:
 def list_prompts() -> list[PromptRead]:
     return [
         PromptRead(name=p.name, text=p.read_text())
-        for p in sorted(gateway._PROMPTS_DIR.glob("*.md"))
+        for p in sorted(gateway.prompts_dir().glob("*.md"))
     ]
 
 
@@ -176,7 +177,7 @@ def _snapshot_prompt(name: str, path: Path) -> None:
     colons) so the snapshot reads back as a normal file on every platform; the
     ``.history`` subdirectory is not matched by ``list_prompts``' ``*.md`` glob.
     """
-    history_dir = gateway._PROMPTS_DIR / ".history"
+    history_dir = gateway.prompts_dir() / ".history"
     history_dir.mkdir(parents=True, exist_ok=True)
     # Microsecond precision so two saves in the same second don't collide.
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S_%f")

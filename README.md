@@ -914,6 +914,17 @@ all dev processes in the foreground until `Ctrl-C`. It binds through the existin
 `.env` settings: `API_HOST` defaults to `127.0.0.1` for the backend, and
 `DEV_HOST` defaults to `127.0.0.1` for Vite.
 
+Backend dependencies are pinned for reproducibility: minimum versions live in
+`backend/pyproject.toml`, and exact, fully-resolved versions live in the committed
+`backend/requirements.lock`. Both `main.sh` and `test.sh` install with
+`pip install -e '.[dev]' -c requirements.lock` so a fresh `.venv` gets the locked
+versions (the frontend equivalent is `package-lock.json` + `npm ci`). After
+intentionally bumping a dependency, regenerate the lock from the updated venv:
+
+```
+cd backend && .venv/bin/python -m pip freeze --exclude-editable > requirements.lock
+```
+
 AI evals are opt-in for `test.sh` because they require Ollama and the configured
 local model. The default quality gate stays deterministic and does not hide known
 frontend flakes by skipping tests.
@@ -924,6 +935,12 @@ for both reads and writes. Settings writes remain localhost-only and return
 `403` from non-loopback clients, and Discord routes are protected by
 `BACKEND_SHARED_SECRET`. This is not multi-user auth; revisit real auth if the
 app is exposed beyond a trusted home LAN.
+
+The two routes that call Ollama — `POST /api/discord/inbox` and
+`GET /api/projects/{id}/summary` — are per-IP rate limited (in-process, no
+external dependency) to cap runaway model work. Tune via
+`RATE_LIMIT_DISCORD_INBOX_PER_MIN` (default 30) and `RATE_LIMIT_SUMMARY_PER_MIN`
+(default 20); a breach returns `429` with a `Retry-After` header.
 
 ### Backups (Sprint 6)
 

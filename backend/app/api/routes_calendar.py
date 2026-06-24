@@ -34,7 +34,7 @@ def calendar(
     """
     if end < start:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="end must be on or after start",
         )
     tasks = calendar_service.tasks_in_range(db, start, end)

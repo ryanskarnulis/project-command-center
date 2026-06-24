@@ -137,6 +137,20 @@ def test_dismiss_unknown_inbox_404(client: TestClient) -> None:
     assert client.delete("/api/inbox/424242").status_code == 404
 
 
+def test_process_upstream_failure_502(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(**_: object) -> str:
+        raise gateway.GatewayError("ollama unreachable")
+
+    monkeypatch.setattr(gateway, "complete", boom)
+    created = client.post("/api/inbox", json={"raw_text": "standup notes"})
+    inbox_id = created.json()["id"]
+
+    resp = client.post(f"/api/inbox/{inbox_id}/process")
+    assert resp.status_code == 502
+
+
 def test_create_inbox_strips_raw_text_and_rejects_blank(client: TestClient) -> None:
     created = client.post("/api/inbox", json={"raw_text": "  messy notes  "})
     assert created.status_code == 201

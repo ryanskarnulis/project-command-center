@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     # during testing. Global sync (when unset) can take up to ~an hour to appear.
     discord_guild_id: int | None = None
 
+    # Per-IP rate limits (requests/min) on the two routes that call Ollama, to
+    # cap runaway model work before wider LAN exposure. Tune via .env if needed.
+    rate_limit_discord_inbox_per_min: int = 30
+    rate_limit_summary_per_min: int = 20
+    rate_limit_inbox_process_per_min: int = 20
+    rate_limit_breakdown_per_min: int = 20
+
     # Explicit CORS allow-list (the local Vite dev server).
     cors_origins: list[str] = [
         "http://localhost:5173",

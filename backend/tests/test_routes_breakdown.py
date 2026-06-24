@@ -58,6 +58,19 @@ def test_break_down_route_invalid_output_422(
     assert resp.status_code == 422
 
 
+def test_break_down_route_upstream_failure_502(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(**_: object) -> str:
+        raise gateway.GatewayError("ollama unreachable")
+
+    monkeypatch.setattr(gateway, "complete", boom)
+    task_id = _make_task(db_session)
+
+    resp = client.post(f"/api/tasks/{task_id}/break-down")
+    assert resp.status_code == 502
+
+
 def test_break_down_route_404_for_missing_task(client: TestClient) -> None:
     assert client.post("/api/tasks/999999/break-down").status_code == 404
 

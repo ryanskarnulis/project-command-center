@@ -7,7 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from app.ai.gateway import GatewayError
 from app.ai.workflows import break_down_task as breakdown_workflow
+from app.api.rate_limit import rate_limit
 from app.db.models import Task, TaskReviewStatus, TaskWorkflowStatus
 from app.db.session import get_db
 from app.schemas.tasks import (
@@ -203,7 +205,15 @@ def list_subtasks(task_id: int, db: Session = Depends(get_db)) -> list[TaskRead]
     return _reads_with_blocked(db, tasks_service.list_subtasks(db, task_id))
 
 
-@router.post("/tasks/{task_id}/break-down", response_model=list[TaskRead])
+@router.post(
+    "/tasks/{task_id}/break-down",
+    response_model=list[TaskRead],
+    dependencies=[
+        Depends(
+            rate_limit("task_breakdown", per_min_attr="rate_limit_breakdown_per_min")
+        )
+    ],
+)
 def break_down_task(task_id: int, db: Session = Depends(get_db)) -> list[TaskRead]:
     """Suggest subtasks for a task via the model, as candidate children.
 
@@ -219,6 +229,13 @@ def break_down_task(task_id: int, db: Session = Depends(get_db)) -> list[TaskRea
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="The model returned an invalid breakdown",
+        ) from exc
+    except GatewayError as exc:
+        # Ollama unreachable / timeout: report an upstream failure, never a 500.
+        logger.error("breakdown_upstream_error", task_id=task_id, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="breakdown service unavailable — is Ollama running?",
         ) from exc
     logger.info(
         "task_broken_down", task_id=task_id, candidate_count=len(candidates)
@@ -260,6 +277,10 @@ def update_task(
 ) -> TaskRead:
     task = _get_task_or_404(db, task_id)
     fields = data.model_dump(exclude_unset=True)
+    # A non-null project_id must reference a real project (matches the POST routes).
+    # An explicit null is allowed — that un-files the task.
+    if fields.get("project_id") is not None:
+        _ensure_project(db, fields["project_id"])
     try:
         updated = tasks_service.update_task(db, task, fields)
     except tasks_service.TaskCycleError as exc:

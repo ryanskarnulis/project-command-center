@@ -334,13 +334,30 @@ class TestGetProjectSummary:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         def boom(**_: object) -> str:
-            raise RuntimeError("ollama not running")
+            raise gateway.GatewayError("ollama not running")
 
         monkeypatch.setattr(gateway, "complete", boom)
         p = _create_project(db_session, "Gamma")
 
         resp = client.get(f"/api/projects/{p.id}/summary")
         assert resp.status_code == 502
+
+    def test_unexpected_error_is_not_masked_as_502(
+        self,
+        client: TestClient,
+        db_session: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # A genuine bug in the summary path must surface as a 500, not be
+        # mislabeled as an upstream Ollama outage (502).
+        def boom(**_: object) -> str:
+            raise RuntimeError("bug in summary path")
+
+        monkeypatch.setattr(gateway, "complete", boom)
+        p = _create_project(db_session, "Delta")
+
+        with pytest.raises(RuntimeError):
+            client.get(f"/api/projects/{p.id}/summary")
 
     def test_excludes_non_accepted_tasks(
         self,

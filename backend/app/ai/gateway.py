@@ -4,6 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import httpx
 import structlog
 import yaml
 from pydantic import BaseModel
@@ -12,6 +13,18 @@ from app.ai.providers.base import BaseProvider, Message, ResponseMode
 from app.ai.providers.ollama import OllamaProvider
 
 logger = structlog.get_logger(__name__)
+
+
+class GatewayError(RuntimeError):
+    """An upstream model call failed (runtime unreachable, timeout, or a
+    malformed provider response).
+
+    Workflows let this propagate; the API layer catches it and returns a 502 so
+    a model-runtime outage is reported as an upstream failure, never as an
+    unhandled 500. It deliberately hides provider internals (``httpx`` errors)
+    from callers so routes don't couple to a particular provider.
+    """
+
 
 _PROFILES_PATH = Path(__file__).parent / "profiles.yaml"
 # Runtime overrides written by the settings UI. Gitignored; deep-merged over the
@@ -51,6 +64,20 @@ def _load_raw_merged() -> dict[str, dict[str, Any]]:
             merged.setdefault(name, {}).update(cfg)
 
     return merged
+
+
+# Public accessors for paths and merged data. Callers outside this module use
+# these instead of the private module-level names so layout changes stay local.
+def local_profiles_path() -> Path:
+    return _LOCAL_PROFILES_PATH
+
+
+def prompts_dir() -> Path:
+    return _PROMPTS_DIR
+
+
+def load_raw_merged() -> dict[str, dict[str, Any]]:
+    return _load_raw_merged()
 
 
 @lru_cache
@@ -122,11 +149,17 @@ def complete(
         {"role": "system", "content": _load_prompt(profile.system_prompt)},
         {"role": "user", "content": user_content},
     ]
-    return provider_cls().complete(
-        messages=messages,
-        model=model_override or profile.model,
-        temperature=profile.temperature,
-        max_tokens=profile.max_tokens,
-        response_mode=profile.response_mode,
-        json_schema=json_schema if profile.response_mode == "json_schema" else None,
-    )
+    try:
+        return provider_cls().complete(
+            messages=messages,
+            model=model_override or profile.model,
+            temperature=profile.temperature,
+            max_tokens=profile.max_tokens,
+            response_mode=profile.response_mode,
+            json_schema=json_schema if profile.response_mode == "json_schema" else None,
+        )
+    except (httpx.HTTPError, ValueError) as exc:
+        # The provider already logged the failure with model/duration context.
+        # Re-raise as a provider-agnostic GatewayError so routes can map an
+        # upstream outage to a 502 without depending on httpx.
+        raise GatewayError(str(exc)) from exc

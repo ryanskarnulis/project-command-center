@@ -363,6 +363,29 @@ def test_assignee_hint_set_on_create_and_update(client: TestClient) -> None:
     assert cleared.json()["assignee_hint"] is None
 
 
+def test_update_task_project_id_valid(client: TestClient, db_session: Session) -> None:
+    project = projects_service.create_project(db_session, name="Routers")
+    db_session.commit()
+
+    created = client.post("/api/tasks", json={"title": "Patch firmware"})
+    assert created.status_code == 201
+    task_id = created.json()["id"]
+
+    moved = client.patch(f"/api/tasks/{task_id}", json={"project_id": project.id})
+    assert moved.status_code == 200
+    assert moved.json()["project_id"] == project.id
+
+
+def test_update_task_rejects_nonexistent_project(client: TestClient) -> None:
+    created = client.post("/api/tasks", json={"title": "Patch firmware"})
+    assert created.status_code == 201
+    task_id = created.json()["id"]
+
+    rejected = client.patch(f"/api/tasks/{task_id}", json={"project_id": 999999})
+    assert rejected.status_code == 404
+    assert rejected.json()["detail"] == "Project not found"
+
+
 # --- Parent <- child roll-ups (Sprint VVV) ---------------------------------
 
 

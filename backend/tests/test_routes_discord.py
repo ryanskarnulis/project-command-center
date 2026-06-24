@@ -207,6 +207,24 @@ def test_discord_inbox_match_failure_is_nonfatal(
     ]
 
 
+def test_discord_inbox_upstream_failure_502(
+    client: TestClient,
+    with_secret: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(**_: object) -> str:
+        raise gateway.GatewayError("ollama unreachable")
+
+    monkeypatch.setattr(gateway, "complete", boom)
+
+    resp = client.post(
+        "/api/discord/inbox",
+        json={"raw_text": "firewall cleanup notes"},
+        headers=_HEADERS,
+    )
+    assert resp.status_code == 502
+
+
 def test_discord_inbox_idempotent(
     client: TestClient,
     with_secret: None,

@@ -11,13 +11,70 @@ archived in `DONE.md`.
 
 ## Current focus
 
-There is no active
-focus; everything below is unprioritized backlog until promoted. Pick the next focus
-from the backlog and move it here when starting.
+**Cleaning & hardening — manual review (round 2)** — findings from a full browser-driven QA
+pass of the running app on 2026-06-23 (drove every route in headless chromium; exercised
+drag, AI, and form flows). Triaged by severity. Fold these in before the cleanup work is
+committed/wrapped. _Severity: (high) user-facing breakage · (med) bug or confusing state ·
+(low) polish/docs._
+
+- [ ] **(high) Project "Timeline" tab is a dead link → app error page.** Every project page
+      (`features/projects/ProjectTabs.tsx`) still renders a **Timeline** tab linking to
+      `/projects/:id/timeline`, a route removed with the Gantt in commit `04dea44`
+      ("9: removed gantt"). Clicking it lands on React Router's default *"Unexpected
+      Application Error! / 404 Not Found / 💿 Hey developer"* page. Repro: open any project →
+      click Timeline. The removal commit cleaned the sidebar nav, routes, services, schemas,
+      and tests but missed this tab — drop the `NavLink`.
+- [ ] **(med) No app-level error boundary / catch-all route.** `routes/AppRoutes.tsx` defines
+      no `errorElement` and no `*` catch-all, so any unknown URL or thrown route error shows
+      the developer-facing default page to users. Repro: visit `/anything`. Add a friendly
+      `errorElement` (404 + recover link) and/or a `*` route. This is what makes the Timeline
+      bug above so ugly.
+- [ ] **(med) `formatDuration(0)` renders "0 weeks".** `utils/duration.ts` `splitDuration`
+      checks `minutes % WEEK === 0` first, which is true for 0, so any zero-minute duration
+      prints "0 weeks". Seen as "**0 weeks** planned of 6 hours capacity" in the Today
+      summary whenever nothing is scheduled. Special-case 0 → "0m".
+- [ ] **(med) Today empty-state copy contradicts the overflow list.** When 0 tasks fit but
+      overflow > 0, `features/today/TodayPage.tsx` shows *"No open tasks to schedule for this
+      day"* directly above a populated **"Didn't fit (N)"** section. Repro: /today with
+      capacity below the top-ranked task's estimate. When overflow > 0 the copy should say
+      something like "Nothing fit today's capacity — see below."
+- [ ] **(low) Greedy day-packing can read as a fully empty day — second look.**
+      `services/today.py` `_pack` intentionally stops at the first task that doesn't fit and
+      overflows the rest, so one oversized high-rank task (e.g. a 12h item under 6h capacity)
+      leaves smaller sub-capacity tasks unscheduled and the day showing 0 scheduled.
+      Documented as intended, but reads as broken; consider a hint ("your top task exceeds
+      capacity") or backfilling smaller tasks.
+- [ ] **(low) README sprint log is stale re: the removed Gantt.** README sprints 17–23 still
+      document the planning/Gantt feature (`/planning`, `/projects/:id/timeline`,
+      `GET /api/projects/{id}/gantt`, what-if, zoom) as `[DONE]`; the removal commit updated
+      CURRENT.md / TODO.md / CLAUDE.md but not README. Per CLAUDE.md's "done" criteria, the
+      sprint status should reflect the removal.
+- [ ] **(low) No persistent nav to Today / Calendar / Inbox / Tasks.** Sidebar primary nav is
+      only Command Center · Projects · Training; the other four routes are reachable only via
+      dashboard cards or direct URL. May be intentional (dashboard-as-hub) — worth a second
+      look.
+- [ ] **(low) Inert placeholder controls shipped in the UI.** "Customize Command Center" and
+      "Ask AI" (dashboard) plus "AI Assistant / Templates / Integrations / Help & Support"
+      (sidebar) render disabled. Consider hiding until built to avoid dead clicks.
+
+**Verified clean (no action):** all routes render with no console/network errors except the
+dead Timeline link above; Kanban drag works and the parent-task + blocked-dependency guards
+both hold (blocked→Done is rejected with a toast); AI capture review, project summary (live
+gemma4:e2b call), and the `/new` `/done` command palette all work; task-form validation
+(required title, invalid estimate) surfaces inline errors and creates nothing; soft-delete /
+Trash counts reconcile with the sidebar badge; `npm run build` (tsc) is green. _Not yet
+exercised (left for a deeper pass): Trash restore/purge round-trips, recurrence series
+actions, alias CRUD, project description unsaved-changes blocker._
+
+**Prior sprint (closed):** Cleanup & hardening — both remaining items (rate-limit coverage
+parity across the model-calling routes, and narrowing the summary route's exception
+handling) shipped; see `DONE.md`.
 
 ---
 
 ## Backlog
+
+*(Feature work — do not promote until the hardening sprint above is closed.)*
 
 ### Command Bar / Search
 
@@ -35,8 +92,6 @@ from the backlog and move it here when starting.
 
 ### Features
 
-
-
 ### Discord (follow-ups)
 
 - [ ] `/tasks` command — lists open tasks (optionally filtered to a project) without
@@ -48,30 +103,6 @@ from the backlog and move it here when starting.
       `POST /api/tasks/{id}/done` endpoint after resolving the task; add a
       `GET /api/discord/tasks/search?q=` helper for the bot to resolve the title to an ID
       first. If multiple matches, bot replies with a disambiguation list.
-
-### Security
-
-- [ ] Rate limiting on model-calling endpoints (`/discord/inbox`, `/projects/{id}/summary`)
-      — fine for single-user now; revisit if LAN exposure widens.
-
-### Code Quality
-
-- [ ] De-duplicate training capture — `review_inbox` and `_finalize_inbox` in
-      `services/review.py` share ~40 near-identical lines (activity events,
-      corrected-output dict, both `record_example` calls). Risky prime-directive-#4 code:
-      the paths can silently diverge. Extract `_write_training_examples(db, item, accepted)`
-      used by both.
-- [ ] Pin backend dependencies — `pyproject.toml` lists `fastapi`/`uvicorn`/`structlog`/etc
-      with no version constraints and no lockfile (frontend does this right: caret ranges +
-      committed `package-lock.json`). Add a lockfile (`uv` or `pip-tools`) for reproducible
-      installs.
-- [ ] Minor type/import tidy — import `Callable` from `collections.abc` (not `typing`) in
-      `services/settings.py:12`; drop the `# type: ignore[arg-type]` in
-      `services/review.py:346` via a `cast` to the `Literal`.
-- [!] Flaky `TaskDetailPage.test.tsx` — fails intermittently in the full `npm run test`
-      run but passes in isolation (`npm run test -- TaskDetailPage`). Pre-existing test
-      pollution / timing under parallel load — likely a leaked timer or unawaited state
-      update bleeding across tests.
 
 ### Deferred infra
 

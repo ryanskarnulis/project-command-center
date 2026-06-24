@@ -7,8 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from app.ai.gateway import GatewayError
 from app.ai.workflows import extract_tasks as extract_workflow
 from app.ai.workflows import match_project as match_workflow
+from app.api.rate_limit import rate_limit
 from app.db.models import InboxItem, Task, TaskReviewStatus
 from app.db.session import get_db
 from app.schemas.inbox import (
@@ -114,7 +116,17 @@ def purge_inbox(inbox_item_id: int, db: Session = Depends(get_db)) -> None:
     logger.info("inbox_purged", inbox_item_id=inbox_item_id)
 
 
-@router.post("/{inbox_item_id}/process", response_model=list[TaskRead])
+@router.post(
+    "/{inbox_item_id}/process",
+    response_model=list[TaskRead],
+    dependencies=[
+        Depends(
+            rate_limit(
+                "inbox_process", per_min_attr="rate_limit_inbox_process_per_min"
+            )
+        )
+    ],
+)
 def process_inbox(
     inbox_item_id: int, db: Session = Depends(get_db)
 ) -> Sequence[Task]:
@@ -128,6 +140,13 @@ def process_inbox(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="extraction validation failed",
         ) from None
+    except GatewayError as exc:
+        # Ollama unreachable / timeout: report an upstream failure, never a 500.
+        logger.error("extraction_upstream_error", inbox_item_id=item.id, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="extraction service unavailable — is Ollama running?",
+        ) from exc
 
     # Project matching is enrichment, not the core product: a failure here (bad
     # model output, Ollama unreachable) must not lose the extracted tasks, so it

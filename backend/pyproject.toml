@@ -3,25 +3,25 @@ name = "project-command-center-backend"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi",
-    "uvicorn[standard]",
-    "sqlalchemy>=2.0",
-    "alembic",
-    "pydantic>=2",
-    "pydantic-settings",
-    "structlog",
-    "httpx",
-    "pyyaml",
-    "discord.py>=2.3",
+    "fastapi>=0.136.3",
+    "uvicorn[standard]>=0.48.0",
+    "sqlalchemy>=2.0.50",
+    "alembic>=1.18.4",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.1",
+    "structlog>=25.5.0",
+    "httpx>=0.28.1",
+    "pyyaml>=6.0.3",
+    "discord.py>=2.7.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "pytest-asyncio",
-    "mypy",
-    "ruff",
-    "types-PyYAML",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
+    "mypy>=2.1.0",
+    "ruff>=0.15.14",
+    "types-PyYAML>=6.0.12.20260518",
 ]
 
 [tool.ruff]

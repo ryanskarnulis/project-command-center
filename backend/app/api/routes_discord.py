@@ -7,8 +7,10 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from app.ai.gateway import GatewayError
 from app.ai.workflows import extract_tasks as extract_workflow
 from app.ai.workflows import match_project as match_workflow
+from app.api.rate_limit import rate_limit
 from app.config import Settings, get_settings
 from app.db.models import InboxSource
 from app.db.session import get_db
@@ -50,7 +52,15 @@ def require_shared_secret(
 @router.post(
     "/inbox",
     response_model=DiscordInboxResponse,
-    dependencies=[Depends(require_shared_secret)],
+    dependencies=[
+        Depends(require_shared_secret),
+        Depends(
+            rate_limit(
+                "discord_inbox",
+                per_min_attr="rate_limit_discord_inbox_per_min",
+            )
+        ),
+    ],
 )
 def discord_inbox(
     data: DiscordInboxRequest, db: Session = Depends(get_db)
@@ -75,6 +85,15 @@ def discord_inbox(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="extraction validation failed",
         ) from None
+    except GatewayError as exc:
+        # Ollama unreachable / timeout: report an upstream failure, never a 500.
+        logger.error(
+            "discord_extraction_upstream_error", inbox_item_id=item.id, error=str(exc)
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="extraction service unavailable — is Ollama running?",
+        ) from exc
 
     # Keep Discord capture aligned with web inbox processing. Matching is
     # enrichment, so a failure here must not discard extracted candidates.

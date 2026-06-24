@@ -4,6 +4,7 @@ import json
 from collections import Counter
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Literal, cast
 
 import structlog
 from sqlalchemy.orm import Session
@@ -68,6 +69,65 @@ def _corrected_task(task: Task) -> dict[str, object]:
     }
 
 
+def _write_training_examples(
+    db: Session,
+    item: InboxItem,
+    accepted: list[Task],
+) -> tuple[int, int | None]:
+    """Emit activity events and write training rows for a finalized inbox item.
+
+    Called by both ``review_inbox`` (batch flow) and ``_finalize_inbox``
+    (per-candidate flow) so the two paths stay in sync (prime directive #4).
+    Returns ``(training_example_id, match_training_example_id | None)``.
+    """
+    for task in accepted:
+        if task.project_id is not None:
+            activity_service.record_event(
+                db,
+                project_id=task.project_id,
+                entity_type="task",
+                entity_id=task.id,
+                action="created",
+                summary=f'Task "{task.title}" created',
+            )
+
+    corrected = {
+        "summary": item.summary,
+        "project_hint": item.project_hint,
+        "tasks": [_corrected_task(t) for t in accepted],
+        "needs_review": False,
+    }
+    example: AITrainingExample = record_example(
+        db,
+        task_name=_PROFILE,
+        input_text=item.raw_text,
+        model_output_json=item.model_output_json or "",
+        corrected_output_json=json.dumps(corrected),
+        accepted=bool(accepted),
+        model_profile=_PROFILE,
+        model_name=item.model_name or gateway.get_profile(_PROFILE).model,
+    )
+
+    match_example_id: int | None = None
+    if item.match_output_json is not None and accepted:
+        corrected_project_id = _modal_project_id(accepted)
+        match_example = record_example(
+            db,
+            task_name=_MATCH_PROFILE,
+            input_text=item.match_input_text or "",
+            model_output_json=item.match_output_json,
+            corrected_output_json=json.dumps({"project_id": corrected_project_id}),
+            accepted=item.suggested_project_id == corrected_project_id,
+            model_profile=_MATCH_PROFILE,
+            model_name=(
+                item.match_model_name or gateway.get_profile(_MATCH_PROFILE).model
+            ),
+        )
+        match_example_id = match_example.id
+
+    return example.id, match_example_id
+
+
 def review_inbox(
     db: Session,
     item: InboxItem,
@@ -127,59 +187,7 @@ def review_inbox(
         for task in accepted:
             db.refresh(task)
 
-        # Activity feed: an accepted candidate is the task's first appearance in a
-        # project, so log it as "created" (matching a directly-created task). Review
-        # mutates tasks in bulk here rather than via tasks_service, so the logging
-        # hook in that service doesn't fire — emit explicitly. Rejected tasks
-        # produce nothing.
-        for task in accepted:
-            if task.project_id is not None:
-                activity_service.record_event(
-                    db,
-                    project_id=task.project_id,
-                    entity_type="task",
-                    entity_id=task.id,
-                    action="created",
-                    summary=f'Task "{task.title}" created',
-                )
-
-        corrected = {
-            "summary": item.summary,
-            "project_hint": item.project_hint,
-            "tasks": [_corrected_task(t) for t in accepted],
-            "needs_review": False,
-        }
-        example: AITrainingExample = record_example(
-            db,
-            task_name=_PROFILE,
-            input_text=item.raw_text,
-            model_output_json=item.model_output_json or "",
-            corrected_output_json=json.dumps(corrected),
-            accepted=bool(accepted),
-            model_profile=_PROFILE,
-            model_name=item.model_name or gateway.get_profile(_PROFILE).model,
-        )
-
-        # Capture a project_matching correction too — but only when the *model* made
-        # the suggestion (match_output_json set; deterministic alias hits have no
-        # model output to train on) and at least one task was accepted to file. The
-        # corrected output is where the user actually filed the accepted tasks.
-        match_example_id: int | None = None
-        if item.match_output_json is not None and accepted:
-            corrected_project_id = _modal_project_id(accepted)
-            match_example = record_example(
-                db,
-                task_name=_MATCH_PROFILE,
-                input_text=item.match_input_text or "",
-                model_output_json=item.match_output_json,
-                corrected_output_json=json.dumps({"project_id": corrected_project_id}),
-                accepted=item.suggested_project_id == corrected_project_id,
-                model_profile=_MATCH_PROFILE,
-                model_name=(
-                    item.match_model_name or gateway.get_profile(_MATCH_PROFILE).model
-                ),
-            )
-            match_example_id = match_example.id
+        example_id, match_example_id = _write_training_examples(db, item, accepted)
         db.commit()
     except Exception:
         db.rollback()
@@ -190,13 +198,13 @@ def review_inbox(
         inbox_item_id=item.id,
         accepted=len(accepted),
         rejected=rejected_count,
-        training_example_id=example.id,
+        training_example_id=example_id,
         match_training_example_id=match_example_id,
     )
     return ReviewResult(
         accepted=len(accepted),
         rejected=rejected_count,
-        training_example_id=example.id,
+        training_example_id=example_id,
         match_training_example_id=match_example_id,
     )
 
@@ -218,52 +226,7 @@ def _finalize_inbox(
     item.reviewed_at = datetime.now(UTC)
     db.flush()
 
-    for task in accepted:
-        if task.project_id is not None:
-            activity_service.record_event(
-                db,
-                project_id=task.project_id,
-                entity_type="task",
-                entity_id=task.id,
-                action="created",
-                summary=f'Task "{task.title}" created',
-            )
-
-    corrected = {
-        "summary": item.summary,
-        "project_hint": item.project_hint,
-        "tasks": [_corrected_task(t) for t in accepted],
-        "needs_review": False,
-    }
-    example: AITrainingExample = record_example(
-        db,
-        task_name=_PROFILE,
-        input_text=item.raw_text,
-        model_output_json=item.model_output_json or "",
-        corrected_output_json=json.dumps(corrected),
-        accepted=bool(accepted),
-        model_profile=_PROFILE,
-        model_name=item.model_name or gateway.get_profile(_PROFILE).model,
-    )
-
-    match_example_id: int | None = None
-    if item.match_output_json is not None and accepted:
-        corrected_project_id = _modal_project_id(accepted)
-        match_example = record_example(
-            db,
-            task_name=_MATCH_PROFILE,
-            input_text=item.match_input_text or "",
-            model_output_json=item.match_output_json,
-            corrected_output_json=json.dumps({"project_id": corrected_project_id}),
-            accepted=item.suggested_project_id == corrected_project_id,
-            model_profile=_MATCH_PROFILE,
-            model_name=(
-                item.match_model_name or gateway.get_profile(_MATCH_PROFILE).model
-            ),
-        )
-        match_example_id = match_example.id
-
-    return example.id, match_example_id
+    return _write_training_examples(db, item, accepted)
 
 
 def decide_candidate(
@@ -343,7 +306,7 @@ def decide_candidate(
     )
     return CandidateResult(
         task_id=task.id,
-        action=action_str,  # type: ignore[arg-type]
+        action=cast(Literal["approved", "dismissed"], action_str),
         finalized=finalized,
         training_example_id=training_example_id,
         match_training_example_id=match_training_example_id,

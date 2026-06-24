@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.ai import gateway
 from app.ai.workflows.summarize_project import summarize_project_ai
+from app.api.rate_limit import rate_limit
 from app.db.session import get_db
 from app.schemas.dashboard import (
     DashboardRead,
@@ -54,7 +55,15 @@ def get_dashboard(db: Session = Depends(get_db)) -> DashboardRead:
     )
 
 
-@router.get("/projects/{project_id}/summary", response_model=ProjectSummaryRead)
+@router.get(
+    "/projects/{project_id}/summary",
+    response_model=ProjectSummaryRead,
+    dependencies=[
+        Depends(
+            rate_limit("project_summary", per_min_attr="rate_limit_summary_per_min")
+        )
+    ],
+)
 def get_project_summary(
     project_id: int, db: Session = Depends(get_db)
 ) -> ProjectSummaryRead:
@@ -86,7 +95,7 @@ def get_project_summary(
             tasks=open_tasks,
             today=date.today(),
         )
-    except Exception as exc:
+    except gateway.GatewayError as exc:
         log.error("summary_upstream_error", error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
