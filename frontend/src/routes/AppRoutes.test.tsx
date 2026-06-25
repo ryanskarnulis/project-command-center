@@ -65,6 +65,18 @@ describe('AppRoutes', () => {
     expect(screen.getAllByText('Command Center').length).toBeGreaterThan(0)
   })
 
+  it('renders a friendly in-app 404 inside the shell for unknown routes', async () => {
+    renderRoute('/nonexistent')
+
+    expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeInTheDocument()
+    // Stays inside the app shell so the user can navigate out.
+    expect(screen.getByText('Command search')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Go to the dashboard' })).toHaveAttribute(
+      'href',
+      '/dashboard',
+    )
+  })
+
   it('renders task and settings routes inside the shell layout', async () => {
     const taskView = renderRoute('/tasks')
     expect(await screen.findByText('Tasks page')).toBeInTheDocument()

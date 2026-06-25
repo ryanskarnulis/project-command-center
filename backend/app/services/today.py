@@ -106,22 +106,21 @@ def _pack(
     available_minutes: int,
     target_date: date,
 ) -> tuple[list[ScheduledBlock], list[OverflowTask], int]:
-    """Place ranked tasks into sequential blocks until capacity is exhausted.
+    """Place ranked tasks into sequential blocks, backfilling smaller tasks.
 
-    Greedy in rank order: the first task that does not fit, and every task after
-    it, become overflow (preserving ranked order). This matches "build sequential
-    blocks ... until available minutes are exhausted" — it does not skip ahead to
-    fit a smaller later task.
+    Greedy in rank order: each task that fits the remaining capacity is scheduled;
+    a task too large for what's left is sent to overflow and scanning continues, so
+    smaller lower-ranked tasks still fill the day instead of leaving it empty behind
+    one oversized high-rank item. Both scheduled blocks and overflow preserve ranked
+    order, and scheduled blocks remain sequential with no gaps.
     """
     blocks: list[ScheduledBlock] = []
     overflow: list[OverflowTask] = []
     used = 0
-    full = False
     for task in ranked:
         minutes, assumed = _effective_estimate(task)
         signal = _due_signal(task.due_date, target_date)
-        if full or used + minutes > available_minutes:
-            full = True
+        if used + minutes > available_minutes:
             overflow.append(
                 OverflowTask(
                     task_id=task.id,

@@ -36,6 +36,7 @@ export function splitDuration(minutes: number): { value: number; unit: DurationU
  */
 export function formatDuration(minutes: number | null): string {
   if (minutes === null) return ''
+  if (minutes === 0) return '0m'
   const { value, unit } = splitDuration(minutes)
   const singular = unit.endsWith('s') ? unit.slice(0, -1) : unit
   return `${value} ${value === 1 ? singular : unit}`

@@ -247,4 +247,39 @@ describe('TodayPage', () => {
     ).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Timeline' })).not.toBeInTheDocument()
   })
+
+  it('points at the overflow list when nothing fit but work overflowed', async () => {
+    mockGetTodayPlan.mockResolvedValue(
+      makePlan({
+        used_minutes: 0,
+        overflow: [
+          {
+            task_id: 2,
+            title: 'Oversized task',
+            project_id: null,
+            priority: 'high',
+            workflow_status: 'open',
+            due_date: null,
+            due_signal: 'none',
+            estimated_minutes: 720,
+            estimate_assumed: false,
+          },
+        ],
+      }),
+    )
+
+    render(
+      <MemoryRouter>
+        <TodayPage />
+      </MemoryRouter>,
+    )
+
+    expect(
+      await screen.findByText('Nothing fit today’s capacity — see ranked work below.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('No open tasks to schedule for this day.'),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Didn.t fit \(1\)/ })).toBeInTheDocument()
+  })
 })

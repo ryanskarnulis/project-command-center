@@ -17,45 +17,45 @@ drag, AI, and form flows). Triaged by severity. Fold these in before the cleanup
 committed/wrapped. _Severity: (high) user-facing breakage · (med) bug or confusing state ·
 (low) polish/docs._
 
-- [ ] **(high) Project "Timeline" tab is a dead link → app error page.** Every project page
+- [x] **(high) Project "Timeline" tab is a dead link → app error page.** Every project page
       (`features/projects/ProjectTabs.tsx`) still renders a **Timeline** tab linking to
       `/projects/:id/timeline`, a route removed with the Gantt in commit `04dea44`
       ("9: removed gantt"). Clicking it lands on React Router's default *"Unexpected
       Application Error! / 404 Not Found / 💿 Hey developer"* page. Repro: open any project →
       click Timeline. The removal commit cleaned the sidebar nav, routes, services, schemas,
       and tests but missed this tab — drop the `NavLink`.
-- [ ] **(med) No app-level error boundary / catch-all route.** `routes/AppRoutes.tsx` defines
+- [x] **(med) No app-level error boundary / catch-all route.** `routes/AppRoutes.tsx` defines
       no `errorElement` and no `*` catch-all, so any unknown URL or thrown route error shows
       the developer-facing default page to users. Repro: visit `/anything`. Add a friendly
       `errorElement` (404 + recover link) and/or a `*` route. This is what makes the Timeline
       bug above so ugly.
-- [ ] **(med) `formatDuration(0)` renders "0 weeks".** `utils/duration.ts` `splitDuration`
+- [x] **(med) `formatDuration(0)` renders "0 weeks".** `utils/duration.ts` `splitDuration`
       checks `minutes % WEEK === 0` first, which is true for 0, so any zero-minute duration
       prints "0 weeks". Seen as "**0 weeks** planned of 6 hours capacity" in the Today
       summary whenever nothing is scheduled. Special-case 0 → "0m".
-- [ ] **(med) Today empty-state copy contradicts the overflow list.** When 0 tasks fit but
+- [x] **(med) Today empty-state copy contradicts the overflow list.** When 0 tasks fit but
       overflow > 0, `features/today/TodayPage.tsx` shows *"No open tasks to schedule for this
       day"* directly above a populated **"Didn't fit (N)"** section. Repro: /today with
       capacity below the top-ranked task's estimate. When overflow > 0 the copy should say
       something like "Nothing fit today's capacity — see below."
-- [ ] **(low) Greedy day-packing can read as a fully empty day — second look.**
-      `services/today.py` `_pack` intentionally stops at the first task that doesn't fit and
-      overflows the rest, so one oversized high-rank task (e.g. a 12h item under 6h capacity)
-      leaves smaller sub-capacity tasks unscheduled and the day showing 0 scheduled.
-      Documented as intended, but reads as broken; consider a hint ("your top task exceeds
-      capacity") or backfilling smaller tasks.
-- [ ] **(low) README sprint log is stale re: the removed Gantt.** README sprints 17–23 still
-      document the planning/Gantt feature (`/planning`, `/projects/:id/timeline`,
-      `GET /api/projects/{id}/gantt`, what-if, zoom) as `[DONE]`; the removal commit updated
-      CURRENT.md / TODO.md / CLAUDE.md but not README. Per CLAUDE.md's "done" criteria, the
-      sprint status should reflect the removal.
-- [ ] **(low) No persistent nav to Today / Calendar / Inbox / Tasks.** Sidebar primary nav is
-      only Command Center · Projects · Training; the other four routes are reachable only via
-      dashboard cards or direct URL. May be intentional (dashboard-as-hub) — worth a second
-      look.
-- [ ] **(low) Inert placeholder controls shipped in the UI.** "Customize Command Center" and
-      "Ask AI" (dashboard) plus "AI Assistant / Templates / Integrations / Help & Support"
-      (sidebar) render disabled. Consider hiding until built to avoid dead clicks.
+- [x] **(low) Greedy day-packing can read as a fully empty day — second look.**
+      `services/today.py` `_pack` now backfills: a task too big for the remaining capacity
+      is sent to overflow and scanning continues, so smaller lower-ranked tasks still fill
+      the day instead of leaving it empty behind one oversized high-rank item. The day only
+      shows empty when nothing fits.
+- [x] **(low) README sprint log is stale re: the removed Gantt.** Resolved by cutting the
+      per-sprint prose changelog from README entirely (it duplicated `DONE.md` and was the
+      copy that drifted): replaced with a short status line + pointers to `DONE.md` /
+      `CURRENT.md` / `TODO.md`, and added a "Planning view — REMOVED" note to `DONE.md`.
+- [x] **(low) No persistent nav to Today / Calendar / Inbox / Tasks.** Added Today, Calendar,
+      Inbox, and Tasks to the sidebar primary nav (`components/AppShell.tsx`) between Command
+      Center and Projects, so every top-level route is reachable from the sidebar instead of
+      only via dashboard cards or direct URL.
+- [x] **(low) Inert placeholder controls shipped in the UI.** Removed the disabled
+      "Customize Command Center" and "Ask AI" buttons from the dashboard
+      (`features/dashboard/DashboardPage.tsx`) and the "AI Assistant / Templates /
+      Integrations / Help & Support" placeholder nav from the sidebar
+      (`components/AppShell.tsx`), so no dead clicks ship in the UI.
 
 **Verified clean (no action):** all routes render with no console/network errors except the
 dead Timeline link above; Kanban drag works and the parent-task + blocked-dependency guards
@@ -66,9 +66,6 @@ Trash counts reconcile with the sidebar badge; `npm run build` (tsc) is green. _
 exercised (left for a deeper pass): Trash restore/purge round-trips, recurrence series
 actions, alias CRUD, project description unsaved-changes blocker._
 
-**Prior sprint (closed):** Cleanup & hardening — both remaining items (rate-limit coverage
-parity across the model-calling routes, and narrowing the summary route's exception
-handling) shipped; see `DONE.md`.
 
 ---
 

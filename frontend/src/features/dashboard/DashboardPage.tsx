@@ -12,7 +12,6 @@ import {
   Inbox,
   ListChecks,
   Plus,
-  SlidersHorizontal,
   Target,
 } from 'lucide-react'
 import type { ProjectOpenTasksRow } from '../../types/dashboard'
@@ -307,10 +306,6 @@ export function DashboardPage() {
           <h1>{greeting}</h1>
           <p>Mission-critical work, captures, and due dates in one place.</p>
         </div>
-        <button type="button" className="secondary-action" disabled>
-          <SlidersHorizontal size={16} aria-hidden="true" />
-          Customize Command Center
-        </button>
       </section>
 
       <InboxCapturePanel
@@ -451,9 +446,6 @@ export function DashboardPage() {
                 <Bot size={19} aria-hidden="true" />
                 <h2>AI Insights</h2>
               </div>
-              <button type="button" disabled>
-                Ask AI
-              </button>
             </div>
             <ul className="insight-list">
               {dashboard.insights.map(({ icon: Icon, title, detail, tone, to }) => (

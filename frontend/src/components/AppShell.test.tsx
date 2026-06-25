@@ -9,7 +9,7 @@ vi.mock('../api/trash', () => ({ getTrashCount: vi.fn() }))
 const mockGetTrashCount = vi.mocked(getTrashCount)
 
 describe('AppShell', () => {
-  it('keeps Inbox and Tasks out of the left navigation', () => {
+  it('exposes the primary routes in the left navigation', () => {
     render(
       <MemoryRouter>
         <AppShell>
@@ -19,9 +19,11 @@ describe('AppShell', () => {
     )
 
     const nav = screen.getByLabelText('Primary navigation')
-    expect(within(nav).queryByRole('link', { name: 'Inbox' })).not.toBeInTheDocument()
-    expect(within(nav).queryByRole('link', { name: 'Tasks' })).not.toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Command Center' })).toBeInTheDocument()
+    expect(within(nav).getByRole('link', { name: 'Today' })).toBeInTheDocument()
+    expect(within(nav).getByRole('link', { name: 'Calendar' })).toBeInTheDocument()
+    expect(within(nav).getByRole('link', { name: 'Inbox' })).toBeInTheDocument()
+    expect(within(nav).getByRole('link', { name: 'Tasks' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Projects' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Training' })).toBeInTheDocument()
   })

@@ -40,6 +40,7 @@ describe('toMinutes/splitDuration round-trips', () => {
 
 describe('formatDuration', () => {
   it('null returns empty string', () => expect(formatDuration(null)).toBe(''))
+  it('zero renders 0m', () => expect(formatDuration(0)).toBe('0m'))
   it('singular hour', () => expect(formatDuration(60)).toBe('1 hour'))
   it('plural hours', () => expect(formatDuration(120)).toBe('2 hours'))
   it('singular day', () => expect(formatDuration(1440)).toBe('1 day'))

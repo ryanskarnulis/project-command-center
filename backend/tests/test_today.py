@@ -156,6 +156,27 @@ def test_overflow_in_ranked_order_when_capacity_full(db_session: Session) -> Non
     assert plan.used_minutes <= plan.available_minutes
 
 
+def test_backfill_schedules_smaller_task_when_top_task_overflows(
+    db_session: Session,
+) -> None:
+    # An oversized top-ranked task must not strand the rest of the day: smaller
+    # lower-ranked tasks still backfill the remaining capacity.
+    oversized = _task(
+        db_session, "oversized", priority=TaskPriority.urgent, estimated_minutes=720
+    )
+    small = _task(
+        db_session, "small", priority=TaskPriority.low, estimated_minutes=30
+    )
+
+    plan = today_service.get_today_plan(
+        db_session, target_date=TARGET, available_minutes=360
+    )
+
+    assert [b.task_id for b in plan.scheduled] == [small]
+    assert [o.task_id for o in plan.overflow] == [oversized]
+    assert plan.used_minutes <= plan.available_minutes
+
+
 def test_block_times_are_sequential_from_start(db_session: Session) -> None:
     _task(db_session, "a", priority=TaskPriority.urgent, estimated_minutes=30)
     _task(db_session, "b", priority=TaskPriority.high, estimated_minutes=45)

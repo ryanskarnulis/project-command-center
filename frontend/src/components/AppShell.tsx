@@ -3,16 +3,16 @@ import { NavLink } from 'react-router-dom'
 import { useTrashCount } from '../features/trash/trashCountContext'
 import { CommandSearch } from '../features/search/CommandSearch'
 import {
-  Bot,
-  Box,
+  CalendarDays,
+  CheckSquare,
   ChevronDown,
   ClipboardCheck,
   FolderKanban,
-  HelpCircle,
+  Inbox,
   LayoutDashboard,
-  Library,
   Settings,
   ShieldCheck,
+  Sun,
   Trash2,
 } from 'lucide-react'
 
@@ -22,14 +22,12 @@ interface AppShellProps {
 
 const primaryNav = [
   { to: '/dashboard', label: 'Command Center', icon: LayoutDashboard },
+  { to: '/today', label: 'Today', icon: Sun },
+  { to: '/inbox', label: 'Inbox', icon: Inbox },
   { to: '/projects', label: 'Projects', icon: FolderKanban },
+  { to: '/tasks', label: 'Tasks', icon: CheckSquare },
+  { to: '/calendar', label: 'Calendar', icon: CalendarDays },
   { to: '/training', label: 'Training', icon: ClipboardCheck },
-]
-
-const disabledNav = [
-  { label: 'AI Assistant', icon: Bot },
-  { label: 'Templates', icon: Library },
-  { label: 'Integrations', icon: Box },
 ]
 
 const utilityNav = [
@@ -72,15 +70,6 @@ export function AppShell({ children }: AppShellProps) {
           ))}
         </nav>
 
-        <div className="shell-nav-group" aria-label="Planned tools">
-          {disabledNav.map(({ label, icon: Icon }) => (
-            <button key={label} className="shell-nav-link disabled" disabled>
-              <Icon size={19} aria-hidden="true" />
-              <span>{label}</span>
-            </button>
-          ))}
-        </div>
-
         <nav className="shell-nav shell-nav-bottom">
           {utilityNav.map(({ to, label, icon: Icon }) => {
             const showCount = to === '/trash' && trashCount > 0
@@ -101,10 +90,6 @@ export function AppShell({ children }: AppShellProps) {
               </NavLink>
             )
           })}
-          <button className="shell-nav-link disabled" disabled>
-            <HelpCircle size={19} aria-hidden="true" />
-            <span>Help & Support</span>
-          </button>
         </nav>
 
         <section className="focus-session" aria-label="Workspace status">

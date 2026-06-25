@@ -325,7 +325,9 @@ export function TodayPage() {
           ) : (
             <div className="empty-state today-empty">
               <Inbox size={20} aria-hidden="true" />
-              {plan.blocked.length > 0 && plan.overflow.length === 0 ? (
+              {plan.overflow.length > 0 ? (
+                <span>Nothing fit today’s capacity — see ranked work below.</span>
+              ) : plan.blocked.length > 0 ? (
                 <span>
                   Nothing schedulable — every open task is blocked by an unfinished
                   dependency.

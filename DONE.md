@@ -998,3 +998,13 @@ change, eval change, prompt change, AI training-data change, or new dependency.
 - [x] A floating drag ghost follows the pointer + a drop-target column highlight.
 - [x] Tests: `useBucketDrag.test.ts` + TimelinePage bucket-drag tests.
 - [x] FE-only — no schema/migration/model/eval/prompt/dependency change.
+
+---
+
+## Planning view (Gantt/calendar) — REMOVED
+> The planning-view epic above (Sprints 17–24: static Gantt, drag-reschedule,
+> dependency lines, auto-shift, what-if, zoom, global cross-project surface, and
+> bucket-drag) was shipped and then removed (commit `04dea44` "removed gantt").
+> It didn't earn its complexity. This ledger keeps the build history intact for
+> the record; the feature is no longer in the app. Date scheduling and the
+> dependency cascade still live in Python (CLAUDE.md prime directive #1).

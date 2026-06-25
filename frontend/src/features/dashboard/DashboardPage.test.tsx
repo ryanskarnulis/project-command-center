@@ -255,7 +255,7 @@ describe('DashboardPage', () => {
     expect(screen.getByDisplayValue('Turn notes into a task')).toBeInTheDocument()
   })
 
-  it('keeps unavailable screenshot-inspired controls disabled', async () => {
+  it('does not ship inert placeholder controls', async () => {
     render(
       <MemoryRouter>
         <DashboardPage />
@@ -265,9 +265,9 @@ describe('DashboardPage', () => {
     await screen.findByRole('heading', { name: 'Focus Now' })
 
     expect(
-      screen.getByRole('button', { name: 'Customize Command Center' }),
-    ).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Ask AI' })).toBeDisabled()
+      screen.queryByRole('button', { name: 'Customize Command Center' }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ask AI' })).not.toBeInTheDocument()
     // The Upcoming Events tile is now real: "View calendar" links to /calendar.
     expect(screen.getByRole('link', { name: /View calendar/ })).toHaveAttribute(
       'href',
