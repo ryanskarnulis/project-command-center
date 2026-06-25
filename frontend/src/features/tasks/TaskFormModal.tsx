@@ -69,10 +69,18 @@ export function TaskFormModal(props: Props) {
   const [dueDate, setDueDate] = useState(
     existingTask?.due_date ?? defaults?.due_date ?? ''
   )
+  // The empty ("no project") option only lands as truly unfiled for a candidate, or as
+  // "inherit the parent's project" when creating a subtask (create_task copies the
+  // parent's project when project_id is null). A top-level accepted task is always
+  // filed, so default it to General rather than offering a misleading "unassigned".
+  const generalProject = projects.find((p) => p.system_key === 'general')
+  const isSubtaskCreate = !isEdit && defaults?.parent_task_id != null
+  const isCandidate = existingTask?.review_status === 'candidate'
+  const allowUnassigned = isCandidate || isSubtaskCreate
   const [projectId, setProjectId] = useState(
     existingTask?.project_id != null ? String(existingTask.project_id)
-    : defaults?.parent_task_id != null ? ''
-    : ''
+    : allowUnassigned ? ''
+    : String(generalProject?.id ?? '')
   )
   const [parentId, setParentId] = useState(
     existingTask?.parent_task_id != null ? String(existingTask.parent_task_id)
@@ -175,7 +183,9 @@ export function TaskFormModal(props: Props) {
 
         <label htmlFor="tf-project">Project</label>
         <select id="tf-project" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-          <option value="">— unassigned —</option>
+          {allowUnassigned && (
+            <option value="">{isSubtaskCreate ? '— same as parent —' : '— unassigned —'}</option>
+          )}
           {projects.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
         </select>
 

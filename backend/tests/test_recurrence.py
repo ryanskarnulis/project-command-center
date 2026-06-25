@@ -2,7 +2,6 @@ from collections.abc import Sequence
 from datetime import date
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -174,12 +173,11 @@ def test_skip_soft_deletes_current_and_rolls_forward(db_session: Session) -> Non
     assert next_occurrence.workflow_status == TaskWorkflowStatus.open
 
 
-def test_skip_non_recurring_task_raises_422(db_session: Session) -> None:
+def test_skip_non_recurring_task_raises(db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(tasks_service.RecurrenceError):
         tasks_service.skip_occurrence(db_session, task)
-    assert exc.value.status_code == 422
 
 
 def test_clearing_repeat_stops_future_occurrences(db_session: Session) -> None:
@@ -280,14 +278,13 @@ def test_edit_scope_this_patches_only_target_row(db_session: Session) -> None:
     assert titles[date(2026, 6, 15)] == "water plants"  # future row untouched
 
 
-def test_setting_repeat_without_due_date_raises_422(db_session: Session) -> None:
+def test_setting_repeat_without_due_date_raises(db_session: Session) -> None:
     task = _make_task(db_session, due=None)
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(tasks_service.RecurrenceError):
         tasks_service.update_task(
             db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
         )
-    assert exc.value.status_code == 422
 
 
 def test_setting_repeat_with_due_date_in_same_request_succeeds(
@@ -320,6 +317,19 @@ def test_patch_repeat_without_due_date_returns_422_over_http(
     )
 
     assert res.status_code == 422
+
+
+def test_skip_non_recurring_returns_422_over_http(
+    client: TestClient, db_session: Session
+) -> None:
+    task = _make_task(db_session, due=date(2026, 6, 1))
+
+    res = client.post(f"/api/tasks/{task.id}/skip")
+
+    assert res.status_code == 422
+    assert res.json()["detail"] == (
+        "Only a recurring task with a due date can be skipped"
+    )
 
 
 # --- Series management (Recurring series management slice) -------------------
@@ -480,12 +490,11 @@ def test_stop_recurrence_clears_repeat_keeps_id(db_session: Session) -> None:
     assert _active_count(db_session) == before
 
 
-def test_stop_recurrence_non_recurring_raises_422(db_session: Session) -> None:
+def test_stop_recurrence_non_recurring_raises(db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(tasks_service.RecurrenceError):
         tasks_service.stop_recurrence(db_session, task)
-    assert exc.value.status_code == 422
 
 
 def test_get_series_over_http(client: TestClient, db_session: Session) -> None:

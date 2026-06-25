@@ -145,7 +145,9 @@ export function TaskEditModal({ task, tasks, projects, onClose, onSave }: Props)
           value={projectId}
           onChange={(e) => setProjectId(e.target.value)}
         >
-          <option value="">— unassigned —</option>
+          {/* An accepted task is always filed (the backend rehomes a null project to
+              General), so only a candidate can truly be left unassigned. */}
+          {task.review_status === 'candidate' && <option value="">— unassigned —</option>}
           {projects.map((p) => (
             <option key={p.id} value={String(p.id)}>
               {p.name}

@@ -50,6 +50,12 @@ def _cycle_409(exc: tasks_service.TaskCycleError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
+def _recurrence_422(exc: tasks_service.RecurrenceError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+    )
+
+
 def _rollup_update(rollup: tasks_service.Rollup) -> dict[str, object]:
     """The ``model_copy`` overrides a roll-up implies.
 
@@ -281,7 +287,9 @@ def update_task(
     task = _get_task_or_404(db, task_id)
     fields = data.model_dump(exclude_unset=True)
     # A non-null project_id must reference a real project (matches the POST routes).
-    # An explicit null is allowed — that un-files the task.
+    # An explicit null is allowed but does NOT un-file an accepted task: the service
+    # rehomes any accepted task with no project back to General (accepted tasks are
+    # always filed). Only a candidate task legitimately stays unfiled until review.
     if fields.get("project_id") is not None:
         _ensure_project(db, fields["project_id"])
     try:
@@ -292,6 +300,8 @@ def update_task(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
+    except tasks_service.RecurrenceError as exc:
+        raise _recurrence_422(exc) from exc
 
     db.commit()
     db.refresh(updated)
@@ -318,7 +328,10 @@ def mark_task_done(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
 def skip_occurrence(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     """Skip a recurring occurrence: soft-delete it, return the next occurrence."""
     task = _get_task_or_404(db, task_id)
-    next_occurrence = tasks_service.skip_occurrence(db, task)
+    try:
+        next_occurrence = tasks_service.skip_occurrence(db, task)
+    except tasks_service.RecurrenceError as exc:
+        raise _recurrence_422(exc) from exc
     db.commit()
     db.refresh(next_occurrence)
     logger.info(
@@ -347,7 +360,10 @@ def get_task_series(task_id: int, db: Session = Depends(get_db)) -> TaskSeries:
 def stop_recurrence(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     """Stop a series from spawning further occurrences (clears repeat_interval)."""
     task = _get_task_or_404(db, task_id)
-    updated = tasks_service.stop_recurrence(db, task)
+    try:
+        updated = tasks_service.stop_recurrence(db, task)
+    except tasks_service.RecurrenceError as exc:
+        raise _recurrence_422(exc) from exc
     db.commit()
     db.refresh(updated)
     logger.info("task_recurrence_stopped", task_id=updated.id)

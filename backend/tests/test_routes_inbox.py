@@ -283,7 +283,9 @@ def test_review_deterministic_suggestion_writes_no_match_row(
 
     client.post(
         f"/api/inbox/{inbox_id}/review",
-        json={"decisions": [{"task_id": candidates[0]["id"], "action": "accept"}]},
+        json={
+            "decisions": [{"task_id": c["id"], "action": "accept"} for c in candidates]
+        },
     )
 
     accepted = client.get(f"/api/tasks/{candidates[0]['id']}").json()
@@ -304,7 +306,8 @@ def test_review_override_to_missing_project_400(
         f"/api/inbox/{inbox_id}/review",
         json={
             "decisions": [
-                {"task_id": candidates[0]["id"], "action": "accept", "edits": {"project_id": 9999}}
+                {"task_id": candidates[0]["id"], "action": "accept", "edits": {"project_id": 9999}},
+                {"task_id": candidates[1]["id"], "action": "reject"},
             ]
         },
     )
@@ -346,7 +349,8 @@ def test_review_edit_strips_and_rejects_blank_text(
                         "description": "   ",
                         "assignee_hint": "   ",
                     },
-                }
+                },
+                {"task_id": candidates[1]["id"], "action": "reject"},
             ]
         },
     )
@@ -481,6 +485,53 @@ def test_review_rejects_unknown_task_id(
         json={"decisions": [{"task_id": 99999, "action": "accept"}]},
     )
     assert resp.status_code == 400
+
+
+def test_review_partial_batch_422_and_not_finalized(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-empty batch that leaves a live candidate undecided is rejected (422)
+    and changes nothing — the item stays pending and no training row is written."""
+    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
+
+    inbox_id = client.post("/api/inbox", json={"raw_text": "two tasks"}).json()["id"]
+    candidates = client.post(f"/api/inbox/{inbox_id}/process").json()
+    assert len(candidates) == 2
+
+    resp = client.post(
+        f"/api/inbox/{inbox_id}/review",
+        json={"decisions": [{"task_id": candidates[0]["id"], "action": "accept"}]},
+    )
+    assert resp.status_code == 422
+
+    # Not finalized: still pending, both candidates still live, no rollback leftovers.
+    assert client.get(f"/api/inbox/{inbox_id}").json()["reviewed_at"] is None
+    live = client.get(f"/api/inbox/{inbox_id}/candidates").json()
+    assert {c["id"] for c in live} == {c["id"] for c in candidates}
+    assert db_session.execute(active(AITrainingExample)).scalars().all() == []
+
+
+def test_review_duplicate_decision_422(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two decisions for the same task are rejected (422) — no double-counting."""
+    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
+
+    inbox_id = client.post("/api/inbox", json={"raw_text": "two tasks"}).json()["id"]
+    candidates = client.post(f"/api/inbox/{inbox_id}/process").json()
+
+    resp = client.post(
+        f"/api/inbox/{inbox_id}/review",
+        json={
+            "decisions": [
+                {"task_id": candidates[0]["id"], "action": "accept"},
+                {"task_id": candidates[0]["id"], "action": "accept"},
+            ]
+        },
+    )
+    assert resp.status_code == 422
+    assert client.get(f"/api/inbox/{inbox_id}").json()["reviewed_at"] is None
+    assert db_session.execute(active(AITrainingExample)).scalars().all() == []
 
 
 def test_process_unknown_inbox_404(client: TestClient) -> None:

@@ -366,6 +366,38 @@ def test_task_routes_strip_and_reject_blank_text(client: TestClient) -> None:
     assert blank_update.status_code == 422
 
 
+def test_update_rejects_explicit_null_on_non_nullable_fields(client: TestClient) -> None:
+    created = client.post(
+        "/api/tasks",
+        json={
+            "title": "Audit logs",
+            "description": "rotate keys",
+            "due_date": "2026-07-01",
+        },
+    )
+    assert created.status_code == 201
+    task_id = created.json()["id"]
+
+    # Explicit null on a NOT-NULL column is a 422, not a 500 / NOT-NULL violation.
+    for field in ("title", "priority", "review_status", "workflow_status"):
+        resp = client.patch(f"/api/tasks/{task_id}", json={field: None})
+        assert resp.status_code == 422, field
+
+    # Legitimately-nullable fields can still be cleared with an explicit null.
+    cleared = client.patch(
+        f"/api/tasks/{task_id}", json={"description": None, "due_date": None}
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["description"] is None
+    assert cleared.json()["due_date"] is None
+
+    # Omitting a non-nullable field (vs. passing null) leaves it untouched: the
+    # validator keys on explicit presence, not value.
+    omitted = client.patch(f"/api/tasks/{task_id}", json={"description": "back"})
+    assert omitted.status_code == 200
+    assert omitted.json()["title"] == "Audit logs"
+
+
 def test_assignee_hint_set_on_create_and_update(client: TestClient) -> None:
     created = client.post(
         "/api/tasks",
@@ -410,6 +442,27 @@ def test_update_task_rejects_nonexistent_project(client: TestClient) -> None:
     rejected = client.patch(f"/api/tasks/{task_id}", json={"project_id": 999999})
     assert rejected.status_code == 404
     assert rejected.json()["detail"] == "Project not found"
+
+
+def test_patch_accepted_task_with_null_project_rehomes_to_general(
+    client: TestClient, db_session: Session
+) -> None:
+    # An accepted task is always filed: clearing its project with an explicit null
+    # does not un-file it, it rehomes to General. The route comment and the UI both
+    # depend on this contract.
+    project = projects_service.create_project(db_session, name="Routers")
+    db_session.commit()
+
+    created = client.post("/api/tasks", json={"title": "Patch firmware", "project_id": project.id})
+    assert created.status_code == 201
+    task_id = created.json()["id"]
+
+    cleared = client.patch(f"/api/tasks/{task_id}", json={"project_id": None})
+    assert cleared.status_code == 200
+
+    general = projects_service.get_default_project(db_session)
+    assert general is not None
+    assert cleared.json()["project_id"] == general.id
 
 
 # --- Parent <- child roll-ups (Sprint VVV) ---------------------------------

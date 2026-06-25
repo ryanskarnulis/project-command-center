@@ -57,6 +57,17 @@ class AlreadyReviewedError(Exception):
     """
 
 
+class IncompleteReviewError(Exception):
+    """Raised when a non-empty batch review does not decide every live candidate once.
+
+    Finalizing an inbox item with some candidates left undecided would silently
+    orphan them (they stay ``review_status=candidate`` while the item drops out of
+    the pending queue), and duplicate decisions for one task would double-count it in
+    the corrected training output (prime directive #4). A non-empty batch must decide
+    each live candidate exactly once; an empty batch is the explicit "dismiss" path.
+    """
+
+
 def _corrected_task(task: Task) -> dict[str, object]:
     """One accepted task as an ``ExtractedTask``-shaped dict for training data."""
     return {
@@ -142,8 +153,14 @@ def review_inbox(
     input, the full original model output, and this full corrected output — never
     a diff (prime directive #4).
 
+    An empty ``decisions`` list is the explicit "dismiss" path: the item is marked
+    reviewed with no acceptances. A non-empty batch must decide every live candidate
+    exactly once — no missing, no duplicate — else ``IncompleteReviewError`` (→ 422),
+    so a partial batch can't silently orphan undecided candidates.
+
     Raises ``ValueError`` if a decision references a task that is not an active
-    candidate of this inbox item, or ``AlreadyReviewedError`` if the item was
+    candidate of this inbox item, ``IncompleteReviewError`` if a non-empty batch
+    misses or duplicates a candidate, or ``AlreadyReviewedError`` if the item was
     already reviewed.
     """
     if item.reviewed_at is not None:
@@ -154,14 +171,31 @@ def review_inbox(
     try:
         candidates = {t.id: t for t in inbox_service.list_candidates(db, item.id)}
 
+        # A non-empty batch must cover every live candidate exactly once. Validate
+        # before applying anything so a partial/duplicate batch can't finalize the
+        # item and orphan undecided candidates. (Empty = dismiss, skips this.)
+        if decisions:
+            decision_ids = [d.task_id for d in decisions]
+            for task_id in decision_ids:
+                if task_id not in candidates:
+                    raise ValueError(
+                        f"task {task_id} is not a candidate of inbox item {item.id}"
+                    )
+            if len(decision_ids) != len(set(decision_ids)):
+                raise IncompleteReviewError(
+                    f"inbox item {item.id} has duplicate decisions for the same task"
+                )
+            undecided = set(candidates) - set(decision_ids)
+            if undecided:
+                raise IncompleteReviewError(
+                    f"inbox item {item.id} has undecided candidates: "
+                    f"{sorted(undecided)}"
+                )
+
         accepted: list[Task] = []
         rejected_count = 0
         for decision in decisions:
-            task = candidates.get(decision.task_id)
-            if task is None:
-                raise ValueError(
-                    f"task {decision.task_id} is not a candidate of inbox item {item.id}"
-                )
+            task = candidates[decision.task_id]
             if decision.action == "accept":
                 task.review_status = TaskReviewStatus.accepted
                 edits = (

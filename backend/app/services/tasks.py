@@ -6,7 +6,6 @@ from datetime import date, timedelta
 from typing import Any
 from uuid import uuid4
 
-from fastapi import HTTPException, status
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
@@ -44,6 +43,12 @@ class DerivedStatusError(ValueError):
 
     A task with accepted subtasks rolls its progress up from them, so it can't be
     marked open/in-progress/done directly. The caller surfaces a 409.
+    """
+
+
+class RecurrenceError(ValueError):
+    """A recurrence precondition wasn't met (e.g. recurrence needs a due date, or
+    the task isn't recurring). The caller surfaces a 422.
     """
 
 
@@ -455,10 +460,7 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
             control["due_date"] if "due_date" in control else task.due_date
         )
         if effective_due is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="A due date is required to set a recurrence",
-            )
+            raise RecurrenceError("A due date is required to set a recurrence")
 
     prev_workflow = task.workflow_status
     for key, value in control.items():
@@ -565,9 +567,8 @@ def skip_occurrence(db: Session, task: Task) -> Task:
     nothing to roll forward to.
     """
     if task.repeat_interval is None or task.due_date is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Only a recurring task with a due date can be skipped",
+        raise RecurrenceError(
+            "Only a recurring task with a due date can be skipped"
         )
     next_occurrence = _create_next_occurrence(db, task)
     soft_delete(task)
@@ -604,10 +605,7 @@ def stop_recurrence(db: Session, task: Task) -> Task:
     with a 422 — there is nothing to stop.
     """
     if task.repeat_interval is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Task is not recurring",
-        )
+        raise RecurrenceError("Task is not recurring")
     task.repeat_interval = None
     db.flush()
     db.refresh(task)

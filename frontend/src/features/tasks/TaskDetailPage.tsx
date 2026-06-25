@@ -633,7 +633,9 @@ export function TaskDetailPage() {
                 savePatch({ project_id: e.target.value === '' ? null : Number(e.target.value) })
               }
             >
-              <option value="">Unassigned</option>
+              {/* An accepted task is always filed (the backend rehomes a null project
+                  to General), so only a candidate can truly be left unassigned. */}
+              {task.review_status === 'candidate' && <option value="">Unassigned</option>}
               {projects.map((project) => (
                 <option key={project.id} value={String(project.id)}>{project.name}</option>
               ))}

@@ -11,100 +11,65 @@ archived in `DONE.md`.
 
 ## Current focus
 
-**Cleaning & hardening — manual review (round 3)** — the deeper pass the round-2 note
-deferred: Trash restore/purge round-trips, recurrence series actions, alias CRUD, and the
-project-description save flow. Done 2026-06-24 with code review + service-layer scripts +
-headless-chromium browser drives + the full backend suite (289 passing). Each finding below
-was reproduced, not just read. _Severity: (high) user-facing breakage · (med) bug or
-confusing state · (low) polish/docs._
+**Cleaning & hardening — manual review (round 4)** — a static code-read pass over the
+update/validation, inbox-review, and service-boundary seams, plus a docs-coherence check.
+Findings reproduced against the code on 2026-06-25. _Severity: (high) user-facing breakage ·
+(med) bug or confusing state · (low) polish/docs._
 
 ### Needs fixing / a decision
 
-- [x] **(med) Recurrence + subtasks silently kills the series.** _Resolved via the
-      "recurring checklist" approach: completing the last child now spawns a fresh clone
-      of the whole subtree as the next occurrence (`_maybe_spawn_recurring_checklist` +
-      subtree-aware `_create_next_occurrence` in `services/tasks.py`). The parent stays
-      derived/read-only; the series advances from the child-completion path._ A task with
-      `repeat_interval` set *and* active subtasks has a derived (read-only) workflow status,
-      so it can never make the stored `open→done` transition that `mark_done` /
-      `update_task` use to spawn the next occurrence. Completing all children rolls the parent
-      up to "done" (derived) but `_create_next_occurrence` never fires, and a direct
-      mark-done is refused with `DerivedStatusError`. Net: the cadence dies, `repeat_interval`
-      sits inert, and the parent reads as done-but-recurring. _Verified via service script
-      (`backend/app/services/tasks.py`)._ **Decision:** either refuse recurrence on a task
-      that has (or gains) children, or spawn the next occurrence when a recurring parent rolls
-      up to done (see the "recurring checklist" idea below for the richer version).
-- [x] **(med) Restoring a skipped occurrence duplicates the live series.** _Resolved via
-      "un-skip on restore": `restore_task` is now recurrence-aware — when the restored row
-      belongs to a series with a live forward occurrence (earliest active sibling due on/after
-      it), it pulls that occurrence's date (and its whole subtree's) back to the restored date
-      via `_reschedule_occurrence`, then hard-deletes the restored row with `purge_task`. Net:
-      the series resumes at the un-skipped date with exactly one live occurrence — no duplicate.
-      Non-recurring rows and series with no live forward occurrence fall through to the plain
-      restore (rehome-to-General + clear `deleted_at`). Tests in `test_recurrence.py` (leaf,
-      checklist, both fallbacks); 298 backend passing._ Skip soft-deletes
-      occurrence *N* and spawns *N+1*. The skipped row still appears in `/trash` as an
-      ordinary task; restoring it leaves **two** active occurrences in the same series, both
-      carrying `repeat_interval` — and completing the restored one spawns yet another
-      duplicate. _Verified via service script + confirmed the skipped row is offered as
-      restorable._ Trash restore is recurrence-unaware.
-- [x] **(med) Restoring a project gives back an empty project.** _Resolved by making
-      delete/restore symmetric and project-scoped: deleting a project now **cascade-soft-deletes
-      its tasks (and subtrees) with it** (stamped `tasks.deleted_with_project_id`, migration
-      `5be1ff02ca06`) instead of rehoming to General; restoring asks whether to bring those tasks
-      back (`restore_project(restore_tasks=...)` → `POST /api/projects/{id}/restore?restore_tasks=`).
-      Tasks trashed independently keep a null marker and aren't swept back; cascade tasks don't
-      appear as standalone `/trash` rows. `/trash` project cards show `archived_task_count` and a
-      confirm-gated "bring back N tasks" restore. Replaces the old rehome-to-General behavior
-      (README updated). Backend + frontend tests; 302 backend / 211 frontend passing._ Deleting
-      a project rehomed its active tasks to General; restore only cleared `deleted_at`, so the
-      project came back empty and asymmetric.
-- [x] **(low/med) Duplicate & case-variant aliases are accepted.** _Resolved with a
-      normalized dedupe guard backed by the DB: `project_aliases` gains a `normalized_alias`
-      column (= `_normalize(alias)`, shared with the matcher) and a partial unique index over
-      active rows (`uq_project_alias_normalized`, migration `7ebcc24824c9`). `create_alias`
-      raises `DuplicateAliasError` → the route returns **409**; the frontend pre-disables the
-      **Add** button and shows an "already added" hint when the typed value normalizes to an
-      existing alias. Soft-delete + re-add still works (active-only index). Tests in
-      `test_projects.py`; 306 backend passing._
-      `projects.create_alias` had no uniqueness or normalization guard (no DB constraint on
-      `project_aliases` either); adding `fw`, `fw`, `FW` yielded three rows.
-- [x] **(low) No unsaved-changes guard on ProjectDetailPage / TaskDetailPage.** _Resolved by
-      adding a `beforeunload` guard to both pages via a shared `useBeforeUnload(dirty)` hook
-      (`frontend/src/hooks/useBeforeUnload.ts`, extracted from SettingsPage's inlined effect).
-      `dirty` = the active draft differs from the loaded server values. Scoped to refresh/close
-      only — in-app nav stays covered by save-on-blur, so no `useBlocker`/discard-modal was added
-      here. SettingsPage now reuses the same hook. Tests in both detail suites spy on
-      add/removeEventListener; 23 passing across the two pages + Settings._ Both save-on-blur, so
-      in-app navigation is safe — clicking a `<Link>` blurs the field first and the edit persists.
-      But a **refresh / tab-close** with a focused, edited-but-not-blurred field silently discarded
-      the edit, with no `beforeunload` prompt — unlike SettingsPage (Sprint 15).
-- [x] **(low) Stale "FK enforcement is off on SQLite" comments.** _Fixed: the two comments
-      that carried the wrong rationale (`common.hard_delete`,
-      `tasks._deleted_subtree_depth_first`) now state it accurately — FK enforcement **is** on
-      (`PRAGMA foreign_keys = ON`, `db/session.py`), but SQLite FKs don't auto-cascade, so a
-      missed edge would *raise* and manual cleanup is still required. (`tasks.purge_task` /
-      `projects.purge_project` referenced FK cleanup without the false claim, so they were left
-      as-is.)_ `db/session.py:45` issues `PRAGMA foreign_keys = ON` in prod (and conftest enables
-      it in tests), but the comments claimed FK enforcement is off — backwards.
-- [x] **(low) `POST /api/tasks` silently ignores a supplied `project_id`.** _Resolved by
-      **honoring** `project_id`: `TaskCreate` gains a `project_id: int | None = None` field and
-      `create_unscoped_task` passes it through, validating a non-null value with `_ensure_project`
-      (404 on a bad id). The project-scoped route keeps the **path** id authoritative and ignores
-      the body field. Omitting it preserves the file-in-General default. Tests in `test_tasks.py`
-      (honored / 404 / General regression); 308 backend passing._ `create_unscoped_task`
-      hard-coded `project_id=None` and `TaskCreate` had no field, so `{project_id: N}` filed in
-      General silently.
-
-**Verified clean (no action):** recurrence detail UI is correct — repeat badge, "Skip this
-occurrence" (with confirm), lazy `RecurrenceSeries` timeline (including skipped rows), and the
-`EditScopeModal` all fire (changing a series field prompts this/future scope); `stop-recurrence`
-and skip non-recurring → 422 hold; month-clamp math is right. Trash purge round-trips are solid
-— purge guards on already-trashed (409 on active, 403 on General), cleans dependency/alias/
-subtree/nullable-FK edges, keeps `ai_training_examples`, and is idempotent; the empty-trash and
-per-card purge buttons confirm first. Alias add/remove and the description save-on-blur both
-persist. Backend suite 289/289 green. _(Frontend Vitest not run this pass — `TaskDetailPage` /
-`ProjectDetailPage` suites are known-flaky on a clean tree; see memory.)_
+- [x] **(med) `TaskUpdate` lets non-nullable fields be cleared to `null`.** `TaskUpdate`
+      types `title`, `review_status`, `workflow_status`, and `priority` as `… | None = None`,
+      and `update_task` blindly `setattr`s every supplied field. So `PATCH /api/tasks/{id}`
+      with `{"title": null}` or `{"priority": null}` pushes `None` into a NOT-NULL column —
+      a 500 / invalid domain state instead of a clean **422**. _Verified in
+      `schemas/tasks.py:47-57` + `services/tasks.py:464-465` (`setattr` loop)._ **Fix:**
+      distinguish *optional-because-omitted* from *nullable-because-clearing-is-allowed*.
+      `description`, `due_date`, `assignee_hint`, `parent_task_id`, `estimated_minutes`, and
+      `repeat_interval` may legitimately be nulled; `title`, `priority`, `review_status`, and
+      `workflow_status` must not. Reject explicit `null` on the latter (a `model_validator`
+      keyed on `model_fields_set` keeps omit≠null), returning 422.
+- [x] **(med) Explicit `project_id: null` does not actually un-file an accepted task.** The
+      PATCH route comment (`routes_tasks.py:284`) says an explicit null "un-files the task,"
+      but `update_task` then calls `_default_project_id_for_status` (`services/tasks.py:466`),
+      which rehomes any *accepted* task with no project back to General. So for accepted tasks
+      the null is silently rehomed, not un-filed — comment and behavior disagree. **Decision:**
+      given the "global tasks are always filed" model, keep accepted tasks always filed and
+      fix the route comment + any UI language; *or* preserve explicit null as a real unfile.
+      Pick one and make the code, comment, and UI agree.
+- [x] **(med) `review_inbox` can finalize a partial batch.** The batch path
+      (`services/review.py:131-209`) applies whatever decisions are supplied, then sets
+      `item.reviewed_at` unconditionally — there's no guard that every live candidate has
+      exactly one decision. A partial batch marks the inbox item reviewed while leaving some
+      candidate tasks undecided (the one-at-a-time `decide_candidate` path finalizes only when
+      no candidate remains, so it's safe). **Fix:** before setting `reviewed_at`, require the
+      decision `task_id` set to equal the live-candidate id set exactly — no missing, no
+      duplicate — else raise (→ 422). Add a test for the partial/duplicate case.
+- [x] **(low/med) `services/tasks.py` raises HTTP errors from domain code.** It imports
+      `HTTPException`/`status` (`services/tasks.py:9`) and raises route-shaped 422s for the
+      recurrence-requires-due-date rules (`:458`, `:568`, `:607`), weakening the route/service
+      boundary the rest of the layer keeps (`TaskCycleError`, `DerivedStatusError` are domain
+      exceptions mapped in the route). **Fix:** add a domain exception (e.g.
+      `RecurrenceRequiresDueDateError(ValueError)`), raise it from the service, and map it to
+      422 in `routes_tasks.py` alongside the existing handlers.
+- [x] **(high/docs) `CURRENT.md` contradicts the README's removed-Gantt direction.** README
+      records that the planning-view epic (Sprints 17–24, Gantt/calendar) was **removed**
+      because it didn't earn its complexity, but `CURRENT.md` still frames the phases epic as
+      "now that the Planning view (Gantt/calendar) epic is complete," and Slices 2–3 literally
+      build "Phases in the per-project Gantt" and the global `/planning` surface — a Gantt that
+      no longer exists. With the product direction shifting toward agent/task orchestration
+      rather than generic planning, building phases off this stale framing risks rebuilding a
+      surface already cut. **Fix:** rewrite `CURRENT.md` before any phases work — either
+      re-scope phases to a planning-free surface (the task list / board) or replace the epic
+      to match the new direction. Resolve the disagreement first.
+- [ ] **(low, refactor — size before promoting) `TasksPage.tsx` is a god component.**
+      `frontend/src/features/tasks/TasksPage.tsx` is ~865 lines doing URL parsing, filters,
+      sorting, completed-vs-active data switching, board/list mode, subtask creation, activity
+      refresh, recursive rendering, and modal state at once. Not a bug, but past the point where
+      a split pays off and a blocker for adding agent-management UI cleanly. **Idea:** extract
+      `useTaskUrlState`, `useTaskPageState`, `TaskFilters`, `TaskListView`, `TaskBoardView`, and
+      `SubtaskComposer`. Refactor-only (no behavior change); keep diffs reviewable per scope
+      discipline, so land it incrementally rather than in one pass.
 
 ### Improvement ideas (nice-to-have — not blockers)
 *(How to make these flows more useful / easier to use, gathered during the review. Notes, not

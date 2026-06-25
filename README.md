@@ -342,8 +342,9 @@ Raw inbox text
 
 **Where we are:** Sprints 0–24 shipped. The planning-view epic (Gantt/calendar,
 Sprints 17–24) was built and then **removed** — the Gantt didn't earn its
-complexity. **Next up is Sprint 25** — first-class task *phases* (see `CURRENT.md`
-for the in-flight slice breakdown).
+complexity. There is **no committed next epic**: the active work is the
+cleaning/hardening pass in `TODO.md`, and `CURRENT.md` tracks the current focus
+(currently none).
 
 Completed work is logged sprint-by-sprint in `DONE.md`; current-sprint notes live
 in `CURRENT.md`; the backlog is in `TODO.md`. This section is the plan, not the

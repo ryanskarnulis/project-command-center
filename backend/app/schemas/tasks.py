@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.db.models import TaskPriority, TaskReviewStatus, TaskWorkflowStatus
 from app.schemas.common import NonBlankStr, OptionalStrippedStr
@@ -44,6 +44,16 @@ class TaskCreate(BaseModel):
     assignee_hint: OptionalStrippedStr = None
 
 
+# ``TaskUpdate`` columns backed by NOT-NULL DB columns: an explicit ``null`` on
+# any of these must be a 422, never a silent NOT-NULL violation.
+_TASK_UPDATE_NON_NULLABLE_FIELDS = (
+    "title",
+    "priority",
+    "review_status",
+    "workflow_status",
+)
+
+
 class TaskUpdate(BaseModel):
     title: NonBlankStr | None = None
     description: OptionalStrippedStr = None
@@ -63,6 +73,21 @@ class TaskUpdate(BaseModel):
     # field validator here.
     repeat_interval: RepeatInterval | None = None
     edit_scope: Literal["this", "future"] = "this"
+
+    # These columns are NOT-NULL in the DB, so an explicit ``null`` must be a 422,
+    # not a 500 / invalid domain state. We can't drop the ``| None`` default
+    # (that's what lets a partial PATCH *omit* the field via
+    # ``model_dump(exclude_unset=True)``); instead we distinguish omit from
+    # explicit null via ``model_fields_set`` — present-and-None is rejected,
+    # absent is fine. (The other nullable fields above may legitimately be
+    # cleared to null.) ``project_id`` is intentionally not here: its
+    # explicit-null behaviour is a separate decision.
+    @model_validator(mode="after")
+    def _reject_null_non_nullable(self) -> "TaskUpdate":
+        for name in _TASK_UPDATE_NON_NULLABLE_FIELDS:
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"{name} cannot be cleared to null")
+        return self
 
 
 class SubtaskEdit(BaseModel):

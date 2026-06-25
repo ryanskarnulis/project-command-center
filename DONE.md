@@ -1038,3 +1038,50 @@ change, eval change, prompt change, AI training-data change, or new dependency.
       `AppShell` sidebar primary nav.
 - [x] **(low) Inert placeholder controls** — removed the disabled "Customize Command
       Center" / "Ask AI" dashboard buttons and the placeholder sidebar tools.
+
+---
+
+## Cleaning & hardening — manual review (round 3)
+> The deeper pass round-2 deferred: Trash restore/purge round-trips, recurrence series
+> actions, alias CRUD, and the project-description save flow. Done 2026-06-24 with code
+> review + service-layer scripts + headless-chromium browser drives + the full backend
+> suite. Each finding was reproduced, not just read.
+
+- [x] **(med) Recurrence + subtasks silently kills the series.** Resolved via the
+      "recurring checklist" approach: completing the last child now spawns a fresh clone
+      of the whole subtree as the next occurrence (`_maybe_spawn_recurring_checklist` +
+      subtree-aware `_create_next_occurrence` in `services/tasks.py`). The parent stays
+      derived/read-only; the series advances from the child-completion path.
+- [x] **(med) Restoring a skipped occurrence duplicates the live series.** Resolved via
+      "un-skip on restore": `restore_task` is now recurrence-aware — when the restored row
+      belongs to a series with a live forward occurrence, it pulls that occurrence's date
+      (and its subtree's) back to the restored date via `_reschedule_occurrence`, then
+      hard-deletes the restored row. The series resumes at the un-skipped date with exactly
+      one live occurrence. Tests in `test_recurrence.py`.
+- [x] **(med) Restoring a project gives back an empty project.** Resolved by making
+      delete/restore symmetric and project-scoped: deleting a project now cascade-soft-deletes
+      its tasks (and subtrees) with it (stamped `tasks.deleted_with_project_id`, migration
+      `5be1ff02ca06`); restoring asks whether to bring those tasks back
+      (`restore_project(restore_tasks=...)`). `/trash` project cards show `archived_task_count`
+      and a confirm-gated "bring back N tasks" restore. Backend + frontend tests.
+- [x] **(low/med) Duplicate & case-variant aliases are accepted.** Resolved with a
+      normalized dedupe guard backed by the DB: `project_aliases` gains a `normalized_alias`
+      column and a partial unique index over active rows (`uq_project_alias_normalized`,
+      migration `7ebcc24824c9`). `create_alias` raises `DuplicateAliasError` → 409; the
+      frontend pre-disables Add and shows an "already added" hint. Tests in `test_projects.py`.
+- [x] **(low) No unsaved-changes guard on ProjectDetailPage / TaskDetailPage.** Resolved by
+      adding a `beforeunload` guard to both pages via a shared `useBeforeUnload(dirty)` hook
+      (extracted from SettingsPage's inlined effect). Scoped to refresh/close only — in-app
+      nav stays covered by save-on-blur. Tests in both detail suites + Settings.
+- [x] **(low) Stale "FK enforcement is off on SQLite" comments.** Fixed: the two comments
+      (`common.hard_delete`, `tasks._deleted_subtree_depth_first`) now state it accurately —
+      FK enforcement is on (`PRAGMA foreign_keys = ON`), but SQLite FKs don't auto-cascade.
+- [x] **(low) `POST /api/tasks` silently ignores a supplied `project_id`.** Resolved by
+      honoring it: `TaskCreate` gains a `project_id: int | None` field and `create_unscoped_task`
+      passes it through, validating a non-null value with `_ensure_project` (404 on a bad id).
+      The project-scoped route keeps the path id authoritative. Tests in `test_tasks.py`.
+
+**Verified clean (no action):** recurrence detail UI (repeat badge, skip-with-confirm, lazy
+series timeline, `EditScopeModal`); `stop-recurrence`/skip-non-recurring → 422; month-clamp
+math; Trash purge round-trips (guards, edge cleanup, idempotency, confirm-gated buttons);
+alias add/remove and description save-on-blur persistence.
