@@ -2346,6 +2346,11 @@ kbd {
   font-weight: 700;
 }
 
+.trash-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .trash-danger {
   border-color: var(--red);
   background: var(--surface);

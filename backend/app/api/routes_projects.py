@@ -16,6 +16,7 @@ from app.schemas.projects import (
     ProjectRead,
     ProjectUpdate,
 )
+from app.schemas.trash import ProjectRestoreResult
 from app.services import activity as activity_service
 from app.services import projects as projects_service
 
@@ -88,19 +89,32 @@ def delete_project(project_id: int, db: Session = Depends(get_db)) -> None:
     logger.info("project_deleted", project_id=project_id)
 
 
-@router.post("/{project_id}/restore", response_model=ProjectRead)
-def restore_project(project_id: int, db: Session = Depends(get_db)) -> Project:
+@router.post("/{project_id}/restore", response_model=ProjectRestoreResult)
+def restore_project(
+    project_id: int,
+    restore_tasks: bool = False,
+    db: Session = Depends(get_db),
+) -> ProjectRestoreResult:
     project = projects_service.get_deleted_project(db, project_id)
     if project is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No deleted project with that id",
         )
-    restored = projects_service.restore_project(db, project)
+    restored, restored_task_count = projects_service.restore_project(
+        db, project, restore_tasks=restore_tasks
+    )
     db.commit()
     db.refresh(restored)
-    logger.info("project_restored", project_id=restored.id)
-    return restored
+    logger.info(
+        "project_restored",
+        project_id=restored.id,
+        restored_task_count=restored_task_count,
+    )
+    return ProjectRestoreResult(
+        project=ProjectRead.model_validate(restored),
+        restored_task_count=restored_task_count,
+    )
 
 
 @router.delete("/{project_id}/purge", status_code=status.HTTP_204_NO_CONTENT)

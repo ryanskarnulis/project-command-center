@@ -30,7 +30,9 @@ def count_trash(db: Session) -> PurgeCounts:
     """
     return PurgeCounts(
         projects=count_deleted(db, Project),
-        tasks=count_deleted(db, Task),
+        # Tasks cascade-deleted with their project aren't standalone trash rows
+        # (they come back with the project), so they don't count toward the badge.
+        tasks=tasks_service.count_standalone_deleted_tasks(db),
         inbox_items=count_deleted(db, InboxItem),
         training_examples=count_deleted(db, AITrainingExample),
     )

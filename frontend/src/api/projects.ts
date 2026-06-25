@@ -43,9 +43,18 @@ export async function deleteProject(id: number): Promise<void> {
   await apiClient(`/api/projects/${id}`, { method: 'DELETE' })
 }
 
-export async function restoreProject(id: number): Promise<Project> {
-  const res = await apiClient(`/api/projects/${id}/restore`, { method: 'POST' })
-  return (await res.json()) as Project
+export interface ProjectRestoreResult {
+  project: Project
+  restored_task_count: number
+}
+
+export async function restoreProject(
+  id: number,
+  restoreTasks = false,
+): Promise<ProjectRestoreResult> {
+  const query = restoreTasks ? '?restore_tasks=true' : ''
+  const res = await apiClient(`/api/projects/${id}/restore${query}`, { method: 'POST' })
+  return (await res.json()) as ProjectRestoreResult
 }
 
 export async function purgeProject(id: number): Promise<void> {

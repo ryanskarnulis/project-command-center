@@ -102,12 +102,14 @@ def test_global_tasks_route_lists_accepted_tasks_across_projects(
     assert ids == [open_a.id, open_b.id]
 
 
-def test_deleted_project_tasks_remain_reachable_from_global_route(
+def test_deleted_project_tasks_are_trashed_with_the_project(
     client: TestClient, db_session: Session
 ) -> None:
+    # A deleted project takes its tasks into the trash with it (cascade), rather
+    # than rehoming them to General — so they drop out of the global task list.
     project = projects_service.create_project(db_session, name="Firewall")
     task = tasks_service.create_task(
-        db_session, project_id=project.id, title="reachable work"
+        db_session, project_id=project.id, title="cascade work"
     )
     db_session.commit()
 
@@ -117,9 +119,10 @@ def test_deleted_project_tasks_remain_reachable_from_global_route(
     resp = client.get("/api/tasks")
 
     assert resp.status_code == 200
-    rows = resp.json()
-    assert [row["id"] for row in rows] == [task.id]
-    assert rows[0]["project_id"] != project.id
+    assert [row["id"] for row in resp.json()] == []
+    db_session.refresh(task)
+    assert task.deleted_at is not None
+    assert task.deleted_with_project_id == project.id
 
 
 def test_global_tasks_route_creates_task_in_general(client: TestClient) -> None:

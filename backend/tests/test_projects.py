@@ -41,29 +41,103 @@ def test_ensure_default_project_is_idempotent(db_session: Session) -> None:
     assert first.is_protected is True
 
 
-def test_soft_delete_project_rehomes_active_tasks_to_general(
-    db_session: Session,
-) -> None:
+def test_soft_delete_project_cascades_tasks(db_session: Session) -> None:
     project = projects_service.create_project(db_session, name="Firewall")
-    kept = tasks_service.create_task(
+    parent = tasks_service.create_task(
         db_session, project_id=project.id, title="audit rules"
     )
-    removed = tasks_service.create_task(
+    child = tasks_service.create_task(
+        db_session,
+        project_id=project.id,
+        title="child rule",
+        parent_task_id=parent.id,
+    )
+    already_trashed = tasks_service.create_task(
         db_session, project_id=project.id, title="old rules"
     )
-    tasks_service.soft_delete_task(db_session, removed)
+    tasks_service.soft_delete_task(db_session, already_trashed)
     db_session.commit()
 
     projects_service.soft_delete_project(db_session, project)
     db_session.commit()
 
-    general = projects_service.get_default_project(db_session)
-    assert general is not None
-    db_session.refresh(kept)
-    db_session.refresh(removed)
-    assert kept.project_id == general.id
-    assert removed.project_id == project.id
+    db_session.refresh(parent)
+    db_session.refresh(child)
+    db_session.refresh(already_trashed)
+    # Active tasks + subtree go to trash WITH the project, stamped + still owned.
+    assert parent.deleted_at is not None
+    assert child.deleted_at is not None
+    assert parent.deleted_with_project_id == project.id
+    assert child.deleted_with_project_id == project.id
+    assert parent.project_id == project.id
+    # A task trashed independently beforehand keeps its null marker (not swept up).
+    assert already_trashed.deleted_with_project_id is None
     assert projects_service.get_project(db_session, project.id) is None
+
+
+def test_restore_project_with_and_without_tasks(db_session: Session) -> None:
+    project = projects_service.create_project(db_session, name="Firewall")
+    parent = tasks_service.create_task(
+        db_session, project_id=project.id, title="audit rules"
+    )
+    child = tasks_service.create_task(
+        db_session, project_id=project.id, title="child", parent_task_id=parent.id
+    )
+    db_session.commit()
+    projects_service.soft_delete_project(db_session, project)
+    db_session.commit()
+
+    # Decline: only the project shell returns; tasks stay in trash.
+    restored, count = projects_service.restore_project(
+        db_session, project, restore_tasks=False
+    )
+    db_session.commit()
+    assert count == 0
+    db_session.refresh(parent)
+    assert parent.deleted_at is not None
+
+    # Re-delete, then restore WITH tasks: the whole subtree comes back, marker cleared.
+    projects_service.soft_delete_project(db_session, project)
+    db_session.commit()
+    restored, count = projects_service.restore_project(
+        db_session, project, restore_tasks=True
+    )
+    db_session.commit()
+    assert count == 2
+    db_session.refresh(parent)
+    db_session.refresh(child)
+    assert parent.deleted_at is None
+    assert child.deleted_at is None
+    assert parent.deleted_with_project_id is None
+    assert child.deleted_with_project_id is None
+
+
+def test_restore_project_skips_independently_trashed_tasks(
+    db_session: Session,
+) -> None:
+    project = projects_service.create_project(db_session, name="Firewall")
+    cascade = tasks_service.create_task(
+        db_session, project_id=project.id, title="active task"
+    )
+    independent = tasks_service.create_task(
+        db_session, project_id=project.id, title="pre-trashed"
+    )
+    tasks_service.soft_delete_task(db_session, independent)
+    db_session.commit()
+
+    projects_service.soft_delete_project(db_session, project)
+    db_session.commit()
+    _, count = projects_service.restore_project(
+        db_session, project, restore_tasks=True
+    )
+    db_session.commit()
+
+    assert count == 1
+    db_session.refresh(cascade)
+    db_session.refresh(independent)
+    assert cascade.deleted_at is None
+    # The independently-trashed task was NOT swept back.
+    assert independent.deleted_at is not None
 
 
 def test_soft_delete_project_refuses_general(db_session: Session) -> None:

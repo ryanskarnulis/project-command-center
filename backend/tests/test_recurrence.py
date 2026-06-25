@@ -355,6 +355,109 @@ def test_get_series_includes_skipped_in_due_date_order(db_session: Session) -> N
     assert skipped.deleted_at is not None
 
 
+def test_restore_skipped_occurrence_unskips_without_duplicating(
+    db_session: Session,
+) -> None:
+    # Skip the first occurrence (06-01 -> soft-deleted, spawns 06-08 open), then
+    # restore it. Restore must NOT add a second live row; instead the live
+    # occurrence is pulled back to 06-01 and the skipped row is hard-deleted.
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    recurrence_id = task.recurrence_id
+    assert recurrence_id is not None
+    skipped_id = task.id
+
+    tasks_service.skip_occurrence(db_session, task)
+    db_session.commit()
+    assert len(tasks_service.list_deleted_tasks(db_session)) == 1
+
+    restored = tasks_service.restore_task(db_session, task)
+    db_session.commit()
+
+    # Exactly one live occurrence, due back at the un-skipped date.
+    series = _series(db_session, recurrence_id)
+    assert len(series) == 1
+    assert series[0].id == restored.id
+    assert restored.due_date == date(2026, 6, 1)
+    # The skipped row is hard-deleted: gone from trash and from the series timeline.
+    assert tasks_service.list_deleted_tasks(db_session) == []
+    assert all(t.id != skipped_id for t in tasks_service.get_series(db_session, recurrence_id))
+
+    # Completing the restored occurrence spawns exactly one next occurrence: the
+    # done 06-01 row stays, plus a single fresh 06-08 open row (no extra duplicate).
+    tasks_service.mark_done(db_session, restored)
+    db_session.commit()
+    after = _series(db_session, recurrence_id)
+    assert len(after) == 2
+    assert after[-1].due_date == date(2026, 6, 8)
+    assert after[-1].workflow_status == TaskWorkflowStatus.open
+
+
+def test_restore_skipped_checklist_resets_subtasks(db_session: Session) -> None:
+    # A recurring checklist: complete all children (spawns the next occurrence with
+    # a fresh subtree), skip that occurrence, then restore it. The live occurrence
+    # and its whole subtree must reset to the restored date.
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session)
+    for child in children:
+        tasks_service.mark_done(db_session, child)
+        db_session.commit()
+    second = _series(db_session, recurrence_id)[-1]
+    assert second.due_date == date(2026, 6, 8)
+
+    tasks_service.skip_occurrence(db_session, second)
+    db_session.commit()
+    skipped_id = second.id
+
+    restored = tasks_service.restore_task(db_session, second)
+    db_session.commit()
+
+    # The completed parent (06-01) stays as history; the forward occurrence is
+    # pulled back to the un-skipped date with its whole subtree reset, and the
+    # spawned 06-15 duplicate is gone — exactly one live occurrence at 06-08.
+    assert restored.due_date == date(2026, 6, 8)
+    live = [t for t in _series(db_session, recurrence_id) if t.due_date >= date(2026, 6, 8)]
+    assert [t.id for t in live] == [restored.id]
+    clones = tasks_service.list_subtasks(db_session, restored.id)
+    assert {c.due_date for c in clones} == {date(2026, 6, 8)}
+    assert all(t.id != skipped_id for t in tasks_service.get_series(db_session, recurrence_id))
+
+
+def test_restore_non_recurring_task_plain_restore(db_session: Session) -> None:
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.soft_delete_task(db_session, task)
+    db_session.commit()
+
+    restored = tasks_service.restore_task(db_session, task)
+    db_session.commit()
+
+    assert restored.id == task.id
+    assert restored.deleted_at is None
+    assert tasks_service.list_deleted_tasks(db_session) == []
+
+
+def test_restore_recurring_with_no_live_occurrence_plain_restore(
+    db_session: Session,
+) -> None:
+    # A recurring task whose series has no other live occurrence: the duplicate
+    # hazard doesn't apply, so restore is a plain un-delete (not a purge).
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    tasks_service.soft_delete_task(db_session, task)
+    db_session.commit()
+
+    restored = tasks_service.restore_task(db_session, task)
+    db_session.commit()
+
+    assert restored.id == task.id
+    assert restored.deleted_at is None
+
+
 def test_stop_recurrence_clears_repeat_keeps_id(db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
     tasks_service.update_task(
@@ -407,6 +510,115 @@ def test_get_series_non_recurring_returns_422(
 
     res = client.get(f"/api/tasks/{task.id}/series")
     assert res.status_code == 422
+
+
+# --- Recurring checklist tasks (recurrence + subtasks) ----------------------
+
+
+def _recurring_parent_with_children(
+    db: Session, n: int = 2
+) -> tuple[Task, list[Task], str]:
+    """A weekly recurring parent (due 06-01) with ``n`` accepted open children."""
+    parent = _make_task(db, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db, parent, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db.commit()
+    recurrence_id = parent.recurrence_id
+    assert recurrence_id is not None
+    children = [
+        tasks_service.create_task(
+            db, project_id=parent.project_id, parent_task_id=parent.id, title=f"c{i}"
+        )
+        for i in range(n)
+    ]
+    db.commit()
+    return parent, children, recurrence_id
+
+
+def test_partial_completion_does_not_spawn(db_session: Session) -> None:
+    _parent, children, recurrence_id = _recurring_parent_with_children(db_session)
+    tasks_service.mark_done(db_session, children[0])
+    db_session.commit()
+
+    # Only one of two children done -> parent not rolled up to done -> no spawn.
+    assert len(_series(db_session, recurrence_id)) == 1
+
+
+def test_completing_last_child_spawns_checklist_occurrence(
+    db_session: Session,
+) -> None:
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session)
+    for child in children:
+        tasks_service.mark_done(db_session, child)
+        db_session.commit()
+
+    series = _series(db_session, recurrence_id)
+    assert len(series) == 2
+    occurrence = series[-1]
+    assert occurrence.id != parent.id
+    assert occurrence.due_date == date(2026, 6, 8)
+    assert occurrence.recurrence_id == recurrence_id
+    assert occurrence.parent_task_id is None
+    assert occurrence.repeat_interval == {"unit": "week", "every": 1}
+
+    # The whole checklist is cloned fresh under the new occurrence: open, no recurrence.
+    clones = tasks_service.list_subtasks(db_session, occurrence.id)
+    assert sorted(c.title for c in clones) == ["c0", "c1"]
+    for clone in clones:
+        assert clone.workflow_status == TaskWorkflowStatus.open
+        assert clone.repeat_interval is None
+        assert clone.recurrence_id is None
+        # Clones inherit the new occurrence's due date, not the prior cadence's.
+        assert clone.due_date == date(2026, 6, 8)
+
+
+def test_completing_last_child_via_patch_spawns_occurrence(
+    db_session: Session,
+) -> None:
+    _parent, children, recurrence_id = _recurring_parent_with_children(db_session)
+    for child in children:
+        tasks_service.update_task(
+            db_session, child, {"workflow_status": TaskWorkflowStatus.done}
+        )
+        db_session.commit()
+
+    assert len(_series(db_session, recurrence_id)) == 2
+
+
+def test_checklist_clones_grandchildren(db_session: Session) -> None:
+    parent = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, parent, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    recurrence_id = parent.recurrence_id
+    assert recurrence_id is not None
+    mid = tasks_service.create_task(
+        db_session, project_id=parent.project_id, parent_task_id=parent.id, title="mid"
+    )
+    leaf = tasks_service.create_task(
+        db_session, project_id=parent.project_id, parent_task_id=mid.id, title="leaf"
+    )
+    db_session.commit()
+
+    tasks_service.mark_done(db_session, leaf)
+    db_session.commit()
+
+    occurrence = _series(db_session, recurrence_id)[-1]
+    mid_clones = tasks_service.list_subtasks(db_session, occurrence.id)
+    assert [c.title for c in mid_clones] == ["mid"]
+    leaf_clones = tasks_service.list_subtasks(db_session, mid_clones[0].id)
+    assert [c.title for c in leaf_clones] == ["leaf"]
+    assert leaf_clones[0].workflow_status == TaskWorkflowStatus.open
+
+
+def test_recurring_parent_direct_mark_done_still_rejected(
+    db_session: Session,
+) -> None:
+    parent, _children, _rid = _recurring_parent_with_children(db_session)
+    with pytest.raises(tasks_service.DerivedStatusError):
+        tasks_service.mark_done(db_session, parent)
 
 
 def test_stop_recurrence_over_http(client: TestClient, db_session: Session) -> None:

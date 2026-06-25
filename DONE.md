@@ -1008,3 +1008,33 @@ change, eval change, prompt change, AI training-data change, or new dependency.
 > It didn't earn its complexity. This ledger keeps the build history intact for
 > the record; the feature is no longer in the app. Date scheduling and the
 > dependency cascade still live in Python (CLAUDE.md prime directive #1).
+
+---
+
+## Cleaning & hardening — manual review (round 2)
+> Findings from a full browser-driven QA pass on 2026-06-23. Triaged by severity
+> and folded into the post-Gantt-removal cleanup. Frontend-only except where noted.
+
+- [x] **(high) Project "Timeline" tab dead link → app error page** — the Gantt
+      removal (`04dea44`) missed the per-project **Timeline** `NavLink` in
+      `ProjectTabs.tsx`, which pointed at the deleted `/projects/:id/timeline`
+      route and dumped users on React Router's developer error page. Dropped the tab.
+- [x] **(med) No app-level error boundary / catch-all route** — `AppRoutes.tsx` had
+      no `errorElement` and no `*` route, so any bad URL or thrown route error showed
+      the dev page. Added `RouteErrorBoundary` + a friendly `NotFoundPage`
+      (`features/errors/`).
+- [x] **(med) `formatDuration(0)` rendered "0 weeks"** — `splitDuration` checked
+      `minutes % WEEK === 0` first (true for 0). Special-cased 0 → "0m"
+      (`utils/duration.ts`).
+- [x] **(med) Today empty-state copy contradicted the overflow list** — when 0 tasks
+      fit but overflow > 0, `TodayPage` showed "No open tasks…" above a populated
+      "Didn't fit" section. Copy now reflects the overflow case.
+- [x] **(low) Greedy day-packing second look** — confirmed `_pack` backfills
+      (oversized high-rank item goes to overflow, scan continues), so a day only reads
+      empty when nothing fits.
+- [x] **(low) Stale README Gantt sprint log** — cut the per-sprint prose changelog from
+      README (duplicated `DONE.md`); added a "Planning view — REMOVED" note to `DONE.md`.
+- [x] **(low) No persistent nav to Today / Calendar / Inbox / Tasks** — added them to the
+      `AppShell` sidebar primary nav.
+- [x] **(low) Inert placeholder controls** — removed the disabled "Customize Command
+      Center" / "Ask AI" dashboard buttons and the placeholder sidebar tools.

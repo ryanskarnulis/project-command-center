@@ -55,7 +55,9 @@ class Project(Base, TimestampMixin, SoftDeleteMixin):
     description: Mapped[str | None] = mapped_column(default=None)
     system_key: Mapped[str | None] = mapped_column(default=None, unique=True)
 
-    tasks: Mapped[list[Task]] = relationship(back_populates="project")
+    tasks: Mapped[list[Task]] = relationship(
+        back_populates="project", foreign_keys="Task.project_id"
+    )
     aliases: Mapped[list[ProjectAlias]] = relationship(back_populates="project")
 
     @property
@@ -125,8 +127,17 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     # ai_training_examples at review time (prime directive #4); this column is
     # cleared once the breakdown is reviewed. Null = no pending breakdown.
     breakdown_output_json: Mapped[str | None] = mapped_column(default=None)
+    # Set when a task is cascade-soft-deleted because its PROJECT was deleted
+    # (services/projects.soft_delete_project). Lets restore_project bring back
+    # exactly the set it removed — not tasks the user trashed independently.
+    # Cleared when the task is restored. Null = trashed on its own (or active).
+    deleted_with_project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("projects.id"), default=None
+    )
 
-    project: Mapped[Project | None] = relationship(back_populates="tasks")
+    project: Mapped[Project | None] = relationship(
+        back_populates="tasks", foreign_keys=[project_id]
+    )
     inbox_item: Mapped[InboxItem | None] = relationship(back_populates="candidates")
     parent: Mapped[Task | None] = relationship(
         back_populates="subtasks", remote_side=[id]

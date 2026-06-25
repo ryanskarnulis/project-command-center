@@ -5,7 +5,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from sqlalchemy import delete as sql_delete
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import ActivityEvent, InboxItem, Project, ProjectAlias, Task
@@ -96,15 +96,48 @@ def update_project(db: Session, project: Project, fields: Mapping[str, Any]) -> 
     return project
 
 
+def _mark_subtree_deleted_with_project(
+    db: Session, task: Task, project_id: int
+) -> None:
+    """Stamp ``task`` and its whole active subtree with the owning project id.
+
+    Stamped before the cascade soft-delete so ``restore_project`` can bring back
+    exactly the set that the project deletion removed (and ``list_deleted_tasks``
+    can hide it from the standalone Tasks trash section).
+    """
+    from app.services import tasks as tasks_service
+
+    task.deleted_with_project_id = project_id
+    for child in tasks_service.list_subtasks(db, task.id):
+        _mark_subtree_deleted_with_project(db, child, project_id)
+
+
 def soft_delete_project(db: Session, project: Project) -> None:
     if project.is_protected:
         raise ValueError(f'Project "{project.name}" is protected and cannot be deleted')
 
-    default_project = ensure_default_project(db)
+    # Cascade: a deleted project takes its tasks (and their subtrees) into the
+    # trash with it, instead of rehoming them to General. Restore offers to bring
+    # them back (see restore_project). Tasks already trashed independently keep
+    # their null marker and are left untouched.
+    from app.services import tasks as tasks_service
+
+    top_level = db.execute(
+        active(Task).where(
+            Task.project_id == project.id, Task.parent_task_id.is_(None)
+        )
+    ).scalars().all()
+    for task in top_level:
+        _mark_subtree_deleted_with_project(db, task, project.id)
+        tasks_service.soft_delete_task(db, task)
+
+    # Safety sweep: any task still active in this project (e.g. a subtask whose
+    # parent lives in a different project, so the cascade above never reached it).
     for task in db.execute(
         active(Task).where(Task.project_id == project.id)
-    ).scalars():
-        task.project_id = default_project.id
+    ).scalars().all():
+        task.deleted_with_project_id = project.id
+        tasks_service.soft_delete_task(db, task)
 
     db.flush()
     soft_delete(project)
@@ -137,8 +170,42 @@ def get_deleted_project(db: Session, project_id: int) -> Project | None:
     ).scalar_one_or_none()
 
 
-def restore_project(db: Session, project: Project) -> Project:
+def count_tasks_deleted_with_project(db: Session, project_id: int) -> int:
+    """How many trashed tasks would come back if this project is restored with them."""
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(Task)
+            .where(
+                Task.deleted_at.is_not(None),
+                Task.deleted_with_project_id == project_id,
+            )
+        )
+        or 0
+    )
+
+
+def restore_project(
+    db: Session, project: Project, *, restore_tasks: bool = False
+) -> tuple[Project, int]:
+    """Restore a trashed project; optionally bring back its cascade-deleted tasks.
+
+    Returns ``(project, restored_task_count)``. Only tasks stamped with this
+    project's id at delete time are pulled back — tasks the user trashed
+    independently keep their null marker and stay in the trash.
+    """
     restore(project)
+
+    restored_tasks = 0
+    if restore_tasks:
+        tasks = db.execute(
+            deleted(Task).where(Task.deleted_with_project_id == project.id)
+        ).scalars().all()
+        for task in tasks:
+            restore(task)
+            task.deleted_with_project_id = None
+            restored_tasks += 1
+
     db.flush()
     db.refresh(project)
     activity.record_event(
@@ -149,7 +216,7 @@ def restore_project(db: Session, project: Project) -> Project:
         action="restored",
         summary=f'Project "{project.name}" restored',
     )
-    return project
+    return project, restored_tasks
 
 
 # --- Permanent delete / purge (Sprint 9f) ----------------------------------
@@ -158,13 +225,14 @@ def restore_project(db: Session, project: Project) -> Project:
 def purge_project(db: Session, project: Project) -> None:
     """Permanently delete a trashed project and clean every FK edge into it.
 
-    Protected (``General``) is never purgeable. Active tasks were rehomed to
-    General when the project was soft-deleted, so only soft-deleted tasks still
-    point here — purge them (via ``purge_task`` so their dependency/subtree edges
-    go too). Aliases are hard-deleted. The two nullable FKs that would otherwise
-    dangle — ``inbox_items.suggested_project_id`` and ``activity_events.project_id``
-    (the audit log, kept but with the ref cleared) — are nulled. ``hard_delete``'s
-    guard enforces the project is already in trash. Caller commits.
+    Protected (``General``) is never purgeable. A deleted project's tasks are
+    cascade-soft-deleted with it (they keep ``project_id``), so every task still
+    pointing here is purged (via ``purge_task`` so their dependency/subtree edges
+    go too). Aliases are hard-deleted. The nullable FKs that would otherwise
+    dangle — ``inbox_items.suggested_project_id``, ``activity_events.project_id``
+    (the audit log, kept but with the ref cleared), and any
+    ``tasks.deleted_with_project_id`` still pointing here — are nulled.
+    ``hard_delete``'s guard enforces the project is already in trash. Caller commits.
     """
     from app.services import tasks as tasks_service  # local: avoid circular import
 
@@ -197,6 +265,11 @@ def purge_project(db: Session, project: Project) -> None:
         update(ActivityEvent)
         .where(ActivityEvent.project_id == project.id)
         .values(project_id=None)
+    )
+    db.execute(
+        update(Task)
+        .where(Task.deleted_with_project_id == project.id)
+        .values(deleted_with_project_id=None)
     )
 
     hard_delete(db, project)

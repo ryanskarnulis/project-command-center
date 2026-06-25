@@ -19,6 +19,8 @@ export type TrashKind = 'projects' | 'tasks' | 'inbox' | 'training'
 export interface RestoreItem {
   id: number
   label: string
+  /** For projects: tasks cascade-deleted with it, offered for restore. */
+  archivedTaskCount?: number
 }
 
 interface UseTrash {
@@ -26,7 +28,7 @@ interface UseTrash {
   loading: boolean
   error: string | null
   notice: string | null
-  restoreProjectById: (id: number, name: string) => Promise<void>
+  restoreProjectById: (id: number, name: string, archivedTaskCount: number) => Promise<void>
   restoreTaskById: (id: number, title: string) => Promise<void>
   restoreInboxById: (id: number, label: string) => Promise<void>
   restoreTrainingById: (id: number, label: string) => Promise<void>
@@ -124,8 +126,29 @@ export function useTrash(): UseTrash {
   )
 
   const restoreProjectById = useCallback(
-    (id: number, name: string) => runRestore('projects', id, () => `Restored project “${name}”.`),
-    [runRestore],
+    async (id: number, name: string, archivedTaskCount: number) => {
+      // A deleted project takes its tasks into the trash with it; ask whether to
+      // bring them back too.
+      const bringTasks =
+        archivedTaskCount > 0 &&
+        window.confirm(
+          `Bring back ${archivedTaskCount} task${archivedTaskCount === 1 ? '' : 's'} with “${name}”?`,
+        )
+      setError(null)
+      setNotice(null)
+      try {
+        const { restored_task_count } = await restoreProject(id, bringTasks)
+        setNotice(
+          restored_task_count > 0
+            ? `Restored project “${name}” with ${restored_task_count} task${restored_task_count === 1 ? '' : 's'}.`
+            : `Restored project “${name}”.`,
+        )
+        reload()
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Failed to restore item')
+      }
+    },
+    [reload],
   )
   const restoreTaskById = useCallback(
     (id: number, title: string) =>
@@ -150,12 +173,30 @@ export function useTrash(): UseTrash {
     async (kind: TrashKind, items: RestoreItem[]) => {
       setError(null)
       setNotice(null)
+      // Projects cascade-delete their tasks; offer once to bring them all back.
+      const totalArchived =
+        kind === 'projects'
+          ? items.reduce((sum, item) => sum + (item.archivedTaskCount ?? 0), 0)
+          : 0
+      const bringTasks =
+        totalArchived > 0 &&
+        window.confirm(
+          `Bring back ${totalArchived} task${totalArchived === 1 ? '' : 's'} with ${
+            items.length === 1 ? 'this project' : 'these projects'
+          }?`,
+        )
       let restored = 0
       let skipped = 0
+      let restoredTasks = 0
       let failed = false
       for (const item of items) {
         try {
-          await RESTORE[kind](item.id)
+          if (kind === 'projects') {
+            const { restored_task_count } = await restoreProject(item.id, bringTasks)
+            restoredTasks += restored_task_count
+          } else {
+            await RESTORE[kind](item.id)
+          }
           restored += 1
         } catch (e: unknown) {
           // Inbox re-capture races 409 — skip and keep going.
@@ -177,7 +218,8 @@ export function useTrash(): UseTrash {
               ? 'training example'
               : kind.slice(0, -1)
         const parts = [`Restored ${restored} ${noun}${restored === 1 ? '' : 's'}.`]
-        if (kind === 'tasks') parts.push('Tasks return to their original projects.')
+        if (kind === 'projects' && restoredTasks > 0)
+          parts.push(`Brought back ${restoredTasks} task${restoredTasks === 1 ? '' : 's'}.`)
         if (skipped > 0) parts.push(`${skipped} re-captured and skipped.`)
         setNotice(parts.join(' '))
       } else if (skipped > 0 && !failed) {

@@ -44,6 +44,7 @@ const trash: Trash = {
       created_at: '2026-06-01T17:00:00Z',
       updated_at: '2026-06-01T17:00:00Z',
       deleted_at: DELETED_AT,
+      archived_task_count: 0,
     },
   ],
   tasks: [
@@ -119,7 +120,7 @@ describe('TrashPage', () => {
 
   it('lists deleted items and restores a project', async () => {
     const user = userEvent.setup()
-    mockRestoreProject.mockResolvedValue(trash.projects[0])
+    mockRestoreProject.mockResolvedValue({ project: trash.projects[0], restored_task_count: 0 })
 
     renderPage()
 
@@ -134,10 +135,36 @@ describe('TrashPage', () => {
       screen.getByRole('button', { name: 'Restore project Firewall' }),
     )
 
-    expect(mockRestoreProject).toHaveBeenCalledWith(1)
+    // No archived tasks → restored without bringing tasks back.
+    expect(mockRestoreProject).toHaveBeenCalledWith(1, false)
     await waitFor(() =>
       expect(screen.getByText('Trash is empty.')).toBeInTheDocument(),
     )
+  })
+
+  it('offers to bring tasks back when restoring a project that has them', async () => {
+    const user = userEvent.setup()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mockGetTrash.mockReset()
+    mockGetTrash
+      .mockResolvedValueOnce({
+        ...trash,
+        projects: [{ ...trash.projects[0], archived_task_count: 3 }],
+      })
+      .mockResolvedValue({ projects: [], tasks: [], inbox_items: [], training_examples: [] })
+    mockRestoreProject.mockResolvedValue({ project: trash.projects[0], restored_task_count: 3 })
+
+    renderPage()
+
+    expect(await screen.findByText('3 tasks to restore')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Restore project Firewall' }))
+
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(mockRestoreProject).toHaveBeenCalledWith(1, true)
+    await waitFor(() =>
+      expect(screen.getByText(/Brought back 3 tasks|with 3 tasks/)).toBeInTheDocument(),
+    )
+    confirmSpy.mockRestore()
   })
 
   it('exposes restore handlers for tasks and inbox items', async () => {
@@ -238,7 +265,7 @@ describe('TrashPage', () => {
 
   it('shows a success notice naming the restored item', async () => {
     const user = userEvent.setup()
-    mockRestoreProject.mockResolvedValue(trash.projects[0])
+    mockRestoreProject.mockResolvedValue({ project: trash.projects[0], restored_task_count: 0 })
 
     renderPage()
 
@@ -261,9 +288,7 @@ describe('TrashPage', () => {
     await user.click(screen.getByRole('button', { name: 'Restore all' }))
 
     expect(mockRestoreTask).toHaveBeenCalledWith(5)
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      /Restored 1 task. Tasks return to their original projects./,
-    )
+    expect(await screen.findByRole('status')).toHaveTextContent(/Restored 1 task./)
   })
 
   it('messages the inbox 409 when a Restore all hits a re-captured note', async () => {

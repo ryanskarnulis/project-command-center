@@ -290,9 +290,11 @@ class TestGetDashboard:
 
         assert len(statements) <= 5
 
-    def test_counts_stay_reachable_after_project_delete(
+    def test_deleting_a_project_removes_its_tasks_from_counts(
         self, db_session: Session
     ) -> None:
+        # Tasks are cascade-trashed with their project, so they drop out of the
+        # dashboard open-task counts (no longer rehomed to General).
         p = _create_project(db_session, "Alpha")
         _create_task(db_session, project_id=p.id, title="Open one", review_status=TaskReviewStatus.accepted)
 
@@ -300,9 +302,8 @@ class TestGetDashboard:
         db_session.commit()
 
         total, per_project, _recent = dashboard_service.get_overview(db_session)
-        assert total == 1
-        assert sum(count for _project, count in per_project) == 1
-        assert per_project[0][0].name == "General"
+        assert total == 0
+        assert sum(count for _project, count in per_project) == 0
 
 
 class TestGetProjectSummary:

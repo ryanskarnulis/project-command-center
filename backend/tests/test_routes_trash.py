@@ -91,15 +91,51 @@ def test_project_delete_appears_in_trash_and_restores(client: TestClient) -> Non
     trash = client.get("/api/trash").json()
     assert [p["id"] for p in trash["projects"]] == [pid]
     assert trash["projects"][0]["deleted_at"] is not None  # trashed row carries it
+    assert trash["projects"][0]["archived_task_count"] == 0  # no tasks to bring back
     assert client.get(f"/api/projects/{pid}").status_code == 404  # gone from active
 
     restored = client.post(f"/api/projects/{pid}/restore")
     assert restored.status_code == 200
-    assert restored.json()["id"] == pid
+    assert restored.json()["project"]["id"] == pid
+    assert restored.json()["restored_task_count"] == 0
 
     active = {p["id"]: p for p in client.get("/api/projects").json()}
     assert pid in active  # active again
     assert active[pid]["deleted_at"] is None  # active row serializes null
+
+
+def test_project_delete_cascades_tasks_and_restore_brings_them_back(
+    client: TestClient,
+) -> None:
+    pid = client.post("/api/projects", json={"name": "Firewall"}).json()["id"]
+    t1 = client.post(f"/api/projects/{pid}/tasks", json={"title": "audit"}).json()["id"]
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "patch"})
+    assert client.delete(f"/api/projects/{pid}").status_code == 204
+
+    trash = client.get("/api/trash").json()
+    # The project advertises its restorable task count; the tasks are NOT listed
+    # as standalone trash rows (they belong to the project's restore).
+    assert trash["projects"][0]["archived_task_count"] == 2
+    assert t1 not in [t["id"] for t in trash["tasks"]]
+
+    # Restore with tasks → they come back active under the project.
+    restored = client.post(f"/api/projects/{pid}/restore?restore_tasks=true")
+    assert restored.status_code == 200
+    assert restored.json()["restored_task_count"] == 2
+    titles = {t["title"] for t in client.get(f"/api/projects/{pid}/tasks").json()}
+    assert {"audit", "patch"} <= titles
+
+
+def test_restore_project_without_tasks_leaves_them_trashed(
+    client: TestClient,
+) -> None:
+    pid = client.post("/api/projects", json={"name": "Firewall"}).json()["id"]
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "audit"})
+    assert client.delete(f"/api/projects/{pid}").status_code == 204
+
+    restored = client.post(f"/api/projects/{pid}/restore")  # restore_tasks defaults false
+    assert restored.json()["restored_task_count"] == 0
+    assert client.get(f"/api/projects/{pid}/tasks").json() == []
 
 
 def test_restore_unknown_project_404(client: TestClient) -> None:

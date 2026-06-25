@@ -175,7 +175,9 @@ tasks                  (includes review_status: candidate | accepted | rejected;
                         nullable parent_task_id self-FK for subtask nesting;
                         nullable estimated_minutes effort estimate;
                         nullable breakdown_output_json holding the "break this down"
-                        model output between generating and reviewing subtasks)
+                        model output between generating and reviewing subtasks;
+                        nullable deleted_with_project_id marking tasks cascade-deleted
+                        with their project, so restore can bring them back together)
 task_dependencies      ("A depends_on B" edges; B must be done before A starts)
 inbox_items            (includes input_hash for idempotency)
 activity_events
@@ -198,9 +200,15 @@ All tables use **soft deletes** via a `deleted_at` column. Don't actually delete
 Tasks use `review_status` rather than a separate `task_candidates` table. Candidates and real tasks live in the same table, distinguished by review lifecycle. User-facing progress lives in `workflow_status` (`open`, `in_progress`, `done`) so training/review state does not leak into normal task management.
 
 A protected `General` project is seeded with the stable system key `general`.
-Deleting any other project rehomes its active tasks to `General` before the
-project is soft-deleted, and the top-level `/tasks` view lists accepted work
-across projects so dashboard counts always point to reachable tasks.
+Deleting any other project **cascade-soft-deletes its tasks (and their subtrees)
+along with it** — each task is stamped with `tasks.deleted_with_project_id` so the
+set can be brought back together. Restoring the project asks whether to bring those
+tasks back: confirm and the project and its tasks return together; decline and only
+the project shell is restored (the tasks stay in `/trash`). Tasks the user trashed
+independently before the project delete keep a null marker and are never swept back.
+Cascade-deleted tasks don't appear as standalone rows in the Tasks section of
+`/trash`; they restore with their project. (This replaces the earlier
+rehome-to-`General`-on-delete behavior.)
 
 Tasks nest via a nullable self-referential `parent_task_id` (a tree, not a graph:
 a self-/ancestor-cycle is refused with a `409`, guarded in `services/tasks.py`).

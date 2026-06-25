@@ -4,7 +4,6 @@ import { useTrash, type TrashKind } from './useTrash'
 import { useTrashCount } from './trashCountContext'
 import { TaskCard } from '../tasks/TaskCard'
 import { ProjectCard } from '../projects/ProjectCard'
-import { buildProjectStats, type ProjectStats } from '../../utils/projectStatus'
 import { formatRelative } from '../../utils/dates'
 
 function DeletedAt({ at }: { at?: string | null }) {
@@ -66,28 +65,6 @@ export function TrashPage() {
 
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
-
-  // Trashed projects' tasks are cascade-soft-deleted too, so derive each card's
-  // stats from the trashed task set grouped by project.
-  const statsByProject = useMemo(() => {
-    const openTasks = new Map<number, typeof trash.tasks>()
-    const doneCount = new Map<number, number>()
-    for (const t of trash.tasks) {
-      if (t.project_id === null) continue
-      if (t.workflow_status === 'done') {
-        doneCount.set(t.project_id, (doneCount.get(t.project_id) ?? 0) + 1)
-      } else {
-        const arr = openTasks.get(t.project_id) ?? []
-        arr.push(t)
-        openTasks.set(t.project_id, arr)
-      }
-    }
-    const map = new Map<number, ProjectStats>()
-    for (const p of trash.projects) {
-      map.set(p.id, buildProjectStats(openTasks.get(p.id) ?? [], doneCount.get(p.id) ?? 0))
-    }
-    return map
-  }, [trash])
 
   const totalCount =
     trash.projects.length +
@@ -245,7 +222,11 @@ export function TrashPage() {
               onClick={() =>
                 void restoreAll(
                   'projects',
-                  projects.map((p) => ({ id: p.id, label: p.name })),
+                  projects.map((p) => ({
+                    id: p.id,
+                    label: p.name,
+                    archivedTaskCount: p.archived_task_count,
+                  })),
                 )
               }
             >
@@ -259,14 +240,25 @@ export function TrashPage() {
                 <NoNav>
                   <ProjectCard
                     project={project}
-                    stats={statsByProject.get(project.id)}
                     actions={
                       <>
                         <DeletedAt at={project.deleted_at} />
+                        {project.archived_task_count > 0 && (
+                          <span className="trash-meta">
+                            {project.archived_task_count} task
+                            {project.archived_task_count === 1 ? '' : 's'} to restore
+                          </span>
+                        )}
                         <button
                           type="button"
                           aria-label={`Restore project ${project.name}`}
-                          onClick={() => void restoreProjectById(project.id, project.name)}
+                          onClick={() =>
+                            void restoreProjectById(
+                              project.id,
+                              project.name,
+                              project.archived_task_count,
+                            )
+                          }
                         >
                           Restore
                         </button>

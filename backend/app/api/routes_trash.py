@@ -5,7 +5,12 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.schemas.trash import EmptyTrashResult, TrashCountResult, TrashRead
+from app.schemas.trash import (
+    EmptyTrashResult,
+    ProjectTrashRead,
+    TrashCountResult,
+    TrashRead,
+)
 from app.services import inbox as inbox_service
 from app.services import projects as projects_service
 from app.services import tasks as tasks_service
@@ -23,8 +28,18 @@ def get_trash(
     db: Session = Depends(get_db),
 ) -> TrashRead:
     """Recently soft-deleted projects, tasks, and inbox items — the restore view."""
+    deleted_projects = projects_service.list_deleted_projects(db, limit=limit)
     return TrashRead(
-        projects=projects_service.list_deleted_projects(db, limit=limit),  # type: ignore[arg-type]
+        projects=[
+            ProjectTrashRead.model_validate(p).model_copy(
+                update={
+                    "archived_task_count": projects_service.count_tasks_deleted_with_project(
+                        db, p.id
+                    )
+                }
+            )
+            for p in deleted_projects
+        ],
         tasks=tasks_service.list_deleted_tasks(db, limit=limit),  # type: ignore[arg-type]
         inbox_items=inbox_service.list_deleted_inbox_items(db, limit=limit),  # type: ignore[arg-type]
         training_examples=training_service.list_deleted_examples(db, limit=limit),  # type: ignore[arg-type]
