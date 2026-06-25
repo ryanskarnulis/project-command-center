@@ -134,6 +134,29 @@ def test_global_tasks_route_creates_task_in_general(client: TestClient) -> None:
     assert body["project_id"] is not None
 
 
+def test_global_tasks_route_honors_project_id(
+    client: TestClient, db_session: Session
+) -> None:
+    project = projects_service.create_project(db_session, name="Switches")
+    db_session.commit()
+
+    resp = client.post(
+        "/api/tasks", json={"title": "rack new switch", "project_id": project.id}
+    )
+
+    assert resp.status_code == 201
+    assert resp.json()["project_id"] == project.id
+
+
+def test_global_tasks_route_rejects_nonexistent_project(client: TestClient) -> None:
+    resp = client.post(
+        "/api/tasks", json={"title": "orphan", "project_id": 999999}
+    )
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Project not found"
+
+
 def test_done_task_archives_and_reopens(
     client: TestClient, db_session: Session
 ) -> None:

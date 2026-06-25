@@ -55,8 +55,10 @@ def hard_delete(db: Session, obj: SoftDeleteMixin) -> None:
     one true delete in the app (CLAUDE.md: "soft deletes only" — the user approved
     this for the trash purge); confining it to rows already in trash keeps an active
     row from ever being destroyed by a stray call. Callers must clean the row's FK
-    edges first (FK enforcement is off on SQLite, so the DB won't cascade for us).
-    The caller is responsible for committing.
+    edges first: FK enforcement is on (``PRAGMA foreign_keys = ON``, see
+    ``db/session.py``), but SQLite FKs don't auto-cascade — a missed edge would
+    *raise* on delete rather than clean up silently. The caller is responsible for
+    committing.
     """
     if obj.deleted_at is None:
         raise ValueError("Only trashed items can be permanently deleted")

@@ -10,6 +10,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 import { Modal } from '../../components/Modal'
+import { useBeforeUnload } from '../../hooks/useBeforeUnload'
 import { useSettings } from './useSettings'
 import type {
   EvalRunRecord,
@@ -482,15 +483,7 @@ export function SettingsPage() {
   const anyDirty = Object.values(dirtyMap).some(Boolean)
   const anyEvalRunning = Object.values(evalState).some((s) => s.running)
 
-  useEffect(() => {
-    if (!anyDirty) return
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault()
-      e.returnValue = ''
-    }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [anyDirty])
+  useBeforeUnload(anyDirty)
 
   const blocker = useBlocker(anyDirty)
   const navigationBlocked = blocker.state === 'blocked'

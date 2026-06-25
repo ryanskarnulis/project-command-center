@@ -150,6 +150,26 @@ describe('ProjectDetailPage', () => {
     expect(await screen.findByText('Name is required')).toBeInTheDocument()
   })
 
+  it('guards refresh/close only while a field holds an unsaved edit', async () => {
+    const user = userEvent.setup()
+    const addSpy = vi.spyOn(window, 'addEventListener')
+    const removeSpy = vi.spyOn(window, 'removeEventListener')
+    renderDetail()
+
+    const description = await screen.findByLabelText('Project description')
+    await waitFor(() => expect(description).toHaveValue('Edge hardening'))
+    expect(addSpy).not.toHaveBeenCalledWith('beforeunload', expect.any(Function))
+
+    // Type without blurring: the edit is unsaved, so the guard attaches.
+    await user.type(description, ' more')
+    await waitFor(() =>
+      expect(addSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function)),
+    )
+
+    cleanup()
+    expect(removeSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function))
+  })
+
   it('generates an AI summary on demand', async () => {
     const user = userEvent.setup()
     mockGetProjectSummary.mockResolvedValue({

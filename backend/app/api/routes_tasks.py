@@ -140,10 +140,12 @@ def list_all_tasks(
 
 @router.post("/tasks", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
 def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db)) -> TaskRead:
+    if data.project_id is not None:
+        _ensure_project(db, data.project_id)
     try:
         task = tasks_service.create_task(
             db,
-            project_id=None,
+            project_id=data.project_id,
             title=data.title,
             description=data.description,
             review_status=data.review_status,
@@ -171,6 +173,7 @@ def create_task(
     project_id: int, data: TaskCreate, db: Session = Depends(get_db)
 ) -> TaskRead:
     _ensure_project(db, project_id)
+    # The path project_id is authoritative here; any ``data.project_id`` is ignored.
     try:
         task = tasks_service.create_task(
             db,

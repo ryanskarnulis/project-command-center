@@ -13,6 +13,7 @@ import { listCompletedTasks, listTasks } from '../../api/tasks'
 import type { ProjectSummary } from '../../types/dashboard'
 import type { Project, ProjectAlias, ProjectUpdate } from '../../types/project'
 import type { Task } from '../../types/task'
+import { useBeforeUnload } from '../../hooks/useBeforeUnload'
 import { buildProjectStats } from '../../utils/projectStatus'
 import { TaskCard } from '../tasks/TaskCard'
 import { SubtaskGroup } from '../tasks/SubtaskGroup'
@@ -135,6 +136,14 @@ export function ProjectDetailPage() {
   const nameDraft = activeProjectDraft.name
   const descriptionDraft = activeProjectDraft.description
 
+  // Guard refresh/tab-close while a focused field holds an unsaved edit. In-app
+  // navigation is already safe: clicking a <Link> blurs the field, which saves it.
+  const dirty =
+    project !== null &&
+    (activeProjectDraft.name !== loadedProjectDraft.name ||
+      activeProjectDraft.description !== loadedProjectDraft.description)
+  useBeforeUnload(dirty)
+
   async function savePatch(data: ProjectUpdate) {
     if (!project) return
     setSaveState('saving')
@@ -187,10 +196,17 @@ export function ProjectDetailPage() {
     }
   }
 
+  // Mirror services.projects._normalize: lowercase, trim, collapse whitespace.
+  const normalizeAlias = (value: string) =>
+    value.trim().toLowerCase().replace(/\s+/g, ' ')
+  const aliasIsDuplicate =
+    newAlias.trim() !== '' &&
+    aliases.some((a) => normalizeAlias(a.alias) === normalizeAlias(newAlias))
+
   async function handleAddAlias(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const value = newAlias.trim()
-    if (!value || aliasBusy) return
+    if (!value || aliasBusy || aliasIsDuplicate) return
     setAliasBusy(true)
     setAliasError(null)
     try {
@@ -373,8 +389,14 @@ export function ProjectDetailPage() {
             onChange={(e) => setNewAlias(e.target.value)}
             placeholder="e.g. fw, firewall"
           />
-          <button type="submit" disabled={aliasBusy || !newAlias.trim()}>Add</button>
+          <button
+            type="submit"
+            disabled={aliasBusy || !newAlias.trim() || aliasIsDuplicate}
+          >
+            Add
+          </button>
         </form>
+        {aliasIsDuplicate && <p role="status">This alias is already added.</p>}
         {aliasError && <p role="alert">{aliasError}</p>}
       </section>
 

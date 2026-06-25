@@ -169,7 +169,8 @@ Tables:
 
 ```
 projects
-project_aliases
+project_aliases        (normalized_alias dedupe key + partial unique index over
+                        active rows: one alias per project per normalized form)
 tasks                  (includes review_status: candidate | accepted | rejected;
                         workflow_status: open | in_progress | done;
                         nullable parent_task_id self-FK for subtask nesting;

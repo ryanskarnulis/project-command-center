@@ -59,33 +59,42 @@ confusing state · (low) polish/docs._
       (README updated). Backend + frontend tests; 302 backend / 211 frontend passing._ Deleting
       a project rehomed its active tasks to General; restore only cleared `deleted_at`, so the
       project came back empty and asymmetric.
-- [ ] **(low/med) Duplicate & case-variant aliases are accepted.**
-      `projects.create_alias` has no uniqueness or normalization guard (no DB constraint on
-      `project_aliases` either); adding `fw`, `fw`, `FW` yields three rows. Matching is
-      substring-normalized so dupes don't break matching, but they clutter the alias list and
-      the model's choice context. _Verified in-browser + service script._ Add a
-      normalized-dedupe guard (service no-op or 409; disable the frontend **Add** button when
-      the normalized value already exists).
-- [ ] **(low) No unsaved-changes guard on ProjectDetailPage / TaskDetailPage.** Both
-      save-on-blur, so in-app navigation is safe — clicking a `<Link>` blurs the field first
-      and the edit persists (verified: the typed description saved on link-click). But a
-      **refresh / tab-close** with a focused, edited-but-not-blurred field silently discards
-      the edit, with no `beforeunload` prompt — unlike SettingsPage, which got the dirty-state
-      guard in Sprint 15. _Verified in-browser: typed a description, reloaded, the text was
-      gone and no dialog fired._ Either extend the Sprint-15 dirty-state guard to these pages
-      or note the gap as intentional.
-- [ ] **(low) Stale "FK enforcement is off on SQLite" comments.** `common.hard_delete`,
-      `tasks.purge_task`, `tasks._deleted_subtree_depth_first`, and `projects.purge_project`
-      all justify their manual FK cleanup by claiming FK enforcement is off — but
-      `db/session.py:45` issues `PRAGMA foreign_keys = ON` in prod (and conftest enables it in
-      tests). The cleanup code is correct and still necessary (FKs don't auto-cascade — a
-      missed edge would *raise*), but the rationale is backwards. Fix the comments.
-- [ ] **(low) `POST /api/tasks` silently ignores a supplied `project_id`.**
-      `create_unscoped_task` hard-codes `project_id=None` and `TaskCreate` has no
-      `project_id` field (and no `extra="forbid"`), so a client posting `{project_id: N}`
-      gets the task filed in **General** with no error. The frontend never sends one, so it's
-      latent — but it cost time during this very QA pass. Either honor `project_id` when
-      present or `extra="forbid"` so a stray field 422s.
+- [x] **(low/med) Duplicate & case-variant aliases are accepted.** _Resolved with a
+      normalized dedupe guard backed by the DB: `project_aliases` gains a `normalized_alias`
+      column (= `_normalize(alias)`, shared with the matcher) and a partial unique index over
+      active rows (`uq_project_alias_normalized`, migration `7ebcc24824c9`). `create_alias`
+      raises `DuplicateAliasError` → the route returns **409**; the frontend pre-disables the
+      **Add** button and shows an "already added" hint when the typed value normalizes to an
+      existing alias. Soft-delete + re-add still works (active-only index). Tests in
+      `test_projects.py`; 306 backend passing._
+      `projects.create_alias` had no uniqueness or normalization guard (no DB constraint on
+      `project_aliases` either); adding `fw`, `fw`, `FW` yielded three rows.
+- [x] **(low) No unsaved-changes guard on ProjectDetailPage / TaskDetailPage.** _Resolved by
+      adding a `beforeunload` guard to both pages via a shared `useBeforeUnload(dirty)` hook
+      (`frontend/src/hooks/useBeforeUnload.ts`, extracted from SettingsPage's inlined effect).
+      `dirty` = the active draft differs from the loaded server values. Scoped to refresh/close
+      only — in-app nav stays covered by save-on-blur, so no `useBlocker`/discard-modal was added
+      here. SettingsPage now reuses the same hook. Tests in both detail suites spy on
+      add/removeEventListener; 23 passing across the two pages + Settings._ Both save-on-blur, so
+      in-app navigation is safe — clicking a `<Link>` blurs the field first and the edit persists.
+      But a **refresh / tab-close** with a focused, edited-but-not-blurred field silently discarded
+      the edit, with no `beforeunload` prompt — unlike SettingsPage (Sprint 15).
+- [x] **(low) Stale "FK enforcement is off on SQLite" comments.** _Fixed: the two comments
+      that carried the wrong rationale (`common.hard_delete`,
+      `tasks._deleted_subtree_depth_first`) now state it accurately — FK enforcement **is** on
+      (`PRAGMA foreign_keys = ON`, `db/session.py`), but SQLite FKs don't auto-cascade, so a
+      missed edge would *raise* and manual cleanup is still required. (`tasks.purge_task` /
+      `projects.purge_project` referenced FK cleanup without the false claim, so they were left
+      as-is.)_ `db/session.py:45` issues `PRAGMA foreign_keys = ON` in prod (and conftest enables
+      it in tests), but the comments claimed FK enforcement is off — backwards.
+- [x] **(low) `POST /api/tasks` silently ignores a supplied `project_id`.** _Resolved by
+      **honoring** `project_id`: `TaskCreate` gains a `project_id: int | None = None` field and
+      `create_unscoped_task` passes it through, validating a non-null value with `_ensure_project`
+      (404 on a bad id). The project-scoped route keeps the **path** id authoritative and ignores
+      the body field. Omitting it preserves the file-in-General default. Tests in `test_tasks.py`
+      (honored / 404 / General regression); 308 backend passing._ `create_unscoped_task`
+      hard-coded `project_id=None` and `TaskCreate` had no field, so `{project_id: N}` filed in
+      General silently.
 
 **Verified clean (no action):** recurrence detail UI is correct — repeat badge, "Skip this
 occurrence" (with confirm), lazy `RecurrenceSeries` timeline (including skipped rows), and the

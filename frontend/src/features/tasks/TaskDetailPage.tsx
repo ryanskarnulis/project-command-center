@@ -5,6 +5,7 @@ import { breakDownTask, createUnscopedTask, deleteTask, getSubtasks, getTask, li
 import { decideCandidate } from '../../api/inbox'
 import { listProjects } from '../../api/projects'
 import { Badge } from '../../components/Badge'
+import { useBeforeUnload } from '../../hooks/useBeforeUnload'
 import type { Project } from '../../types/project'
 import type { EditScope, Task, TaskPriority, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { formatDueDate } from '../../utils/dates'
@@ -156,6 +157,16 @@ export function TaskDetailPage() {
   const descriptionDraft = activeTaskDraft.description
   const estimateDraft = activeTaskDraft.estimate
   const assigneeDraft = activeTaskDraft.assignee
+
+  // Guard refresh/tab-close while a focused field holds an unsaved edit. In-app
+  // navigation is already safe: clicking a <Link> blurs the field, which saves it.
+  const dirty =
+    task !== null &&
+    (activeTaskDraft.title !== loadedTaskDraft.title ||
+      activeTaskDraft.description !== loadedTaskDraft.description ||
+      activeTaskDraft.estimate !== loadedTaskDraft.estimate ||
+      activeTaskDraft.assignee !== loadedTaskDraft.assignee)
+  useBeforeUnload(dirty)
 
   const parentOptions = useMemo(() => {
     if (!task) return []

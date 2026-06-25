@@ -166,7 +166,14 @@ def create_alias(
     project_id: int, data: ProjectAliasCreate, db: Session = Depends(get_db)
 ) -> ProjectAlias:
     _get_or_404(db, project_id)
-    alias = projects_service.create_alias(db, project_id=project_id, alias=data.alias)
+    try:
+        alias = projects_service.create_alias(
+            db, project_id=project_id, alias=data.alias
+        )
+    except projects_service.DuplicateAliasError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     db.commit()
     db.refresh(alias)
     logger.info("project_alias_created", project_id=project_id, alias_id=alias.id)

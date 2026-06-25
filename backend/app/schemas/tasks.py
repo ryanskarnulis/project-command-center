@@ -35,6 +35,10 @@ class TaskCreate(BaseModel):
     # layer), while a parent-less task still resolves to ``medium``.
     priority: TaskPriority | None = None
     due_date: date | None = None
+    # Honored only by the unscoped ``POST /api/tasks`` route; the project-scoped
+    # route takes the project from its path and ignores this field. Omit to file
+    # in General (the default for accepted/filed statuses).
+    project_id: int | None = None
     parent_task_id: int | None = None
     estimated_minutes: PositiveMinutes | None = None
     assignee_hint: OptionalStrippedStr = None

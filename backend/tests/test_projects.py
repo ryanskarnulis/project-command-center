@@ -168,6 +168,60 @@ def test_alias_create_list_softdelete(db_session: Session) -> None:
     assert projects_service.get_alias(db_session, alias.id) is None
 
 
+def test_create_alias_stores_normalized_form(db_session: Session) -> None:
+    project = projects_service.create_project(db_session, name="Home Network")
+    alias = projects_service.create_alias(
+        db_session, project_id=project.id, alias="  Fire Wall  "
+    )
+    db_session.commit()
+    assert alias.normalized_alias == "fire wall"
+
+
+def test_create_alias_rejects_case_variant_duplicate(db_session: Session) -> None:
+    project = projects_service.create_project(db_session, name="Home Network")
+    projects_service.create_alias(db_session, project_id=project.id, alias="fw")
+    db_session.commit()
+
+    with pytest.raises(projects_service.DuplicateAliasError):
+        projects_service.create_alias(db_session, project_id=project.id, alias="FW")
+
+    db_session.rollback()
+    assert len(projects_service.list_aliases(db_session, project.id)) == 1
+
+
+def test_create_alias_allows_readd_after_soft_delete(db_session: Session) -> None:
+    project = projects_service.create_project(db_session, name="Home Network")
+    alias = projects_service.create_alias(
+        db_session, project_id=project.id, alias="fw"
+    )
+    db_session.commit()
+    projects_service.soft_delete_alias(db_session, alias)
+    db_session.commit()
+
+    # The partial (active-only) index lets the same text be re-added.
+    readded = projects_service.create_alias(
+        db_session, project_id=project.id, alias="fw"
+    )
+    db_session.commit()
+    assert readded.id != alias.id
+    assert [a.id for a in projects_service.list_aliases(db_session, project.id)] == [
+        readded.id
+    ]
+
+
+def test_alias_route_duplicate_returns_409(client: TestClient) -> None:
+    project_id = client.post("/api/projects", json={"name": "Home Network"}).json()["id"]
+    first = client.post(
+        f"/api/projects/{project_id}/aliases", json={"alias": "fw"}
+    )
+    assert first.status_code == 201
+    dup = client.post(f"/api/projects/{project_id}/aliases", json={"alias": "FW"})
+    assert dup.status_code == 409
+    assert [a["alias"] for a in client.get(
+        f"/api/projects/{project_id}/aliases"
+    ).json()] == ["fw"]
+
+
 def test_list_projects_with_aliases_groups_aliases(db_session: Session) -> None:
     a = projects_service.create_project(db_session, name="Home Network")
     b = projects_service.create_project(db_session, name="Empty")

@@ -12,6 +12,10 @@ from app.db.models import ActivityEvent, InboxItem, Project, ProjectAlias, Task
 from app.services import activity
 from app.services.common import active, deleted, hard_delete, restore, soft_delete
 
+class DuplicateAliasError(ValueError):
+    """Raised when an alias whose normalized form already exists is added."""
+
+
 DEFAULT_PROJECT_NAME = "General"
 DEFAULT_PROJECT_DESCRIPTION = "Default project for unfiled tasks"
 DEFAULT_PROJECT_SYSTEM_KEY = "general"
@@ -301,8 +305,22 @@ def get_alias(db: Session, alias_id: int) -> ProjectAlias | None:
     ).scalar_one_or_none()
 
 
+def find_active_alias_by_normalized(
+    db: Session, project_id: int, normalized: str
+) -> ProjectAlias | None:
+    return db.execute(
+        active(ProjectAlias).where(
+            ProjectAlias.project_id == project_id,
+            ProjectAlias.normalized_alias == normalized,
+        )
+    ).scalar_one_or_none()
+
+
 def create_alias(db: Session, *, project_id: int, alias: str) -> ProjectAlias:
-    row = ProjectAlias(project_id=project_id, alias=alias)
+    normalized = _normalize(alias)
+    if find_active_alias_by_normalized(db, project_id, normalized) is not None:
+        raise DuplicateAliasError(f'Alias "{alias}" already exists for this project')
+    row = ProjectAlias(project_id=project_id, alias=alias, normalized_alias=normalized)
     db.add(row)
     db.flush()
     db.refresh(row)

@@ -147,6 +147,26 @@ describe('TaskDetailPage', () => {
     )
   })
 
+  it('guards refresh/close only while a field holds an unsaved edit', async () => {
+    const user = userEvent.setup()
+    const addSpy = vi.spyOn(window, 'addEventListener')
+    const removeSpy = vi.spyOn(window, 'removeEventListener')
+    renderDetail()
+
+    const title = await screen.findByLabelText('Task title')
+    await waitFor(() => expect(title).toHaveValue('Patch the router'))
+    expect(addSpy).not.toHaveBeenCalledWith('beforeunload', expect.any(Function))
+
+    // Type without blurring: the edit is unsaved, so the guard attaches.
+    await user.type(title, ' now')
+    await waitFor(() =>
+      expect(addSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function)),
+    )
+
+    cleanup()
+    expect(removeSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function))
+  })
+
   it('saves workflow status changes inline', async () => {
     const user = userEvent.setup()
     renderDetail()

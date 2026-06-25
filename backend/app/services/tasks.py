@@ -748,9 +748,10 @@ def _deleted_subtree_depth_first(db: Session, task: Task) -> list[Task]:
 
     Soft-deleting a parent cascade-soft-deletes its subtree, so the whole subtree
     sits in trash together; purging the root must take the descendants with it or
-    they'd dangle a ``parent_task_id`` at a destroyed row (FK enforcement is off,
-    so the DB won't stop us). Children-first ordering lets the caller delete in a
-    single pass without tripping the self-referential FK.
+    they'd dangle a ``parent_task_id`` at a destroyed row. FK enforcement is on
+    (``PRAGMA foreign_keys = ON``), so that dangle would *raise*; children-first
+    ordering lets the caller delete in a single pass without tripping the
+    self-referential FK.
     """
     children = (
         db.execute(deleted(Task).where(Task.parent_task_id == task.id))
