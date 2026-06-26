@@ -1,0 +1,188 @@
+/* All @media blocks (dark mode + breakpoints). Loaded last so overrides win.
+   Split from index.css. The barrel (../index.css) controls load order. */
+
+@media (prefers-color-scheme: dark) {
+  .priority-pill.priority-urgent { background: #3f1212; color: #f87171; }
+  .priority-pill.priority-high   { background: #3f1f0a; color: #fb923c; }
+  .status-pill.workflow-open      { background: #0f2a5e; color: #93c5fd; }
+  .status-pill.workflow-done      { background: #052e16; color: #4ade80; }
+}
+
+@media (max-width: 880px) {
+  .task-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .task-card-actions {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .task-filters,
+  .task-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .task-filters-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 1220px) {
+  .app-shell {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-layout,
+  .dashboard-main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .task-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-rail {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .topbar {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar-actions,
+  .topbar-title {
+    display: none;
+  }
+}
+
+@media (max-width: 820px) {
+  .app-shell {
+    display: block;
+  }
+
+  .app-sidebar {
+    position: static;
+    height: auto;
+    padding: 16px;
+  }
+
+  .shell-nav,
+  .shell-nav-group,
+  .shell-nav-bottom {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .shell-nav-bottom {
+    margin-top: 0;
+  }
+
+  .focus-session {
+    display: none;
+  }
+
+  .topbar {
+    min-height: 72px;
+    padding: 12px 16px;
+  }
+
+  .app-main {
+    padding: 16px;
+  }
+
+  .dashboard-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .metric-grid,
+  .dashboard-rail {
+    grid-template-columns: 1fr;
+  }
+
+  .project-table-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+  }
+
+  .dashboard-list li {
+    grid-template-columns: 58px minmax(0, 1fr) auto;
+  }
+
+  .command-inbox-list {
+    grid-template-columns: 1fr;
+  }
+
+  .pending-review-panel li {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-list .status-dot {
+    display: none;
+  }
+
+  .task-preview-list li {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .task-preview-list .due,
+  .task-preview-list svg {
+    justify-self: start;
+    margin-left: 28px;
+  }
+}
+
+@media (max-width: 560px) {
+  .shell-nav,
+  .shell-nav-group,
+  .shell-nav-bottom {
+    grid-template-columns: 1fr;
+  }
+
+  .command-search {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+
+  .command-search kbd {
+    display: none;
+  }
+
+  .metric-card {
+    grid-template-columns: 52px minmax(0, 1fr);
+    min-height: 150px;
+    padding: 14px;
+  }
+
+  .metric-icon {
+    width: 48px;
+    height: 48px;
+  }
+
+  .metric-content strong {
+    font-size: 30px;
+  }
+
+  .settings-profile-header,
+  .training-example-header,
+  .review-row-controls {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 720px) {
+  .kanban-board {
+    grid-template-columns: 1fr;
+  }
+}
+

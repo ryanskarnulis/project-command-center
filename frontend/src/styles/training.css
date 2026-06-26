@@ -1,0 +1,230 @@
+/* Training: progress, stats, example rows, correction diffs.
+   Split from index.css. The barrel (../index.css) controls load order. */
+
+.training-load-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 14px;
+}
+
+.training-progress {
+  margin: 8px 0 0;
+}
+
+.training-progress-label {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.training-stats-readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.training-readiness-label {
+  color: var(--text-h);
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.training-filtered-count {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.training-by-task {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.training-task-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--neutral-soft);
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 720;
+  padding: 3px 11px;
+}
+
+.training-task-chip code {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.training-chip-accepted {
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+/* Left side of an example header: task name + status pill. */
+.training-example-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Right side of an example header: profile · model · relative time. */
+.training-example-meta {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* Copy button sitting in a <details> summary, next to the block label. */
+.training-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 0;
+  margin-left: auto;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.training-copy-btn:hover {
+  color: var(--text-h);
+  border-color: var(--border-strong);
+}
+
+/* Move-to-trash button in the example header meta row. Subtle until hovered,
+ * then reads as destructive. Pushed to the far right of the meta row. */
+.training-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 0;
+  margin-left: auto;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.training-delete-btn:hover {
+  color: var(--red);
+  border-color: var(--red);
+  background: var(--red-soft);
+}
+
+/* The whole example is now a collapsed row: the outer summary is the compact
+ * line, and its meta group is pushed to the far right. */
+.training-example-summary .training-example-meta {
+  margin-left: auto;
+}
+
+/* Body revealed when the row is expanded: diff + JSON blocks, stacked. */
+.training-example-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+/* +adds / −dels badge in the collapsed row, so corrections are scannable. */
+.training-diff-count {
+  display: inline-flex;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.training-diff-count .diff-add {
+  color: var(--green);
+}
+
+.training-diff-count .diff-del {
+  color: var(--red);
+}
+
+/* Lay the summary out as label + copy button on one row. flex drops the native
+ * disclosure triangle, so re-add one that rotates on open. */
+.training-example summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.training-example summary::-webkit-details-marker {
+  display: none;
+}
+
+.training-example summary::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--text-muted);
+  transition: transform 0.12s ease;
+}
+
+.training-example details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.training-pre {
+  overflow: auto;
+  max-height: 360px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 8px 0 0;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Line-level correction diff: added/removed lines over the dark JSON surface. */
+.training-diff {
+  display: block;
+}
+
+.training-diff-line {
+  display: block;
+  padding: 0 4px;
+  border-radius: 2px;
+}
+
+.training-diff-line.is-add {
+  background: rgba(34, 197, 94, 0.22);
+  color: #bbf7d0;
+}
+
+.training-diff-line.is-del {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fecaca;
+}
+
+.training-diff-line.is-eq {
+  color: #94a3b8;
+}
+

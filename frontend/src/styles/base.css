@@ -1,0 +1,138 @@
+/* Element resets and base typography (button/input/a/headings/code, #root).
+   Split from index.css. The barrel (../index.css) controls load order. */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100svh;
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 28rem),
+    var(--bg);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  color: var(--blue);
+  text-decoration: none;
+}
+
+a:hover {
+  color: #1d4ed8;
+}
+
+button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-h);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-soft);
+}
+
+button:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+input,
+select,
+textarea {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-h);
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid rgba(59, 130, 246, 0.24);
+  outline-offset: 2px;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1,
+h2,
+h3,
+strong {
+  color: var(--text-h);
+}
+
+h1 {
+  font-size: 26px;
+  line-height: 1.2;
+  font-weight: 760;
+}
+
+h2 {
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 720;
+}
+
+h3 {
+  font-size: 14px;
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+code,
+kbd,
+.counter {
+  font-family: var(--mono);
+}
+
+code,
+kbd {
+  border-radius: 6px;
+  background: var(--neutral-soft);
+  color: var(--text-h);
+  font-size: 12px;
+  padding: 2px 6px;
+}
+
+#root {
+  min-height: 100svh;
+}
+

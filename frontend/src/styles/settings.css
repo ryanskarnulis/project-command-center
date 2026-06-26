@@ -1,0 +1,327 @@
+/* Settings: form/section/list scaffolding, health, nav, profiles/prompts/evals.
+   Split from index.css. The barrel (../index.css) controls load order. */
+
+.app-main > main > form,
+.settings-field,
+.settings-actions,
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-main > main > form,
+.settings section,
+.training-stats,
+.activity-feed,
+.task-dependencies {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 16px;
+  box-shadow: var(--shadow-soft);
+}
+
+.app-main > main > ul,
+.settings-list,
+.training-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.app-main > main > ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.app-main > main > ul > li,
+.settings-profile,
+.settings-prompt,
+.settings-eval,
+.training-example {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 14px;
+  box-shadow: var(--shadow-soft);
+}
+
+.app-main > main > ul > li {
+  display: block;
+}
+
+.app-main > main > ul > li > span:first-child {
+  color: var(--text-h);
+  font-weight: 720;
+}
+
+.confidence,
+.settings-meta,
+.activity-time {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.settings-note {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* Sticky tab row for jumping between the Profiles / Prompts / Evals sections. */
+.settings-nav {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.settings-nav-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.settings-nav-tab:hover {
+  color: var(--text-h);
+  background: var(--surface-soft);
+}
+
+.settings-nav-tab.is-active {
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-color: var(--blue);
+}
+
+/* Ollama health panel: live connection state + re-check, above the section nav. */
+.settings-health {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.settings-health.is-up {
+  border-left-color: var(--green);
+}
+
+.settings-health.is-down {
+  border-left-color: var(--red);
+}
+
+.settings-health-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 720;
+  color: var(--text-h);
+}
+
+.settings-health.is-up .settings-health-state {
+  color: var(--green);
+}
+
+.settings-health.is-down .settings-health-state {
+  color: var(--red);
+}
+
+.settings-health-host {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.settings-health-recheck,
+.settings-health-state svg,
+.settings-model-pick {
+  flex-shrink: 0;
+}
+
+.settings-health-recheck {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-profile,
+.settings-prompt,
+.settings-eval,
+.training-example {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+
+.settings-profile-header,
+.training-example-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-field em {
+  color: var(--blue);
+  font-style: normal;
+}
+
+/* Override tag + its inline per-field reset link. */
+.settings-override {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.settings-reset-field {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--blue);
+  font-size: 0.78rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.settings-reset-field:disabled {
+  color: var(--text-muted);
+  cursor: default;
+  text-decoration: none;
+}
+
+/* Unsaved-changes indicator next to an editor's title. */
+.settings-dirty-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: var(--orange);
+  vertical-align: middle;
+}
+
+/* Transient "Saved ✓" confirmation in the editor actions row. */
+.settings-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settings-prompt-text {
+  width: 100%;
+  min-height: 300px;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Tags showing which workflow profiles consume a prompt. */
+.settings-prompt-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.settings-prompt-tag {
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: #0b55d9;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+/* Live character count in the prompt actions row. */
+.settings-char-count {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.settings-eval-fails {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Evals section header: title on the left, run-all button on the right. */
+.settings-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Pass-rate sparkline across a suite's recent runs. */
+.eval-trend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.eval-trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 28px;
+  padding: 0;
+}
+
+.eval-trend-bar {
+  width: 6px;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--orange);
+}
+
+.eval-trend-bar.is-full {
+  background: var(--green);
+}
+
+.eval-trend-summary {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+

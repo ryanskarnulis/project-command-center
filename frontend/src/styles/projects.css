@@ -1,0 +1,77 @@
+/* Projects: section tabs, project grid/cards, progress.
+   Split from index.css. The barrel (../index.css) controls load order. */
+
+/* Project section nav (Overview / Tasks / Timeline): pill tabs modeled on the
+   settings nav, with a clear active state. React Router's NavLink adds `.active`. */
+.project-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.project-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 720;
+  text-decoration: none;
+}
+
+.project-tab:hover {
+  color: var(--text-h);
+  background: var(--surface-soft);
+}
+
+.project-tab.active {
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-color: var(--blue);
+}
+
+.project-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+/* Grid cells are narrow, so stack the card body over a full-width actions row
+   instead of fighting for horizontal space (which collapses the title to a
+   one-character-per-line column). Mirrors the <=880px responsive behaviour. */
+.project-grid .task-card {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.project-grid .task-card-actions {
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.project-card-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.project-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--neutral-soft);
+  overflow: hidden;
+}
+
+.project-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--green);
+  border-radius: 999px;
+}
+

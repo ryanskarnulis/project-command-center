@@ -1,0 +1,252 @@
+/* Today / daily schedule timeline.
+   Split from index.css. The barrel (../index.css) controls load order. */
+
+/* ── Today / daily schedule ───────────────────────────────────────────── */
+.today-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.today-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-soft);
+}
+
+.today-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.today-controls input,
+.today-controls select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-soft);
+  color: var(--text-h);
+  font-size: 0.9rem;
+}
+
+.today-summary {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.today-summary strong {
+  color: var(--text-h);
+}
+
+.today-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.today-section h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.today-section-hint {
+  margin: -4px 0 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.today-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.today-block {
+  display: flex;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--blue);
+  border-radius: 11px;
+  background: var(--surface-soft);
+}
+
+.today-block-time {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 52px;
+  font-variant-numeric: tabular-nums;
+}
+
+.today-block-time strong {
+  color: var(--text-h);
+  font-size: 0.95rem;
+}
+
+.today-block-time span {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.today-block-body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+}
+
+.today-block-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.today-block-title {
+  font-weight: 600;
+  color: var(--text-h);
+  text-decoration: none;
+}
+
+.today-block-title:hover {
+  text-decoration: underline;
+}
+
+.today-block-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.today-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.today-estimate {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.today-assumed {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--orange-soft);
+  color: #b45309;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.today-reason {
+  font-style: italic;
+}
+
+.today-overflow-list,
+.today-blocked-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.today-overflow-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.today-blocked-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--red);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.today-blocked-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.today-blocked-warning {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.today-blocked-warning svg {
+  color: var(--red);
+}
+
+.today-blocker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.today-blocker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.today-blocker-title {
+  color: var(--text-h);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.today-blocker-title:hover {
+  text-decoration: underline;
+}
+
+.today-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+

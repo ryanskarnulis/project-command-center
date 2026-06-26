@@ -1,0 +1,157 @@
+/* Inbox capture + review: capture panel, pending/summary panels, review queue/rows.
+   Split from index.css. The barrel (../index.css) controls load order. */
+
+.inbox-capture-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 18px;
+  box-shadow: var(--shadow-soft);
+}
+
+.inbox-capture-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.inbox-capture-header p {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.inbox-capture-form {
+  position: relative;
+  display: block;
+}
+
+.inbox-capture-form textarea {
+  display: block;
+  width: 100%;
+  min-height: 126px;
+  padding-right: 58px;
+  padding-bottom: 52px;
+}
+
+.inbox-submit-button {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  border-radius: 50%;
+  background: var(--blue);
+  color: #ffffff;
+  padding: 0;
+}
+
+.inbox-submit-button:hover:not(:disabled) {
+  border-color: var(--blue);
+  background: #1d4ed8;
+}
+
+.inbox-submit-button:disabled {
+  background: #cbd5e1;
+  color: #64748b;
+  opacity: 1;
+}
+
+.pending-review-panel,
+.capture-summary-panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 14px;
+}
+
+.pending-review-panel h2 {
+  margin-bottom: 10px;
+}
+
+.pending-review-panel ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pending-review-panel li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.pending-review-panel li > button:first-child {
+  justify-content: flex-start;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+}
+
+.capture-summary-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+.review-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.review-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 14px;
+  box-shadow: var(--shadow-soft);
+}
+
+.review-row.rejected {
+  opacity: 0.56;
+}
+
+.review-row-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-row-controls label,
+.modal-body label,
+.settings-field label {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.review-row-controls label {
+  flex-direction: row;
+  align-items: center;
+}
+
+.review-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+

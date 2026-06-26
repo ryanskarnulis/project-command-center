@@ -1,0 +1,319 @@
+/* App shell: sidebar, brand, nav, topbar/search bar, app-main, sync-footer, nav count badge.
+   Split from index.css. The barrel (../index.css) controls load order. */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 100svh;
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  height: 100svh;
+  padding: 28px 18px 22px;
+  border-right: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(18px);
+}
+
+.brand-mark {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 8px 12px;
+}
+
+.brand-mark strong,
+.brand-mark span {
+  display: block;
+}
+
+.brand-mark strong {
+  font-size: 18px;
+  line-height: 1.05;
+}
+
+.brand-mark > div:last-child span {
+  color: var(--text-h);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.brand-icon {
+  position: relative;
+  width: 40px;
+  height: 42px;
+}
+
+.brand-icon::before,
+.brand-icon span {
+  position: absolute;
+  left: 4px;
+  width: 28px;
+  height: 10px;
+  content: '';
+  clip-path: polygon(50% 0, 100% 40%, 100% 100%, 50% 60%, 0 100%, 0 40%);
+  background: var(--blue);
+}
+
+.brand-icon::before {
+  top: 4px;
+  opacity: 0.78;
+}
+
+.brand-icon span:first-child {
+  top: 17px;
+}
+
+.brand-icon span:last-child {
+  top: 30px;
+  opacity: 0.78;
+}
+
+.shell-nav,
+.shell-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shell-nav-group {
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+
+.shell-nav-bottom {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+
+.shell-nav-link {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-weight: 650;
+  padding: 10px 12px;
+  box-shadow: none;
+}
+
+.shell-nav-link:hover:not(:disabled),
+.shell-nav-link.active {
+  background: var(--blue-soft);
+  color: #0b55d9;
+}
+
+.shell-nav-link.disabled {
+  color: var(--text-muted);
+}
+
+.focus-session {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+  box-shadow: var(--shadow-soft);
+}
+
+.focus-session-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.focus-session strong,
+.focus-session span {
+  display: block;
+  font-size: 13px;
+}
+
+.focus-session span {
+  margin-top: 4px;
+  color: var(--text-muted);
+}
+
+.focus-session i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.focus-session button {
+  grid-column: 1 / -1;
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  box-shadow: none;
+  padding: 4px;
+}
+
+.app-content {
+  position: relative;
+  min-width: 0;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) minmax(280px, 640px) minmax(260px, 1fr);
+  align-items: center;
+  gap: 18px;
+  min-height: 92px;
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(247, 249, 252, 0.86);
+  backdrop-filter: blur(18px);
+}
+
+.topbar-title span,
+.topbar-title strong {
+  display: block;
+}
+
+.topbar-title span {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.topbar-title strong {
+  margin-top: 4px;
+  font-size: 16px;
+}
+
+.command-search {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 54px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text-muted);
+  padding: 0 14px;
+  box-shadow: var(--shadow-soft);
+}
+
+.command-search input {
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.icon-button {
+  position: relative;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  padding: 0;
+}
+
+.notification-dot {
+  position: absolute;
+  top: 8px;
+  right: 9px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--red);
+}
+
+.local-profile {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0 12px;
+}
+
+.app-main {
+  min-width: 0;
+  padding: 22px 28px 56px;
+}
+
+.app-main > main,
+.app-main > .settings,
+.app-main > .training,
+.app-main > .dashboard,
+.app-main > div:not(.dashboard) {
+  width: min(100%, 1460px);
+  margin: 0 auto;
+}
+
+.app-main > main,
+.settings,
+.training,
+.trash {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  text-align: left;
+}
+
+.sync-footer {
+  position: fixed;
+  right: 22px;
+  bottom: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.nav-count-badge {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: #0b55d9;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 20px;
+}
+

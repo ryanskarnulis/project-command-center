@@ -16,61 +16,6 @@ update/validation, inbox-review, and service-boundary seams, plus a docs-coheren
 Findings reproduced against the code on 2026-06-25. _Severity: (high) user-facing breakage ·
 (med) bug or confusing state · (low) polish/docs._
 
-### Needs fixing / a decision
-
-- [x] **(med) `TaskUpdate` lets non-nullable fields be cleared to `null`.** `TaskUpdate`
-      types `title`, `review_status`, `workflow_status`, and `priority` as `… | None = None`,
-      and `update_task` blindly `setattr`s every supplied field. So `PATCH /api/tasks/{id}`
-      with `{"title": null}` or `{"priority": null}` pushes `None` into a NOT-NULL column —
-      a 500 / invalid domain state instead of a clean **422**. _Verified in
-      `schemas/tasks.py:47-57` + `services/tasks.py:464-465` (`setattr` loop)._ **Fix:**
-      distinguish *optional-because-omitted* from *nullable-because-clearing-is-allowed*.
-      `description`, `due_date`, `assignee_hint`, `parent_task_id`, `estimated_minutes`, and
-      `repeat_interval` may legitimately be nulled; `title`, `priority`, `review_status`, and
-      `workflow_status` must not. Reject explicit `null` on the latter (a `model_validator`
-      keyed on `model_fields_set` keeps omit≠null), returning 422.
-- [x] **(med) Explicit `project_id: null` does not actually un-file an accepted task.** The
-      PATCH route comment (`routes_tasks.py:284`) says an explicit null "un-files the task,"
-      but `update_task` then calls `_default_project_id_for_status` (`services/tasks.py:466`),
-      which rehomes any *accepted* task with no project back to General. So for accepted tasks
-      the null is silently rehomed, not un-filed — comment and behavior disagree. **Decision:**
-      given the "global tasks are always filed" model, keep accepted tasks always filed and
-      fix the route comment + any UI language; *or* preserve explicit null as a real unfile.
-      Pick one and make the code, comment, and UI agree.
-- [x] **(med) `review_inbox` can finalize a partial batch.** The batch path
-      (`services/review.py:131-209`) applies whatever decisions are supplied, then sets
-      `item.reviewed_at` unconditionally — there's no guard that every live candidate has
-      exactly one decision. A partial batch marks the inbox item reviewed while leaving some
-      candidate tasks undecided (the one-at-a-time `decide_candidate` path finalizes only when
-      no candidate remains, so it's safe). **Fix:** before setting `reviewed_at`, require the
-      decision `task_id` set to equal the live-candidate id set exactly — no missing, no
-      duplicate — else raise (→ 422). Add a test for the partial/duplicate case.
-- [x] **(low/med) `services/tasks.py` raises HTTP errors from domain code.** It imports
-      `HTTPException`/`status` (`services/tasks.py:9`) and raises route-shaped 422s for the
-      recurrence-requires-due-date rules (`:458`, `:568`, `:607`), weakening the route/service
-      boundary the rest of the layer keeps (`TaskCycleError`, `DerivedStatusError` are domain
-      exceptions mapped in the route). **Fix:** add a domain exception (e.g.
-      `RecurrenceRequiresDueDateError(ValueError)`), raise it from the service, and map it to
-      422 in `routes_tasks.py` alongside the existing handlers.
-- [x] **(high/docs) `CURRENT.md` contradicts the README's removed-Gantt direction.** README
-      records that the planning-view epic (Sprints 17–24, Gantt/calendar) was **removed**
-      because it didn't earn its complexity, but `CURRENT.md` still frames the phases epic as
-      "now that the Planning view (Gantt/calendar) epic is complete," and Slices 2–3 literally
-      build "Phases in the per-project Gantt" and the global `/planning` surface — a Gantt that
-      no longer exists. With the product direction shifting toward agent/task orchestration
-      rather than generic planning, building phases off this stale framing risks rebuilding a
-      surface already cut. **Fix:** rewrite `CURRENT.md` before any phases work — either
-      re-scope phases to a planning-free surface (the task list / board) or replace the epic
-      to match the new direction. Resolve the disagreement first.
-- [ ] **(low, refactor — size before promoting) `TasksPage.tsx` is a god component.**
-      `frontend/src/features/tasks/TasksPage.tsx` is ~865 lines doing URL parsing, filters,
-      sorting, completed-vs-active data switching, board/list mode, subtask creation, activity
-      refresh, recursive rendering, and modal state at once. Not a bug, but past the point where
-      a split pays off and a blocker for adding agent-management UI cleanly. **Idea:** extract
-      `useTaskUrlState`, `useTaskPageState`, `TaskFilters`, `TaskListView`, `TaskBoardView`, and
-      `SubtaskComposer`. Refactor-only (no behavior change); keep diffs reviewable per scope
-      discipline, so land it incrementally rather than in one pass.
-
 ### Improvement ideas (nice-to-have — not blockers)
 *(How to make these flows more useful / easier to use, gathered during the review. Notes, not
 commitments — don't promote without sizing against scope discipline.)*

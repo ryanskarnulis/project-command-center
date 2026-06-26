@@ -1,0 +1,669 @@
+/* Tasks: cards, filters, list, detail, subtasks, dependencies, recurrence, activity feed, kanban, view toggle.
+   Split from index.css. The barrel (../index.css) controls load order. */
+
+/* Recurrence (Sprint 9L): repeat badge, natural-text input, skip confirmation. */
+.repeat-badge {
+  gap: 4px;
+  background: var(--purple-soft);
+  color: var(--purple);
+}
+
+.repeat-input {
+  width: 100%;
+}
+
+.edit-scope-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.skip-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--orange);
+  border-radius: 8px;
+  background: var(--orange-soft);
+}
+
+.skip-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.activity-feed {
+  margin-top: 6px;
+}
+
+.activity-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  font-weight: 760;
+  box-shadow: none;
+  padding: 4px 6px;
+}
+
+.activity-toggle:hover:not(:disabled) {
+  background: var(--surface-soft);
+  color: var(--blue);
+}
+
+.activity-feed ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.activity-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  border-left: 3px solid var(--border-strong);
+  padding: 8px 0 8px 12px;
+}
+
+.activity-item.activity-created {
+  border-left-color: var(--blue);
+}
+
+.activity-item.activity-completed {
+  border-left-color: var(--green);
+}
+
+.task-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  text-decoration: none;
+  color: var(--text-h);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+.task-card:hover {
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+  border-color: var(--blue);
+}
+
+.task-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.task-card-title {
+  font-weight: 600;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.task-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.task-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.task-action {
+  min-height: 34px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.task-section-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.task-suggested-subtasks {
+  margin-bottom: 16px;
+}
+
+.task-suggested-lead {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted, #6b7280);
+}
+
+.task-icon-action {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+}
+
+.recurrence-occurrence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recurrence-occurrence {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.recurrence-occurrence.current {
+  background: var(--blue-soft);
+}
+
+.recurrence-occurrence-due {
+  min-width: 110px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.recurrence-occurrence-here {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.recurrence-stopped-note {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.task-filters {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow-soft);
+  padding: 14px;
+  margin: 12px 0;
+}
+
+.task-filters-header,
+.task-filter-toggles,
+.task-filters-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-filters-header {
+  grid-column: 1 / -1;
+  justify-content: space-between;
+}
+
+.task-filters-title {
+  color: var(--text-h);
+}
+
+.task-search-field,
+.task-filter-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-h);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.task-search-field > div {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-muted);
+  padding: 0 12px;
+}
+
+.task-search-field input {
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0 0 0 6px;
+}
+
+.task-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.task-search-field {
+  max-width: 420px;
+}
+
+.task-filter-grid select {
+  width: 100%;
+  cursor: pointer;
+}
+
+.task-filter-toggles {
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+}
+
+.task-filter-toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 720;
+  padding: 6px 11px;
+}
+
+.task-filter-toggles label.selected {
+  border-color: rgba(59, 130, 246, 0.36);
+  background: var(--blue-soft);
+  color: #0b55d9;
+}
+
+.task-filter-toggles input {
+  width: 14px;
+  min-height: 14px;
+  cursor: pointer;
+}
+
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.task-subtask-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 0 24px;
+}
+
+.task-subtask-form > input {
+  width: 100%;
+}
+
+.task-subtask-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.task-subtask-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 140px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.task-subtask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.task-subtasks {
+  margin-top: 6px;
+  padding-left: 12px;
+}
+
+.task-subtasks-toggle {
+  min-height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 760;
+  box-shadow: none;
+  padding: 4px 6px;
+}
+
+.task-subtasks-toggle:hover:not(:disabled) {
+  background: var(--surface-soft);
+  color: var(--blue);
+}
+
+.task-children {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  margin: 6px 0 0 8px;
+  border-left: 2px solid var(--border);
+  padding: 2px 0 2px 14px;
+}
+
+.task-dependencies {
+  margin-top: 14px;
+}
+
+.task-dependencies ul,
+.task-detail-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.dep-pending {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  background: var(--orange-soft);
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1;
+  padding: 5px 8px;
+}
+
+.task-detail {
+  gap: 16px;
+}
+
+.task-detail-header,
+.task-detail-actions,
+.task-section-heading,
+.dependency-list li,
+.dependency-add-row,
+.inline-subtask-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-detail-header,
+.task-section-heading {
+  justify-content: space-between;
+}
+
+.task-detail-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.save-state {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.danger-action {
+  color: var(--red);
+}
+
+.task-hero,
+.task-detail-panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  padding: 16px;
+}
+
+.task-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.task-title-input {
+  width: 100%;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-h);
+  font-size: 26px;
+  font-weight: 760;
+  line-height: 1.2;
+  padding: 4px 0;
+}
+
+.task-title-input:focus {
+  border-color: transparent;
+}
+
+.task-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 14px;
+}
+
+.task-description-panel,
+.task-fields-panel,
+.task-detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.task-description-panel textarea {
+  min-height: 132px;
+  width: 100%;
+}
+
+.task-fields-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.task-fields-panel select,
+.task-fields-panel input,
+.inline-subtask-form input,
+.dependency-add-row select {
+  width: 100%;
+}
+
+.task-section-heading span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.task-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dependency-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dependency-list li {
+  justify-content: space-between;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 10px;
+}
+
+.dependency-list li a {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-h);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dependency-add-row {
+  align-items: stretch;
+}
+
+.dependency-add-row select {
+  min-width: 0;
+}
+
+.inline-subtask-form {
+  flex-wrap: wrap;
+}
+
+.inline-subtask-form input {
+  flex: 1 1 220px;
+}
+
+.icon-button.compact {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+}
+
+/* Tasks page: Add-task + List/Board view toggle row. */
+.task-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.view-toggle button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.view-toggle button + button {
+  border-left: 1px solid var(--border);
+}
+
+.view-toggle button.selected {
+  background: var(--blue);
+  color: #fff;
+}
+
+/* Kanban board: three status columns. */
+.kanban-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.kanban-column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2, var(--surface));
+  min-height: 120px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.kanban-column.drag-over {
+  border-color: var(--blue);
+  background: rgba(37, 99, 235, 0.06);
+}
+
+.kanban-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.kanban-column-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.kanban-card {
+  cursor: grab;
+}
+
+.kanban-card:active {
+  cursor: grabbing;
+}
+
+.kanban-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 4px 2px;
+}
+
+.kanban-move select {
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+/* Hint under a read-only field whose value is derived from subtasks. */
+.task-field-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+}

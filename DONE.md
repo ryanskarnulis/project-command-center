@@ -1085,3 +1085,31 @@ change, eval change, prompt change, AI training-data change, or new dependency.
 series timeline, `EditScopeModal`); `stop-recurrence`/skip-non-recurring → 422; month-clamp
 math; Trash purge round-trips (guards, edge cleanup, idempotency, confirm-gated buttons);
 alias add/remove and description save-on-blur persistence.
+
+---
+
+## Cleaning & hardening — manual review (round 4)
+> Code-read pass over update/validation, inbox-review, and service-boundary seams. Findings reproduced 2026-06-25.
+
+- [x] **(med) `TaskUpdate` lets non-nullable fields be cleared to `null`.** Distinguished
+      *optional-because-omitted* from *nullable-because-clearing-is-allowed* via a
+      `model_validator` keyed on `model_fields_set`. `title`, `priority`, `review_status`,
+      `workflow_status` now reject explicit `null` with 422; `description`, `due_date`,
+      `assignee_hint`, `parent_task_id`, `estimated_minutes`, `repeat_interval` may still be
+      nulled.
+- [x] **(med) Explicit `project_id: null` does not actually un-file an accepted task.**
+      Decision: keep the "global tasks are always filed" model. Fixed the misleading route
+      comment and any UI language so code, comment, and UI agree.
+- [x] **(med) `review_inbox` can finalize a partial batch.** Added a guard before setting
+      `reviewed_at`: the decision `task_id` set must equal the live-candidate id set exactly
+      (no missing, no duplicate) — else 422. Tests added for partial/duplicate cases.
+- [x] **(low/med) `services/tasks.py` raises HTTP errors from domain code.** Added
+      `RecurrenceRequiresDueDateError(ValueError)`, raised from the service, mapped to 422 in
+      `routes_tasks.py` alongside `TaskCycleError` / `DerivedStatusError`.
+- [x] **(high/docs) `CURRENT.md` contradicts the README's removed-Gantt direction.** Rewrote
+      `CURRENT.md` to drop the stale phases/Gantt framing and align with the agent/task
+      orchestration direction.
+- [x] **(low, refactor) `TasksPage.tsx` god component split.** Extracted into
+      `taskFilters.ts` (pure helpers), `useTaskUrlState` (URL-backed state), `TaskFilters`,
+      `TaskListView`, `TaskBoardView`, and `SubtaskComposer`. `TasksPage` reduced from ~865 to
+      ~198 lines; zero behavior change, existing integration tests pass unchanged.
