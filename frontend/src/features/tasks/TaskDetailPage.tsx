@@ -16,6 +16,7 @@ import { RecurrenceSeries } from './RecurrenceSeries'
 import { RepeatIntervalInput } from './RepeatIntervalInput'
 import { TaskCard } from './TaskCard'
 import { TaskDependencies } from './TaskDependencies'
+import { useTrashCount } from '../trash/trashCountContext'
 
 const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
 const WORKFLOW_STATUSES: TaskWorkflowStatus[] = ['open', 'in_progress', 'done']
@@ -97,6 +98,7 @@ export function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>()
   const id = Number(taskId)
   const navigate = useNavigate()
+  const { refresh: refreshTrashCount } = useTrashCount()
 
   const [task, setTask] = useState<Task | null>(null)
   const [subtasks, setSubtasks] = useState<Task[]>([])
@@ -375,6 +377,7 @@ export function TaskDetailPage() {
     setSaveError(null)
     try {
       await deleteTask(task.id)
+      void refreshTrashCount()
       navigate('/tasks')
     } catch (e: unknown) {
       setSaveState('error')
@@ -470,6 +473,12 @@ export function TaskDetailPage() {
             <>
               <button
                 type="button"
+                disabled={task.is_blocked && task.workflow_status !== 'done'}
+                title={
+                  task.is_blocked && task.workflow_status !== 'done'
+                    ? 'Blocked by an unfinished dependency'
+                    : undefined
+                }
                 onClick={() =>
                   savePatch({
                     workflow_status: task.workflow_status === 'done' ? 'open' : 'done',

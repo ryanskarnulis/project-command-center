@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useToast } from '../../components/ToastContext'
 import { createProject, deleteProject, listProjects, updateProject } from '../../api/projects'
 import type { Project, ProjectCreate, ProjectUpdate } from '../../types/project'
+import { useTrashCount } from '../trash/trashCountContext'
 
 interface UseProjects {
   projects: Project[]
@@ -19,6 +20,7 @@ export function useProjects(): UseProjects {
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const { withToast } = useToast()
+  const { refresh: refreshTrashCount } = useTrashCount()
 
   const reload = useCallback(() => setRefreshKey((k) => k + 1), [])
 
@@ -63,8 +65,9 @@ export function useProjects(): UseProjects {
     async (id: number) => {
       await withToast(deleteProject(id), { success: 'Project moved to trash' })
       reload()
+      void refreshTrashCount()
     },
-    [reload, withToast],
+    [reload, refreshTrashCount, withToast],
   )
 
   return { projects, loading, error, create, update, remove, reload }

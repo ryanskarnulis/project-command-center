@@ -10,6 +10,7 @@ import {
   updateTask,
 } from '../../api/tasks'
 import type { Task, TaskCreate, TaskUpdate } from '../../types/task'
+import { useTrashCount } from '../trash/trashCountContext'
 
 interface UseTasks {
   tasks: Task[]
@@ -28,6 +29,7 @@ export function useTasks(projectId?: number): UseTasks {
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const { withToast } = useToast()
+  const { refresh: refreshTrashCount } = useTrashCount()
 
   const reload = useCallback(() => setRefreshKey((k) => k + 1), [])
 
@@ -86,8 +88,9 @@ export function useTasks(projectId?: number): UseTasks {
     async (id: number) => {
       await withToast(deleteTask(id), { success: 'Task moved to trash' })
       reload()
+      void refreshTrashCount()
     },
-    [reload, withToast],
+    [reload, refreshTrashCount, withToast],
   )
 
   return { tasks, loading, error, create, update, markDone, remove, reload }

@@ -296,7 +296,7 @@ def update_task(
         updated = tasks_service.update_task(db, task, fields)
     except tasks_service.TaskCycleError as exc:
         raise _cycle_409(exc) from exc
-    except tasks_service.DerivedStatusError as exc:
+    except (tasks_service.DerivedStatusError, tasks_service.BlockedTaskError) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
@@ -314,7 +314,7 @@ def mark_task_done(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     task = _get_task_or_404(db, task_id)
     try:
         updated = tasks_service.mark_done(db, task)
-    except tasks_service.DerivedStatusError as exc:
+    except (tasks_service.DerivedStatusError, tasks_service.BlockedTaskError) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc

@@ -46,6 +46,14 @@ class DerivedStatusError(ValueError):
     """
 
 
+class BlockedTaskError(ValueError):
+    """A task was completed while it still has an unfinished dependency.
+
+    A task with an active edge to a not-yet-done task is blocked; it can't be
+    marked done until its blockers are. The caller surfaces a 409.
+    """
+
+
 class RecurrenceError(ValueError):
     """A recurrence precondition wasn't met (e.g. recurrence needs a due date, or
     the task isn't recurring). The caller surfaces a 422.
@@ -224,6 +232,20 @@ def has_active_children(db: Session, task_id: int) -> bool:
         ).first()
         is not None
     )
+
+
+def _assert_not_blocked(db: Session, task_id: int) -> None:
+    """Reject completing a task that still waits on an unfinished dependency.
+
+    Imported locally: ``task_dependencies`` imports this module, so a top-level
+    import would cycle.
+    """
+    from app.services import task_dependencies
+
+    if task_dependencies.is_blocked(db, task_id):
+        raise BlockedTaskError(
+            "This task is blocked by an unfinished dependency and can't be completed"
+        )
 
 
 def list_tasks(
@@ -449,6 +471,13 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
             "This task's status is derived from its subtasks and can't be set directly"
         )
 
+    # A blocked task (waiting on an unfinished dependency) can't be completed.
+    if (
+        control.get("workflow_status") == TaskWorkflowStatus.done
+        and task.workflow_status != TaskWorkflowStatus.done
+    ):
+        _assert_not_blocked(db, task.id)
+
     # Recurrence requires a due date. The schema can't enforce this (the task may
     # already carry one not present in this request), so re-check against the
     # post-patch view: an incoming due_date wins, else the task's existing one.
@@ -535,6 +564,8 @@ def mark_done(db: Session, task: Task) -> Task:
             "This task's status is derived from its subtasks and can't be set directly"
         )
     becoming_done = task.workflow_status != TaskWorkflowStatus.done
+    if becoming_done:
+        _assert_not_blocked(db, task.id)
     task.workflow_status = TaskWorkflowStatus.done
     task.project_id = _default_project_id_for_status(
         db, task.project_id, task.review_status

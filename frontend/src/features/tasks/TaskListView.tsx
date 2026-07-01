@@ -114,7 +114,7 @@ export function TaskListView({
           <Plus size={16} aria-hidden="true" />
           Add subtask
         </button>
-        {t.workflow_status !== 'done' && !t.has_subtasks && (
+        {t.workflow_status !== 'done' && !t.has_subtasks && !t.is_blocked && (
           <button
             className="task-icon-action"
             aria-label={`Mark ${t.title} done`}

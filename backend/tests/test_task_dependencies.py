@@ -81,6 +81,44 @@ def test_is_blocked_until_dependency_done(db_session: Session) -> None:
     assert deps_service.is_blocked(db_session, a) is False
 
 
+def test_completing_blocked_task_rejected(db_session: Session) -> None:
+    a = _task(db_session, "publish")
+    b = _task(db_session, "review")
+    deps_service.add_dependency(db_session, a, b)
+    db_session.commit()
+
+    a_task = tasks_service.get_task(db_session, a)
+    assert a_task is not None
+    with pytest.raises(tasks_service.BlockedTaskError):
+        tasks_service.mark_done(db_session, a_task)
+
+    # Once the blocker is done, completion goes through.
+    b_task = tasks_service.get_task(db_session, b)
+    assert b_task is not None
+    tasks_service.mark_done(db_session, b_task)
+    db_session.commit()
+    tasks_service.mark_done(db_session, a_task)
+    db_session.commit()
+    assert a_task.workflow_status == TaskWorkflowStatus.done
+
+
+def test_routes_completing_blocked_task_409(client: TestClient) -> None:
+    a = client.post("/api/tasks", json={"title": "a"}).json()["id"]
+    b = client.post("/api/tasks", json={"title": "b"}).json()["id"]
+    client.post(f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b})
+
+    # Both the POST /done and PATCH workflow_status paths are blocked.
+    assert client.post(f"/api/tasks/{a}/done").status_code == 409
+    assert (
+        client.patch(f"/api/tasks/{a}", json={"workflow_status": "done"}).status_code
+        == 409
+    )
+
+    # Finishing the blocker unblocks completion.
+    assert client.post(f"/api/tasks/{b}/done").status_code == 200
+    assert client.post(f"/api/tasks/{a}/done").status_code == 200
+
+
 def test_routes_add_list_remove_and_cycle_409(client: TestClient) -> None:
     a = client.post("/api/tasks", json={"title": "a"}).json()["id"]
     b = client.post("/api/tasks", json={"title": "b"}).json()["id"]
@@ -215,16 +253,19 @@ def test_top_level_blocker_counts_ignore_done_rejected_and_deleted_tasks(
     downstream_of_done = _task(db_session, "downstream of done blocker")
 
     deps_service.add_dependency(db_session, active, blocker)
-    deps_service.add_dependency(db_session, done, blocker)
     deps_service.add_dependency(db_session, rejected, blocker)
     deps_service.add_dependency(db_session, deleted, blocker)
     deps_service.add_dependency(db_session, downstream_of_done, done_blocker)
 
+    # ``done`` must be completed before its blocking edge exists: a task can't be
+    # marked done while it still waits on an open blocker. Adding the edge to an
+    # already-done task is fine.
     done_task = tasks_service.get_task(db_session, done)
     deleted_task = tasks_service.get_task(db_session, deleted)
     assert done_task is not None
     assert deleted_task is not None
     tasks_service.mark_done(db_session, done_task)
+    deps_service.add_dependency(db_session, done, blocker)
     tasks_service.soft_delete_task(db_session, deleted_task)
     db_session.commit()
 
