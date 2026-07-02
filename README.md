@@ -108,9 +108,8 @@ project-command-center/
 
         providers/
           base.py
-          openai_compatible.py
           ollama.py
-          llamacpp.py
+          llamacpp.py         (planned — custom-model phase, not built yet)
 
         prompts/
           extract_tasks.md
@@ -158,7 +157,7 @@ project-command-center/
     app.db
     backups/
 
-  docker-compose.yml
+  docker-compose.yml   (deferred — see TODO.md "Deferred infra", not built yet)
   CLAUDE.md
   README.md
 ```

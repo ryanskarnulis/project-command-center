@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
@@ -9,7 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.ai.gateway import GatewayError
 from app.ai.workflows import break_down_task as breakdown_workflow
+from app.api.guards import require_local_write, trashed_row_or_error
 from app.api.rate_limit import rate_limit
+from app.api.task_reads import read_with_blocked, reads_with_blocked
 from app.db.models import Task, TaskReviewStatus, TaskWorkflowStatus
 from app.db.session import get_db
 from app.schemas.tasks import (
@@ -22,7 +22,7 @@ from app.schemas.tasks import (
 )
 from app.services import breakdown as breakdown_service
 from app.services import projects as projects_service
-from app.services import task_dependencies as deps_service
+from app.services import task_recurrence, task_trash
 from app.services import tasks as tasks_service
 
 logger = structlog.get_logger(__name__)
@@ -56,56 +56,6 @@ def _recurrence_422(exc: tasks_service.RecurrenceError) -> HTTPException:
     )
 
 
-def _rollup_update(rollup: tasks_service.Rollup) -> dict[str, object]:
-    """The ``model_copy`` overrides a roll-up implies.
-
-    Only a task with accepted subtasks overrides its estimate/status; a leaf keeps
-    its stored values, so we touch nothing but the ``has_subtasks`` flag for it.
-    """
-    update: dict[str, object] = {"has_subtasks": rollup.has_subtasks}
-    if rollup.has_subtasks:
-        update["estimated_minutes"] = rollup.estimated_minutes
-        update["workflow_status"] = rollup.workflow_status
-    return update
-
-
-def _blocking_update(blocked_task_count: int) -> dict[str, object]:
-    return {
-        "is_blocking": blocked_task_count > 0,
-        "blocked_task_count": blocked_task_count,
-    }
-
-
-def _read_with_blocked(db: Session, task: Task) -> TaskRead:
-    """A single task's read model with ``is_blocked`` and roll-ups populated."""
-    blocker_counts = deps_service.top_level_blocker_counts(db, [task.id])
-    return TaskRead.model_validate(task).model_copy(
-        update={
-            "is_blocked": deps_service.is_blocked(db, task.id),
-            **_blocking_update(blocker_counts.get(task.id, 0)),
-            **_rollup_update(tasks_service.get_rollup(db, task)),
-        }
-    )
-
-
-def _reads_with_blocked(db: Session, tasks: Sequence[Task]) -> list[TaskRead]:
-    """A task list with ``is_blocked`` and roll-ups resolved in one query each (no N+1)."""
-    task_ids = [t.id for t in tasks]
-    blocked = deps_service.blocked_task_ids(db, task_ids)
-    blocker_counts = deps_service.top_level_blocker_counts(db, task_ids)
-    rollups = tasks_service.compute_rollups(db, tasks)
-    return [
-        TaskRead.model_validate(t).model_copy(
-            update={
-                "is_blocked": t.id in blocked,
-                **_blocking_update(blocker_counts.get(t.id, 0)),
-                **_rollup_update(rollups[t.id]),
-            }
-        )
-        for t in tasks
-    ]
-
-
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskRead])
 def list_tasks(
     project_id: int,
@@ -113,7 +63,7 @@ def list_tasks(
     db: Session = Depends(get_db),
 ) -> list[TaskRead]:
     _ensure_project(db, project_id)
-    return _reads_with_blocked(
+    return reads_with_blocked(
         db,
         tasks_service.list_tasks(
             db,
@@ -133,7 +83,7 @@ def list_all_tasks(
     workflow_status: TaskWorkflowStatus | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[TaskRead]:
-    return _reads_with_blocked(
+    return reads_with_blocked(
         db,
         tasks_service.list_tasks(
             db,
@@ -167,7 +117,7 @@ def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db)) -> Tas
     db.commit()
     db.refresh(task)
     logger.info("task_created", task_id=task.id, project_id=task.project_id)
-    return _read_with_blocked(db, task)
+    return read_with_blocked(db, task)
 
 
 @router.post(
@@ -199,19 +149,19 @@ def create_task(
     db.commit()
     db.refresh(task)
     logger.info("task_created", task_id=task.id, project_id=project_id)
-    return _read_with_blocked(db, task)
+    return read_with_blocked(db, task)
 
 
 @router.get("/tasks/{task_id}", response_model=TaskRead)
 def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
-    return _read_with_blocked(db, _get_task_or_404(db, task_id))
+    return read_with_blocked(db, _get_task_or_404(db, task_id))
 
 
 @router.get("/tasks/{task_id}/subtasks", response_model=list[TaskRead])
 def list_subtasks(task_id: int, db: Session = Depends(get_db)) -> list[TaskRead]:
     """Direct active children of a task, including candidates and done (unlike GET /api/tasks)."""
     _get_task_or_404(db, task_id)
-    return _reads_with_blocked(db, tasks_service.list_subtasks(db, task_id))
+    return reads_with_blocked(db, tasks_service.list_subtasks(db, task_id))
 
 
 @router.post(
@@ -249,7 +199,7 @@ def break_down_task(task_id: int, db: Session = Depends(get_db)) -> list[TaskRea
     logger.info(
         "task_broken_down", task_id=task_id, candidate_count=len(candidates)
     )
-    return _reads_with_blocked(db, candidates)
+    return reads_with_blocked(db, candidates)
 
 
 @router.post(
@@ -306,7 +256,7 @@ def update_task(
     db.commit()
     db.refresh(updated)
     logger.info("task_updated", task_id=updated.id)
-    return _read_with_blocked(db, updated)
+    return read_with_blocked(db, updated)
 
 
 @router.post("/tasks/{task_id}/done", response_model=TaskRead)
@@ -321,7 +271,7 @@ def mark_task_done(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     db.commit()
     db.refresh(updated)
     logger.info("task_marked_done", task_id=updated.id)
-    return _read_with_blocked(db, updated)
+    return read_with_blocked(db, updated)
 
 
 @router.post("/tasks/{task_id}/skip", response_model=TaskRead)
@@ -329,7 +279,7 @@ def skip_occurrence(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     """Skip a recurring occurrence: soft-delete it, return the next occurrence."""
     task = _get_task_or_404(db, task_id)
     try:
-        next_occurrence = tasks_service.skip_occurrence(db, task)
+        next_occurrence = task_recurrence.skip_occurrence(db, task)
     except tasks_service.RecurrenceError as exc:
         raise _recurrence_422(exc) from exc
     db.commit()
@@ -337,7 +287,7 @@ def skip_occurrence(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     logger.info(
         "task_occurrence_skipped", task_id=task_id, next_task_id=next_occurrence.id
     )
-    return _read_with_blocked(db, next_occurrence)
+    return read_with_blocked(db, next_occurrence)
 
 
 @router.get("/tasks/{task_id}/series", response_model=TaskSeries)
@@ -349,10 +299,10 @@ def get_task_series(task_id: int, db: Session = Depends(get_db)) -> TaskSeries:
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Task is not part of a recurrence series",
         )
-    occurrences = tasks_service.get_series(db, task.recurrence_id)
+    occurrences = task_recurrence.get_series(db, task.recurrence_id)
     return TaskSeries(
         recurrence_id=task.recurrence_id,
-        occurrences=_reads_with_blocked(db, occurrences),
+        occurrences=reads_with_blocked(db, occurrences),
     )
 
 
@@ -361,13 +311,13 @@ def stop_recurrence(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     """Stop a series from spawning further occurrences (clears repeat_interval)."""
     task = _get_task_or_404(db, task_id)
     try:
-        updated = tasks_service.stop_recurrence(db, task)
+        updated = task_recurrence.stop_recurrence(db, task)
     except tasks_service.RecurrenceError as exc:
         raise _recurrence_422(exc) from exc
     db.commit()
     db.refresh(updated)
     logger.info("task_recurrence_stopped", task_id=updated.id)
-    return _read_with_blocked(db, updated)
+    return read_with_blocked(db, updated)
 
 
 @router.post("/tasks/{task_id}/reopen", response_model=TaskRead)
@@ -382,7 +332,7 @@ def reopen_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     db.commit()
     db.refresh(updated)
     logger.info("task_reopened", task_id=updated.id)
-    return _read_with_blocked(db, updated)
+    return read_with_blocked(db, updated)
 
 
 @router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -395,34 +345,31 @@ def delete_task(task_id: int, db: Session = Depends(get_db)) -> None:
 
 @router.post("/tasks/{task_id}/restore", response_model=TaskRead)
 def restore_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
-    task = tasks_service.get_deleted_task(db, task_id)
+    task = task_trash.get_deleted_task(db, task_id)
     if task is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No deleted task with that id",
         )
-    restored = tasks_service.restore_task(db, task)
+    restored = task_trash.restore_task(db, task)
     db.commit()
     db.refresh(restored)
     logger.info("task_restored", task_id=restored.id)
-    return _read_with_blocked(db, restored)
+    return read_with_blocked(db, restored)
 
 
-@router.delete("/tasks/{task_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/tasks/{task_id}/purge",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_local_write)],
+)
 def purge_task(task_id: int, db: Session = Depends(get_db)) -> None:
-    task = tasks_service.get_deleted_task(db, task_id)
-    if task is None:
-        # Distinguish an active task (exists, not in trash → 409) from a truly
-        # absent one (404): purge only ever touches rows already in trash.
-        if tasks_service.get_task(db, task_id) is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Task is not in trash; delete it first",
-            )
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No deleted task with that id",
-        )
-    tasks_service.purge_task(db, task)
+    task = trashed_row_or_error(
+        task_trash.get_deleted_task(db, task_id),
+        lambda: tasks_service.get_task(db, task_id),
+        conflict_detail="Task is not in trash; delete it first",
+        absent_detail="No deleted task with that id",
+    )
+    task_trash.purge_task(db, task)
     db.commit()
     logger.info("task_purged", task_id=task_id)

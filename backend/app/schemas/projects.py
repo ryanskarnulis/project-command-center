@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.schemas.common import NonBlankStr, OptionalStrippedStr
+from app.schemas.common import NonBlankStr, OptionalStrippedStr, UTCDateTime
 
 
 class ProjectCreate(BaseModel):
@@ -25,9 +24,9 @@ class ProjectRead(BaseModel):
     description: str | None
     system_key: str | None
     is_protected: bool
-    created_at: datetime
-    updated_at: datetime
-    deleted_at: datetime | None = None
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
+    deleted_at: UTCDateTime | None = None
 
 
 class ProjectAliasCreate(BaseModel):
@@ -40,4 +39,4 @@ class ProjectAliasRead(BaseModel):
     id: int
     project_id: int
     alias: str
-    created_at: datetime
+    created_at: UTCDateTime

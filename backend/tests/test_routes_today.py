@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Any
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -8,7 +9,7 @@ from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
 
 
-def _task(db: Session, title: str, **kwargs: object) -> int:
+def _task(db: Session, title: str, **kwargs: Any) -> int:
     task = tasks_service.create_task(db, project_id=None, title=title, **kwargs)
     db.commit()
     return task.id

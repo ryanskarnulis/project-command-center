@@ -11,14 +11,25 @@ archived in `DONE.md`.
 
 ## Current focus
 
-**Cleaning & hardening — manual review (round 4)** — a static code-read pass over the
-update/validation, inbox-review, and service-boundary seams, plus a docs-coherence check.
-Findings reproduced against the code on 2026-06-25. _Severity: (high) user-facing breakage ·
-(med) bug or confusing state · (low) polish/docs._
+None committed. The **Cleaning & hardening — comprehensive review (round 5)** pass
+closed 2026-07-01 with all confirmed bugs, hardening follow-ups, and boundaries/tests/docs
+items done — archived in `DONE.md` ("Round 5 — Cleaning & hardening"). Its Performance
+section and improvement-ideas notes were left open by design; they're carried below under
+"Deferred hardening notes". See `CURRENT.md` for candidate next epics.
+
+### Deferred hardening notes (from round 5 — record now, act when warranted)
+
+- [ ] **(low) Rollup engine loads the whole task table per request** — `_children_map`
+      runs on every task list *and* every single-task read via `_read(s)_with_blocked`;
+      scope it to the requested subtree or memoize once task counts grow.
+- [ ] **(low) Indexes for hot task filters** — `project_id`, `review_status`,
+      `workflow_status`, `deleted_at`, `recurrence_id` are all table scans today.
+- [ ] **(low) Pagination for `GET /api/tasks` and `GET /api/inbox`** — both unbounded;
+      trash/pending lists are already capped.
 
 ### Improvement ideas (nice-to-have — not blockers)
-*(How to make these flows more useful / easier to use, gathered during the review. Notes, not
-commitments — don't promote without sizing against scope discipline.)*
+*(How to make these flows more useful / easier to use, gathered during the round-5 review.
+Notes, not commitments — don't promote without sizing against scope discipline.)*
 
 - **Recurring "checklist" tasks** — the constructive form of the recurrence+subtasks bug:
   when a recurring parent with subtasks completes, clone the whole subtree fresh for the next
@@ -43,7 +54,7 @@ commitments — don't promote without sizing against scope discipline.)*
 
 ## Backlog
 
-*(Feature work — do not promote until the hardening sprint above is closed.)*
+*(Feature work — unprioritized, theme-grouped.)*
 
 ### Command Bar / Search
 

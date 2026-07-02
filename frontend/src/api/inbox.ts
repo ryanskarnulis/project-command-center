@@ -1,4 +1,4 @@
-import { apiClient } from './client'
+import { AI_TIMEOUT_MS, apiClient } from './client'
 import type {
   CandidateDecision,
   CandidateResult,
@@ -34,7 +34,10 @@ export async function getInbox(id: number): Promise<InboxItem> {
 }
 
 export async function processInbox(id: number): Promise<Task[]> {
-  const res = await apiClient(`/api/inbox/${id}/process`, { method: 'POST' })
+  const res = await apiClient(`/api/inbox/${id}/process`, {
+    method: 'POST',
+    timeoutMs: AI_TIMEOUT_MS,
+  })
   return (await res.json()) as Task[]
 }
 

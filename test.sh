@@ -148,7 +148,7 @@ run_check() {
 run_quality_gate() {
   run_check "backend pytest" "$BACKEND_DIR" "$BACKEND_VENV/bin/pytest"
   run_check "backend ruff" "$BACKEND_DIR" "$BACKEND_VENV/bin/ruff" check .
-  run_check "backend mypy" "$BACKEND_DIR" "$BACKEND_VENV/bin/mypy" app
+  run_check "backend mypy" "$BACKEND_DIR" "$BACKEND_VENV/bin/mypy" app tests
   run_check "frontend vitest" "$FRONTEND_DIR" npm run test -- --no-file-parallelism
   run_check "frontend lint" "$FRONTEND_DIR" npm run lint
   run_check "frontend build" "$FRONTEND_DIR" npm run build

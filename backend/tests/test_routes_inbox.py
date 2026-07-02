@@ -1,5 +1,6 @@
 import json
 import logging
+from collections.abc import Callable
 
 import pytest
 from fastapi.testclient import TestClient
@@ -95,6 +96,7 @@ def test_inbox_process_review_e2e(
     assert example.task_name == "task_extraction"
     assert example.input_text == "messy standup notes"
     assert example.accepted is True
+    assert example.corrected_output_json is not None
     corrected = json.loads(example.corrected_output_json)
     assert corrected["needs_review"] is False
     assert len(corrected["tasks"]) == 1
@@ -186,7 +188,7 @@ def test_create_inbox_enforces_raw_text_max_length(
     assert len(db_session.execute(active(InboxItem)).scalars().all()) == 1
 
 
-def _fake_gateway(match_output: str):
+def _fake_gateway(match_output: str) -> Callable[..., str]:
     """A gateway.complete double: extraction returns _VALID_OUTPUT (project_hint
     "Firewall"), the project_matching call returns ``match_output``."""
 
@@ -234,7 +236,9 @@ def test_review_inherits_ai_suggestion_and_captures_match(
     assert len(match_rows) == 1
     assert match_rows[0].id == review["match_training_example_id"]
     assert match_rows[0].accepted is True  # kept the suggestion
-    assert json.loads(match_rows[0].corrected_output_json) == {"project_id": pid}
+    match_corrected = match_rows[0].corrected_output_json
+    assert match_corrected is not None
+    assert json.loads(match_corrected) == {"project_id": pid}
 
 
 def test_review_override_redirects_and_records_correction(
@@ -266,7 +270,9 @@ def test_review_override_redirects_and_records_correction(
     match_rows = _match_rows(db_session)
     assert len(match_rows) == 1
     assert match_rows[0].accepted is False  # suggestion was overridden
-    assert json.loads(match_rows[0].corrected_output_json) == {"project_id": other}
+    match_corrected = match_rows[0].corrected_output_json
+    assert match_corrected is not None
+    assert json.loads(match_corrected) == {"project_id": other}
 
 
 def test_review_deterministic_suggestion_writes_no_match_row(
@@ -665,7 +671,9 @@ def test_per_candidate_decide_last_finalizes_with_one_training_row(
     # Exactly one training row covering both outcomes.
     examples = db_session.execute(active(AITrainingExample)).scalars().all()
     assert len(examples) == 1
-    corrected = json.loads(examples[0].corrected_output_json)
+    corrected_json = examples[0].corrected_output_json
+    assert corrected_json is not None
+    corrected = json.loads(corrected_json)
     assert len(corrected["tasks"]) == 1  # only the approved task
 
     # Item is finalized.

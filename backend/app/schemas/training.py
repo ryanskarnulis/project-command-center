@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, computed_field
+
+from app.schemas.common import UTCDateTime
 
 # When the corpus reaches this many rows, custom-model fine-tuning (Sprint 8)
 # becomes viable. The progress meter counts toward this goal.
@@ -20,8 +21,8 @@ class TrainingExampleRead(BaseModel):
     accepted: bool
     model_profile: str
     model_name: str
-    created_at: datetime
-    deleted_at: datetime | None
+    created_at: UTCDateTime
+    deleted_at: UTCDateTime | None
 
 
 class TaskStat(BaseModel):

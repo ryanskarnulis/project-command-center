@@ -1,4 +1,5 @@
 import json
+from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
@@ -6,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai import gateway
+from app.main import app
 from app.db.models import (
     ActivityEvent,
     AITrainingExample,
@@ -308,7 +310,9 @@ def test_purge_project_cleans_all_fk_edges(
     assert db_session.get(ProjectAlias, aid) is None
     assert db_session.get(Task, tid) is None  # soft-deleted owned task purged
     # Nullable FKs cleared, not dangling; the audit row itself survives.
-    assert db_session.get(InboxItem, item_id).suggested_project_id is None
+    suggesting_item = db_session.get(InboxItem, item_id)
+    assert suggesting_item is not None
+    assert suggesting_item.suggested_project_id is None
     assert (
         db_session.execute(
             select(ActivityEvent).where(ActivityEvent.project_id == pid)
@@ -404,3 +408,61 @@ def test_empty_trash_clears_all_and_is_idempotent(
     # The example here was never trashed, so empty-trash leaves it untouched.
     assert db_session.get(AITrainingExample, example_id) is not None
     assert client.get("/api/projects").json()  # General still present
+
+
+# --- Loopback gating --------------------------------------------------------
+#
+# Purge/empty-trash are the app's only irreversible deletes; with
+# API_HOST=0.0.0.0 they must not be reachable from arbitrary LAN clients.
+
+
+@pytest.fixture
+def lan_client(client: TestClient) -> Generator[TestClient, None, None]:
+    """A client presenting a LAN address instead of loopback/testclient.
+
+    Depends on ``client`` so the get_db override (and its shared session) is
+    already installed — both clients hit the same database.
+    """
+    with TestClient(app, client=("192.168.1.50", 50000)) as test_client:
+        yield test_client
+
+
+def test_lan_client_cannot_empty_trash(lan_client: TestClient) -> None:
+    resp = lan_client.delete("/api/trash")
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "this operation is only allowed from localhost"
+
+
+def test_lan_client_cannot_purge_but_can_trash_and_restore(
+    client: TestClient, lan_client: TestClient
+) -> None:
+    tid = client.post("/api/tasks", json={"title": "LAN-managed task"}).json()["id"]
+
+    # Reversible operations stay open to LAN clients (that's the normal app flow)…
+    assert lan_client.delete(f"/api/tasks/{tid}").status_code == 204
+    # …but the irreversible purge is loopback-only.
+    assert lan_client.delete(f"/api/tasks/{tid}/purge").status_code == 403
+    assert lan_client.post(f"/api/tasks/{tid}/restore").status_code == 200
+
+
+def test_lan_client_cannot_purge_any_kind(
+    client: TestClient, lan_client: TestClient, db_session: Session
+) -> None:
+    pid = client.post("/api/projects", json={"name": "Kept"}).json()["id"]
+    inbox_id = client.post("/api/inbox", json={"raw_text": "kept note"}).json()["id"]
+    example_id = _make_training_example(db_session)
+    client.delete(f"/api/projects/{pid}")
+    client.delete(f"/api/inbox/{inbox_id}")
+    client.delete(f"/api/training-examples/{example_id}")
+
+    assert lan_client.delete(f"/api/projects/{pid}/purge").status_code == 403
+    assert lan_client.delete(f"/api/inbox/{inbox_id}/purge").status_code == 403
+    assert (
+        lan_client.delete(f"/api/training-examples/{example_id}/purge").status_code
+        == 403
+    )
+    # Nothing was destroyed: everything is still in trash for loopback to see.
+    trash = client.get("/api/trash").json()
+    assert [p["id"] for p in trash["projects"]] == [pid]
+    assert [i["id"] for i in trash["inbox_items"]] == [inbox_id]
+    assert [e["id"] for e in trash["training_examples"]] == [example_id]

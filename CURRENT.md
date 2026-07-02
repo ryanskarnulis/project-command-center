@@ -14,9 +14,10 @@
 
 ## What's live right now
 
-The **Cleaning & hardening — manual review (round 4)** pass in `TODO.md` (top of
-the file) is the active work until a new epic is promoted. No new feature epic is
-in flight.
+Nothing. The **Cleaning & hardening — comprehensive review (round 5)** pass closed
+2026-07-01 and is archived in `DONE.md` ("Round 5 — Cleaning & hardening"); its deferred
+performance notes and improvement ideas carry forward in `TODO.md`'s "Current focus"
+section. No new feature epic is in flight.
 
 ## Candidate next epics (not committed — need a decision before promotion)
 

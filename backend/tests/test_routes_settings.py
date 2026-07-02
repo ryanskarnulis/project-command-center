@@ -111,7 +111,7 @@ class TestProfiles:
             "/api/settings/profiles/task_extraction", json={"temperature": 0.7}
         )
         assert resp.status_code == 403
-        assert resp.json()["detail"] == "settings writes are only allowed from localhost"
+        assert resp.json()["detail"] == "this operation is only allowed from localhost"
         assert not isolated_local.exists()
 
     def test_reset_clears_all_overrides(
@@ -245,7 +245,7 @@ class TestPrompts:
             "/api/settings/prompts/extract_tasks.md", json={"text": "new body\n"}
         )
         assert resp.status_code == 403
-        assert resp.json()["detail"] == "settings writes are only allowed from localhost"
+        assert resp.json()["detail"] == "this operation is only allowed from localhost"
         assert (isolated_prompts / "extract_tasks.md").read_text() == "original prompt\n"
 
 
@@ -338,5 +338,5 @@ class TestEvalRun:
 
         resp = lan_client.post("/api/settings/evals/summary/run")
         assert resp.status_code == 403
-        assert resp.json()["detail"] == "settings writes are only allowed from localhost"
+        assert resp.json()["detail"] == "this operation is only allowed from localhost"
         assert called is False

@@ -6,7 +6,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.routes_tasks import _reads_with_blocked
+from app.api.task_reads import reads_with_blocked
 from app.db.session import get_db
 from app.schemas.tasks import TaskRead
 from app.services import calendar as calendar_service
@@ -44,4 +44,4 @@ def calendar(
         end=end.isoformat(),
         count=len(tasks),
     )
-    return _reads_with_blocked(db, tasks)
+    return reads_with_blocked(db, tasks)

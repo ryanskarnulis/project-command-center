@@ -71,6 +71,7 @@ def review_breakdown(
 
         approved = 0
         dismissed = 0
+        approved_ids: set[int] = set()
         for decision in decisions:
             task = candidates.get(decision.task_id)
             if task is None:
@@ -86,6 +87,7 @@ def review_breakdown(
                 for key, value in edits.items():
                     setattr(task, key, value)
                 task.review_status = TaskReviewStatus.accepted
+                approved_ids.add(task.id)
                 approved += 1
             else:
                 soft_delete_task(db, task)
@@ -102,13 +104,17 @@ def review_breakdown(
         training_example_id: int | None = None
 
         if finalized:
-            accepted = [
-                t
-                for t in list_subtasks(db, parent.id)
-                if t.review_status == TaskReviewStatus.accepted
+            # Scope the corrected output to THIS breakdown's own candidates (the
+            # ones just approved, with edits applied). Subtasks the user added by
+            # hand before running the breakdown are also ``accepted``, but recording
+            # them as output the model "should have" produced would poison the
+            # fine-tuning corpus (prime directive #4). ``approved_ids`` are already
+            # active/accepted, so re-listing and filtering keeps id order.
+            breakdown_subtasks = [
+                t for t in list_subtasks(db, parent.id) if t.id in approved_ids
             ]
             corrected = {
-                "subtasks": [_corrected_subtask(t) for t in accepted],
+                "subtasks": [_corrected_subtask(t) for t in breakdown_subtasks],
                 "needs_review": False,
             }
             input_text = BreakdownInput(
@@ -120,7 +126,7 @@ def review_breakdown(
                 input_text=input_text,
                 model_output_json=parent.breakdown_output_json or "",
                 corrected_output_json=json.dumps(corrected),
-                accepted=bool(accepted),
+                accepted=bool(breakdown_subtasks),
                 model_profile=_PROFILE,
                 model_name=gateway.get_profile(_PROFILE).model,
             )

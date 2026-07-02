@@ -147,6 +147,82 @@ def test_review_breakdown_approve_dismiss_and_capture(
     assert corrected["subtasks"][0]["title"] == "Design JWT claims and keys"
 
 
+def test_review_breakdown_excludes_preexisting_manual_subtasks(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A subtask the user added by hand BEFORE running the breakdown is accepted,
+    # but it isn't part of the model's suggestion. Recording it as corrected output
+    # would poison the fine-tuning corpus (prime directive #4): the training row
+    # must contain only THIS breakdown's own approved candidates.
+    raw = json.dumps(_VALID_OUTPUT)
+    monkeypatch.setattr(gateway, "complete", lambda **_: raw)
+
+    parent = _make_task(db_session)
+    manual = create_task(
+        db_session,
+        project_id=parent.project_id,
+        parent_task_id=parent.id,
+        title="I wrote this myself",
+    )
+    db_session.commit()
+
+    subtasks = workflow.break_down_task(db_session, parent)
+    approve_id, dismiss_id = subtasks[0].id, subtasks[1].id
+
+    result = breakdown_service.review_breakdown(
+        db_session,
+        parent,
+        [
+            SubtaskDecision(task_id=approve_id, action="approve"),
+            SubtaskDecision(task_id=dismiss_id, action="dismiss"),
+        ],
+    )
+    assert result.finalized is True
+
+    # The manual subtask survives on the task (it was never a candidate)...
+    remaining_ids = {s.id for s in list_subtasks(db_session, parent.id)}
+    assert {manual.id, approve_id} <= remaining_ids
+
+    # ...but the corrected output is scoped to the approved candidate only.
+    example = db_session.execute(active(AITrainingExample)).scalars().one()
+    assert example.accepted is True
+    corrected = json.loads(example.corrected_output_json or "{}")
+    titles = [s["title"] for s in corrected["subtasks"]]
+    assert titles == ["Design the JWT claims"]
+
+
+def test_review_breakdown_all_dismissed_records_rejection(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Dismissing every breakdown candidate is a rejection (accepted=False, empty
+    # corrected output) even when the parent keeps pre-existing manual subtasks —
+    # those aren't the model's output and must not flip the row to "accepted".
+    raw = json.dumps(_VALID_OUTPUT)
+    monkeypatch.setattr(gateway, "complete", lambda **_: raw)
+
+    parent = _make_task(db_session)
+    create_task(
+        db_session,
+        project_id=parent.project_id,
+        parent_task_id=parent.id,
+        title="manual",
+    )
+    db_session.commit()
+
+    subtasks = workflow.break_down_task(db_session, parent)
+    result = breakdown_service.review_breakdown(
+        db_session,
+        parent,
+        [SubtaskDecision(task_id=s.id, action="dismiss") for s in subtasks],
+    )
+    assert result.finalized is True
+
+    example = db_session.execute(active(AITrainingExample)).scalars().one()
+    assert example.accepted is False
+    corrected = json.loads(example.corrected_output_json or "{}")
+    assert corrected["subtasks"] == []
+
+
 def test_review_breakdown_partial_does_not_finalize(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

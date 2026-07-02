@@ -4,6 +4,7 @@ import structlog
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.api.guards import require_local_write
 from app.db.session import get_db
 from app.schemas.trash import (
     EmptyTrashResult,
@@ -13,7 +14,7 @@ from app.schemas.trash import (
 )
 from app.services import inbox as inbox_service
 from app.services import projects as projects_service
-from app.services import tasks as tasks_service
+from app.services import task_trash
 from app.services import training_data as training_service
 from app.services import trash as trash_service
 
@@ -40,7 +41,7 @@ def get_trash(
             )
             for p in deleted_projects
         ],
-        tasks=tasks_service.list_deleted_tasks(db, limit=limit),  # type: ignore[arg-type]
+        tasks=task_trash.list_deleted_tasks(db, limit=limit),  # type: ignore[arg-type]
         inbox_items=inbox_service.list_deleted_inbox_items(db, limit=limit),  # type: ignore[arg-type]
         training_examples=training_service.list_deleted_examples(db, limit=limit),  # type: ignore[arg-type]
     )
@@ -58,7 +59,11 @@ def get_trash_count(db: Session = Depends(get_db)) -> TrashCountResult:
     )
 
 
-@router.delete("", response_model=EmptyTrashResult)
+@router.delete(
+    "",
+    response_model=EmptyTrashResult,
+    dependencies=[Depends(require_local_write)],
+)
 def empty_trash(db: Session = Depends(get_db)) -> EmptyTrashResult:
     """Permanently delete every trashed row. Idempotent; protected projects spared."""
     counts = trash_service.empty_trash(db)

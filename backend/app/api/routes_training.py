@@ -7,6 +7,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.api.guards import require_local_write, trashed_row_or_error
 from app.db.models import AITrainingExample
 from app.db.session import get_db
 from app.schemas.training import TaskStat, TrainingExampleRead, TrainingStatsRead
@@ -92,20 +93,18 @@ def restore_example(
     return restored
 
 
-@router.delete("/{example_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{example_id}/purge",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_local_write)],
+)
 def purge_example(example_id: int, db: Session = Depends(get_db)) -> None:
     """Permanently delete a trashed training example (irreversible)."""
-    example = training_data.get_deleted_example(db, example_id)
-    if example is None:
-        # Active example (exists, not trashed) → 409; truly absent → 404.
-        if training_data.get_example(db, example_id) is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Training example is not in trash; delete it first",
-            )
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No trashed training example with that id",
-        )
+    example = trashed_row_or_error(
+        training_data.get_deleted_example(db, example_id),
+        lambda: training_data.get_example(db, example_id),
+        conflict_detail="Training example is not in trash; delete it first",
+        absent_detail="No trashed training example with that id",
+    )
     training_data.purge_example(db, example)
     db.commit()

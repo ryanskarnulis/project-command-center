@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.ai.gateway import GatewayError
 from app.ai.workflows import extract_tasks as extract_workflow
 from app.ai.workflows import match_project as match_workflow
+from app.api.guards import require_local_write, trashed_row_or_error
 from app.api.rate_limit import rate_limit
 from app.db.models import InboxItem, Task, TaskReviewStatus
 from app.db.session import get_db
@@ -97,20 +98,18 @@ def restore_inbox(inbox_item_id: int, db: Session = Depends(get_db)) -> InboxIte
     return restored
 
 
-@router.delete("/{inbox_item_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{inbox_item_id}/purge",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_local_write)],
+)
 def purge_inbox(inbox_item_id: int, db: Session = Depends(get_db)) -> None:
-    item = inbox_service.get_deleted_inbox_item(db, inbox_item_id)
-    if item is None:
-        # Active item (exists, not dismissed) → 409; truly absent → 404.
-        if inbox_service.get_inbox_item(db, inbox_item_id) is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Inbox item is not in trash; dismiss it first",
-            )
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No dismissed inbox item with that id",
-        )
+    item = trashed_row_or_error(
+        inbox_service.get_deleted_inbox_item(db, inbox_item_id),
+        lambda: inbox_service.get_inbox_item(db, inbox_item_id),
+        conflict_detail="Inbox item is not in trash; dismiss it first",
+        absent_detail="No dismissed inbox item with that id",
+    )
     inbox_service.purge_inbox_item(db, item)
     db.commit()
     logger.info("inbox_purged", inbox_item_id=inbox_item_id)

@@ -9,14 +9,41 @@ export class ApiError extends Error {
   }
 }
 
+export class ApiTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`The request timed out after ${Math.round(timeoutMs / 1000)}s — is the backend running?`)
+  }
+}
+
 const BASE_URL =
   import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000`
 
+// Every request aborts eventually so a hung backend (e.g. a stuck Ollama call)
+// can't leave a permanent spinner. Model-backed endpoints pass AI_TIMEOUT_MS —
+// local extraction/breakdown legitimately runs tens of seconds.
+const DEFAULT_TIMEOUT_MS = 30_000
+export const AI_TIMEOUT_MS = 180_000
+
+export interface ApiOptions extends RequestInit {
+  timeoutMs?: number
+}
+
 export async function apiClient(
   path: string,
-  options?: RequestInit,
+  options?: ApiOptions,
 ): Promise<Response> {
-  const response = await fetch(`${BASE_URL}${path}`, options)
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, ...init } = options ?? {}
+  // A caller-provided signal wins (it already owns cancellation).
+  const signal = init.signal ?? AbortSignal.timeout(timeoutMs)
+  let response: Response
+  try {
+    response = await fetch(`${BASE_URL}${path}`, { ...init, signal })
+  } catch (e: unknown) {
+    if (e instanceof DOMException && e.name === 'TimeoutError') {
+      throw new ApiTimeoutError(timeoutMs)
+    }
+    throw e
+  }
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => null)
     throw new ApiError(response.status, body)

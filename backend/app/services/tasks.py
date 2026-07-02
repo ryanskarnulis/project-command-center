@@ -1,34 +1,46 @@
 from __future__ import annotations
 
-from calendar import monthrange
 from collections.abc import Mapping, Sequence
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import delete as sql_delete
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.db.models import (
     Task,
-    TaskDependency,
     TaskPriority,
     TaskReviewStatus,
     TaskWorkflowStatus,
 )
 from app.services import activity
 from app.services import projects as projects_service
-from app.services.common import active, deleted, hard_delete, restore, soft_delete
+from app.services.common import active, soft_delete
 
 
 _FILED_REVIEW_STATUSES = {TaskReviewStatus.accepted}
 
 # Fields never propagated to future occurrences by an ``edit_scope="future"``
-# patch: a due date is per-occurrence, and a workflow-status change applies only
-# to the task the user acted on. (``edit_scope`` is a control flag, not a column,
-# and is popped before the forward patch.)
-_FORWARD_PATCH_EXCLUDE = {"due_date", "workflow_status"}
+# patch. Two kinds:
+#   - per-occurrence values: ``due_date`` (each occurrence owns its date) and
+#     ``workflow_status`` (completing one occurrence doesn't complete future ones).
+#   - structural fields whose per-row invariants the blind bulk UPDATE would
+#     bypass: ``parent_task_id`` (occurrences are always top-level, and forwarding
+#     it skips ``_assert_no_parent_cycle`` — a crafted patch could self-parent a
+#     row), plus ``project_id`` and ``review_status`` (coupled by
+#     ``_default_project_id_for_status`` and gated by the derived-status guard,
+#     neither of which the bulk UPDATE re-runs). The acted-on row still takes these
+#     edits through the guarded setattr loop; only forward propagation is skipped,
+#     and the UI never scopes a parent/project/review edit to "future" anyway.
+# (``edit_scope`` is a control flag, not a column, and is popped before the patch.)
+_FORWARD_PATCH_EXCLUDE = {
+    "due_date",
+    "workflow_status",
+    "parent_task_id",
+    "project_id",
+    "review_status",
+}
 
 
 class TaskCycleError(ValueError):
@@ -68,7 +80,7 @@ def _default_project_id_for_status(
     return project_id
 
 
-def _log_task_event(db: Session, task: Task, action: str) -> None:
+def log_task_event(db: Session, task: Task, action: str) -> None:
     """Record an activity event for a task, but only once it belongs to a project.
 
     Extraction creates candidates with ``project_id=None``; logging those would
@@ -203,11 +215,34 @@ def _resolve_rollup(
     return rollup
 
 
-def compute_rollups(db: Session, tasks: Sequence[Task]) -> dict[int, Rollup]:
-    """Derived roll-up per task id, resolved in a single query (no N+1)."""
-    by_parent = _children_map(db)
+def _rollups_over(
+    tasks: Sequence[Task], by_parent: dict[int | None, list[Task]]
+) -> dict[int, Rollup]:
     memo: dict[int, Rollup] = {}
     return {t.id: _resolve_rollup(t, by_parent, memo) for t in tasks}
+
+
+def compute_rollups(db: Session, tasks: Sequence[Task]) -> dict[int, Rollup]:
+    """Derived roll-up per task id, resolved in a single query (no N+1).
+
+    ``tasks`` may be any subset, so the child map is read fresh from the whole
+    accepted set. A caller that already holds that entire set (the dashboard's
+    open-task scan) should use ``compute_rollups_for_full_set`` to skip the reread.
+    """
+    return _rollups_over(tasks, _children_map(db))
+
+
+def compute_rollups_for_full_set(tasks: Sequence[Task]) -> dict[int, Rollup]:
+    """Roll-ups for ``tasks`` when it is already the complete active, accepted set.
+
+    Builds the ``parent_id -> children`` map from the passed rows instead of
+    re-reading it (``compute_rollups`` re-queries because it accepts subsets), so
+    the caller's single fetch is the only query. No database access.
+    """
+    by_parent: dict[int | None, list[Task]] = {}
+    for row in tasks:
+        by_parent.setdefault(row.parent_task_id, []).append(row)
+    return _rollups_over(tasks, by_parent)
 
 
 def get_rollup(db: Session, task: Task) -> Rollup:
@@ -261,13 +296,35 @@ def list_tasks(
         query = query.where(Task.project_id == project_id)
     if review_status is not None:
         query = query.where(Task.review_status == review_status)
-    if workflow_status is not None:
-        query = query.where(Task.workflow_status == workflow_status)
-    elif exclude_done:
-        query = query.where(Task.workflow_status != TaskWorkflowStatus.done)
     if top_level_only:
         query = query.where(Task.parent_task_id.is_(None))
-    return db.execute(query).scalars().all()
+    tasks = db.execute(query).scalars().all()
+
+    # Status filtering resolves EFFECTIVE (rolled-up) status, not the stored
+    # column. A checklist parent's status is derived from its children and never
+    # written back, so its stored ``workflow_status`` stays "open" even once every
+    # child is done. Filtering the stored column would strand a fully-completed
+    # checklist in the open list forever *and* hide it from the completed view
+    # (and, conversely, surface a done leaf that a new child re-opened). Resolving
+    # the roll-up keeps the filter consistent with the status the read model
+    # displays. An explicit ``workflow_status`` takes precedence over
+    # ``exclude_done``, matching the callers that set ``exclude_done =
+    # workflow_status is None``.
+    if (workflow_status is not None or exclude_done) and tasks:
+        rollups = compute_rollups(db, tasks)
+        if workflow_status is not None:
+            tasks = [
+                t
+                for t in tasks
+                if rollups[t.id].workflow_status == workflow_status
+            ]
+        else:
+            tasks = [
+                t
+                for t in tasks
+                if rollups[t.id].workflow_status != TaskWorkflowStatus.done
+            ]
+    return tasks
 
 
 def get_task(db: Session, task_id: int) -> Task | None:
@@ -328,126 +385,8 @@ def create_task(
     db.add(task)
     db.flush()
     db.refresh(task)
-    _log_task_event(db, task, "created")
+    log_task_event(db, task, "created")
     return task
-
-
-def _next_due_date(due_date: date, interval: Mapping[str, Any]) -> date:
-    """The next occurrence's due date: ``due_date`` advanced by one interval.
-
-    ``day``/``week`` are exact ``timedelta`` offsets. ``month`` uses manual month
-    arithmetic with day-clamping (Jan 31 + 1 month -> Feb 28) since calendar
-    months vary in length and ``python-dateutil`` is deliberately not a dependency.
-    """
-    unit = interval["unit"]
-    every = int(interval["every"])
-    if unit == "day":
-        return due_date + timedelta(days=every)
-    if unit == "week":
-        return due_date + timedelta(weeks=every)
-    if unit == "month":
-        month_index = (due_date.month - 1) + every
-        year = due_date.year + month_index // 12
-        month = month_index % 12 + 1
-        last_day = monthrange(year, month)[1]
-        return date(year, month, min(due_date.day, last_day))
-    raise ValueError(f"Unknown recurrence unit: {unit!r}")
-
-
-def _clone_subtask_tree(
-    db: Session, source: Task, new_parent_id: int, due_date: date | None
-) -> None:
-    """Recursively clone ``source``'s accepted subtree under ``new_parent_id``.
-
-    Each clone resets to open and carries no recurrence (only the series head is a
-    series member); title/description/priority/estimate are copied. Every clone
-    inherits ``due_date`` (the new occurrence's date) so the reset checklist is due
-    with its occurrence rather than carrying the previous cadence's stale dates.
-    Grandchildren recurse. Only active, accepted children are cloned — a pending AI
-    breakdown isn't part of the routine until the user approves it.
-    """
-    for child in list_subtasks(db, source.id):
-        if child.review_status != TaskReviewStatus.accepted:
-            continue
-        clone = Task(
-            project_id=child.project_id,
-            title=child.title,
-            description=child.description,
-            priority=child.priority,
-            estimated_minutes=child.estimated_minutes,
-            repeat_interval=None,
-            recurrence_id=None,
-            due_date=due_date,
-            review_status=TaskReviewStatus.accepted,
-            workflow_status=TaskWorkflowStatus.open,
-            parent_task_id=new_parent_id,
-        )
-        db.add(clone)
-        db.flush()
-        db.refresh(clone)
-        _log_task_event(db, clone, "created")
-        _clone_subtask_tree(db, child, clone.id, due_date)
-
-
-def _create_next_occurrence(db: Session, task: Task) -> Task:
-    """Clone a completed recurring task as its next open occurrence.
-
-    Copies title/description/priority/estimate/project and the shared
-    ``recurrence_id``, advances the due date by one interval, and files the clone
-    as an accepted, open, top-level task (occurrences are never subtasks — see the
-    sprint's out-of-scope note). The caller guarantees ``repeat_interval`` and
-    ``due_date`` are set.
-
-    If the recurring task is a checklist parent, its whole accepted subtree is
-    cloned fresh under the new occurrence so a multi-step routine ("weekly release
-    checklist") resets for the next cadence. A recurring leaf clones a single row.
-    """
-    assert task.repeat_interval is not None
-    assert task.due_date is not None
-    occurrence = Task(
-        project_id=task.project_id,
-        title=task.title,
-        description=task.description,
-        priority=task.priority,
-        estimated_minutes=task.estimated_minutes,
-        repeat_interval=task.repeat_interval,
-        recurrence_id=task.recurrence_id,
-        due_date=_next_due_date(task.due_date, task.repeat_interval),
-        review_status=TaskReviewStatus.accepted,
-        workflow_status=TaskWorkflowStatus.open,
-        parent_task_id=None,
-    )
-    db.add(occurrence)
-    db.flush()
-    db.refresh(occurrence)
-    _log_task_event(db, occurrence, "created")
-    _clone_subtask_tree(db, task, occurrence.id, occurrence.due_date)
-    return occurrence
-
-
-def _maybe_spawn_recurring_checklist(db: Session, completed_child: Task) -> None:
-    """Advance the series when completing a child finishes a recurring checklist.
-
-    A checklist parent's status is derived (read-only), so it never makes the
-    stored open->done transition that spawns the next occurrence. Instead, when a
-    child completes we walk up to the nearest recurring ancestor and, if its whole
-    subtree now rolls up to done, spawn that ancestor's next occurrence. The last
-    child to complete is the only one that makes the subtree done, so this fires
-    once. Only the nearest recurring ancestor spawns — a series-within-a-series
-    can't double-fire.
-    """
-    visited: set[int] = set()
-    current_id = completed_child.parent_task_id
-    while current_id is not None and current_id not in visited:
-        visited.add(current_id)
-        ancestor = get_task(db, current_id)
-        if ancestor is None:
-            return
-        if ancestor.repeat_interval is not None and ancestor.due_date is not None:
-            if get_rollup(db, ancestor).workflow_status == TaskWorkflowStatus.done:
-                _create_next_occurrence(db, ancestor)
-            return
-        current_id = ancestor.parent_task_id
 
 
 def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
@@ -532,7 +471,11 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
 
     # Completing a recurring task spawns its next occurrence. Only on the
     # open->done transition (a no-op re-save of a done task must not duplicate);
-    # reopening is a separate path that never deletes.
+    # reopening is a separate path that never deletes. Imported locally:
+    # task_recurrence builds on this module's primitives, so a top-level import
+    # would cycle — completion spawning is the one place the dependency inverts.
+    from app.services import task_recurrence
+
     becoming_done = (
         control.get("workflow_status") == TaskWorkflowStatus.done
         and prev_workflow != TaskWorkflowStatus.done
@@ -542,15 +485,15 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
         and task.repeat_interval is not None
         and task.due_date is not None
     ):
-        _create_next_occurrence(db, task)
+        task_recurrence.create_next_occurrence(db, task)
     elif becoming_done:
         # Completing a child can finish a recurring checklist ancestor whose own
         # status is derived and so never spawns directly.
-        _maybe_spawn_recurring_checklist(db, task)
+        task_recurrence.maybe_spawn_recurring_checklist(db, task)
 
     db.flush()
     db.refresh(task)
-    _log_task_event(db, task, "updated")
+    log_task_event(db, task, "updated")
     return task
 
 
@@ -558,7 +501,10 @@ def mark_done(db: Session, task: Task) -> Task:
     # Mirror the recurrence behaviour of update_task's open->done transition:
     # POST /tasks/{id}/done is the path the task lists/cards use, so completing a
     # recurring task here must spawn its next occurrence too. (This endpoint has no
-    # skip flag — skipping is the detail page's PATCH path.)
+    # skip flag — skipping is the detail page's PATCH path.) Local import: same
+    # deliberate inversion as update_task.
+    from app.services import task_recurrence
+
     if has_active_children(db, task.id):
         raise DerivedStatusError(
             "This task's status is derived from its subtasks and can't be set directly"
@@ -575,72 +521,14 @@ def mark_done(db: Session, task: Task) -> Task:
         and task.repeat_interval is not None
         and task.due_date is not None
     ):
-        _create_next_occurrence(db, task)
+        task_recurrence.create_next_occurrence(db, task)
     elif becoming_done:
         # Completing a child can finish a recurring checklist ancestor whose own
         # status is derived and so never spawns directly.
-        _maybe_spawn_recurring_checklist(db, task)
+        task_recurrence.maybe_spawn_recurring_checklist(db, task)
     db.flush()
     db.refresh(task)
-    _log_task_event(db, task, "completed")
-    return task
-
-
-def skip_occurrence(db: Session, task: Task) -> Task:
-    """Skip the current recurring occurrence: soft-delete it and roll forward.
-
-    "Skip this one" means this occurrence never happened — it's removed from active
-    lists (recoverable in trash), and the series continues with the next occurrence.
-    Unlike completion, the skipped row is not recorded as ``done`` (that would
-    pollute completed-task history with work the user explicitly didn't do).
-
-    Rejects a non-recurring task or one without a due date with a 422: there is
-    nothing to roll forward to.
-    """
-    if task.repeat_interval is None or task.due_date is None:
-        raise RecurrenceError(
-            "Only a recurring task with a due date can be skipped"
-        )
-    next_occurrence = _create_next_occurrence(db, task)
-    soft_delete(task)
-    db.flush()
-    _log_task_event(db, task, "skipped")
-    return next_occurrence
-
-
-def get_series(db: Session, recurrence_id: str) -> list[Task]:
-    """All occurrences in a recurrence series, oldest due date first.
-
-    Deliberately a plain ``select(Task)`` rather than the ``active()`` helper:
-    skipped occurrences are soft-deleted, but the series timeline must show them
-    so the chain is truthful. Ordered by ``due_date`` (then ``id`` as a stable
-    tiebreak for rows sharing a date).
-    """
-    return list(
-        db.execute(
-            select(Task)
-            .where(Task.recurrence_id == recurrence_id)
-            .order_by(Task.due_date.asc(), Task.id.asc())
-        )
-        .scalars()
-        .all()
-    )
-
-
-def stop_recurrence(db: Session, task: Task) -> Task:
-    """Stop a series from spawning further occurrences.
-
-    Clears ``repeat_interval`` (so completing the task no longer creates the next
-    occurrence) while leaving ``recurrence_id`` intact, matching the inline-clear
-    rule above so the existing chain stays readable. Rejects a non-recurring task
-    with a 422 — there is nothing to stop.
-    """
-    if task.repeat_interval is None:
-        raise RecurrenceError("Task is not recurring")
-    task.repeat_interval = None
-    db.flush()
-    db.refresh(task)
-    _log_task_event(db, task, "updated")
+    log_task_event(db, task, "completed")
     return task
 
 
@@ -652,7 +540,7 @@ def reopen_task(db: Session, task: Task) -> Task:
     task.workflow_status = TaskWorkflowStatus.open
     db.flush()
     db.refresh(task)
-    _log_task_event(db, task, "reopened")
+    log_task_event(db, task, "reopened")
     return task
 
 
@@ -660,167 +548,10 @@ def soft_delete_task(db: Session, task: Task) -> None:
     # Cascade: deleting a parent removes its whole subtree. Children are
     # soft-deleted depth-first first, so each still logs its own "deleted" event
     # while it still belongs to a project. Restore stays per-task (see
-    # restore_task): bringing a parent back does not auto-restore children.
+    # task_trash.restore_task): bringing a parent back does not auto-restore
+    # children.
     for child in list_subtasks(db, task.id):
         soft_delete_task(db, child)
     soft_delete(task)
     db.flush()
-    _log_task_event(db, task, "deleted")
-
-
-# --- Trash / restore (Sprint 7) --------------------------------------------
-
-
-def list_deleted_tasks(db: Session, *, limit: int = 50) -> Sequence[Task]:
-    """Soft-deleted tasks, most-recently-deleted first.
-
-    Excludes tasks cascade-deleted with their project — those belong to the
-    project's trash entry and are restored with it, not as standalone rows.
-    """
-    return (
-        db.execute(
-            deleted(Task)
-            .where(Task.deleted_with_project_id.is_(None))
-            .order_by(Task.deleted_at.desc())
-            .limit(limit)
-        )
-        .scalars()
-        .all()
-    )
-
-
-def count_standalone_deleted_tasks(db: Session) -> int:
-    """Trashed tasks that are independently restorable (not cascade-deleted with a project)."""
-    return (
-        db.scalar(
-            select(func.count())
-            .select_from(Task)
-            .where(
-                Task.deleted_at.is_not(None),
-                Task.deleted_with_project_id.is_(None),
-            )
-        )
-        or 0
-    )
-
-
-def get_deleted_task(db: Session, task_id: int) -> Task | None:
-    return db.execute(
-        deleted(Task).where(Task.id == task_id)
-    ).scalar_one_or_none()
-
-
-def _reschedule_occurrence(db: Session, occurrence: Task, new_due: date) -> None:
-    """Set this occurrence and its entire active subtree to ``new_due``.
-
-    Occurrence subtasks all share the occurrence's due date (see
-    ``_clone_subtask_tree``), so an un-skip is a flat date reset down the tree.
-    """
-    occurrence.due_date = new_due
-    for child in list_subtasks(db, occurrence.id):  # active children only
-        _reschedule_occurrence(db, child, new_due)
-
-
-def restore_task(db: Session, task: Task) -> Task:
-    # Un-skip: if this occurrence's series still has a live occurrence, restoring
-    # must NOT add a second one (that's the duplicate-series bug). Pull the live
-    # occurrence's date (and its subtasks') back to the restored occurrence's date,
-    # then hard-delete the restored row — the series resumes at the un-skipped date
-    # with exactly one live occurrence.
-    if task.recurrence_id is not None and task.due_date is not None:
-        # The occurrence that replaced this one when it was skipped: the earliest
-        # active sibling due on or after it. Filtering by date avoids retargeting an
-        # earlier, already-completed occurrence (e.g. a done checklist parent).
-        live = (
-            db.execute(
-                active(Task)
-                .where(
-                    Task.recurrence_id == task.recurrence_id,
-                    Task.id != task.id,
-                    Task.due_date >= task.due_date,
-                )
-                .order_by(Task.due_date.asc(), Task.id.asc())
-            )
-            .scalars()
-            .first()
-        )
-        if live is not None:
-            _reschedule_occurrence(db, live, task.due_date)
-            purge_task(db, task)
-            db.flush()
-            db.refresh(live)
-            _log_task_event(db, live, "restored")
-            return live
-
-    # Fallback (non-recurring, or a series with no live occurrence): plain restore.
-    # A restored task may point at a since-deleted project; rehome it to General
-    # so it stays reachable, mirroring the project-delete rehoming rule.
-    if (
-        task.project_id is not None
-        and projects_service.get_project(db, task.project_id) is None
-    ):
-        task.project_id = projects_service.ensure_default_project_id(db)
-    # An individually-restored task drops its project-cascade marker.
-    task.deleted_with_project_id = None
-    restore(task)
-    db.flush()
-    db.refresh(task)
-    _log_task_event(db, task, "restored")
-    return task
-
-
-# --- Permanent delete / purge (Sprint 9f) ----------------------------------
-
-
-def _deleted_subtree_depth_first(db: Session, task: Task) -> list[Task]:
-    """The soft-deleted subtree rooted at ``task``, children before parents.
-
-    Soft-deleting a parent cascade-soft-deletes its subtree, so the whole subtree
-    sits in trash together; purging the root must take the descendants with it or
-    they'd dangle a ``parent_task_id`` at a destroyed row. FK enforcement is on
-    (``PRAGMA foreign_keys = ON``), so that dangle would *raise*; children-first
-    ordering lets the caller delete in a single pass without tripping the
-    self-referential FK.
-    """
-    children = (
-        db.execute(deleted(Task).where(Task.parent_task_id == task.id))
-        .scalars()
-        .all()
-    )
-    ordered: list[Task] = []
-    for child in children:
-        ordered.extend(_deleted_subtree_depth_first(db, child))
-    ordered.append(task)
-    return ordered
-
-
-def purge_task(db: Session, task: Task) -> None:
-    """Permanently delete a trashed task and its soft-deleted subtree.
-
-    Cleans the real FK edges first: dependency rows on either side of any subtree
-    task, and any stray ``parent_task_id`` from a row outside the purge set (e.g. a
-    child that was individually restored while its parent stayed in trash). The
-    caller is responsible for committing. ``ai_training_examples`` has no FK to
-    tasks and is deliberately untouched.
-    """
-    subtree = _deleted_subtree_depth_first(db, task)
-    ids = [t.id for t in subtree]
-
-    db.execute(
-        sql_delete(TaskDependency).where(
-            or_(
-                TaskDependency.task_id.in_(ids),
-                TaskDependency.depends_on_task_id.in_(ids),
-            )
-        )
-    )
-    # Detach any row (active or not) still pointing into the purge set but not
-    # itself being purged, so no dangling parent ref survives.
-    db.execute(
-        update(Task)
-        .where(Task.parent_task_id.in_(ids), Task.id.not_in(ids))
-        .values(parent_task_id=None)
-    )
-
-    for node in subtree:  # children before parents
-        hard_delete(db, node)
+    log_task_event(db, task, "deleted")

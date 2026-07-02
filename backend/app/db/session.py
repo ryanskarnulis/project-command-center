@@ -8,11 +8,19 @@ from app.config import get_settings
 
 
 def enable_sqlite_fk_enforcement(engine: Engine) -> None:
-    """Turn on per-connection FK enforcement for SQLite engines (no-op otherwise).
+    """Set per-connection SQLite pragmas (no-op for other dialects).
 
-    SQLite ignores foreign keys unless ``PRAGMA foreign_keys = ON`` is issued on
-    each connection, so orphaned FKs persist silently without this. Gated on the
-    dialect so it stays correct if ``database_url`` is ever non-SQLite.
+    - ``foreign_keys = ON``: SQLite ignores foreign keys unless this is issued on
+      each connection, so orphaned FKs persist silently without it.
+    - ``journal_mode = WAL``: the default rollback journal blocks readers during
+      any write; WAL lets the web UI and the Discord bot write concurrently
+      without "database is locked" errors. Persistent, but cheap to re-issue.
+    - ``busy_timeout``: when two writers do collide, wait for the lock instead of
+      failing immediately.
+
+    Gated on the dialect so it stays correct if ``database_url`` is ever
+    non-SQLite. NullPool (below) opens a connection per checkout, so these run
+    per request — all three are fast no-ops once set.
     """
     if engine.dialect.name != "sqlite":
         return
@@ -21,6 +29,8 @@ def enable_sqlite_fk_enforcement(engine: Engine) -> None:
     def _set_sqlite_pragma(dbapi_conn: object, _record: object) -> None:
         cursor = dbapi_conn.cursor()  # type: ignore[attr-defined]
         cursor.execute("PRAGMA foreign_keys = ON")
+        cursor.execute("PRAGMA journal_mode = WAL")
+        cursor.execute("PRAGMA busy_timeout = 5000")
         cursor.close()
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import enum
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import JSON, ForeignKey, Index, String, func, text
@@ -12,10 +12,24 @@ class Base(DeclarativeBase):
     pass
 
 
+def utcnow() -> datetime:
+    """Timezone-aware UTC now — the app's single timestamp representation.
+
+    ``func.now()`` writes naive strings on SQLite while the soft-delete/review
+    stamps were already aware; mixing the two shapes made serialized JSON
+    ambiguous (JS parses the naive form as local time). All Python-side writes go
+    through this. ``server_default=func.now()`` stays on the columns purely so
+    the DDL is unchanged (no migration); the ORM default always wins on insert.
+    """
+    return datetime.now(UTC)
+
+
 class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=func.now()
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
+        default=utcnow, onupdate=utcnow, server_default=func.now()
     )
 
 

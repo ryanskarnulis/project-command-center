@@ -154,7 +154,7 @@ def purge_inbox_item(db: Session, item: InboxItem) -> None:
     ``ai_training_examples`` has no FK to inbox items and is left untouched
     (prime directive #4). Caller commits.
     """
-    from app.services import tasks as tasks_service  # local: avoid circular import
+    from app.services import task_trash  # local: avoid circular import
 
     deleted_candidate_ids = [
         t.id
@@ -167,7 +167,7 @@ def purge_inbox_item(db: Session, item: InboxItem) -> None:
             deleted(Task).where(Task.id == task_id)
         ).scalar_one_or_none()
         if task is not None:
-            tasks_service.purge_task(db, task)
+            task_trash.purge_task(db, task)
 
     db.execute(
         update(Task)

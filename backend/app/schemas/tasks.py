@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.db.models import TaskPriority, TaskReviewStatus, TaskWorkflowStatus
-from app.schemas.common import NonBlankStr, OptionalStrippedStr
+from app.schemas.common import NonBlankStr, OptionalStrippedStr, UTCDateTime
 
 # A duration estimate, when present, must be a positive whole number of minutes.
 PositiveMinutes = Annotated[int, Field(gt=0)]
@@ -140,9 +140,9 @@ class TaskRead(BaseModel):
     recurrence_id: str | None
     confidence: float | None
     assignee_hint: str | None
-    created_at: datetime
-    updated_at: datetime
-    deleted_at: datetime | None = None
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
+    deleted_at: UTCDateTime | None = None
     # Derived (not stored): true while any dependency is unfinished. Defaults to
     # False so an ORM Task lacking the attribute (e.g. a freshly created task with
     # no dependencies) serializes cleanly; list/detail routes populate it.

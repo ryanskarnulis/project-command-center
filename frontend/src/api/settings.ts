@@ -1,4 +1,4 @@
-import { apiClient } from './client'
+import { AI_TIMEOUT_MS, apiClient } from './client'
 import type {
   EvalRunRecord,
   EvalRunResult,
@@ -70,6 +70,8 @@ export async function putPrompt(name: string, text: string): Promise<Prompt> {
 export async function runEval(suite: string): Promise<EvalRunResult> {
   const res = await apiClient(`/api/settings/evals/${suite}/run`, {
     method: 'POST',
+    // Runs the whole suite synchronously against Ollama.
+    timeoutMs: AI_TIMEOUT_MS,
   })
   return (await res.json()) as EvalRunResult
 }

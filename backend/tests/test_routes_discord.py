@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.ai import gateway
-from app.api import routes_discord
+from app.ai.workflows import match_project as match_workflow
 from app.config import Settings, get_settings
 from app.db.models import AITrainingExample, InboxItem, InboxSource, TaskReviewStatus
 from app.main import app
@@ -190,7 +190,7 @@ def test_discord_inbox_match_failure_is_nonfatal(
     def fail_match(*_: object, **__: object) -> None:
         raise RuntimeError("matching unavailable")
 
-    monkeypatch.setattr(routes_discord.match_workflow, "match_inbox_item", fail_match)
+    monkeypatch.setattr(match_workflow, "match_inbox_item", fail_match)
 
     resp = client.post(
         "/api/discord/inbox",

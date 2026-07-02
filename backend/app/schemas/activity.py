@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
+
+from app.schemas.common import UTCDateTime
 
 
 class ActivityEventRead(BaseModel):
@@ -14,4 +15,4 @@ class ActivityEventRead(BaseModel):
     entity_id: int
     action: str
     summary: str
-    created_at: datetime
+    created_at: UTCDateTime

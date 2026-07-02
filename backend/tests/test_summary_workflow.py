@@ -2,25 +2,26 @@ from __future__ import annotations
 
 from datetime import date
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
 from app.ai import gateway
 from app.ai.workflows.summarize_project import summarize_project_ai
-from app.db.models import TaskPriority, TaskWorkflowStatus
+from app.db.models import Task, TaskPriority, TaskWorkflowStatus
 
 
 def _make_task(
     title: str,
     workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open,
-) -> SimpleNamespace:
-    """Minimal task-like object for the summary workflow."""
-    return SimpleNamespace(
+) -> Task:
+    """Minimal task-like object for the summary workflow (duck-typed, cast)."""
+    return cast(Task, SimpleNamespace(
         title=title,
         workflow_status=workflow_status,
         priority=TaskPriority.medium,
         due_date=None,
-    )
+    ))
 
 
 def test_summarize_project_calls_gateway_and_returns_text(

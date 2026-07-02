@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, event, select
@@ -61,7 +62,7 @@ def test_create_inbox_item_allows_resubmission_after_soft_delete(
 
 @pytest.fixture
 def file_backed_sessions(
-    tmp_path,
+    tmp_path: Path,
 ) -> Generator[sessionmaker[Session], None, None]:
     engine = create_engine(f"sqlite:///{tmp_path / 'inbox-race.db'}")
     Base.metadata.create_all(bind=engine)

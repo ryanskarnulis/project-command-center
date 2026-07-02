@@ -7,9 +7,11 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Task, TaskReviewStatus, TaskWorkflowStatus
+from app.db.models import Task, TaskDependency, TaskReviewStatus, TaskWorkflowStatus
 from app.schemas.tasks import RepeatInterval
 from app.services import projects as projects_service
+from app.services import task_dependencies as deps_service
+from app.services import task_recurrence, task_trash
 from app.services import tasks as tasks_service
 
 
@@ -159,7 +161,7 @@ def test_skip_soft_deletes_current_and_rolls_forward(db_session: Session) -> Non
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
 
-    next_occurrence = tasks_service.skip_occurrence(db_session, task)
+    next_occurrence = task_recurrence.skip_occurrence(db_session, task)
     db_session.commit()
 
     # The skipped occurrence is soft-deleted (recoverable), not marked done.
@@ -177,7 +179,7 @@ def test_skip_non_recurring_task_raises(db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
 
     with pytest.raises(tasks_service.RecurrenceError):
-        tasks_service.skip_occurrence(db_session, task)
+        task_recurrence.skip_occurrence(db_session, task)
 
 
 def test_clearing_repeat_stops_future_occurrences(db_session: Session) -> None:
@@ -278,6 +280,31 @@ def test_edit_scope_this_patches_only_target_row(db_session: Session) -> None:
     assert titles[date(2026, 6, 15)] == "water plants"  # future row untouched
 
 
+def test_edit_scope_future_does_not_forward_structural_fields(
+    db_session: Session,
+) -> None:
+    # A forward-patch must not bulk-propagate structural fields (parent_task_id,
+    # project_id, review_status): the bulk UPDATE skips the cycle / derived-status /
+    # project-coupling guards, so a crafted "future" patch setting parent_task_id
+    # onto the acted-on row would otherwise make the future occurrence its own
+    # parent. Only the acted-on row takes the (guarded) edit.
+    recurrence_id, series = _three_occurrence_series(db_session)
+    _first, second, third = series
+
+    tasks_service.update_task(
+        db_session, second, {"parent_task_id": third.id, "edit_scope": "future"}
+    )
+    db_session.commit()
+
+    refreshed = {t.due_date: t for t in _series(db_session, recurrence_id)}
+    # The acted-on row took the guarded edit...
+    assert refreshed[date(2026, 6, 8)].parent_task_id == third.id
+    # ...but the forward patch did NOT self-parent the future occurrence...
+    assert refreshed[date(2026, 6, 15)].parent_task_id is None
+    # ...nor touch the past row.
+    assert refreshed[date(2026, 6, 1)].parent_task_id is None
+
+
 def test_setting_repeat_without_due_date_raises(db_session: Session) -> None:
     task = _make_task(db_session, due=None)
 
@@ -351,10 +378,10 @@ def test_get_series_includes_skipped_in_due_date_order(db_session: Session) -> N
     )
     db_session.commit()
     second = _series(db_session, recurrence_id)[-1]
-    tasks_service.skip_occurrence(db_session, second)
+    task_recurrence.skip_occurrence(db_session, second)
     db_session.commit()
 
-    series = tasks_service.get_series(db_session, recurrence_id)
+    series = task_recurrence.get_series(db_session, recurrence_id)
     # All three rows present, including the soft-deleted skipped one, oldest first.
     assert [t.due_date for t in series] == [
         date(2026, 6, 1),
@@ -380,11 +407,11 @@ def test_restore_skipped_occurrence_unskips_without_duplicating(
     assert recurrence_id is not None
     skipped_id = task.id
 
-    tasks_service.skip_occurrence(db_session, task)
+    task_recurrence.skip_occurrence(db_session, task)
     db_session.commit()
-    assert len(tasks_service.list_deleted_tasks(db_session)) == 1
+    assert len(task_trash.list_deleted_tasks(db_session)) == 1
 
-    restored = tasks_service.restore_task(db_session, task)
+    restored = task_trash.restore_task(db_session, task)
     db_session.commit()
 
     # Exactly one live occurrence, due back at the un-skipped date.
@@ -393,8 +420,8 @@ def test_restore_skipped_occurrence_unskips_without_duplicating(
     assert series[0].id == restored.id
     assert restored.due_date == date(2026, 6, 1)
     # The skipped row is hard-deleted: gone from trash and from the series timeline.
-    assert tasks_service.list_deleted_tasks(db_session) == []
-    assert all(t.id != skipped_id for t in tasks_service.get_series(db_session, recurrence_id))
+    assert task_trash.list_deleted_tasks(db_session) == []
+    assert all(t.id != skipped_id for t in task_recurrence.get_series(db_session, recurrence_id))
 
     # Completing the restored occurrence spawns exactly one next occurrence: the
     # done 06-01 row stays, plus a single fresh 06-08 open row (no extra duplicate).
@@ -417,22 +444,26 @@ def test_restore_skipped_checklist_resets_subtasks(db_session: Session) -> None:
     second = _series(db_session, recurrence_id)[-1]
     assert second.due_date == date(2026, 6, 8)
 
-    tasks_service.skip_occurrence(db_session, second)
+    task_recurrence.skip_occurrence(db_session, second)
     db_session.commit()
     skipped_id = second.id
 
-    restored = tasks_service.restore_task(db_session, second)
+    restored = task_trash.restore_task(db_session, second)
     db_session.commit()
 
     # The completed parent (06-01) stays as history; the forward occurrence is
     # pulled back to the un-skipped date with its whole subtree reset, and the
     # spawned 06-15 duplicate is gone — exactly one live occurrence at 06-08.
     assert restored.due_date == date(2026, 6, 8)
-    live = [t for t in _series(db_session, recurrence_id) if t.due_date >= date(2026, 6, 8)]
+    live = [
+        t
+        for t in _series(db_session, recurrence_id)
+        if t.due_date is not None and t.due_date >= date(2026, 6, 8)
+    ]
     assert [t.id for t in live] == [restored.id]
     clones = tasks_service.list_subtasks(db_session, restored.id)
     assert {c.due_date for c in clones} == {date(2026, 6, 8)}
-    assert all(t.id != skipped_id for t in tasks_service.get_series(db_session, recurrence_id))
+    assert all(t.id != skipped_id for t in task_recurrence.get_series(db_session, recurrence_id))
 
 
 def test_restore_non_recurring_task_plain_restore(db_session: Session) -> None:
@@ -440,12 +471,12 @@ def test_restore_non_recurring_task_plain_restore(db_session: Session) -> None:
     tasks_service.soft_delete_task(db_session, task)
     db_session.commit()
 
-    restored = tasks_service.restore_task(db_session, task)
+    restored = task_trash.restore_task(db_session, task)
     db_session.commit()
 
     assert restored.id == task.id
     assert restored.deleted_at is None
-    assert tasks_service.list_deleted_tasks(db_session) == []
+    assert task_trash.list_deleted_tasks(db_session) == []
 
 
 def test_restore_recurring_with_no_live_occurrence_plain_restore(
@@ -461,7 +492,7 @@ def test_restore_recurring_with_no_live_occurrence_plain_restore(
     tasks_service.soft_delete_task(db_session, task)
     db_session.commit()
 
-    restored = tasks_service.restore_task(db_session, task)
+    restored = task_trash.restore_task(db_session, task)
     db_session.commit()
 
     assert restored.id == task.id
@@ -477,7 +508,7 @@ def test_stop_recurrence_clears_repeat_keeps_id(db_session: Session) -> None:
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
 
-    tasks_service.stop_recurrence(db_session, task)
+    task_recurrence.stop_recurrence(db_session, task)
     db_session.commit()
 
     assert task.repeat_interval is None
@@ -494,7 +525,7 @@ def test_stop_recurrence_non_recurring_raises(db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
 
     with pytest.raises(tasks_service.RecurrenceError):
-        tasks_service.stop_recurrence(db_session, task)
+        task_recurrence.stop_recurrence(db_session, task)
 
 
 def test_get_series_over_http(client: TestClient, db_session: Session) -> None:
@@ -552,6 +583,31 @@ def test_partial_completion_does_not_spawn(db_session: Session) -> None:
 
     # Only one of two children done -> parent not rolled up to done -> no spawn.
     assert len(_series(db_session, recurrence_id)) == 1
+
+
+def test_skip_checklist_occurrence_cascades_to_subtree(db_session: Session) -> None:
+    # Skipping a recurring checklist occurrence must soft-delete its whole subtree,
+    # not just the occurrence row. Otherwise the subtasks stay active pointing at a
+    # trashed parent and surface as leaked root-level orphans (buildTaskTree
+    # promotes an orphan to a root).
+    parent, children, _recurrence_id = _recurring_parent_with_children(db_session)
+
+    next_occurrence = task_recurrence.skip_occurrence(db_session, parent)
+    db_session.commit()
+
+    # The occurrence and its whole subtree are soft-deleted together — no active
+    # subtask is left orphaned under the trashed parent.
+    assert parent.deleted_at is not None
+    for child in children:
+        assert child.deleted_at is not None
+    assert tasks_service.list_subtasks(db_session, parent.id) == []
+
+    # The series still rolled forward, with a freshly-cloned subtree under the new
+    # occurrence (the skip cascade doesn't touch the next occurrence's clones).
+    assert next_occurrence.due_date == date(2026, 6, 8)
+    assert sorted(
+        c.title for c in tasks_service.list_subtasks(db_session, next_occurrence.id)
+    ) == ["c0", "c1"]
 
 
 def test_completing_last_child_spawns_checklist_occurrence(
@@ -640,3 +696,71 @@ def test_stop_recurrence_over_http(client: TestClient, db_session: Session) -> N
     res = client.post(f"/api/tasks/{task.id}/stop-recurrence")
     assert res.status_code == 200
     assert res.json()["repeat_interval"] is None
+
+
+# --- Un-skip with dependencies present (recurrence × dependency seam) --------
+
+
+def test_unskip_cleans_dependency_edges_on_the_skipped_row(
+    db_session: Session,
+) -> None:
+    # R depends on blocker B. Skipping R soft-deletes it and spawns the next
+    # occurrence; the edge stays on the skipped row. Un-skipping purges that row,
+    # which must clean its dependency edges — nothing may reference the
+    # hard-deleted id (FK enforcement would raise), and the retargeted live
+    # occurrence must not inherit a phantom block.
+    blocker = _make_task(db_session, due=None)
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    deps_service.add_dependency(db_session, task_id=task.id, depends_on_id=blocker.id)
+    db_session.commit()
+    skipped_id = task.id
+
+    live = task_recurrence.skip_occurrence(db_session, task)
+    db_session.commit()
+    # Edges don't carry over to the spawned occurrence.
+    assert not deps_service.is_blocked(db_session, live.id)
+
+    restored = task_trash.restore_task(db_session, task)
+    db_session.commit()
+
+    # Un-skip retargeted the live occurrence (the skipped row was purged)...
+    assert restored.id == live.id
+    assert restored.due_date == date(2026, 6, 1)
+    # ...and no dependency edge references the purged id on either side.
+    edges = db_session.execute(select(TaskDependency)).scalars().all()
+    assert all(skipped_id not in (e.task_id, e.depends_on_task_id) for e in edges)
+    assert not deps_service.is_blocked(db_session, restored.id)
+
+
+def test_unskip_with_dependent_task_present(db_session: Session) -> None:
+    # T depends on recurring R. Skipping R sends T's blocker to trash (a trashed
+    # blocker no longer blocks); un-skipping purges the skipped row and its edge.
+    # T must never point at a hard-deleted row or stay phantom-blocked.
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    dependent = _make_task(db_session, due=None)
+    deps_service.add_dependency(
+        db_session, task_id=dependent.id, depends_on_id=task.id
+    )
+    db_session.commit()
+    skipped_id = task.id
+    assert deps_service.is_blocked(db_session, dependent.id)
+
+    task_recurrence.skip_occurrence(db_session, task)
+    db_session.commit()
+    assert not deps_service.is_blocked(db_session, dependent.id)
+
+    restored = task_trash.restore_task(db_session, task)
+    db_session.commit()
+
+    edges = db_session.execute(select(TaskDependency)).scalars().all()
+    assert all(skipped_id not in (e.task_id, e.depends_on_task_id) for e in edges)
+    assert not deps_service.is_blocked(db_session, dependent.id)
+    assert restored.due_date == date(2026, 6, 1)

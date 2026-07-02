@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
 from app.db.models import InboxSource
+from app.schemas.common import UTCDateTime
 
 
 class RecentInboxItem(BaseModel):
     id: int
     source: InboxSource
     summary: str | None
-    processed_at: datetime | None
-    reviewed_at: datetime | None
+    processed_at: UTCDateTime | None
+    reviewed_at: UTCDateTime | None
     resolved_project_id: int | None
-    created_at: datetime
+    created_at: UTCDateTime
 
 
 class ProjectOpenTasksRow(BaseModel):

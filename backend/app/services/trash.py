@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.db.models import AITrainingExample, InboxItem, Project, Task
 from app.services import inbox as inbox_service
 from app.services import projects as projects_service
-from app.services import tasks as tasks_service
+from app.services import task_trash
 from app.services import training_data as training_service
 from app.services.common import count_deleted, deleted
 
@@ -32,7 +32,7 @@ def count_trash(db: Session) -> PurgeCounts:
         projects=count_deleted(db, Project),
         # Tasks cascade-deleted with their project aren't standalone trash rows
         # (they come back with the project), so they don't count toward the badge.
-        tasks=tasks_service.count_standalone_deleted_tasks(db),
+        tasks=task_trash.count_standalone_deleted_tasks(db),
         inbox_items=count_deleted(db, InboxItem),
         training_examples=count_deleted(db, AITrainingExample),
     )
@@ -72,7 +72,7 @@ def empty_trash(db: Session) -> PurgeCounts:
             deleted(Task).where(Task.id == task_id)
         ).scalar_one_or_none()
         if task is not None:
-            tasks_service.purge_task(db, task)
+            task_trash.purge_task(db, task)
 
     for project_id in project_ids:
         project = db.execute(

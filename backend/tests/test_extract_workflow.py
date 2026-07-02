@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -8,6 +9,8 @@ from app.ai import gateway
 from app.ai.workflows import extract_tasks as workflow
 from app.db.models import AITrainingExample, InboxItem, Task, TaskReviewStatus
 from app.services.common import active
+from app.services.inbox import list_candidates as existing_candidates
+from app.services.tasks import create_task as real_create_task
 
 _VALID_OUTPUT = {
     "summary": "Two follow-ups from the standup.",
@@ -74,10 +77,8 @@ def test_extract_rolls_back_candidates_if_metadata_commit_fails(
 ) -> None:
     raw = json.dumps(_VALID_OUTPUT)
     monkeypatch.setattr(gateway, "complete", lambda **_: raw)
-    original_create_task = workflow.create_task
-
-    def create_then_fail(*args: object, **kwargs: object) -> Task:
-        original_create_task(*args, **kwargs)
+    def create_then_fail(*args: Any, **kwargs: Any) -> Task:
+        real_create_task(*args, **kwargs)
         raise RuntimeError("metadata write failed")
 
     monkeypatch.setattr(workflow, "create_task", create_then_fail)
@@ -92,7 +93,7 @@ def test_extract_rolls_back_candidates_if_metadata_commit_fails(
     assert saved_item is not None
     assert saved_item.processed_at is None
     assert saved_item.model_output_json is None
-    assert len(workflow._existing_candidates(db_session, item_id)) == 0
+    assert len(existing_candidates(db_session, item_id)) == 0
 
 
 def test_extract_is_idempotent(
@@ -140,4 +141,4 @@ def test_extract_validation_failure_records_training_row(
     # Failure must not leave a half-processed item or stray candidates.
     db_session.refresh(item)
     assert item.processed_at is None
-    assert len(workflow._existing_candidates(db_session, item.id)) == 0
+    assert len(existing_candidates(db_session, item.id)) == 0

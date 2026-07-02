@@ -788,6 +788,102 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
 
 ---
 
+## Round 5 — Cleaning & hardening (comprehensive review)
+> A full-codebase review (architecture, runtime bugs, data model, API, frontend, security,
+> performance, tests, maintainability) run 2026-07-01. The three top findings were
+> **reproduced against the live service layer**; the full quality gate passed at review
+> time (315 backend + 213 frontend tests, ruff, `mypy --strict` on `app/`, eslint, build).
+> **Round closed 2026-07-01**: all confirmed bugs, hardening follow-ups, and
+> boundaries/tests/docs items are done (gate now 325 backend + 228 frontend tests, with
+> `mypy --strict` covering `tests/` too). The Performance section and the improvement-ideas
+> notes were left in `TODO.md` by design — see the "Deferred hardening notes" section there.
+> _Severity: (high) user-facing breakage · (med) bug or confusing state · (low) polish/docs._
+
+### Confirmed bugs (reproduced — fixed)
+- [x] **(high) Skip on a recurring checklist orphans its subtasks** — `skip_occurrence`
+      (`services/tasks.py`) soft-deleted only the occurrence row, not its subtree; the old
+      occurrence's subtasks stayed active pointing at a trashed parent, and the frontend's
+      `buildTaskTree` promoted orphans to roots, so every skip leaked a stale subtree copy
+      into the task list. Fixed: cascade via `soft_delete_task`. Added a skip-with-subtasks
+      case to `test_recurrence.py` (only a leaf skip was covered before).
+- [x] **(med) `edit_scope="future"` forward-patch bypassed all write guards** — the bulk
+      UPDATE in `update_task` propagated every non-excluded field, including
+      `parent_task_id`, onto future series rows without the cycle / derived-status /
+      blocked checks; a crafted PATCH could make an occurrence its own parent (API-only —
+      the UI never scopes parent edits). Fixed: added structural fields (`parent_task_id`,
+      `project_id`, `review_status`) to `_FORWARD_PATCH_EXCLUDE` (the acted-on row still
+      takes the guarded edit; only forward propagation is skipped) + regression test.
+- [x] **(med) Fully-completed checklist parents never left the open list** — a parent's
+      rolled-up status read `done` but the stored column stayed `open`, so
+      `list_tasks(exclude_done=True)` and the dashboard open counts kept it in open
+      lists/counts forever (and hid it from the completed view too). Fixed by making
+      `list_tasks` status filtering **rollup-aware** (effective status, not the stored
+      column) for both the `exclude_done` and explicit `workflow_status` paths, plus the
+      dashboard counts — consistent with the "derived, never stored" model, so a
+      fully-done checklist parent leaves the open list and lands in the completed archive.
+      `dashboard.get_overview` computes the open set once to stay within its query budget.
+      Also fixed the inverse (a done leaf re-opened by adding a child).
+- [x] **(med) Breakdown training rows absorbed pre-existing manual subtasks** —
+      `review_breakdown` (`services/breakdown.py`) built `corrected_output_json` from
+      *all* accepted children, so subtasks created by hand before "break this down" got
+      recorded as output the model "should have" produced. Fixed: corrected output (and
+      the `accepted` flag) is now scoped to the breakdown's own approved candidates (+
+      edits) so the fine-tuning corpus stays honest (prime directive #4).
+
+### Hardening & correctness follow-ups
+- [x] **(med) Loopback-gate the destructive purge routes** — the settings guard moved to
+      `api/guards.py` as `require_local_write` (generalized 403 message) and now also gates
+      `DELETE /api/trash` and all four per-item `/purge` routes. Reversible operations
+      (trash/restore) stay open to LAN clients. LAN-client 403 regression tests added to
+      `test_routes_trash.py`.
+- [x] **(med) Recurrence × subtask × dependency interaction test pass** — skip/restore of
+      checklist occurrences, forward-patch propagation/exclusion, and rollup-vs-stored
+      list/count boundaries were covered with the round-5 bug fixes; added the missing
+      un-skip-with-dependencies cases (edges on the skipped row are purged with it — no
+      dangling edge, no phantom block on either the retargeted occurrence or a dependent).
+- [x] **(low) Unify naive/aware datetimes** — standardized on aware UTC: `TimestampMixin`
+      now uses a Python-side `utcnow` default/onupdate (DDL unchanged, so no migration),
+      and read schemas use a `UTCDateTime` type that stamps legacy naive rows as UTC at
+      the serialization boundary — JSON always carries an offset, so JS parses it as UTC
+      and renders correct local time.
+- [x] **(low) SQLite WAL + busy_timeout pragmas** — added `journal_mode=WAL` and
+      `busy_timeout=5000` next to the FK pragma in `db/session.py`.
+- [x] **(low) `apiClient` timeout/abort** — every request now aborts via
+      `AbortSignal.timeout` (30s default; 180s for the model-backed break-down, inbox
+      process, summary, and eval-run calls) and surfaces a readable `ApiTimeoutError`.
+      A caller-supplied signal still wins.
+- [x] **(low) TaskDetailPage 404 detection** — now `e instanceof ApiError && e.status
+      === 404`.
+
+### Boundaries, tests, docs
+- [x] **(low) Move task read-model assembly to a shared module** — extracted to
+      `api/task_reads.py` (`read_with_blocked` / `reads_with_blocked`, now public);
+      `routes_tasks` and `routes_calendar` both import it.
+- [x] **(low) Dedupe the purge-endpoint 409/404 branch** — extracted
+      `trashed_row_or_error` into `api/guards.py` (lazy active-lookup, per-kind
+      messages preserved); all four purge routes use it.
+- [x] **(low) Split `services/tasks.py`** — extracted `task_recurrence.py` (next-
+      occurrence math, checklist cloning, skip/series/stop) and `task_trash.py`
+      (trash list/restore/purge); `tasks.py` is core CRUD + guards + rollups
+      (894 → 557 lines). The only remaining inversion is the completion-spawn hook,
+      a documented local import in `update_task`/`mark_done`.
+- [x] **(low) Split `TaskDetailPage.tsx`** — extracted `BreakdownReview` and
+      `CandidateDecisionBar`, and the page now reuses the shared `SubtaskComposer`
+      (its `onMoreOptions` became optional) instead of a duplicated inline form
+      (842 → 706 lines).
+- [x] **(low) mypy on `tests/`** — all 45 errors fixed (typed helpers, narrowed
+      nullable columns, imports from source modules instead of re-exports);
+      `test.sh` now runs `mypy app tests`.
+- [x] **(low) Frontend tests for `features/training/` and `ActivityFeed`** — added
+      `TrainingPage.test.tsx` (stats/status pills, filters, pagination, trash flow),
+      `diff.test.ts`, and `ActivityFeed.test.tsx` (lazy fetch on expand, empty/error
+      states, refreshKey) — 15 new tests.
+- [x] **(low) README repo-layout drift** — `llamacpp.py` and `docker-compose.yml` are
+      now annotated as planned/deferred; `openai_compatible.py` dropped from the layout.
+- [x] **(low) `break_down_task` builds `input_text` twice** — deduped.
+
+---
+
 ## Sprint 13 — AI Subsystem Quality
 
 Three cohesive AI-workflow polish items; no schema/migration, no Alembic, no model

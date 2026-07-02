@@ -1,19 +1,23 @@
-import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useState } from 'react'
+import { type KeyboardEvent, useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Circle, PlayCircle, Repeat, SkipForward, Sparkles, Trash2 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { breakDownTask, createUnscopedTask, deleteTask, getSubtasks, getTask, listAllTasks, reviewBreakdown, skipOccurrence, updateTask } from '../../api/tasks'
+import { ApiError } from '../../api/client'
 import { decideCandidate } from '../../api/inbox'
 import { listProjects } from '../../api/projects'
 import { Badge } from '../../components/Badge'
 import { useBeforeUnload } from '../../hooks/useBeforeUnload'
 import type { Project } from '../../types/project'
-import type { EditScope, Task, TaskPriority, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
+import type { EditScope, Task, TaskCreate, TaskPriority, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { formatDueDate } from '../../utils/dates'
 import { formatDuration, formatDurationInput, parseDurationInput } from '../../utils/duration'
 import { formatRepeatInterval } from '../../utils/recurrence'
+import { BreakdownReview } from './BreakdownReview'
+import { CandidateDecisionBar } from './CandidateDecisionBar'
 import { EditScopeModal } from './EditScopeModal'
 import { RecurrenceSeries } from './RecurrenceSeries'
 import { RepeatIntervalInput } from './RepeatIntervalInput'
+import { SubtaskComposer } from './SubtaskComposer'
 import { TaskCard } from './TaskCard'
 import { TaskDependencies } from './TaskDependencies'
 import { useTrashCount } from '../trash/trashCountContext'
@@ -109,14 +113,6 @@ export function TaskDetailPage() {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [taskDraft, setTaskDraft] = useState<TaskDraft>(EMPTY_TASK_DRAFT)
-  const EMPTY_SUBTASK_DRAFT = {
-    title: '',
-    priority: 'medium' as TaskPriority,
-    dueDate: '',
-    estimate: '',
-  }
-  const [subtaskDraft, setSubtaskDraft] = useState(EMPTY_SUBTASK_DRAFT)
-  const [subtaskError, setSubtaskError] = useState<string | null>(null)
   const [addingSubtask, setAddingSubtask] = useState(false)
   const [deciding, setDeciding] = useState(false)
   const [breakingDown, setBreakingDown] = useState(false)
@@ -141,11 +137,10 @@ export function TaskDetailPage() {
       })
       .catch((e: unknown) => {
         if (!active) return
-        const msg = e instanceof Error ? e.message : 'Failed to load task'
-        if (msg.includes('404') || msg.includes('not found')) {
+        if (e instanceof ApiError && e.status === 404) {
           navigate('/tasks', { replace: true })
         } else {
-          setError(msg)
+          setError(e instanceof Error ? e.message : 'Failed to load task')
           setLoadedTaskId(id)
         }
       })
@@ -266,50 +261,17 @@ export function TaskDetailPage() {
     }
   }
 
-  function openSubtaskComposer() {
-    // Seed priority/due date from the parent as a starting value (overridable):
-    // a subtask inherits its parent's urgency and deadline by default.
-    if (task) {
-      setSubtaskDraft({
-        ...EMPTY_SUBTASK_DRAFT,
-        priority: task.priority,
-        dueDate: task.due_date ?? '',
-      })
-    }
-    setSubtaskError(null)
-    setAddingSubtask(true)
-  }
-
-  function closeSubtaskComposer() {
-    setAddingSubtask(false)
-    setSubtaskError(null)
-  }
-
-  async function handleAddSubtask(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    if (!task || !subtaskDraft.title.trim()) return
-    const estimatedMinutes = parseDurationInput(subtaskDraft.estimate)
-    if (estimatedMinutes === undefined) {
-      setSubtaskError('Use something like 30m, 2h, or 1 day')
-      return
-    }
+  async function handleAddSubtask(data: TaskCreate) {
+    if (!task) return
     setSaveState('saving')
     setSaveError(null)
     try {
-      const created = await createUnscopedTask({
-        title: subtaskDraft.title.trim(),
-        parent_task_id: task.id,
-        priority: subtaskDraft.priority,
-        due_date: subtaskDraft.dueDate || null,
-        estimated_minutes: estimatedMinutes,
-      })
+      const created = await createUnscopedTask(data)
       setSubtasks((items) => [...items, created])
       setAllTasks((items) => [...items, created])
       // The parent's estimate/status/has_subtasks are now derived — refresh it so
       // the read-only gating and rolled-up values reflect the new subtask.
       setTask(await getTask(task.id))
-      setSubtaskDraft(EMPTY_SUBTASK_DRAFT)
-      setSubtaskError(null)
       setAddingSubtask(false)
       setSaveState('saved')
     } catch (e: unknown) {
@@ -450,25 +412,10 @@ export function TaskDetailPage() {
             </span>
           )}
           {isCandidate ? (
-            <>
-              <button
-                type="button"
-                disabled={deciding}
-                onClick={() => void handleDecide('approve')}
-              >
-                <CheckCircle2 size={16} aria-hidden="true" />
-                Approve
-              </button>
-              <button
-                type="button"
-                className="danger-action"
-                disabled={deciding}
-                onClick={() => void handleDecide('dismiss')}
-              >
-                <Trash2 size={16} aria-hidden="true" />
-                Dismiss
-              </button>
-            </>
+            <CandidateDecisionBar
+              deciding={deciding}
+              onDecide={(action) => void handleDecide(action)}
+            />
           ) : (
             <>
               <button
@@ -708,51 +655,18 @@ export function TaskDetailPage() {
               <Sparkles size={16} aria-hidden="true" />
               {breakingDown ? 'Breaking down…' : 'Break this down'}
             </button>
-            <button type="button" onClick={openSubtaskComposer}>
+            <button type="button" onClick={() => setAddingSubtask(true)}>
               <PlayCircle size={16} aria-hidden="true" />
               Add subtask
             </button>
           </div>
         </div>
-        {suggestedSubtasks.length > 0 && (
-          <div className="task-suggested-subtasks">
-            <p className="task-suggested-lead">
-              Suggested subtasks — approve the ones you want, dismiss the rest.
-            </p>
-            <ul className="task-detail-list">
-              {suggestedSubtasks.map((s) => (
-                <li key={s.id}>
-                  <TaskCard
-                    task={s}
-                    projects={projects}
-                    actions={
-                      <>
-                        <button
-                          type="button"
-                          className="task-action"
-                          disabled={decidingSubtaskId === s.id}
-                          onClick={() => void handleSubtaskDecision(s.id, 'approve')}
-                        >
-                          <CheckCircle2 size={14} aria-hidden="true" />
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          className="task-action danger-action"
-                          disabled={decidingSubtaskId === s.id}
-                          onClick={() => void handleSubtaskDecision(s.id, 'dismiss')}
-                        >
-                          <Trash2 size={14} aria-hidden="true" />
-                          Dismiss
-                        </button>
-                      </>
-                    }
-                  />
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        <BreakdownReview
+          suggestions={suggestedSubtasks}
+          projects={projects}
+          decidingId={decidingSubtaskId}
+          onDecide={(subtaskId, action) => void handleSubtaskDecision(subtaskId, action)}
+        />
         {reviewedSubtasks.length > 0 ? (
           <ul className="task-detail-list">
             {reviewedSubtasks.map((s) => (
@@ -765,61 +679,11 @@ export function TaskDetailPage() {
           suggestedSubtasks.length === 0 && <p>No subtasks yet.</p>
         )}
         {addingSubtask && (
-          <form className="task-subtask-form" onSubmit={(e) => void handleAddSubtask(e)}>
-            <input
-              autoFocus
-              aria-label="Subtask title"
-              value={subtaskDraft.title}
-              onChange={(e) =>
-                setSubtaskDraft((d) => ({ ...d, title: e.target.value }))
-              }
-              placeholder="Subtask title"
-            />
-            <div className="task-subtask-fields">
-              <label>
-                <span>Priority</span>
-                <select
-                  value={subtaskDraft.priority}
-                  onChange={(e) =>
-                    setSubtaskDraft((d) => ({
-                      ...d,
-                      priority: e.target.value as TaskPriority,
-                    }))
-                  }
-                >
-                  <option value="urgent">Urgent</option>
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
-              </label>
-              <label>
-                <span>Due date</span>
-                <input
-                  type="date"
-                  value={subtaskDraft.dueDate}
-                  onChange={(e) =>
-                    setSubtaskDraft((d) => ({ ...d, dueDate: e.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                <span>Estimate</span>
-                <input
-                  placeholder="30m, 2h, 1 day"
-                  value={subtaskDraft.estimate}
-                  onChange={(e) =>
-                    setSubtaskDraft((d) => ({ ...d, estimate: e.target.value }))
-                  }
-                />
-              </label>
-            </div>
-            {subtaskError && <p role="alert">{subtaskError}</p>}
-            <div className="task-subtask-actions">
-              <button type="submit" disabled={!subtaskDraft.title.trim()}>Add</button>
-              <button type="button" onClick={closeSubtaskComposer}>Cancel</button>
-            </div>
-          </form>
+          <SubtaskComposer
+            parent={task}
+            onCreate={handleAddSubtask}
+            onCancel={() => setAddingSubtask(false)}
+          />
         )}
       </section>
       )}

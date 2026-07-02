@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from ipaddress import ip_address
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.api.guards import require_local_write
 from app.db.models import EvalRun
 from app.db.session import get_db
 from app.schemas.settings import (
@@ -24,28 +24,6 @@ from app.services import settings as settings_service
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["settings"])
-
-
-def require_local_settings_write(request: Request) -> None:
-    """Allow settings mutations only from direct loopback/test clients.
-
-    This trusts ``request.client.host`` for direct binds. Reverse-proxy deployments
-    need explicit trusted-proxy handling before forwarding settings writes.
-    """
-    host = request.client.host if request.client else None
-    if host in {"localhost", "testclient"}:
-        return
-    if host is not None:
-        try:
-            if ip_address(host).is_loopback:
-                return
-        except ValueError:
-            pass
-
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="settings writes are only allowed from localhost",
-    )
 
 
 @router.get("/ollama/status", response_model=OllamaStatus)
@@ -69,7 +47,7 @@ def get_profiles() -> list[ProfileRead]:
 @router.patch(
     "/profiles/{name}",
     response_model=ProfileRead,
-    dependencies=[Depends(require_local_settings_write)],
+    dependencies=[Depends(require_local_write)],
 )
 def patch_profile(name: str, update: ProfileUpdate) -> ProfileRead:
     """Override editable fields of a profile; writes to profiles.local.yaml."""
@@ -88,7 +66,7 @@ def patch_profile(name: str, update: ProfileUpdate) -> ProfileRead:
 @router.delete(
     "/profiles/{name}/overrides",
     response_model=ProfileRead,
-    dependencies=[Depends(require_local_settings_write)],
+    dependencies=[Depends(require_local_write)],
 )
 def reset_profile_overrides(
     name: str, field: str | None = Query(default=None)
@@ -125,7 +103,7 @@ def get_prompt(name: str) -> PromptRead:
 @router.put(
     "/prompts/{name}",
     response_model=PromptRead,
-    dependencies=[Depends(require_local_settings_write)],
+    dependencies=[Depends(require_local_write)],
 )
 def put_prompt(name: str, update: PromptUpdate) -> PromptRead:
     """Overwrite a prompt file on disk. Takes effect on the next model call."""
@@ -140,7 +118,7 @@ def put_prompt(name: str, update: PromptUpdate) -> PromptRead:
 @router.post(
     "/evals/{suite}/run",
     response_model=EvalRunResult,
-    dependencies=[Depends(require_local_settings_write)],
+    dependencies=[Depends(require_local_write)],
 )
 def run_eval(suite: str, db: Session = Depends(get_db)) -> EvalRunResult:
     """Run an eval suite synchronously and return per-case pass/fail + totals.

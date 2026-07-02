@@ -47,19 +47,16 @@ def break_down_task(db: Session, task: Task) -> Sequence[Task]:
         return existing
 
     logger.info("breakdown_started", task_id=task.id)
-    user_content = BreakdownInput(
+    input_text = BreakdownInput(
         title=task.title, description=task.description
     ).to_user_content()
     raw = gateway.complete(
         profile_name=_PROFILE,
-        user_content=user_content,
+        user_content=input_text,
         json_schema=BreakdownOutput.model_json_schema(),
     )
 
     model_name = gateway.get_profile(_PROFILE).model
-    input_text = BreakdownInput(
-        title=task.title, description=task.description
-    ).to_user_content()
     try:
         result = BreakdownOutput.model_validate_json(raw)
     except ValidationError as exc:

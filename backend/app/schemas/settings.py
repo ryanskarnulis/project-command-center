@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.common import UTCDateTime
 
 
 class ProfileRead(BaseModel):
@@ -67,4 +68,4 @@ class EvalRunRecord(BaseModel):
     suite: str
     passed: int
     total: int
-    created_at: datetime
+    created_at: UTCDateTime

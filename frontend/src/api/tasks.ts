@@ -1,4 +1,4 @@
-import { apiClient } from './client'
+import { AI_TIMEOUT_MS, apiClient } from './client'
 import type {
   BreakdownReviewResult,
   SubtaskDecision,
@@ -111,7 +111,10 @@ export async function getSubtasks(id: number): Promise<Task[]> {
 
 /** Ask the model to suggest subtasks; returns them as candidate children. */
 export async function breakDownTask(id: number): Promise<Task[]> {
-  const res = await apiClient(`/api/tasks/${id}/break-down`, { method: 'POST' })
+  const res = await apiClient(`/api/tasks/${id}/break-down`, {
+    method: 'POST',
+    timeoutMs: AI_TIMEOUT_MS,
+  })
   return (await res.json()) as Task[]
 }
 

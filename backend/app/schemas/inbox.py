@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from app.db.models import InboxSource, TaskPriority
-from app.schemas.common import InboxRawText, NonBlankStr, OptionalStrippedStr
+from app.schemas.common import InboxRawText, NonBlankStr, OptionalStrippedStr, UTCDateTime
 
 
 class InboxCreate(BaseModel):
@@ -24,13 +24,13 @@ class InboxRead(BaseModel):
     summary: str | None
     project_hint: str | None
     needs_review: bool
-    processed_at: datetime | None
-    reviewed_at: datetime | None
+    processed_at: UTCDateTime | None
+    reviewed_at: UTCDateTime | None
     model_name: str | None
     suggested_project_id: int | None
-    created_at: datetime
-    updated_at: datetime
-    deleted_at: datetime | None = None
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
+    deleted_at: UTCDateTime | None = None
 
 
 class ReviewEdit(BaseModel):

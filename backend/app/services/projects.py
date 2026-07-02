@@ -238,7 +238,7 @@ def purge_project(db: Session, project: Project) -> None:
     ``tasks.deleted_with_project_id`` still pointing here — are nulled.
     ``hard_delete``'s guard enforces the project is already in trash. Caller commits.
     """
-    from app.services import tasks as tasks_service  # local: avoid circular import
+    from app.services import task_trash  # local: avoid circular import
 
     if project.is_protected:
         raise ValueError(f'Project "{project.name}" is protected and cannot be deleted')
@@ -257,7 +257,7 @@ def purge_project(db: Session, project: Project) -> None:
             deleted(Task).where(Task.id == task_id)
         ).scalar_one_or_none()
         if task is not None:
-            tasks_service.purge_task(db, task)
+            task_trash.purge_task(db, task)
 
     db.execute(sql_delete(ProjectAlias).where(ProjectAlias.project_id == project.id))
     db.execute(

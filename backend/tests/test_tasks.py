@@ -1,8 +1,11 @@
+from typing import Any
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db.models import TaskPriority, TaskReviewStatus, TaskWorkflowStatus
+from app.db.models import Task, TaskPriority, TaskReviewStatus, TaskWorkflowStatus
+from app.services import dashboard as dashboard_service
 from app.services import projects as projects_service
 from app.services import tasks as tasks_service
 
@@ -468,9 +471,9 @@ def test_patch_accepted_task_with_null_project_rehomes_to_general(
 # --- Parent <- child roll-ups (Sprint VVV) ---------------------------------
 
 
-def _accepted_subtask(db: Session, parent_id: int, **kw: object) -> object:
+def _accepted_subtask(db: Session, parent_id: int, **kw: Any) -> Task:
     return tasks_service.create_task(
-        db, project_id=None, parent_task_id=parent_id, **kw  # type: ignore[arg-type]
+        db, project_id=None, parent_task_id=parent_id, **kw
     )
 
 
@@ -547,6 +550,62 @@ def test_status_rolls_up(
         )
     db_session.commit()
     assert tasks_service.get_rollup(db_session, parent).workflow_status == expected
+
+
+def test_completed_checklist_parent_leaves_open_list_and_counts(
+    db_session: Session,
+) -> None:
+    # A checklist parent's stored workflow_status stays "open" — its status is
+    # derived from its children and never written back. Once every child is done
+    # the parent's EFFECTIVE status is "done", so it must drop out of the open task
+    # list and the dashboard open counts, which resolve the roll-up, not the stored
+    # column.
+    project = projects_service.create_project(db_session, name="Chores")
+    parent = tasks_service.create_task(
+        db_session, project_id=project.id, title="release checklist"
+    )
+    child_a = tasks_service.create_task(
+        db_session, project_id=project.id, parent_task_id=parent.id, title="a"
+    )
+    child_b = tasks_service.create_task(
+        db_session, project_id=project.id, parent_task_id=parent.id, title="b"
+    )
+    db_session.commit()
+
+    # One child still open -> parent effectively in-progress -> listed and counted
+    # (parent + the open child; the done child drops out).
+    tasks_service.mark_done(db_session, child_a)
+    db_session.commit()
+    open_ids = {t.id for t in tasks_service.list_tasks(db_session, exclude_done=True)}
+    assert parent.id in open_ids
+    total, _per_project, _recent = dashboard_service.get_overview(db_session)
+    assert total == 2
+
+    # Completing the last child rolls the parent up to done. Its stored column is
+    # still "open", but its effective status is done, so it must leave both.
+    tasks_service.mark_done(db_session, child_b)
+    db_session.commit()
+
+    assert parent.workflow_status == TaskWorkflowStatus.open  # stored, unchanged
+    assert (
+        tasks_service.get_rollup(db_session, parent).workflow_status
+        == TaskWorkflowStatus.done
+    )
+    open_ids = {t.id for t in tasks_service.list_tasks(db_session, exclude_done=True)}
+    assert parent.id not in open_ids
+    total, per_project, _recent = dashboard_service.get_overview(db_session)
+    assert total == 0
+    assert {p.id: c for p, c in per_project}[project.id] == 0
+
+    # It doesn't vanish: the completed view filters on effective status too, so the
+    # rolled-up-done parent lands in the archive rather than nowhere.
+    completed_ids = {
+        t.id
+        for t in tasks_service.list_tasks(
+            db_session, workflow_status=TaskWorkflowStatus.done
+        )
+    }
+    assert parent.id in completed_ids
 
 
 def test_candidate_children_do_not_count(db_session: Session) -> None:

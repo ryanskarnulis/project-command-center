@@ -5,7 +5,8 @@ import { parseDurationInput } from '../../utils/duration'
 interface SubtaskComposerProps {
   parent: Task
   onCreate: (data: TaskCreate) => Promise<void>
-  onMoreOptions: (defaults: Partial<TaskCreate>) => void
+  /** Hand off to the full task modal. Omitted where no modal exists (detail page). */
+  onMoreOptions?: (defaults: Partial<TaskCreate>) => void
   onCancel: () => void
 }
 
@@ -47,6 +48,7 @@ export function SubtaskComposer({
 
   // Hand the in-progress draft to the full task modal for the long-tail fields.
   function handleMoreOptions() {
+    if (!onMoreOptions) return
     const estimatedMinutes = parseDurationInput(draft.estimate)
     onMoreOptions({
       parent_task_id: parent.id,
@@ -110,13 +112,15 @@ export function SubtaskComposer({
         <button type="button" onClick={onCancel}>
           Cancel
         </button>
-        <button
-          type="button"
-          className="secondary-action"
-          onClick={handleMoreOptions}
-        >
-          More options
-        </button>
+        {onMoreOptions && (
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={handleMoreOptions}
+          >
+            More options
+          </button>
+        )}
       </div>
     </form>
   )
