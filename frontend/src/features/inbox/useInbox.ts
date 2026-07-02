@@ -12,7 +12,7 @@ import {
   reviewInbox,
 } from '../../api/inbox'
 import { listProjects } from '../../api/projects'
-import type { InboxItem, ReviewDecision } from '../../types/inbox'
+import type { CandidateResult, InboxItem, ReviewDecision } from '../../types/inbox'
 import type { CandidateDecision } from '../../types/inbox'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
@@ -28,7 +28,11 @@ interface UseInbox {
   notice: string | null
   submit: (rawText: string) => Promise<void>
   review: (decisions: ReviewDecision[]) => Promise<void>
-  decide: (inboxId: number, taskId: number, decision: CandidateDecision) => Promise<void>
+  decide: (
+    inboxId: number,
+    taskId: number,
+    decision: CandidateDecision,
+  ) => Promise<CandidateResult | undefined>
   dismiss: (id: number) => Promise<void>
   loadPending: () => Promise<void>
   loadProjects: () => Promise<void>
@@ -180,7 +184,11 @@ export function useInbox(): UseInbox {
   )
 
   const decide = useCallback(
-    async (inboxId: number, taskId: number, decision: CandidateDecision) => {
+    async (
+      inboxId: number,
+      taskId: number,
+      decision: CandidateDecision,
+    ): Promise<CandidateResult | undefined> => {
       setSubmitting(true)
       setError(null)
       try {
@@ -197,10 +205,12 @@ export function useInbox(): UseInbox {
           )
           void loadPending()
         }
+        return res
       } catch (e: unknown) {
         const message = messageFor(e, 'Failed to decide candidate')
         setError(message)
         notify('error', message)
+        return undefined
       } finally {
         setSubmitting(false)
       }

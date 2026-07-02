@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDashboard, getProjectSummary } from '../../api/dashboard'
 import {
   createInbox,
+  decideCandidate,
   getInbox,
   listPendingInbox,
   processInbox,
@@ -23,6 +24,7 @@ vi.mock('../../api/dashboard', () => ({
 
 vi.mock('../../api/inbox', () => ({
   createInbox: vi.fn(),
+  decideCandidate: vi.fn(),
   dismissInbox: vi.fn(),
   getCandidates: vi.fn(),
   getInbox: vi.fn(),
@@ -49,6 +51,7 @@ vi.mock('../../api/tasks', () => ({
 const mockGetDashboard = vi.mocked(getDashboard)
 const mockGetProjectSummary = vi.mocked(getProjectSummary)
 const mockCreateInbox = vi.mocked(createInbox)
+const mockDecideCandidate = vi.mocked(decideCandidate)
 const mockGetInbox = vi.mocked(getInbox)
 const mockListPendingInbox = vi.mocked(listPendingInbox)
 const mockProcessInbox = vi.mocked(processInbox)
@@ -231,8 +234,15 @@ describe('DashboardPage', () => {
     expect(screen.queryByRole('heading', { name: 'Quick Actions' })).not.toBeInTheDocument()
   })
 
-  it('extracts messy text and shows task candidates for approval on the dashboard', async () => {
+  it('extracts messy text and triages candidates inline on the dashboard', async () => {
     const user = userEvent.setup()
+    mockDecideCandidate.mockResolvedValue({
+      task_id: 200,
+      action: 'approved',
+      finalized: true,
+      training_example_id: null,
+      match_training_example_id: null,
+    })
     render(
       <MemoryRouter>
         <DashboardPage />
@@ -249,10 +259,19 @@ describe('DashboardPage', () => {
       raw_text: 'turn this messy thought into a task',
     })
     expect(mockProcessInbox).toHaveBeenCalledWith(pending[0].id)
-    expect(
-      await screen.findByRole('heading', { name: 'Review candidates (1)' }),
-    ).toBeInTheDocument()
+    // The fresh capture reviews with the same inline triage grammar as the
+    // note-review screen: editable candidate card + per-card decisions.
+    expect(await screen.findByText('1 remaining to review')).toBeInTheDocument()
     expect(screen.getByDisplayValue('Turn notes into a task')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Approve all' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+    expect(mockDecideCandidate).toHaveBeenCalledWith(pending[0].id, 200, {
+      action: 'approve',
+    })
+    // Finalizing the note must not be mistaken for an empty extraction.
+    expect(await screen.findByRole('button', { name: 'New capture' })).toBeInTheDocument()
+    expect(screen.queryByText('No tasks were extracted from this note.')).not.toBeInTheDocument()
   })
 
   it('does not ship inert placeholder controls', async () => {

@@ -105,35 +105,6 @@
   gap: 10px 16px;
 }
 
-.review-queue {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.review-row {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  padding: 14px;
-  box-shadow: var(--shadow-soft);
-}
-
-.review-row.rejected {
-  opacity: 0.56;
-}
-
-.review-row-controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.review-row-controls label,
 .modal-body label,
 .settings-field label {
   display: inline-flex;
@@ -142,17 +113,6 @@
   color: var(--text-h);
   font-size: 13px;
   font-weight: 720;
-}
-
-.review-row-controls label {
-  flex-direction: row;
-  align-items: center;
-}
-
-.review-row-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
 /* Inline-triage candidate cards (note-review screen) */

@@ -1,8 +1,9 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import { ArrowUp } from 'lucide-react'
 import { Button } from '../../components/Button'
+import type { CandidateDecision } from '../../types/inbox'
 import { useInbox } from './useInbox'
-import { ReviewQueue } from './ReviewQueue'
+import { CandidateTriage } from './CandidateTriage'
 
 interface InboxCapturePanelProps {
   title?: string
@@ -30,11 +31,16 @@ export function InboxCapturePanel({
     notice,
     submit,
     review,
+    decide,
     loadPending,
     loadProjects,
     reset,
   } = useInbox()
   const [text, setText] = useState('')
+  // Per-card decisions leave inboxItem set with an empty candidate list once the
+  // note finalizes — track it so that end state isn't mistaken for an empty
+  // extraction ("No tasks were extracted").
+  const [finalized, setFinalized] = useState(false)
 
   // Surface items awaiting review (including out-of-band captures like Discord)
   // and load projects for the review-queue project picker on load.
@@ -56,11 +62,13 @@ export function InboxCapturePanel({
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!text.trim()) return
+    setFinalized(false)
     await submit(text.trim())
   }
 
   function handleNewCapture() {
     setText('')
+    setFinalized(false)
     reset()
     void loadPending()
   }
@@ -70,9 +78,19 @@ export function InboxCapturePanel({
     setText('')
   }
 
+  async function handleDecide(taskId: number, decision: CandidateDecision) {
+    if (inboxItem === null) return
+    const res = await decide(inboxItem.id, taskId, decision)
+    if (res?.finalized) setFinalized(true)
+  }
+
   const alreadyReviewed = inboxItem?.reviewed_at != null
   const emptyCandidates =
-    inboxItem != null && !loading && !alreadyReviewed && candidates.length === 0
+    inboxItem != null &&
+    !loading &&
+    !alreadyReviewed &&
+    !finalized &&
+    candidates.length === 0
   const Heading = headingLevel === 1 ? 'h1' : 'h2'
 
   return (
@@ -127,18 +145,22 @@ export function InboxCapturePanel({
         </section>
       )}
 
-      {!alreadyReviewed && candidates.length > 0 && (
-        <ReviewQueue
-          key={`${inboxItem?.id}:${suggestedProject?.id ?? ''}:${
-            generalProject?.id ?? ''
-          }`}
+      {!alreadyReviewed && candidates.length > 0 && inboxItem && (
+        <CandidateTriage
+          key={inboxItem.id}
           candidates={candidates}
           projects={projects}
-          suggestedProjectId={suggestedProject?.id ?? null}
-          defaultProjectId={generalProject?.id ?? null}
+          effectiveProjectId={suggestedProject?.id ?? generalProject?.id ?? null}
           submitting={submitting}
-          onSubmitReview={(decisions) => void handleReview(decisions)}
+          onDecide={(taskId, decision) => void handleDecide(taskId, decision)}
+          onReviewAll={(decisions) => void handleReview(decisions)}
         />
+      )}
+
+      {finalized && candidates.length === 0 && (
+        <section className="capture-summary-panel">
+          <Button onClick={handleNewCapture}>New capture</Button>
+        </section>
       )}
 
       {emptyCandidates && (
