@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { RouterProvider, createMemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -425,15 +425,44 @@ describe('TasksPage', () => {
 
     await screen.findByText('Fix the VPN')
     await user.click(screen.getByRole('button', { name: 'Add subtask' }))
-    await user.type(
-      screen.getByPlaceholderText('Subtask title'),
-      'Rotate the keys',
-    )
-    await user.click(screen.getByRole('button', { name: 'Add' }))
+    const titleInput = screen.getByPlaceholderText('Subtask title')
+    await user.type(titleInput, 'Rotate the keys')
+    // Scope to the composer's form — the quick-add bar has an "Add" button too.
+    const composer = titleInput.closest('form') as HTMLFormElement
+    await user.click(within(composer).getByRole('button', { name: 'Add' }))
 
     expect(mockCreateUnscopedTask).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Rotate the keys', parent_task_id: 1 }),
     )
+  })
+
+  it('creates a task from the quick-add bar with parsed tokens', async () => {
+    const user = userEvent.setup()
+    mockCreateUnscopedTask.mockResolvedValue({
+      ...baseTask,
+      id: 3,
+      title: 'Renew TLS cert',
+      priority: 'high',
+      project_id: 42,
+    })
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.type(
+      screen.getByLabelText('Quick add task'),
+      'Renew TLS cert !high #infra{Enter}',
+    )
+
+    await waitFor(() =>
+      expect(mockCreateUnscopedTask).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          title: 'Renew TLS cert',
+          priority: 'high',
+          project_id: 42,
+        }),
+      ),
+    )
+    expect(screen.getByLabelText('Quick add task')).toHaveValue('')
   })
 
   it('deep-links ?task= to the peek panel over the list', async () => {

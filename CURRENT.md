@@ -43,15 +43,21 @@
 
 ## Slice 2 — Quick-add bar (token parsing, no modal)
 
-- [ ] Permanent one-line input atop Tasks list/board and project task pages:
+- [x] Permanent one-line input atop Tasks list/board and project task pages:
       `Renew TLS cert fri !high #ops ~20m @ryan` → Enter creates. Tokens parse
       deterministically in TS as you type (priority `!`, project `#`, natural
       dates, estimate `~`, assignee `@`) with a chip preview under the input.
-- [ ] "More options" escape hatch opens the full editor prefilled — same
-      pattern SubtaskComposer already established for subtasks.
-- [ ] TaskFormModal stops being the default creation path (kept for the
-      escape hatch / edit fallback).
-- [ ] No AI involved — this is the structured tier; `/new` in the command bar
+      *(`features/tasks/quickadd/` — parseQuickAdd is a pure first-token-wins
+      parser; unrecognized/ambiguous tokens stay literal title text. Chip edits
+      override tokens until submit. `#project` files anywhere via the unscoped
+      POST /api/tasks, which already honored `project_id`.)*
+- [x] "More options" escape hatch opens the full editor prefilled — same
+      pattern SubtaskComposer already established for subtasks. *(Both drafts
+      share the one modal-defaults handoff in TasksPage.)*
+- [x] TaskFormModal stops being the default creation path (kept for the
+      escape hatch / edit fallback). *(The toolbar "Add task" button is gone;
+      `?new=1` still deep-links the modal.)*
+- [x] No AI involved — this is the structured tier; `/new` in the command bar
       remains the AI-extraction tier for messy text.
 
 ## Slice 3 — Inline inbox triage

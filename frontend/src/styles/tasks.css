@@ -540,13 +540,39 @@
   height: 32px;
 }
 
-/* Tasks page: Add-task + List/Board view toggle row. */
+/* Tasks page: quick-add bar + List/Board view toggle row. Top-aligned because
+   the quick-add grows a chip-preview row under its input while typing. */
 .task-toolbar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.quick-add {
+  flex: 1 1 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+.quick-add-row {
+  display: flex;
+  gap: 8px;
+}
+
+.quick-add-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.quick-add-preview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .view-toggle {

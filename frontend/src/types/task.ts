@@ -96,6 +96,9 @@ export interface TaskCreate {
   workflow_status?: TaskWorkflowStatus
   priority?: TaskPriority
   due_date?: string | null
+  // Honored only by the unscoped POST /api/tasks route; the project-scoped
+  // route takes the project from its path. Omit to file in General.
+  project_id?: number | null
   parent_task_id?: number | null
   estimated_minutes?: number | null
   assignee_hint?: string | null

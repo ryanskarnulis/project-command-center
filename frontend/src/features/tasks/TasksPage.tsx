@@ -2,10 +2,13 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Columns3, List } from 'lucide-react'
 import { listProjects } from '../../api/projects'
+import { createUnscopedTask } from '../../api/tasks'
+import { useToast } from '../../components/ToastContext'
 import type { Project } from '../../types/project'
 import type { Task, TaskCreate, TaskWorkflowStatus } from '../../types/task'
 import { ActivityFeed } from '../projects/ActivityFeed'
 import { ProjectTabs } from '../projects/ProjectTabs'
+import { QuickAddBar } from './quickadd/QuickAddBar'
 import { TaskFormModal } from './TaskFormModal'
 import { TaskFilters } from './TaskFilters'
 import { TaskListView } from './TaskListView'
@@ -46,8 +49,9 @@ export function TasksPage() {
     reload: reloadCompleted,
   } = useCompletedTasks(id, showingCompleted || view === 'board')
 
-  // "More options" hands the in-progress subtask draft to the full task modal.
-  const [subtaskModalDefaults, setSubtaskModalDefaults] =
+  // "More options" hands an in-progress draft (quick-add or subtask composer)
+  // to the full task modal.
+  const [draftModalDefaults, setDraftModalDefaults] =
     useState<Partial<TaskCreate> | null>(null)
 
   useEffect(() => {
@@ -56,6 +60,16 @@ export function TasksPage() {
 
   const [activityKey, setActivityKey] = useState(0)
   const bumpActivity = () => setActivityKey((k) => k + 1)
+
+  const { withToast } = useToast()
+
+  // Quick-add goes through the unscoped endpoint so a #project token can file
+  // anywhere; the payload carries the page's project when no token is present.
+  async function quickCreate(data: TaskCreate) {
+    await withToast(createUnscopedTask(data), { success: 'Task created' })
+    reload()
+    bumpActivity()
+  }
 
   // Route a board move to the right endpoint: Done uses the recurrence-safe
   // done endpoint, leaving Done uses reopen (→ open), everything else is a PATCH.
@@ -94,9 +108,12 @@ export function TasksPage() {
       {!isGlobal && id !== undefined && <ProjectTabs projectId={id} />}
 
       <div className="task-toolbar">
-        <button type="button" onClick={() => updateTaskQuery({ addingTask: true })}>
-          Add task
-        </button>
+        <QuickAddBar
+          projects={projects}
+          scopeProjectId={id}
+          onCreate={quickCreate}
+          onMoreOptions={setDraftModalDefaults}
+        />
         <div
           className="view-toggle"
           role="group"
@@ -169,7 +186,7 @@ export function TasksPage() {
           reopen={reopen}
           reload={reload}
           bumpActivity={bumpActivity}
-          onOpenSubtaskModal={setSubtaskModalDefaults}
+          onOpenSubtaskModal={setDraftModalDefaults}
         />
       )}
 
@@ -188,13 +205,13 @@ export function TasksPage() {
         />
       )}
 
-      {subtaskModalDefaults && (
+      {draftModalDefaults && (
         <TaskFormModal
           mode="create"
-          defaults={subtaskModalDefaults}
+          defaults={draftModalDefaults}
           tasks={tasks}
           projects={projects}
-          onClose={() => setSubtaskModalDefaults(null)}
+          onClose={() => setDraftModalDefaults(null)}
           onSave={async (data) => {
             await create(data)
             bumpActivity()
