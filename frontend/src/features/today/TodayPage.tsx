@@ -12,6 +12,8 @@ import type {
 } from '../../types/today'
 import { formatDuration } from '../../utils/duration'
 import { formatDueDate } from '../../utils/dates'
+import { TaskPanelProvider } from '../tasks/panel/TaskPanelProvider'
+import { useTaskLinkTo } from '../tasks/panel/taskPanelContext'
 import {
   DEFAULT_AVAILABLE_MINUTES,
   DEFAULT_START_TIME,
@@ -145,6 +147,7 @@ function ScheduledRow({
   block: ScheduledBlock
   onMutated: () => void
 }) {
+  const taskLinkTo = useTaskLinkTo()
   return (
     <li className="today-block">
       <div className="today-block-time" aria-hidden="true">
@@ -153,7 +156,7 @@ function ScheduledRow({
       </div>
       <div className="today-block-body">
         <div className="today-block-head">
-          <Link to={`/tasks/${block.task_id}`} className="today-block-title">
+          <Link to={taskLinkTo(block.task_id)} className="today-block-title">
             {block.title}
           </Link>
           <PriorityPill priority={block.priority} />
@@ -185,9 +188,10 @@ function OverflowRow({
   task: OverflowTask
   onMutated: () => void
 }) {
+  const taskLinkTo = useTaskLinkTo()
   return (
     <li className="today-overflow-row">
-      <Link to={`/tasks/${task.task_id}`} className="today-block-title">
+      <Link to={taskLinkTo(task.task_id)} className="today-block-title">
         {task.title}
       </Link>
       <PriorityPill priority={task.priority} />
@@ -204,11 +208,12 @@ function OverflowRow({
 }
 
 function BlockedRow({ task }: { task: BlockedTask }) {
+  const taskLinkTo = useTaskLinkTo()
   const count = task.blocking_tasks.length
   return (
     <li className="today-blocked-row">
       <div className="today-blocked-head">
-        <Link to={`/tasks/${task.task_id}`} className="today-block-title">
+        <Link to={taskLinkTo(task.task_id)} className="today-block-title">
           {task.title}
         </Link>
         <PriorityPill priority={task.priority} />
@@ -220,7 +225,7 @@ function BlockedRow({ task }: { task: BlockedTask }) {
       <ul className="today-blocker-list">
         {task.blocking_tasks.map((blocker) => (
           <li key={blocker.task_id} className="today-blocker">
-            <Link to={`/tasks/${blocker.task_id}`} className="today-blocker-title">
+            <Link to={taskLinkTo(blocker.task_id)} className="today-blocker-title">
               {blocker.title}
             </Link>
             <WorkflowPill status={blocker.workflow_status} />
@@ -250,6 +255,7 @@ export function TodayPage() {
     : [...CAPACITY_PRESETS, availableMinutes].sort((a, b) => a - b)
 
   return (
+    <TaskPanelProvider onMutated={refetch}>
     <main className="today-page">
       <div className="section-heading">
         <div className="section-title">
@@ -368,5 +374,6 @@ export function TodayPage() {
         </>
       )}
     </main>
+    </TaskPanelProvider>
   )
 }

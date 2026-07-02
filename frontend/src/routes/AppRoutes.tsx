@@ -7,7 +7,7 @@ import { InboxPage } from '../features/inbox/InboxPage'
 import { ProjectDetailPage } from '../features/projects/ProjectDetailPage'
 import { ProjectsPage } from '../features/projects/ProjectsPage'
 import { SettingsPage } from '../features/settings/SettingsPage'
-import { TaskDetailPage } from '../features/tasks/TaskDetailPage'
+import { TaskDetailRedirect } from '../features/tasks/TaskDetailRedirect'
 import { TasksPage } from '../features/tasks/TasksPage'
 import { TodayPage } from '../features/today/TodayPage'
 import { TrainingPage } from '../features/training/TrainingPage'
@@ -26,7 +26,7 @@ export const routes = [
       { path: '/inbox', element: <InboxPage /> },
       { path: '/inbox/:inboxId', element: <InboxPage /> },
       { path: '/tasks', element: <TasksPage /> },
-      { path: '/tasks/:taskId', element: <TaskDetailPage /> },
+      { path: '/tasks/:taskId', element: <TaskDetailRedirect /> },
       { path: '/projects', element: <ProjectsPage /> },
       { path: '/projects/:projectId', element: <ProjectDetailPage /> },
       { path: '/projects/:projectId/tasks', element: <TasksPage /> },

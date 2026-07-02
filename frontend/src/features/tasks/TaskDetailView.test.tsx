@@ -1,13 +1,14 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
 import { listDependencies, listDependents } from '../../api/taskDependencies'
 import { breakDownTask, getSubtasks, getTask, listAllTasks, reviewBreakdown, updateTask } from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
-import { TaskDetailPage } from './TaskDetailPage'
+import { todayISO } from '../../utils/dates'
+import { TaskDetailView } from './TaskDetailView'
 
 vi.mock('../../api/tasks', () => ({
   breakDownTask: vi.fn(),
@@ -85,15 +86,13 @@ const suggestedSubtask: Task = {
 
 function renderDetail() {
   return render(
-    <MemoryRouter initialEntries={['/tasks/7']}>
-      <Routes>
-        <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
-      </Routes>
+    <MemoryRouter>
+      <TaskDetailView taskId={7} />
     </MemoryRouter>,
   )
 }
 
-describe('TaskDetailPage', () => {
+describe('TaskDetailView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetTask.mockResolvedValue(task)
@@ -121,9 +120,8 @@ describe('TaskDetailPage', () => {
     await waitFor(() => expect(title).toHaveValue('Patch the router'))
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
     expect(screen.queryByText('accepted')).not.toBeInTheDocument()
-    // The workflow status renders as a hero pill (the select also has an "Open"
-    // option, so scope the assertion to the pill).
-    expect(screen.getByText('Open', { selector: 'span.status-pill' })).toBeInTheDocument()
+    // The workflow status renders as the status chip in the hero.
+    expect(screen.getByRole('button', { name: 'Status: Open' })).toBeInTheDocument()
   })
 
   it('saves title changes inline on blur', async () => {
@@ -167,16 +165,101 @@ describe('TaskDetailPage', () => {
     expect(removeSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function))
   })
 
-  it('saves workflow status changes inline', async () => {
+  it('saves workflow status changes from the status chip', async () => {
     const user = userEvent.setup()
     renderDetail()
 
-    await user.selectOptions(await screen.findByLabelText('Status'), 'in_progress')
+    await user.click(await screen.findByRole('button', { name: 'Status: Open' }))
+    await user.click(screen.getByRole('button', { name: 'In progress' }))
 
     expect(mockUpdateTask).toHaveBeenCalledWith(
       7,
       expect.objectContaining({ workflow_status: 'in_progress' }),
     )
+  })
+
+  it('saves a priority pick from the priority chip', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Priority: high' }))
+    await user.click(screen.getByRole('button', { name: 'urgent' }))
+
+    expect(mockUpdateTask).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ priority: 'urgent' }),
+    )
+  })
+
+  it('saves a due date from the Today preset', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Set due date' }))
+    await user.click(screen.getByRole('button', { name: 'Today' }))
+
+    expect(mockUpdateTask).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ due_date: todayISO() }),
+    )
+  })
+
+  it('saves a project pick from the project chip', async () => {
+    const user = userEvent.setup()
+    mockListProjects.mockResolvedValue([project, { ...project, id: 2, name: 'Garden' }])
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Project: Infra' }))
+    await user.click(screen.getByRole('button', { name: 'Garden' }))
+
+    expect(mockUpdateTask).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ project_id: 2 }),
+    )
+  })
+
+  it('prompts for edit scope when a chip edits a recurring task', async () => {
+    const user = userEvent.setup()
+    mockGetTask.mockResolvedValue({
+      ...task,
+      recurrence_id: 'abc123',
+      due_date: '2026-07-10',
+      repeat_interval: { unit: 'week', every: 1 },
+    })
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Priority: high' }))
+    await user.click(screen.getByRole('button', { name: 'urgent' }))
+
+    // The scopable edit parks until a scope is chosen — no PATCH yet.
+    expect(mockUpdateTask).not.toHaveBeenCalled()
+    await user.click(
+      screen.getByRole('button', { name: 'This and all future occurrences' }),
+    )
+
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({ priority: 'urgent', edit_scope: 'future' }),
+      ),
+    )
+  })
+
+  it('disables the status and estimate chips when values roll up from subtasks', async () => {
+    mockGetTask.mockResolvedValue({
+      ...task,
+      has_subtasks: true,
+      estimated_minutes: 90,
+      workflow_status: 'in_progress',
+    })
+    renderDetail()
+
+    const status = await screen.findByRole('button', { name: 'Status: In progress' })
+    expect(status).toBeDisabled()
+    expect(status).toHaveAttribute('title', 'Rolled up from subtasks')
+    const estimate = screen.getByRole('button', { name: 'Estimate: 90 minutes' })
+    expect(estimate).toBeDisabled()
+    expect(estimate).toHaveAttribute('title', 'Sum of subtask estimates')
   })
 
   it('breaks a task down and approves a suggested subtask', async () => {
@@ -226,20 +309,13 @@ describe('TaskDetailPage', () => {
     expect(screen.getByText('waiting')).toBeInTheDocument()
   })
 
-  it('saves friendly estimate text inline', async () => {
+  it('saves friendly estimate text from the estimate chip', async () => {
     const user = userEvent.setup()
     renderDetail()
 
-    const estimate = await screen.findByLabelText('Estimate')
-    // Same draft-population race as the title field. The estimate loads empty
-    // (no signal to wait on directly), but one effect populates every draft at
-    // once — so the title showing its loaded value proves the estimate draft
-    // has settled and won't clobber what we type.
-    await waitFor(() =>
-      expect(screen.getByLabelText('Task title')).toHaveValue('Patch the router'),
-    )
-    await user.type(estimate, '2h')
-    await user.tab()
+    await user.click(await screen.findByRole('button', { name: 'Set estimate' }))
+    await user.type(screen.getByLabelText('Estimate'), '2h')
+    await user.click(screen.getByRole('button', { name: 'Set' }))
 
     await waitFor(() =>
       expect(mockUpdateTask).toHaveBeenCalledWith(

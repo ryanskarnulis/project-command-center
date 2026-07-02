@@ -41,15 +41,17 @@ export function useTaskUrlState(): UseTaskUrlState {
   const sortMode = sortFromParams(searchParams)
 
   function updateTaskQuery(next: TaskQueryUpdate) {
-    setSearchParams(
-      paramsFromState(
-        next.filters ?? filters,
-        next.sortMode ?? sortMode,
-        next.view ?? view,
-        next.addingTask ?? addingTask,
-      ),
-      { replace: true },
+    const params = paramsFromState(
+      next.filters ?? filters,
+      next.sortMode ?? sortMode,
+      next.view ?? view,
+      next.addingTask ?? addingTask,
     )
+    // paramsFromState rebuilds the query from scratch; carry the peek-panel
+    // param so changing a filter or view doesn't close an open panel.
+    const openTask = searchParams.get('task')
+    if (openTask !== null) params.set('task', openTask)
+    setSearchParams(params, { replace: true })
   }
 
   function selectView(next: ViewMode) {

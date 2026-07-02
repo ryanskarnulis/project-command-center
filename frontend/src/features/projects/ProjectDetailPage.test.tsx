@@ -11,7 +11,7 @@ import {
   listAliases,
   updateProject,
 } from '../../api/projects'
-import { listCompletedTasks, listTasks } from '../../api/tasks'
+import { getTask, listCompletedTasks, listTasks, updateTask } from '../../api/tasks'
 import type { Project, ProjectAlias } from '../../types/project'
 import type { Task } from '../../types/task'
 import { ProjectDetailPage } from './ProjectDetailPage'
@@ -23,11 +23,31 @@ vi.mock('../../api/projects', () => ({
   createAlias: vi.fn(),
   deleteAlias: vi.fn(),
   getProjectActivity: vi.fn(),
+  listProjects: vi.fn(() => Promise.resolve([])),
 }))
 
 vi.mock('../../api/tasks', () => ({
-  listTasks: vi.fn(),
+  breakDownTask: vi.fn(),
+  createUnscopedTask: vi.fn(),
+  deleteTask: vi.fn(),
+  getSubtasks: vi.fn(() => Promise.resolve([])),
+  getTask: vi.fn(),
+  getTaskSeries: vi.fn(),
+  listAllTasks: vi.fn(() => Promise.resolve([])),
   listCompletedTasks: vi.fn(),
+  listTasks: vi.fn(),
+  markTaskDone: vi.fn(),
+  reviewBreakdown: vi.fn(),
+  skipOccurrence: vi.fn(),
+  stopRecurrence: vi.fn(),
+  updateTask: vi.fn(),
+}))
+
+vi.mock('../../api/taskDependencies', () => ({
+  addDependency: vi.fn(),
+  listDependencies: vi.fn(() => Promise.resolve([])),
+  listDependents: vi.fn(() => Promise.resolve([])),
+  removeDependency: vi.fn(),
 }))
 
 vi.mock('../../api/dashboard', () => ({
@@ -77,6 +97,8 @@ const alias: ProjectAlias = {
 
 const mockGetProject = vi.mocked(getProject)
 const mockUpdateProject = vi.mocked(updateProject)
+const mockGetTask = vi.mocked(getTask)
+const mockUpdateTask = vi.mocked(updateTask)
 const mockListTasks = vi.mocked(listTasks)
 const mockListCompleted = vi.mocked(listCompletedTasks)
 const mockListAliases = vi.mocked(listAliases)
@@ -221,5 +243,27 @@ describe('ProjectDetailPage', () => {
     await user.click(await screen.findByRole('button', { name: 'Activity' }))
     expect(await screen.findByText('No activity yet.')).toBeInTheDocument()
     expect(mockGetProjectActivity).toHaveBeenCalled()
+  })
+
+  it('opens the peek panel from a task card and refetches tasks after a panel edit', async () => {
+    const user = userEvent.setup()
+    mockGetTask.mockResolvedValue(task)
+    mockUpdateTask.mockResolvedValue({ ...task, priority: 'urgent' })
+    renderDetail()
+
+    await user.click(await screen.findByRole('link', { name: 'Patch the router' }))
+
+    expect(await screen.findByRole('dialog', { name: 'Task details' })).toBeInTheDocument()
+    await waitFor(() => expect(mockGetTask).toHaveBeenCalledWith(3))
+    expect(mockListTasks).toHaveBeenCalledTimes(1)
+
+    // A chip edit inside the panel PATCHes and asks the host list to refetch.
+    await user.click(await screen.findByRole('button', { name: 'Priority: high' }))
+    await user.click(screen.getByRole('button', { name: 'urgent' }))
+
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(3, expect.objectContaining({ priority: 'urgent' })),
+    )
+    await waitFor(() => expect(mockListTasks).toHaveBeenCalledTimes(2))
   })
 })

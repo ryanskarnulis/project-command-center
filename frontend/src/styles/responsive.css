@@ -44,10 +44,6 @@
     grid-template-columns: 1fr;
   }
 
-  .task-detail-grid {
-    grid-template-columns: 1fr;
-  }
-
   .dashboard-rail {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

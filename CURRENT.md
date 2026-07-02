@@ -1,29 +1,85 @@
-# Current focus — none committed
+# Current focus — UI/UX revamp: from forms and page-hops to in-place work
 
-> There is **no committed current-focus epic** right now. The planning-view
-> (Gantt/calendar) epic was removed (`04dea44` "removed gantt") because it didn't
-> earn its complexity — see `DONE.md` ("Planning view (Gantt/calendar) — REMOVED").
-> The "Project phases" epic that was queued on top of it has been **de-committed**:
-> its Slices 2–3 built phases *into* the per-project Gantt and the global `/planning`
-> surface, both of which no longer exist, so it was scoped against a cut surface.
-> This file tracks the active epic; until a new one is chosen it names none.
+> Committed 2026-07-01. The app's data layer and workflows are stable, but the
+> interaction model is form-first and navigation-heavy: task cards are one big
+> link to a detail page whose right column is an 8-field form wall, creation is
+> an 8-field modal, inbox candidate edits detour through the task detail page,
+> and the dashboard is a launcher rather than a workspace. This epic replaces
+> that grammar with in-place editing: a slide-over peek panel, click-to-edit
+> metadata chips, a token-parsing quick-add bar, inline inbox triage, and
+> finally a merged working landing screen.
+>
+> Frontend-only epic: no schema changes, no new AI calls — existing endpoints
+> throughout. Each slice is its own reviewable chunk with happy-path tests.
 
 **Status legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ---
 
-## What's live right now
+## Slice 1 — Peek panel + editable metadata chips
 
-Nothing. The **Cleaning & hardening — comprehensive review (round 5)** pass closed
-2026-07-01 and is archived in `DONE.md` ("Round 5 — Cleaning & hardening"); its deferred
-performance notes and improvement ideas carry forward in `TODO.md`'s "Current focus"
-section. No new feature epic is in flight.
+*The spine. "Act on a task without leaving where you are."*
 
-## Candidate next epics (not committed — need a decision before promotion)
+- [x] Slide-over task detail panel: clicking a task card opens a right-side
+      panel over the current list (Tasks list/board, project tasks, Today)
+      instead of navigating away. Esc / click-outside closes. URL updates so
+      `/tasks/:id` still deep-links (direct hits render list + open panel).
+      *(Peek state is `?task=<id>` on the host page; `/tasks/:id` redirects.)*
+- [x] Editable metadata chips replace the "Task Fields" form column: the hero
+      badges become the editor — priority pill → 4-option menu, due chip →
+      mini calendar with Today/Tomorrow/Next week presets, project pill →
+      searchable picker, estimate chip → inline text input, status pill →
+      cycle/menu. One click to open, one to set; save-on-choose via the
+      existing PATCH path (recurrence edit-scope prompt preserved).
+      *(All 8 fields chipped — repeat, assignee, parent task included; the
+      form column is gone, no second editing grammar survives.)*
+- [x] Chips are shared components (reused by slices 2–3 for quick-add preview
+      and inbox candidates). *(`features/tasks/chips/` — controlled
+      value/onChange, no Task object required.)*
+- [x] Naturally absorbs two TODO improvement ideas: skip / mark-done a
+      recurrence where the task shows up, and making the save model legible
+      (chip edits are explicit, not blur-magic). *(Skip also lives in the
+      status chip menu; estimate/assignee/repeat commits are explicit Set.)*
 
-- **Project phases, planning-free** — phase grouping on the existing task
-  **list/board** (a `phases` table + a nullable `tasks.phase_id`, project-scoped,
-  no Gantt). The detailed model/decisions from the old phases epic live in this
-  file's git history (pre-`04dea44`-cleanup) and can be revived if promoted.
-- **Agent / task orchestration** — the direction `TODO.md` hints at; currently
-  undefined and needs scoping before it could become a focus.
+## Slice 2 — Quick-add bar (token parsing, no modal)
+
+- [ ] Permanent one-line input atop Tasks list/board and project task pages:
+      `Renew TLS cert fri !high #ops ~20m @ryan` → Enter creates. Tokens parse
+      deterministically in TS as you type (priority `!`, project `#`, natural
+      dates, estimate `~`, assignee `@`) with a chip preview under the input.
+- [ ] "More options" escape hatch opens the full editor prefilled — same
+      pattern SubtaskComposer already established for subtasks.
+- [ ] TaskFormModal stops being the default creation path (kept for the
+      escape hatch / edit fallback).
+- [ ] No AI involved — this is the structured tier; `/new` in the command bar
+      remains the AI-extraction tier for messy text.
+
+## Slice 3 — Inline inbox triage
+
+- [ ] Candidate cards on the note-review screen become editable in place:
+      title as input, project/due/priority as the slice-1 chips. No detour
+      through the task detail page.
+- [ ] Approve/dismiss auto-advances to the next candidate (lowest-confidence
+      ordering already in place).
+- [ ] Correction capture preserved: field edits persist before the decision
+      exactly as today, so `ai_training_examples` rows keep recording the
+      user's fixes — the whole point of lowering friction here.
+
+## Slice 4 — Merged working landing screen
+
+*Design after slices 1–3 prove the interaction patterns.*
+
+- [ ] Merge Dashboard + Today into one Command Center working surface:
+      capture box, today's timeline (Start/Done inline), inbox candidates
+      triage-able in place, blockers — act there, don't navigate elsewhere.
+- [ ] Shrink the sidebar accordingly (Today and Command Center collapse into
+      one destination; target ~5–6 entries).
+- [ ] Re-point dashboard metric cards at in-place actions where one exists
+      (e.g. "Awaiting review" opens the triage queue inline, not `/inbox`).
+
+## Companions (opportunistic, not gating)
+
+- [ ] Command-palette verbs beyond `/new` + `/done` (`/start`, `/due`,
+      `/move`, go-to navigation) on the existing parseCommand seam.
+- [ ] One-click complete circle on every task card (today it hides in hover
+      actions); drag card → sidebar project to file it.

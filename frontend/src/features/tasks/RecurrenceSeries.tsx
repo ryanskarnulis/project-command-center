@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { getTaskSeries, stopRecurrence } from '../../api/tasks'
 import type { Task } from '../../types/task'
 import { formatDueDate } from '../../utils/dates'
+import { useTaskLinkTo } from './panel/taskPanelContext'
 
 interface RecurrenceSeriesProps {
   task: Task
@@ -25,6 +26,7 @@ function occurrenceState(o: Task): { label: string; className: string } {
 /** Series timeline + "Stop recurrence" for a task that belongs to a recurrence
  *  chain. The occurrence list is fetched lazily on first expand. */
 export function RecurrenceSeries({ task, onStopped }: RecurrenceSeriesProps) {
+  const taskLinkTo = useTaskLinkTo()
   const [expanded, setExpanded] = useState(false)
   const [occurrences, setOccurrences] = useState<Task[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -134,7 +136,7 @@ export function RecurrenceSeries({ task, onStopped }: RecurrenceSeriesProps) {
                     ) : o.deleted_at ? (
                       <span className="recurrence-occurrence-title">{o.title}</span>
                     ) : (
-                      <Link to={`/tasks/${o.id}`} className="recurrence-occurrence-title">
+                      <Link to={taskLinkTo(o.id)} className="recurrence-occurrence-title">
                         {o.title}
                       </Link>
                     )}

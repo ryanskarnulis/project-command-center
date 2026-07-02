@@ -17,6 +17,7 @@ import { useBeforeUnload } from '../../hooks/useBeforeUnload'
 import { buildProjectStats } from '../../utils/projectStatus'
 import { TaskCard } from '../tasks/TaskCard'
 import { SubtaskGroup } from '../tasks/SubtaskGroup'
+import { TaskPanelProvider } from '../tasks/panel/TaskPanelProvider'
 import { buildTaskTree } from '../tasks/taskTree'
 import { ActivityFeed } from './ActivityFeed'
 import { ProjectTabs } from './ProjectTabs'
@@ -59,6 +60,8 @@ export function ProjectDetailPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(EMPTY_PROJECT_DRAFT)
   const [activityKey, setActivityKey] = useState(0)
+  // Bumped after a peek-panel mutation so the task list refetches behind it.
+  const [tasksReloadKey, setTasksReloadKey] = useState(0)
 
   // AI summary (on-demand; 502-safe).
   const [summary, setSummary] = useState<ProjectSummary | null>(null)
@@ -109,7 +112,7 @@ export function ProjectDetailPage() {
         setTasksLoadedProjectId(id)
       })
     return () => { active = false }
-  }, [id])
+  }, [id, tasksReloadKey])
 
   // Done count feeds the hero progress bar (best-effort).
   useEffect(() => {
@@ -118,7 +121,7 @@ export function ProjectDetailPage() {
       .then((data) => { if (active) setDoneCount(data.length) })
       .catch(() => { /* best-effort */ })
     return () => { active = false }
-  }, [id])
+  }, [id, tasksReloadKey])
 
   useEffect(() => {
     let active = true
@@ -252,6 +255,12 @@ export function ProjectDetailPage() {
         : ''
 
   return (
+    <TaskPanelProvider
+      onMutated={() => {
+        setTasksReloadKey((k) => k + 1)
+        setActivityKey((k) => k + 1)
+      }}
+    >
     <main className="task-detail">
       <div className="task-detail-header">
         <p className="breadcrumb">
@@ -402,5 +411,6 @@ export function ProjectDetailPage() {
 
       <ActivityFeed projectId={project.id} refreshKey={activityKey} />
     </main>
+    </TaskPanelProvider>
   )
 }

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { Task } from '../../types/task'
+import { useTaskLinkTo } from './panel/taskPanelContext'
 import { useTaskDependencies } from './useTaskDependencies'
 
 interface Props {
@@ -11,6 +12,7 @@ interface Props {
 
 /** "Depends on" manager: B must be done before this task can start. */
 export function TaskDependencies({ task, tasks }: Props) {
+  const taskLinkTo = useTaskLinkTo()
   const { dependencies, dependents, loading, error, add, remove } =
     useTaskDependencies(task.id)
   const [selected, setSelected] = useState('')
@@ -52,7 +54,7 @@ export function TaskDependencies({ task, tasks }: Props) {
           <ul className="dependency-list">
             {dependents.map((d) => (
               <li key={d.id}>
-                <Link to={`/tasks/${d.dependent_task_id}`}>
+                <Link to={taskLinkTo(d.dependent_task_id)}>
                   {d.dependent_title}
                 </Link>
                 {d.dependent_done ? (
@@ -76,7 +78,7 @@ export function TaskDependencies({ task, tasks }: Props) {
       <ul className="dependency-list">
         {dependencies.map((d) => (
           <li key={d.id}>
-            <Link to={`/tasks/${d.depends_on_task_id}`}>{d.depends_on_title}</Link>
+            <Link to={taskLinkTo(d.depends_on_task_id)}>{d.depends_on_title}</Link>
             {d.depends_on_done ? (
               <span className="dep-done">✓ done</span>
             ) : (

@@ -11,11 +11,12 @@ archived in `DONE.md`.
 
 ## Current focus
 
-None committed. The **Cleaning & hardening — comprehensive review (round 5)** pass
-closed 2026-07-01 with all confirmed bugs, hardening follow-ups, and boundaries/tests/docs
-items done — archived in `DONE.md` ("Round 5 — Cleaning & hardening"). Its Performance
-section and improvement-ideas notes were left open by design; they're carried below under
-"Deferred hardening notes". See `CURRENT.md` for candidate next epics.
+**UI/UX revamp — from forms and page-hops to in-place work** (committed 2026-07-01).
+Four slices tracked in `CURRENT.md`: (1) peek panel + editable metadata chips,
+(2) quick-add bar with token parsing, (3) inline inbox triage, (4) merged working
+landing screen. Frontend-only; no schema or AI-workflow changes. The round-5
+hardening pass closed 2026-07-01 (archived in `DONE.md`); its deferred performance
+notes carry below under "Deferred hardening notes".
 
 ### Deferred hardening notes (from round 5 — record now, act when warranted)
 

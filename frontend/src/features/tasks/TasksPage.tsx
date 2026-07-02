@@ -10,6 +10,7 @@ import { TaskFormModal } from './TaskFormModal'
 import { TaskFilters } from './TaskFilters'
 import { TaskListView } from './TaskListView'
 import { TaskBoardView } from './TaskBoardView'
+import { TaskPanelProvider } from './panel/TaskPanelProvider'
 import { useCompletedTasks } from './useCompletedTasks'
 import { useTaskUrlState } from './useTaskUrlState'
 import { useTasks } from './useTasks'
@@ -76,6 +77,13 @@ export function TasksPage() {
   }
 
   return (
+    <TaskPanelProvider
+      onMutated={() => {
+        reload()
+        reloadCompleted()
+        bumpActivity()
+      }}
+    >
     <main>
       {!isGlobal && (
         <p>
@@ -194,5 +202,6 @@ export function TasksPage() {
         />
       )}
     </main>
+    </TaskPanelProvider>
   )
 }

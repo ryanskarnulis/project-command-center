@@ -3,21 +3,28 @@ import userEvent from '@testing-library/user-event'
 import { RouterProvider, createMemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
-import { createUnscopedTask, listAllTasks, listCompletedTasks, markTaskDone } from '../../api/tasks'
+import { listDependencies, listDependents } from '../../api/taskDependencies'
+import { createUnscopedTask, getSubtasks, getTask, listAllTasks, listCompletedTasks, markTaskDone } from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { TasksPage } from './TasksPage'
 
 vi.mock('../../api/tasks', () => ({
+  breakDownTask: vi.fn(),
   createTask: vi.fn(),
   createUnscopedTask: vi.fn(),
   deleteTask: vi.fn(),
+  getSubtasks: vi.fn(),
   getTask: vi.fn(),
+  getTaskSeries: vi.fn(),
   listAllTasks: vi.fn(),
   listCompletedTasks: vi.fn(() => Promise.resolve([])),
   listTasks: vi.fn(),
   markTaskDone: vi.fn(),
   reopenTask: vi.fn(),
+  reviewBreakdown: vi.fn(),
+  skipOccurrence: vi.fn(),
+  stopRecurrence: vi.fn(),
   updateTask: vi.fn(),
 }))
 
@@ -40,6 +47,10 @@ const mockListCompletedTasks = vi.mocked(listCompletedTasks)
 const mockListProjects = vi.mocked(listProjects)
 const mockCreateUnscopedTask = vi.mocked(createUnscopedTask)
 const mockMarkTaskDone = vi.mocked(markTaskDone)
+const mockGetTask = vi.mocked(getTask)
+const mockGetSubtasks = vi.mocked(getSubtasks)
+const mockListDependencies = vi.mocked(listDependencies)
+const mockListDependents = vi.mocked(listDependents)
 
 const baseTask: Task = {
   id: 1,
@@ -81,6 +92,11 @@ describe('TasksPage', () => {
     mockListAllTasks.mockResolvedValue([baseTask])
     mockListProjects.mockResolvedValue([baseProject])
     mockMarkTaskDone.mockResolvedValue({ ...baseTask, workflow_status: 'done' })
+    // The peek panel fetches its own data when `?task=` is set.
+    mockGetTask.mockResolvedValue(baseTask)
+    mockGetSubtasks.mockResolvedValue([])
+    mockListDependencies.mockResolvedValue([])
+    mockListDependents.mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -418,5 +434,54 @@ describe('TasksPage', () => {
     expect(mockCreateUnscopedTask).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Rotate the keys', parent_task_id: 1 }),
     )
+  })
+
+  it('deep-links ?task= to the peek panel over the list', async () => {
+    renderGlobal(['/tasks?task=1'])
+
+    const panel = await screen.findByRole('dialog', { name: 'Task details' })
+    expect(panel).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByLabelText('Task title')).toHaveValue('Fix the VPN'),
+    )
+    // The list is still rendered behind the panel.
+    expect(screen.getByRole('heading', { name: 'Open Tasks' })).toBeInTheDocument()
+  })
+
+  it('opens the peek panel from a task card without navigating away', async () => {
+    const user = userEvent.setup()
+    const { router } = renderGlobal()
+
+    await user.click(await screen.findByRole('link', { name: 'Fix the VPN' }))
+
+    expect(await screen.findByRole('dialog', { name: 'Task details' })).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/tasks')
+    expect(new URLSearchParams(router.state.location.search).get('task')).toBe('1')
+  })
+
+  it('closes the peek panel on Escape and drops the task param', async () => {
+    const user = userEvent.setup()
+    const { router } = renderGlobal(['/tasks?task=1'])
+
+    await screen.findByRole('dialog', { name: 'Task details' })
+    await user.keyboard('{Escape}')
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Task details' })).not.toBeInTheDocument(),
+    )
+    expect(new URLSearchParams(router.state.location.search).get('task')).toBeNull()
+  })
+
+  it('keeps the peek panel open when switching to the board view', async () => {
+    const user = userEvent.setup()
+    const { router } = renderGlobal(['/tasks?task=1'])
+
+    await screen.findByRole('dialog', { name: 'Task details' })
+    await user.click(screen.getByRole('button', { name: 'Board' }))
+
+    const params = new URLSearchParams(router.state.location.search)
+    expect(params.get('view')).toBe('board')
+    expect(params.get('task')).toBe('1')
+    expect(screen.getByRole('dialog', { name: 'Task details' })).toBeInTheDocument()
   })
 })

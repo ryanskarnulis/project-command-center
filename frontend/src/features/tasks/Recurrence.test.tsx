@@ -1,13 +1,13 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
 import { listDependencies, listDependents } from '../../api/taskDependencies'
 import { getSubtasks, getTask, getTaskSeries, listAllTasks, skipOccurrence, stopRecurrence, updateTask } from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
-import { TaskDetailPage } from './TaskDetailPage'
+import { TaskDetailView } from './TaskDetailView'
 
 vi.mock('../../api/tasks', () => ({
   createUnscopedTask: vi.fn(),
@@ -81,10 +81,8 @@ function renderDetail(task: Task) {
   mockGetTask.mockResolvedValue(task)
   mockListAllTasks.mockResolvedValue([task])
   return render(
-    <MemoryRouter initialEntries={['/tasks/7']}>
-      <Routes>
-        <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
-      </Routes>
+    <MemoryRouter>
+      <TaskDetailView taskId={7} />
     </MemoryRouter>,
   )
 }
@@ -101,19 +99,22 @@ describe('Recurrence UI', () => {
 
   afterEach(cleanup)
 
-  it('renders the repeat field, disabled when there is no due date', async () => {
+  it('renders the repeat chip, disabled when there is no due date', async () => {
     renderDetail({ ...baseTask, due_date: null, repeat_interval: null })
 
-    const repeat = await screen.findByLabelText('Repeat')
+    const repeat = await screen.findByRole('button', { name: 'Set repeat' })
     expect(repeat).toBeDisabled()
+    expect(repeat).toHaveAttribute('title', 'Set a due date to enable recurrence')
   })
 
-  it('enables the repeat field once a due date is set', async () => {
+  it('enables the repeat chip once a due date is set', async () => {
+    const user = userEvent.setup()
     renderDetail(baseTask)
 
-    const repeat = await screen.findByLabelText('Repeat')
+    const repeat = await screen.findByRole('button', { name: 'Repeat: weekly' })
     expect(repeat).toBeEnabled()
-    await waitFor(() => expect(repeat).toHaveValue('weekly'))
+    await user.click(repeat)
+    expect(screen.getByLabelText('Repeat')).toHaveValue('weekly')
   })
 
   it('shows EditScopeModal when editing a recurring task and forwards the scope', async () => {

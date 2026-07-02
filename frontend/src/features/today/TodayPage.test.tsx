@@ -2,8 +2,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getTodayPlan } from '../../api/today'
-import { markTaskDone, updateTask } from '../../api/tasks'
+import { getTask, markTaskDone, updateTask } from '../../api/tasks'
 import type { ScheduledBlock, TodayPlan } from '../../types/today'
+import type { Task } from '../../types/task'
 import { TodayPage } from './TodayPage'
 
 vi.mock('../../api/today', () => ({
@@ -11,13 +12,59 @@ vi.mock('../../api/today', () => ({
 }))
 
 vi.mock('../../api/tasks', () => ({
+  breakDownTask: vi.fn(),
+  createUnscopedTask: vi.fn(),
+  deleteTask: vi.fn(),
+  getSubtasks: vi.fn(() => Promise.resolve([])),
+  getTask: vi.fn(),
+  getTaskSeries: vi.fn(),
+  listAllTasks: vi.fn(() => Promise.resolve([])),
   markTaskDone: vi.fn(),
+  reviewBreakdown: vi.fn(),
+  skipOccurrence: vi.fn(),
+  stopRecurrence: vi.fn(),
   updateTask: vi.fn(),
+}))
+
+vi.mock('../../api/projects', () => ({
+  listProjects: vi.fn(() => Promise.resolve([])),
+}))
+
+vi.mock('../../api/taskDependencies', () => ({
+  addDependency: vi.fn(),
+  listDependencies: vi.fn(() => Promise.resolve([])),
+  listDependents: vi.fn(() => Promise.resolve([])),
+  removeDependency: vi.fn(),
 }))
 
 const mockGetTodayPlan = vi.mocked(getTodayPlan)
 const mockMarkTaskDone = vi.mocked(markTaskDone)
 const mockUpdateTask = vi.mocked(updateTask)
+const mockGetTask = vi.mocked(getTask)
+
+const panelTask: Task = {
+  id: 7,
+  project_id: null,
+  inbox_item_id: null,
+  parent_task_id: null,
+  title: 'Draft launch checklist',
+  description: null,
+  review_status: 'accepted',
+  workflow_status: 'in_progress',
+  priority: 'high',
+  due_date: '2026-06-20',
+  estimated_minutes: 30,
+  repeat_interval: null,
+  recurrence_id: null,
+  confidence: null,
+  assignee_hint: null,
+  created_at: '2026-06-01T00:00:00Z',
+  updated_at: '2026-06-01T00:00:00Z',
+  is_blocked: false,
+  is_blocking: false,
+  blocked_task_count: 0,
+  has_subtasks: false,
+}
 
 function scheduledBlock(overrides: Partial<ScheduledBlock> = {}): ScheduledBlock {
   return {
@@ -89,9 +136,28 @@ describe('TodayPage', () => {
     )
 
     const link = await screen.findByRole('link', { name: 'Draft launch checklist' })
-    expect(link).toHaveAttribute('href', '/tasks/7')
+    // Row links open the peek panel in place via the ?task= param.
+    expect(link).toHaveAttribute('href', '/?task=7')
     expect(screen.getByText('in-progress · due today · high priority')).toBeInTheDocument()
     expect(screen.getByText('assumed')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Timeline' })).toBeInTheDocument()
+  })
+
+  it('opens the peek panel over the plan when a row is clicked', async () => {
+    mockGetTodayPlan.mockResolvedValue(makePlan({ scheduled: [scheduledBlock()] }))
+    mockGetTask.mockResolvedValue(panelTask)
+
+    render(
+      <MemoryRouter>
+        <TodayPage />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Draft launch checklist' }))
+
+    expect(await screen.findByRole('dialog', { name: 'Task details' })).toBeInTheDocument()
+    await waitFor(() => expect(mockGetTask).toHaveBeenCalledWith(7))
+    // The plan is still rendered behind the panel.
     expect(screen.getByRole('heading', { name: 'Timeline' })).toBeInTheDocument()
   })
 
@@ -154,7 +220,7 @@ describe('TodayPage', () => {
     expect(screen.getByText(/Waiting on 1 unfinished dependency/)).toBeInTheDocument()
     // The blocker is named (not a bare #id) and shows its workflow status.
     const blockerLink = screen.getByRole('link', { name: 'Upstream dependency' })
-    expect(blockerLink).toHaveAttribute('href', '/tasks/9')
+    expect(blockerLink).toHaveAttribute('href', '/?task=9')
     expect(screen.getByText('in progress')).toBeInTheDocument()
   })
 

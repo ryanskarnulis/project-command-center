@@ -1,15 +1,11 @@
 /* Tasks: cards, filters, list, detail, subtasks, dependencies, recurrence, activity feed, kanban, view toggle.
    Split from index.css. The barrel (../index.css) controls load order. */
 
-/* Recurrence (Sprint 9L): repeat badge, natural-text input, skip confirmation. */
+/* Recurrence (Sprint 9L): repeat badge, skip confirmation. */
 .repeat-badge {
   gap: 4px;
   background: var(--purple-soft);
   color: var(--purple);
-}
-
-.repeat-input {
-  width: 100%;
 }
 
 .edit-scope-actions {
@@ -471,14 +467,7 @@
   border-color: transparent;
 }
 
-.task-detail-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
-  gap: 14px;
-}
-
 .task-description-panel,
-.task-fields-panel,
 .task-detail-panel {
   display: flex;
   flex-direction: column;
@@ -490,17 +479,6 @@
   width: 100%;
 }
 
-.task-fields-panel label {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  color: var(--text-h);
-  font-size: 13px;
-  font-weight: 720;
-}
-
-.task-fields-panel select,
-.task-fields-panel input,
 .inline-subtask-form input,
 .dependency-add-row select {
   width: 100%;
@@ -660,10 +638,285 @@
   padding: 2px 4px;
 }
 
-/* Hint under a read-only field whose value is derived from subtasks. */
-.task-field-hint {
-  margin-top: 4px;
-  font-size: 12px;
-  font-weight: 400;
+/* --- Metadata chips: pill triggers that open an anchored editor.
+       Used in the task hero (and later by quick-add + inbox triage). --- */
+
+.chip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* The pill classes (priority-pill, status-pill, …) carry the look; this
+   strips the native button chrome so a <button> renders as a pill. */
+.chip-trigger {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  gap: 4px;
+  min-height: 0;
+  box-shadow: none;
+}
+
+.chip-trigger:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+/* Empty-state affordance ("Set due date", "Estimate…") for fields the old
+   hero simply hid when unset. */
+.chip-trigger.chip-empty {
+  background: transparent;
+  border: 1px dashed var(--border-strong);
   color: var(--text-muted);
+  font-weight: 600;
+}
+
+.chip-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  min-width: 180px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+}
+
+.chip-popover--right {
+  left: auto;
+  right: 0;
+}
+
+.chip-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chip-menu-item {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 0;
+  box-shadow: none;
+}
+
+.chip-menu-item[aria-current='true'] {
+  box-shadow: 0 0 0 2px var(--blue);
+}
+
+/* Non-choice rows in a chip menu (e.g. "Skip occurrence…"). */
+.chip-menu-action {
+  margin-top: 2px;
+  padding: 6px 2px 2px;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: none;
+  cursor: pointer;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.chip-menu-action:hover {
+  color: var(--text-h);
+}
+
+/* Small input + Set form inside a chip popover (estimate, assignee, repeat). */
+.chip-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.chip-editor input {
+  width: 130px;
+}
+
+.chip-editor button {
+  min-height: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.chip-editor .error {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+}
+
+/* Parent-task pill: neutral like source/assignee, but no text-transform —
+   it shows a task title verbatim. */
+.parent-pill {
+  background: var(--neutral-soft);
+  color: var(--text-muted);
+}
+
+/* Filter-as-you-type list (project / parent-task pickers). */
+.chip-search {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 220px;
+}
+
+.chip-search-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.chip-search-item {
+  min-height: 0;
+  padding: 6px 8px;
+  border: none;
+  box-shadow: none;
+  background: none;
+  justify-content: flex-start;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-h);
+}
+
+.chip-search-item:hover {
+  background: var(--surface-soft);
+}
+
+.chip-search-item[aria-current='true'] {
+  background: var(--blue-soft);
+}
+
+.chip-search-clear,
+.chip-search-empty {
+  color: var(--text-muted);
+}
+
+.chip-search-empty {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+/* Mini calendar inside the due-date chip. */
+.due-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 232px;
+}
+
+.due-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.due-presets button {
+  min-height: 0;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.due-cal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.due-cal-header button {
+  min-height: 0;
+  padding: 2px 8px;
+}
+
+.due-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.due-cal-weekday {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.due-day {
+  min-height: 0;
+  padding: 4px 0;
+  border: none;
+  box-shadow: none;
+  background: none;
+  font-size: 12px;
+}
+
+.due-day:hover {
+  background: var(--surface-soft);
+}
+
+.due-day.is-today {
+  font-weight: 760;
+  color: var(--blue);
+}
+
+.due-day[aria-current='date'] {
+  background: var(--blue-soft);
+  color: #0b55d9;
+}
+
+/* --- Peek panel: right-side slide-over hosting the task detail surface
+       over the current list (Tasks, project tasks, Today). --- */
+
+.peek-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90; /* below .modal-overlay (100) so EditScopeModal stacks above */
+  background: rgba(15, 23, 42, 0.25);
+}
+
+.peek-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: min(640px, 92vw);
+  overflow-y: auto;
+  padding: 16px 20px 20px;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -18px 0 42px rgba(15, 23, 42, 0.14);
+  animation: peek-slide-in 160ms ease-out;
+  outline: none;
+}
+
+@keyframes peek-slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Stays visible while the panel scrolls. */
+.peek-close {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-left: auto;
+  display: flex;
+  min-height: 0;
+  padding: 6px;
 }

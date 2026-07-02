@@ -7,6 +7,7 @@ import type { Task } from '../../types/task'
 import { dueStatus, formatDueDate } from '../../utils/dates'
 import { formatDuration } from '../../utils/duration'
 import { formatRepeatInterval } from '../../utils/recurrence'
+import { useTaskLinkTo } from './panel/taskPanelContext'
 
 interface Props {
   task: Task
@@ -19,6 +20,7 @@ function blockingLabel(count: number): string {
 }
 
 export function TaskCard({ task, projects, actions }: Props) {
+  const taskLinkTo = useTaskLinkTo()
   const due = dueStatus(task.due_date)
   const projectName = projects?.find((p) => p.id === task.project_id)?.name
   const workflowLabel = task.workflow_status === 'in_progress'
@@ -26,7 +28,7 @@ export function TaskCard({ task, projects, actions }: Props) {
     : task.workflow_status[0].toUpperCase() + task.workflow_status.slice(1)
 
   return (
-    <Link to={`/tasks/${task.id}`} className="task-card" aria-label={task.title}>
+    <Link to={taskLinkTo(task.id)} className="task-card" aria-label={task.title}>
       <div className="task-card-body">
         <span className="task-card-title">{task.title}</span>
         <div className="task-card-badges">

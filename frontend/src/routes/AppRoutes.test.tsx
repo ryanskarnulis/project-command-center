@@ -35,10 +35,6 @@ vi.mock('../features/projects/ProjectsPage', () => ({
   ProjectsPage: () => <main>Projects page</main>,
 }))
 
-vi.mock('../features/tasks/TaskDetailPage', () => ({
-  TaskDetailPage: () => <main>Task detail page</main>,
-}))
-
 vi.mock('../features/today/TodayPage', () => ({
   TodayPage: () => <main>Today page</main>,
 }))
@@ -86,5 +82,14 @@ describe('AppRoutes', () => {
     renderRoute('/settings')
     expect(await screen.findByText('Settings page')).toBeInTheDocument()
     expect(screen.getByText('Local-first workspace. No cloud sync configured.')).toBeInTheDocument()
+  })
+
+  it('redirects /tasks/:id deep links onto the Tasks page (peek panel)', async () => {
+    const router = createMemoryRouter(routes, { initialEntries: ['/tasks/7'] })
+    render(<RouterProvider router={router} />)
+
+    expect(await screen.findByText('Tasks page')).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/tasks')
+    expect(router.state.location.search).toBe('?task=7')
   })
 })

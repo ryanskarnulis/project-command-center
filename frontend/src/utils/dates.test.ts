@@ -1,5 +1,43 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { compareByDue, compareTasks, dueStatus, formatDueDate, formatRelative } from './dates'
+import {
+  addDaysISO,
+  compareByDue,
+  compareTasks,
+  dueStatus,
+  formatDueDate,
+  formatRelative,
+  toISODate,
+  todayISO,
+} from './dates'
+
+describe('todayISO / toISODate / addDaysISO', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 6, 15)) // Jul 15 2026
+  })
+  afterEach(() => vi.useRealTimers())
+
+  it('formats today as YYYY-MM-DD with zero padding', () => {
+    expect(todayISO()).toBe('2026-07-15')
+  })
+
+  it('formats a local Date', () => {
+    expect(toISODate(new Date(2026, 0, 5))).toBe('2026-01-05')
+  })
+
+  it('adds days within a month', () => {
+    expect(addDaysISO('2026-07-15', 1)).toBe('2026-07-16')
+  })
+
+  it('rolls over month and year boundaries', () => {
+    expect(addDaysISO('2026-07-28', 7)).toBe('2026-08-04')
+    expect(addDaysISO('2026-12-30', 7)).toBe('2027-01-06')
+  })
+
+  it('handles leap February', () => {
+    expect(addDaysISO('2028-02-28', 1)).toBe('2028-02-29')
+  })
+})
 
 describe('dueStatus', () => {
   beforeEach(() => {

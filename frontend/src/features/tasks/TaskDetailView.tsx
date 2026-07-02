@@ -1,45 +1,32 @@
 import { type KeyboardEvent, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Circle, PlayCircle, Repeat, SkipForward, Sparkles, Trash2 } from 'lucide-react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { breakDownTask, createUnscopedTask, deleteTask, getSubtasks, getTask, listAllTasks, reviewBreakdown, skipOccurrence, updateTask } from '../../api/tasks'
+import { CheckCircle2, Circle, PlayCircle, SkipForward, Sparkles, Trash2 } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { breakDownTask, createUnscopedTask, deleteTask, getSubtasks, getTask, listAllTasks, reviewBreakdown, skipOccurrence } from '../../api/tasks'
 import { ApiError } from '../../api/client'
 import { decideCandidate } from '../../api/inbox'
 import { listProjects } from '../../api/projects'
 import { Badge } from '../../components/Badge'
 import { useBeforeUnload } from '../../hooks/useBeforeUnload'
 import type { Project } from '../../types/project'
-import type { EditScope, Task, TaskCreate, TaskPriority, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
-import { formatDueDate } from '../../utils/dates'
-import { formatDuration, formatDurationInput, parseDurationInput } from '../../utils/duration'
-import { formatRepeatInterval } from '../../utils/recurrence'
+import type { Task, TaskCreate } from '../../types/task'
 import { BreakdownReview } from './BreakdownReview'
 import { CandidateDecisionBar } from './CandidateDecisionBar'
 import { EditScopeModal } from './EditScopeModal'
 import { RecurrenceSeries } from './RecurrenceSeries'
-import { RepeatIntervalInput } from './RepeatIntervalInput'
 import { SubtaskComposer } from './SubtaskComposer'
 import { TaskCard } from './TaskCard'
 import { TaskDependencies } from './TaskDependencies'
+import { useTaskPanel } from './panel/taskPanelContext'
+import { useScopedTaskUpdate } from './useScopedTaskUpdate'
 import { useTrashCount } from '../trash/trashCountContext'
-
-const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
-const WORKFLOW_STATUSES: TaskWorkflowStatus[] = ['open', 'in_progress', 'done']
-
-// Field edits that can sensibly cascade to future occurrences of a recurring
-// task; changing one of these on a series prompts the edit-scope choice. A
-// due-date or workflow change is inherently per-occurrence and never prompts.
-const SCOPABLE_FIELDS: (keyof TaskUpdate)[] = [
-  'title',
-  'description',
-  'priority',
-  'estimated_minutes',
-  'repeat_interval',
-]
-
-function workflowLabel(status: TaskWorkflowStatus): string {
-  if (status === 'in_progress') return 'In progress'
-  return status[0].toUpperCase() + status.slice(1)
-}
+import { AssigneeChip } from './chips/AssigneeChip'
+import { DueDateChip } from './chips/DueDateChip'
+import { EstimateChip } from './chips/EstimateChip'
+import { ParentTaskChip } from './chips/ParentTaskChip'
+import { PriorityChip } from './chips/PriorityChip'
+import { ProjectChip } from './chips/ProjectChip'
+import { RepeatChip } from './chips/RepeatChip'
+import { StatusChip } from './chips/StatusChip'
 
 function blockingLabel(count: number): string {
   return `Blocking ${count} ${count === 1 ? 'task' : 'tasks'}`
@@ -73,35 +60,39 @@ interface TaskDraft {
   source: string
   title: string
   description: string
-  estimate: string
-  assignee: string
 }
 
 const EMPTY_TASK_DRAFT: TaskDraft = {
   source: '',
   title: '',
   description: '',
-  estimate: '',
-  assignee: '',
 }
 
 function makeTaskDraft(task: Task): TaskDraft {
   const description = task.description ?? ''
-  const estimate = formatDurationInput(task.estimated_minutes)
-  const assignee = task.assignee_hint ?? ''
   return {
-    source: JSON.stringify([task.id, task.title, description, estimate, assignee]),
+    source: JSON.stringify([task.id, task.title, description]),
     title: task.title,
     description,
-    estimate,
-    assignee,
   }
 }
 
-export function TaskDetailPage() {
-  const { taskId } = useParams<{ taskId: string }>()
-  const id = Number(taskId)
+interface Props {
+  taskId: number
+  /** Close the hosting panel; when absent (standalone page) falls back to navigation. */
+  onClose?: () => void
+  /** Host refresh after any successful mutation, so the list behind stays current. */
+  onMutated?: () => void
+}
+
+/**
+ * The task detail surface — hero with editable metadata chips, description,
+ * subtasks, recurrence series, and dependencies. Prop-driven so it can render
+ * inside the slide-over peek panel or as a standalone route.
+ */
+export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
   const navigate = useNavigate()
+  const panel = useTaskPanel()
   const { refresh: refreshTrashCount } = useTrashCount()
 
   const [task, setTask] = useState<Task | null>(null)
@@ -110,18 +101,31 @@ export function TaskDetailPage() {
   const [allTasks, setAllTasks] = useState<Task[]>([])
   const [loadedTaskId, setLoadedTaskId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const [saveError, setSaveError] = useState<string | null>(null)
   const [taskDraft, setTaskDraft] = useState<TaskDraft>(EMPTY_TASK_DRAFT)
   const [addingSubtask, setAddingSubtask] = useState(false)
   const [deciding, setDeciding] = useState(false)
   const [breakingDown, setBreakingDown] = useState(false)
   // Per-suggested-subtask in-flight guard so a double-click can't double-fire.
   const [decidingSubtaskId, setDecidingSubtaskId] = useState<number | null>(null)
-  // A scopable edit to a recurring task is parked here until the user picks a
-  // scope in EditScopeModal; choosing replays it with the chosen edit_scope.
-  const [pendingScopePatch, setPendingScopePatch] = useState<TaskUpdate | null>(null)
   const [confirmingSkip, setConfirmingSkip] = useState(false)
+
+  function applyUpdated(updated: Task) {
+    setTask(updated)
+    setAllTasks((items) => items.map((item) => (item.id === updated.id ? updated : item)))
+    onMutated?.()
+  }
+
+  const {
+    saveState,
+    saveError,
+    setSaveState,
+    setSaveError,
+    savePatch,
+    scopePromptOpen,
+    resolveScope,
+    cancelScope,
+    reportError,
+  } = useScopedTaskUpdate(task, applyUpdated)
 
   useEffect(() => {
     let active = true
@@ -138,13 +142,16 @@ export function TaskDetailPage() {
       .catch((e: unknown) => {
         if (!active) return
         if (e instanceof ApiError && e.status === 404) {
-          navigate('/tasks', { replace: true })
+          if (onClose) onClose()
+          else navigate('/tasks', { replace: true })
         } else {
           setError(e instanceof Error ? e.message : 'Failed to load task')
           setLoadedTaskId(id)
         }
       })
     return () => { active = false }
+    // onClose is stable enough for the 404 escape hatch; re-fetch only per task.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, navigate])
 
   const loadedTaskDraft = task ? makeTaskDraft(task) : EMPTY_TASK_DRAFT
@@ -152,17 +159,13 @@ export function TaskDetailPage() {
     taskDraft.source === loadedTaskDraft.source ? taskDraft : loadedTaskDraft
   const titleDraft = activeTaskDraft.title
   const descriptionDraft = activeTaskDraft.description
-  const estimateDraft = activeTaskDraft.estimate
-  const assigneeDraft = activeTaskDraft.assignee
 
   // Guard refresh/tab-close while a focused field holds an unsaved edit. In-app
   // navigation is already safe: clicking a <Link> blurs the field, which saves it.
   const dirty =
     task !== null &&
     (activeTaskDraft.title !== loadedTaskDraft.title ||
-      activeTaskDraft.description !== loadedTaskDraft.description ||
-      activeTaskDraft.estimate !== loadedTaskDraft.estimate ||
-      activeTaskDraft.assignee !== loadedTaskDraft.assignee)
+      activeTaskDraft.description !== loadedTaskDraft.description)
   useBeforeUnload(dirty)
 
   const parentOptions = useMemo(() => {
@@ -170,40 +173,6 @@ export function TaskDetailPage() {
     const blocked = descendantIds(task, allTasks)
     return allTasks.filter((candidate) => !blocked.has(candidate.id))
   }, [allTasks, task])
-
-  async function applyPatch(data: TaskUpdate) {
-    if (!task) return
-    setSaveState('saving')
-    setSaveError(null)
-    try {
-      const updated = await updateTask(task.id, data)
-      setTask(updated)
-      setAllTasks((items) => items.map((item) => item.id === updated.id ? updated : item))
-      setSaveState('saved')
-    } catch (e: unknown) {
-      setSaveState('error')
-      setSaveError(e instanceof Error ? e.message : 'Failed to save task')
-    }
-  }
-
-  // Field edits on a task that belongs to a recurrence chain first ask whether to
-  // apply forward; everything else (and non-recurring tasks) saves straight away.
-  function savePatch(data: TaskUpdate) {
-    const isScopable = Object.keys(data).some((key) =>
-      SCOPABLE_FIELDS.includes(key as keyof TaskUpdate),
-    )
-    if (task?.recurrence_id && isScopable) {
-      setPendingScopePatch(data)
-      return
-    }
-    void applyPatch(data)
-  }
-
-  function resolveScope(scope: EditScope) {
-    const patch = pendingScopePatch
-    setPendingScopePatch(null)
-    if (patch) void applyPatch({ ...patch, edit_scope: scope })
-  }
 
   async function handleSkip() {
     if (!task) return
@@ -213,8 +182,11 @@ export function TaskDetailPage() {
     try {
       // Skip soft-deletes this occurrence and returns the next one; follow the
       // series forward so the user lands on the live task, not a deleted row.
+      // In a panel, repoint with replace: Back must not land on the deleted row.
       const next = await skipOccurrence(task.id)
-      navigate(`/tasks/${next.id}`)
+      onMutated?.()
+      if (panel) panel.openTask(next.id, { replace: true })
+      else navigate(`/tasks/${next.id}`)
     } catch (e: unknown) {
       setSaveState('error')
       setSaveError(e instanceof Error ? e.message : 'Failed to skip occurrence')
@@ -225,8 +197,7 @@ export function TaskDetailPage() {
     if (!task) return
     const next = titleDraft.trim()
     if (!next) {
-      setSaveState('error')
-      setSaveError('Title is required')
+      reportError('Title is required')
       return
     }
     if (next !== task.title) savePatch({ title: next })
@@ -236,23 +207,6 @@ export function TaskDetailPage() {
     if (!task) return
     const next = descriptionDraft.trim() || null
     if (next !== task.description) savePatch({ description: next })
-  }
-
-  function saveEstimate() {
-    if (!task) return
-    const next = parseDurationInput(estimateDraft)
-    if (next === undefined) {
-      setSaveState('error')
-      setSaveError('Use something like 30m, 2h, or 1 day')
-      return
-    }
-    if (next !== task.estimated_minutes) savePatch({ estimated_minutes: next })
-  }
-
-  function saveAssignee() {
-    if (!task) return
-    const next = assigneeDraft.trim() || null
-    if (next !== task.assignee_hint) savePatch({ assignee_hint: next })
   }
 
   function handleTitleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -274,6 +228,7 @@ export function TaskDetailPage() {
       setTask(await getTask(task.id))
       setAddingSubtask(false)
       setSaveState('saved')
+      onMutated?.()
     } catch (e: unknown) {
       setSaveState('error')
       setSaveError(e instanceof Error ? e.message : 'Failed to add subtask')
@@ -325,6 +280,7 @@ export function TaskDetailPage() {
             ),
       )
       setSaveState('saved')
+      onMutated?.()
     } catch (e: unknown) {
       setSaveState('error')
       setSaveError(e instanceof Error ? e.message : 'Failed to record decision')
@@ -340,7 +296,9 @@ export function TaskDetailPage() {
     try {
       await deleteTask(task.id)
       void refreshTrashCount()
-      navigate('/tasks')
+      onMutated?.()
+      if (onClose) onClose()
+      else navigate('/tasks')
     } catch (e: unknown) {
       setSaveState('error')
       setSaveError(e instanceof Error ? e.message : 'Failed to delete task')
@@ -362,6 +320,7 @@ export function TaskDetailPage() {
           ? { project_id: task.project_id }
           : undefined
       const res = await decideCandidate(inboxItemId, task.id, { action, edits })
+      onMutated?.()
       navigate(res.finalized ? '/inbox' : `/inbox/${inboxItemId}`)
     } catch (e: unknown) {
       setSaveState('error')
@@ -370,11 +329,10 @@ export function TaskDetailPage() {
     }
   }
 
-  if (loadedTaskId !== id) return <main><p>Loading…</p></main>
-  if (error) return <main><p role="alert">{error}</p></main>
+  if (loadedTaskId !== id) return <p>Loading…</p>
+  if (error) return <p role="alert">{error}</p>
   if (!task) return null
 
-  const projectName = projects.find((p) => p.id === task.project_id)?.name ?? 'Unassigned'
   const isCandidate = task.review_status === 'candidate' && task.inbox_item_id !== null
   // Subtasks suggested by "break this down" stay review_status=candidate until the
   // user approves/dismisses them; everything else is a real subtask.
@@ -389,18 +347,12 @@ export function TaskDetailPage() {
         : ''
 
   return (
-    <main className="task-detail">
+    <div className="task-detail">
       <div className="task-detail-header">
-        {isCandidate ? (
+        {isCandidate && (
           <p className="breadcrumb">
-            <Link to="/inbox">Inbox</Link>
-            {' › '}
-            <Link to={`/inbox/${task.inbox_item_id}`}>Note review</Link>
-            {' › '}
-            <span aria-current="page">{task.title}</span>
+            <Link to={`/inbox/${task.inbox_item_id}`}>Open note review</Link>
           </p>
-        ) : (
-          <p><Link to="/tasks">← Open Tasks</Link></p>
         )}
         <div className="task-detail-actions">
           {saveLabel && (
@@ -472,9 +424,9 @@ export function TaskDetailPage() {
       )}
 
       <EditScopeModal
-        open={pendingScopePatch !== null}
+        open={scopePromptOpen}
         onChoose={resolveScope}
-        onCancel={() => setPendingScopePatch(null)}
+        onCancel={cancelScope}
       />
 
       <section className="task-hero">
@@ -489,157 +441,76 @@ export function TaskDetailPage() {
           onKeyDown={handleTitleKeyDown}
         />
         <div className="task-card-badges">
-          <span className={`status-pill workflow-${task.workflow_status}`}>
-            {workflowLabel(task.workflow_status)}
-          </span>
+          <StatusChip
+            value={task.workflow_status}
+            onChange={(status) => savePatch({ workflow_status: status })}
+            disabled={task.has_subtasks}
+            disabledHint="Rolled up from subtasks"
+            onSkipOccurrence={
+              !isCandidate && task.repeat_interval && task.workflow_status !== 'done'
+                ? () => setConfirmingSkip(true)
+                : undefined
+            }
+          />
           {task.is_blocking && task.workflow_status !== 'done' && (
             <Badge tone="red">{blockingLabel(task.blocked_task_count)}</Badge>
           )}
           {!task.is_blocking && task.is_blocked && task.workflow_status !== 'done' && (
             <Badge tone="neutral">Blocked</Badge>
           )}
-          <span className={`priority-pill priority-${task.priority}`}>{task.priority}</span>
-          {task.due_date && task.workflow_status !== 'done' && (
-            <span className="due due-none">Due {formatDueDate(task.due_date)}</span>
-          )}
-          {task.estimated_minutes !== null && (
-            <span className="estimate">~{formatDuration(task.estimated_minutes)}</span>
-          )}
-          {task.repeat_interval && (
-            <span className="repeat-badge">
-              <Repeat size={12} aria-hidden="true" />
-              {formatRepeatInterval(task.repeat_interval)}
-            </span>
-          )}
-          <span className="source-pill">{projectName}</span>
+          <PriorityChip
+            value={task.priority}
+            onChange={(priority) => savePatch({ priority })}
+          />
+          <DueDateChip
+            value={task.due_date}
+            onChange={(due_date) => savePatch({ due_date })}
+          />
+          <EstimateChip
+            value={task.estimated_minutes}
+            onChange={(estimated_minutes) => savePatch({ estimated_minutes })}
+            disabled={task.has_subtasks}
+            disabledHint="Sum of subtask estimates"
+          />
+          <RepeatChip
+            value={task.repeat_interval}
+            onChange={(repeat_interval) => savePatch({ repeat_interval })}
+            disabled={!task.due_date}
+            disabledHint="Set a due date to enable recurrence"
+          />
+          <ProjectChip
+            value={task.project_id}
+            projects={projects}
+            onChange={(project_id) => savePatch({ project_id })}
+            allowUnassigned={task.review_status === 'candidate'}
+          />
+          <AssigneeChip
+            value={task.assignee_hint}
+            onChange={(assignee_hint) => savePatch({ assignee_hint })}
+          />
+          <ParentTaskChip
+            value={task.parent_task_id}
+            options={parentOptions.map((option) => ({ id: option.id, label: option.title }))}
+            onChange={(parent_task_id) => savePatch({ parent_task_id })}
+          />
         </div>
         {saveError && <p role="alert" className="error">{saveError}</p>}
       </section>
 
-      <section className="task-detail-grid">
-        <div className="task-detail-panel task-description-panel">
-          <div className="task-section-heading">
-            <h2>Description</h2>
-          </div>
-          <textarea
-            aria-label="Task description"
-            value={descriptionDraft}
-            onChange={(e) =>
-              setTaskDraft({ ...activeTaskDraft, description: e.target.value })
-            }
-            onBlur={saveDescription}
-            placeholder="Add a description"
-            rows={5}
-          />
+      <section className="task-detail-panel task-description-panel">
+        <div className="task-section-heading">
+          <h2>Description</h2>
         </div>
-
-        <div className="task-detail-panel task-fields-panel">
-          <div className="task-section-heading">
-            <h2>Task Fields</h2>
-          </div>
-          <label>
-            Status
-            <select
-              value={task.workflow_status}
-              disabled={task.has_subtasks}
-              onChange={(e) =>
-                savePatch({ workflow_status: e.target.value as TaskWorkflowStatus })
-              }
-            >
-              {WORKFLOW_STATUSES.map((status) => (
-                <option key={status} value={status}>{workflowLabel(status)}</option>
-              ))}
-            </select>
-            {task.has_subtasks && (
-              <span className="task-field-hint">Rolled up from subtasks</span>
-            )}
-          </label>
-          <label>
-            Priority
-            <select
-              value={task.priority}
-              onChange={(e) => savePatch({ priority: e.target.value as TaskPriority })}
-            >
-              {PRIORITIES.map((priority) => (
-                <option key={priority} value={priority}>{priority}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Due date
-            <input
-              type="date"
-              value={task.due_date ?? ''}
-              onChange={(e) => savePatch({ due_date: e.target.value || null })}
-            />
-          </label>
-          <label>
-            Repeat
-            <RepeatIntervalInput
-              value={task.repeat_interval}
-              onChange={(next) => savePatch({ repeat_interval: next })}
-              disabled={!task.due_date}
-            />
-          </label>
-          <label>
-            Project
-            <select
-              value={task.project_id === null ? '' : String(task.project_id)}
-              onChange={(e) =>
-                savePatch({ project_id: e.target.value === '' ? null : Number(e.target.value) })
-              }
-            >
-              {/* An accepted task is always filed (the backend rehomes a null project
-                  to General), so only a candidate can truly be left unassigned. */}
-              {task.review_status === 'candidate' && <option value="">Unassigned</option>}
-              {projects.map((project) => (
-                <option key={project.id} value={String(project.id)}>{project.name}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Assignee
-            <input
-              aria-label="Assignee"
-              value={assigneeDraft}
-              onChange={(e) =>
-                setTaskDraft({ ...activeTaskDraft, assignee: e.target.value })
-              }
-              onBlur={saveAssignee}
-              placeholder="Unassigned"
-            />
-          </label>
-          <label>
-            Parent task
-            <select
-              value={task.parent_task_id === null ? '' : String(task.parent_task_id)}
-              onChange={(e) =>
-                savePatch({ parent_task_id: e.target.value === '' ? null : Number(e.target.value) })
-              }
-            >
-              <option value="">None</option>
-              {parentOptions.map((option) => (
-                <option key={option.id} value={String(option.id)}>{option.title}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Estimate
-            <input
-              aria-label="Estimate"
-              value={estimateDraft}
-              disabled={task.has_subtasks}
-              onChange={(e) =>
-                setTaskDraft({ ...activeTaskDraft, estimate: e.target.value })
-              }
-              onBlur={saveEstimate}
-              placeholder="30m, 2h, 1 day"
-            />
-            {task.has_subtasks && (
-              <span className="task-field-hint">Sum of subtask estimates</span>
-            )}
-          </label>
-        </div>
+        <textarea
+          aria-label="Task description"
+          value={descriptionDraft}
+          onChange={(e) =>
+            setTaskDraft({ ...activeTaskDraft, description: e.target.value })
+          }
+          onBlur={saveDescription}
+          placeholder="Add a description"
+          rows={5}
+        />
       </section>
 
       {!isCandidate && (
@@ -689,18 +560,10 @@ export function TaskDetailPage() {
       )}
 
       {!isCandidate && task.recurrence_id && (
-        <RecurrenceSeries
-          task={task}
-          onStopped={(updated) => {
-            setTask(updated)
-            setAllTasks((items) =>
-              items.map((item) => (item.id === updated.id ? updated : item)),
-            )
-          }}
-        />
+        <RecurrenceSeries task={task} onStopped={applyUpdated} />
       )}
 
       {!isCandidate && <TaskDependencies task={task} tasks={allTasks} />}
-    </main>
+    </div>
   )
 }
