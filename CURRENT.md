@@ -62,14 +62,20 @@
 
 ## Slice 3 — Inline inbox triage
 
-- [ ] Candidate cards on the note-review screen become editable in place:
+- [x] Candidate cards on the note-review screen become editable in place:
       title as input, project/due/priority as the slice-1 chips. No detour
-      through the task detail page.
-- [ ] Approve/dismiss auto-advances to the next candidate (lowest-confidence
-      ordering already in place).
-- [ ] Correction capture preserved: field edits persist before the decision
+      through the task detail page. *(`CandidateCard` + override-style drafts
+      in `candidateDraft.ts`; description textarea and assignee chip included,
+      so every `ReviewEdit` field is editable inline.)*
+- [x] Approve/dismiss auto-advances to the next candidate (lowest-confidence
+      ordering already in place). *(Decided card leaves the list and focus
+      moves to the next card's title input.)*
+- [x] Correction capture preserved: field edits persist before the decision
       exactly as today, so `ai_training_examples` rows keep recording the
-      user's fixes — the whole point of lowering friction here.
+      user's fixes — the whole point of lowering friction here. *(Edits ride
+      the existing `edits` payload on the per-candidate decide endpoint —
+      diffed against what the backend would apply anyway; "Approve all"
+      carries them too. No backend changes.)*
 
 ## Slice 4 — Merged working landing screen
 

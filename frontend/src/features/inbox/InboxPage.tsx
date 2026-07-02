@@ -1,54 +1,113 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import type { CandidateDecision, ReviewDecision } from '../../types/inbox'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
-import { TaskCard } from '../tasks/TaskCard'
+import { CandidateCard } from './CandidateCard'
+import { diffCandidateDraft, type CandidateDraft } from './candidateDraft'
 import { useInbox } from './useInbox'
 
-/** Shows a single pending note as a list of candidate TaskCards with Approve/Dismiss actions. */
-function CandidateList({
-  inboxId,
+/**
+ * The inline triage queue for one note: candidate cards editable in place,
+ * decided one at a time (or all at once). Holds the per-candidate drafts, so
+ * it's keyed by note id — switching notes remounts with clean state.
+ */
+function CandidateTriage({
   candidates,
   projects,
-  onDecide,
+  effectiveProjectId,
   submitting,
+  onDecide,
+  onReviewAll,
 }: {
-  inboxId: number
   candidates: Task[]
   projects: Project[]
-  onDecide: (inboxId: number, taskId: number, action: 'approve' | 'dismiss') => void
+  effectiveProjectId: number | null
   submitting: boolean
+  onDecide: (taskId: number, decision: CandidateDecision) => void
+  onReviewAll: (decisions: ReviewDecision[]) => void
 }) {
+  // In-place edits per candidate, applied with the approve decision so the
+  // training row records the correction.
+  const [drafts, setDrafts] = useState<Record<number, CandidateDraft>>({})
+  // The card to focus after a decision — triage auto-advances down the queue.
+  const [focusTaskId, setFocusTaskId] = useState<number | null>(null)
+
+  // Review the riskiest extractions first: lowest model confidence at the top
+  // (candidates without a confidence score sort last).
+  const sorted = useMemo(
+    () => [...candidates].sort((a, b) => (a.confidence ?? 1) - (b.confidence ?? 1)),
+    [candidates],
+  )
+
+  function updateDraft(taskId: number, patch: CandidateDraft) {
+    setDrafts((prev) => ({ ...prev, [taskId]: { ...prev[taskId], ...patch } }))
+  }
+
+  // Approve applies the card's in-place edits with the decision (one call, one
+  // correction captured). Afterwards focus advances to the next candidate.
+  function handleDecide(task: Task, action: 'approve' | 'dismiss') {
+    const edits =
+      action === 'approve'
+        ? diffCandidateDraft(task, drafts[task.id] ?? {}, effectiveProjectId)
+        : undefined
+    const idx = sorted.findIndex((t) => t.id === task.id)
+    const next = sorted.slice(idx + 1)[0] ?? sorted.find((t) => t.id !== task.id)
+    onDecide(task.id, edits ? { action, edits } : { action })
+    setFocusTaskId(next?.id ?? null)
+  }
+
+  // Decide every remaining candidate at once via the batch review endpoint,
+  // which finalizes the note and writes one training row. Accepts carry any
+  // in-place edits, same as a per-card approve.
+  function handleDecideAll(action: 'accept' | 'reject') {
+    onReviewAll(
+      candidates.map((t) => {
+        if (action === 'reject') return { task_id: t.id, action }
+        const edits = diffCandidateDraft(t, drafts[t.id] ?? {}, effectiveProjectId)
+        return edits ? { task_id: t.id, action, edits } : { task_id: t.id, action }
+      }),
+    )
+  }
+
   if (candidates.length === 0) return <p>No remaining candidates.</p>
   return (
-    <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      {candidates.map((t) => (
-        <li key={t.id}>
-          <TaskCard
-            task={t}
-            projects={projects}
-            actions={
-              <>
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => onDecide(inboxId, t.id, 'approve')}
-                >
-                  Approve
-                </button>
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => onDecide(inboxId, t.id, 'dismiss')}
-                >
-                  Dismiss
-                </button>
-              </>
-            }
-          />
-        </li>
-      ))}
-    </ul>
+    <>
+      <p className="remaining-count">{candidates.length} remaining to review</p>
+      <div className="bulk-actions">
+        <button
+          type="button"
+          disabled={submitting}
+          onClick={() => handleDecideAll('accept')}
+        >
+          Approve all
+        </button>
+        <button
+          type="button"
+          disabled={submitting}
+          onClick={() => handleDecideAll('reject')}
+        >
+          Dismiss all
+        </button>
+      </div>
+      <ul className="candidate-list">
+        {sorted.map((t) => (
+          <li key={t.id}>
+            <CandidateCard
+              candidate={t}
+              projects={projects}
+              effectiveProjectId={effectiveProjectId}
+              draft={drafts[t.id] ?? {}}
+              onDraftChange={(patch) => updateDraft(t.id, patch)}
+              onApprove={() => handleDecide(t, 'approve')}
+              onDismiss={() => handleDecide(t, 'dismiss')}
+              submitting={submitting}
+              autoFocus={t.id === focusTaskId}
+            />
+          </li>
+        ))}
+      </ul>
+    </>
   )
 }
 
@@ -78,17 +137,18 @@ export function InboxPage() {
     void loadProjects()
   }, [loadPending, loadProjects])
 
-  // Review the riskiest extractions first: lowest model confidence at the top
-  // (candidates without a confidence score sort last).
-  const sortedCandidates = useMemo(
-    () => [...candidates].sort((a, b) => (a.confidence ?? 1) - (b.confidence ?? 1)),
-    [candidates],
-  )
-
   const suggestedProjectName =
     inboxItem === null
       ? null
       : (projects.find((p) => p.id === inboxItem.suggested_project_id)?.name ?? null)
+
+  // What the backend files an approved candidate under when no override is
+  // sent: the note's matched project, else General. This is the diff baseline
+  // for the project chip.
+  const effectiveProjectId =
+    inboxItem?.suggested_project_id ??
+    projects.find((p) => p.system_key === 'general')?.id ??
+    null
 
   // /inbox/:inboxId opens that note's review directly (breadcrumb back-target);
   // plain /inbox returns to the list, clearing any previously-selected note.
@@ -99,16 +159,6 @@ export function InboxPage() {
       reset()
     }
   }, [inboxId, selectItemById, reset])
-
-  function handleDecide(inboxId: number, taskId: number, action: 'approve' | 'dismiss') {
-    void decide(inboxId, taskId, { action })
-  }
-
-  // Decide every remaining candidate at once via the batch review endpoint, which
-  // finalizes the note and writes one training row.
-  function handleDecideAll(action: 'accept' | 'reject') {
-    void review(candidates.map((t) => ({ task_id: t.id, action })))
-  }
 
   // Dismissing soft-deletes the whole note (no review, no training row), so guard
   // a misclick that would discard the candidates.
@@ -147,33 +197,14 @@ export function InboxPage() {
               Suggested project: <strong>{suggestedProjectName}</strong>
             </p>
           )}
-          {candidates.length > 0 && (
-            <p className="remaining-count">{candidates.length} remaining to review</p>
-          )}
-          {candidates.length > 0 && (
-            <div className="bulk-actions">
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={() => handleDecideAll('accept')}
-              >
-                Approve all
-              </button>
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={() => handleDecideAll('reject')}
-              >
-                Dismiss all
-              </button>
-            </div>
-          )}
-          <CandidateList
-            inboxId={inboxItem.id}
-            candidates={sortedCandidates}
+          <CandidateTriage
+            key={inboxItem.id}
+            candidates={candidates}
             projects={projects}
-            onDecide={handleDecide}
+            effectiveProjectId={effectiveProjectId}
             submitting={submitting}
+            onDecide={(taskId, decision) => void decide(inboxItem.id, taskId, decision)}
+            onReviewAll={(decisions) => void review(decisions)}
           />
         </section>
       ) : (

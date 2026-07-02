@@ -104,7 +104,7 @@ describe('InboxPage', () => {
     expect(await screen.findByText('No notes awaiting review.')).toBeInTheDocument()
   })
 
-  it('renders candidate cards on note click', async () => {
+  it('renders editable candidate cards on note click', async () => {
     const user = userEvent.setup()
     mockListPendingInbox.mockResolvedValue([pendingItem])
     mockGetCandidates.mockResolvedValue([candidate, candidate2])
@@ -112,8 +112,8 @@ describe('InboxPage', () => {
 
     await user.click(await screen.findByText('Sprint notes'))
 
-    expect(await screen.findByText('Fix the router')).toBeInTheDocument()
-    expect(screen.getByText('Update firmware')).toBeInTheDocument()
+    expect(await screen.findByDisplayValue('Fix the router')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Update firmware')).toBeInTheDocument()
   })
 
   it('dismiss removes a single candidate from the list', async () => {
@@ -130,14 +130,85 @@ describe('InboxPage', () => {
     renderPage()
 
     await user.click(await screen.findByText('Sprint notes'))
-    await screen.findByText('Fix the router')
+    await screen.findByDisplayValue('Fix the router')
 
     const dismissButtons = screen.getAllByRole('button', { name: 'Dismiss' })
     await user.click(dismissButtons[0])
 
     expect(mockDecideCandidate).toHaveBeenCalledWith(10, candidate.id, { action: 'dismiss' })
-    expect(screen.queryByText('Fix the router')).not.toBeInTheDocument()
-    expect(screen.getByText('Update firmware')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('Fix the router')).not.toBeInTheDocument()
+    expect(screen.getByDisplayValue('Update firmware')).toBeInTheDocument()
+  })
+
+  it('approve sends in-place edits with the decision', async () => {
+    const user = userEvent.setup()
+    mockListPendingInbox.mockResolvedValue([pendingItem])
+    mockGetCandidates.mockResolvedValue([candidate])
+    mockDecideCandidate.mockResolvedValue({
+      task_id: candidate.id,
+      action: 'approved',
+      finalized: true,
+      training_example_id: 99,
+      match_training_example_id: null,
+    })
+    renderPage()
+
+    await user.click(await screen.findByText('Sprint notes'))
+    const title = await screen.findByDisplayValue('Fix the router')
+
+    await user.clear(title)
+    await user.type(title, 'Fix the core router')
+    await user.click(screen.getByRole('button', { name: 'Priority: medium' }))
+    await user.click(screen.getByRole('button', { name: 'high' }))
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+
+    expect(mockDecideCandidate).toHaveBeenCalledWith(10, candidate.id, {
+      action: 'approve',
+      edits: { title: 'Fix the core router', priority: 'high' },
+    })
+  })
+
+  it('approve without edits sends no edits payload', async () => {
+    const user = userEvent.setup()
+    mockListPendingInbox.mockResolvedValue([pendingItem])
+    mockGetCandidates.mockResolvedValue([candidate])
+    mockDecideCandidate.mockResolvedValue({
+      task_id: candidate.id,
+      action: 'approved',
+      finalized: true,
+      training_example_id: 99,
+      match_training_example_id: null,
+    })
+    renderPage()
+
+    await user.click(await screen.findByText('Sprint notes'))
+    await screen.findByDisplayValue('Fix the router')
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+
+    expect(mockDecideCandidate).toHaveBeenCalledWith(10, candidate.id, { action: 'approve' })
+  })
+
+  it('deciding a candidate advances focus to the next card', async () => {
+    const user = userEvent.setup()
+    mockListPendingInbox.mockResolvedValue([pendingItem])
+    // candidate2 has lower confidence, so it sorts first and gets decided first.
+    mockGetCandidates.mockResolvedValue([candidate, { ...candidate2, confidence: 0.4 }])
+    mockDecideCandidate.mockResolvedValue({
+      task_id: candidate2.id,
+      action: 'dismissed',
+      finalized: false,
+      training_example_id: null,
+      match_training_example_id: null,
+    })
+    renderPage()
+
+    await user.click(await screen.findByText('Sprint notes'))
+    await screen.findByDisplayValue('Update firmware')
+
+    await user.click(screen.getAllByRole('button', { name: 'Dismiss' })[0])
+
+    expect(screen.getByDisplayValue('Fix the router')).toHaveFocus()
   })
 
   it('approving the last candidate shows finalized notice', async () => {
@@ -154,7 +225,7 @@ describe('InboxPage', () => {
     renderPage()
 
     await user.click(await screen.findByText('Sprint notes'))
-    await screen.findByText('Fix the router')
+    await screen.findByDisplayValue('Fix the router')
 
     await user.click(screen.getByRole('button', { name: 'Approve' }))
 
