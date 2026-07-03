@@ -138,6 +138,10 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     )
     priority: Mapped[TaskPriority] = mapped_column(default=TaskPriority.medium)
     due_date: Mapped[date | None] = mapped_column(default=None)
+    # Day-plan snooze (Today page "defer"). The scheduler skips this task while
+    # deferred_until is after the plan's target date; nothing else reads it.
+    # Null = not deferred.
+    deferred_until: Mapped[date | None] = mapped_column(default=None)
     # Rough effort estimate (Sprint 7 task-model slice). Stored as whole minutes;
     # the UI maps it to human labels. Feeds future scheduling/kanban (not built).
     estimated_minutes: Mapped[int | None] = mapped_column(default=None)

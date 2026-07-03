@@ -89,6 +89,11 @@ def _reason(task: Task, target_date: date) -> str:
     return " · ".join(parts)
 
 
+def _is_deferred(task: Task, target_date: date) -> bool:
+    """True while the task's day-plan snooze is still in the future."""
+    return task.deferred_until is not None and task.deferred_until > target_date
+
+
 def _format_time(minutes_from_midnight: int) -> str:
     hours, minutes = divmod(minutes_from_midnight, 60)
     return f"{hours:02d}:{minutes:02d}"
@@ -100,7 +105,23 @@ def _parse_time(value: str) -> int:
     return int(hours) * 60 + int(minutes)
 
 
+def _schedulable_subtasks(db: Session, parent: Task, target_date: date) -> list[Task]:
+    """The parent's subtasks that could stand in for it on the timeline.
+
+    Accepted, not done, not deferred — same eligibility the parent itself had.
+    ``list_subtasks`` already orders by id.
+    """
+    return [
+        sub
+        for sub in tasks_service.list_subtasks(db, parent.id)
+        if sub.review_status == TaskReviewStatus.accepted
+        and sub.workflow_status != TaskWorkflowStatus.done
+        and not _is_deferred(sub, target_date)
+    ]
+
+
 def _pack(
+    db: Session,
     ranked: Sequence[Task],
     start_minutes: int,
     available_minutes: int,
@@ -111,32 +132,25 @@ def _pack(
     Greedy in rank order: each task that fits the remaining capacity is scheduled;
     a task too large for what's left is sent to overflow and scanning continues, so
     smaller lower-ranked tasks still fill the day instead of leaving it empty behind
-    one oversized high-rank item. Both scheduled blocks and overflow preserve ranked
-    order, and scheduled blocks remain sequential with no gaps.
+    one oversized high-rank item. Before overflowing a too-large parent, its open
+    subtasks are tried in its rank slot — each one that fits is scheduled as its own
+    block (labelled with the parent), so a big task still makes partial progress.
+    Both scheduled blocks and overflow preserve ranked order, and scheduled blocks
+    remain sequential with no gaps.
     """
     blocks: list[ScheduledBlock] = []
     overflow: list[OverflowTask] = []
     used = 0
-    for task in ranked:
-        minutes, assumed = _effective_estimate(task)
-        signal = _due_signal(task.due_date, target_date)
-        if used + minutes > available_minutes:
-            overflow.append(
-                OverflowTask(
-                    task_id=task.id,
-                    title=task.title,
-                    project_id=task.project_id,
-                    priority=task.priority,
-                    workflow_status=task.workflow_status,
-                    due_date=task.due_date,
-                    due_signal=signal,
-                    estimated_minutes=minutes,
-                    estimate_assumed=assumed,
-                )
-            )
-            continue
+
+    def _schedule(
+        task: Task, minutes: int, assumed: bool, parent: Task | None
+    ) -> None:
+        nonlocal used
         block_start = start_minutes + used
         used += minutes
+        reason = _reason(task, target_date)
+        if parent is not None:
+            reason = f"part of {parent.title} · {reason}"
         blocks.append(
             ScheduledBlock(
                 task_id=task.id,
@@ -149,8 +163,38 @@ def _pack(
                 priority=task.priority,
                 workflow_status=task.workflow_status,
                 due_date=task.due_date,
-                due_signal=signal,
-                reason=_reason(task, target_date),
+                due_signal=_due_signal(task.due_date, target_date),
+                reason=reason,
+                parent_task_id=parent.id if parent is not None else None,
+                parent_title=parent.title if parent is not None else None,
+            )
+        )
+
+    for task in ranked:
+        minutes, assumed = _effective_estimate(task)
+        if used + minutes <= available_minutes:
+            _schedule(task, minutes, assumed, parent=None)
+            continue
+        # Too large for what's left: try the parent's own subtasks in this rank
+        # slot before overflowing it, so part of the work still lands today.
+        scheduled_subtasks = 0
+        for sub in _schedulable_subtasks(db, task, target_date):
+            sub_minutes, sub_assumed = _effective_estimate(sub)
+            if used + sub_minutes <= available_minutes:
+                _schedule(sub, sub_minutes, sub_assumed, parent=task)
+                scheduled_subtasks += 1
+        overflow.append(
+            OverflowTask(
+                task_id=task.id,
+                title=task.title,
+                project_id=task.project_id,
+                priority=task.priority,
+                workflow_status=task.workflow_status,
+                due_date=task.due_date,
+                due_signal=_due_signal(task.due_date, target_date),
+                estimated_minutes=minutes,
+                estimate_assumed=assumed,
+                scheduled_subtask_count=scheduled_subtasks,
             )
         )
     return blocks, overflow, used
@@ -177,8 +221,9 @@ def get_today_plan(
             exclude_done=True,
         )
         # Subtasks are scheduled as part of their parent's work, never as their
-        # own day-plan rows. They surface only nested under the parent task.
-        if task.parent_task_id is None
+        # own day-plan rows (except as stand-ins when the parent doesn't fit —
+        # see _pack). Deferred tasks are snoozed out of the plan entirely.
+        if task.parent_task_id is None and not _is_deferred(task, target_date)
     ]
     blocked_ids = deps_service.blocked_task_ids(db, [task.id for task in source])
 
@@ -201,7 +246,7 @@ def get_today_plan(
 
     ranked = sorted(schedulable, key=lambda task: _rank_key(task, target_date))
     blocks, overflow, used = _pack(
-        ranked, _parse_time(start_time), available_minutes, target_date
+        db, ranked, _parse_time(start_time), available_minutes, target_date
     )
 
     return TodayPlan(

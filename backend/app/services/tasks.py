@@ -36,6 +36,7 @@ _FILED_REVIEW_STATUSES = {TaskReviewStatus.accepted}
 # (``edit_scope`` is a control flag, not a column, and is popped before the patch.)
 _FORWARD_PATCH_EXCLUDE = {
     "due_date",
+    "deferred_until",
     "workflow_status",
     "parent_task_id",
     "project_id",

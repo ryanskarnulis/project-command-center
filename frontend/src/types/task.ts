@@ -22,6 +22,9 @@ export interface Task {
   workflow_status: TaskWorkflowStatus
   priority: TaskPriority
   due_date: string | null
+  // Day-plan snooze (Today page defer): the scheduler skips the task while
+  // this date is in the future. Null = not deferred.
+  deferred_until: string | null
   estimated_minutes: number | null
   repeat_interval: RepeatInterval | null
   recurrence_id: string | null
@@ -111,6 +114,8 @@ export interface TaskUpdate {
   workflow_status?: TaskWorkflowStatus
   priority?: TaskPriority
   due_date?: string | null
+  // Day-plan snooze; explicit null clears the deferral.
+  deferred_until?: string | null
   project_id?: number | null
   parent_task_id?: number | null
   estimated_minutes?: number | null

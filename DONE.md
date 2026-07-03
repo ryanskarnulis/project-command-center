@@ -1282,3 +1282,39 @@ alias add/remove and description save-on-blur persistence.
       all 130 tasks-feature Vitest cases pass, `tsc --noEmit` clean. Verified live in
       headless chromium: zero dropdowns on the board, chip popover opens without
       navigating, a priority change round-tripped through the API (then reset).
+
+---
+
+## Today page revamp — scheduling, layout, and controls
+> Shipped 2026-07-03. One migration (`deferred_until` on `tasks`) plus scheduler,
+> schema, and frontend changes across `services/today.py`, `schemas/today.py`, and the
+> `features/today/` page.
+
+- [x] **Oversized-parent subtask fill-in.** When a parent task doesn't fit the remaining
+      capacity, `_pack` (`services/today.py`) now tries its open accepted subtasks in the
+      parent's rank slot before overflowing it; each subtask that fits is scheduled as its
+      own timeline block (`parent_task_id`/`parent_title` on `ScheduledBlock`, reason
+      prefixed `"part of <parent>"`), and the parent's overflow row carries
+      `scheduled_subtask_count`.
+- [x] **Defer-to-tomorrow.** New nullable `deferred_until: date` column on `Task`
+      (Alembic migration, applied) — a day-plan snooze the scheduler filters on
+      (`_is_deferred`), settable/clearable via the existing `PATCH /api/tasks/{id}` and
+      excluded from recurrence forward-patching like `due_date`. Every timeline/overflow
+      row on the Today page got a **Defer** action that PATCHes `deferred_until` to the
+      day after the plan's date.
+- [x] **Less scrolling.** "Didn't fit" and "Blocked" render collapsed by default (header +
+      count, expand on click) so the timeline owns the page by default.
+- [x] **Start time defaults to now** (rounded up to the next 5 min) on every visit;
+      capacity presets became 30m/1h/2h/4h/6h/8h plus an **"Until end of day"** mode
+      (editable end-of-day time, default 17:00) that computes capacity from start time.
+      Capacity mode/minutes/end-of-day persist in `localStorage`; start time intentionally
+      does not.
+- [x] **Now marker + elapsed dimming.** A "NOW · HH:MM" divider is inserted into the
+      timeline (only when viewing today), refreshed every 60s; blocks that already ended
+      get a dimmed `.today-block-past` style.
+- [x] Backend: 2 new pytest cases (`test_today.py`) for subtask fill-in and deferral
+      filtering; full suite 327 passed. Frontend: 4 new/updated Vitest cases in
+      `TodayPage.test.tsx` (11 total); `tsc --noEmit` clean. Verified live in headless
+      chromium against the running app — now marker/dimming, subtask fill-in label,
+      collapsed→expand, "Until end of day" capacity, and a real defer that wrote
+      `deferred_until` to the DB and dropped the row (test tasks cleaned up after).

@@ -174,6 +174,8 @@ tasks                  (includes review_status: candidate | accepted | rejected;
                         workflow_status: open | in_progress | done;
                         nullable parent_task_id self-FK for subtask nesting;
                         nullable estimated_minutes effort estimate;
+                        nullable deferred_until day-plan snooze (Today page defer:
+                        the scheduler skips the task while this is in the future);
                         nullable breakdown_output_json holding the "break this down"
                         model output between generating and reviewing subtasks;
                         nullable deleted_with_project_id marking tasks cascade-deleted

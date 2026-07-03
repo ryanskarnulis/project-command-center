@@ -177,6 +177,67 @@ def test_backfill_schedules_smaller_task_when_top_task_overflows(
     assert plan.used_minutes <= plan.available_minutes
 
 
+def test_oversized_parent_falls_back_to_fitting_subtasks(
+    db_session: Session,
+) -> None:
+    # A parent too large for the remaining capacity gets its open subtasks tried
+    # in its rank slot; those that fit are scheduled with the parent label, and
+    # the parent overflows with the count.
+    parent = _task(
+        db_session, "big parent", priority=TaskPriority.urgent, estimated_minutes=720
+    )
+    fits = tasks_service.create_task(
+        db_session, project_id=None, title="fits", parent_task_id=parent,
+        estimated_minutes=60,
+    )
+    too_big = tasks_service.create_task(
+        db_session, project_id=None, title="too big", parent_task_id=parent,
+        estimated_minutes=600,
+    )
+    done = tasks_service.create_task(
+        db_session, project_id=None, title="done", parent_task_id=parent,
+        workflow_status=TaskWorkflowStatus.done, estimated_minutes=15,
+    )
+    db_session.commit()
+
+    plan = today_service.get_today_plan(
+        db_session, target_date=TARGET, available_minutes=120
+    )
+
+    scheduled_ids = [b.task_id for b in plan.scheduled]
+    assert fits.id in scheduled_ids
+    assert too_big.id not in scheduled_ids
+    assert done.id not in scheduled_ids
+    block = next(b for b in plan.scheduled if b.task_id == fits.id)
+    assert block.parent_task_id == parent
+    assert block.parent_title == "big parent"
+    assert block.reason.startswith("part of big parent")
+    overflow = next(o for o in plan.overflow if o.task_id == parent)
+    assert overflow.scheduled_subtask_count == 1
+    assert plan.used_minutes <= plan.available_minutes
+
+
+def test_deferred_task_excluded_until_deferral_passes(db_session: Session) -> None:
+    deferred = _task(db_session, "deferred")
+    kept = _task(db_session, "kept")
+    deferred_task = tasks_service.get_task(db_session, deferred)
+    assert deferred_task is not None
+    tasks_service.update_task(
+        db_session, deferred_task, {"deferred_until": TARGET + timedelta(days=1)}
+    )
+    db_session.commit()
+
+    plan = today_service.get_today_plan(db_session, target_date=TARGET)
+    assert [b.task_id for b in plan.scheduled] == [kept]
+    assert deferred not in [o.task_id for o in plan.overflow]
+
+    # Once the target date reaches deferred_until, the task is back in the plan.
+    later = today_service.get_today_plan(
+        db_session, target_date=TARGET + timedelta(days=1)
+    )
+    assert deferred in [b.task_id for b in later.scheduled]
+
+
 def test_block_times_are_sequential_from_start(db_session: Session) -> None:
     _task(db_session, "a", priority=TaskPriority.urgent, estimated_minutes=30)
     _task(db_session, "b", priority=TaskPriority.high, estimated_minutes=45)

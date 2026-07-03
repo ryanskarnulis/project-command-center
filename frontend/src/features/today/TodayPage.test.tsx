@@ -53,6 +53,7 @@ const panelTask: Task = {
   workflow_status: 'in_progress',
   priority: 'high',
   due_date: '2026-06-20',
+  deferred_until: null,
   estimated_minutes: 30,
   repeat_interval: null,
   recurrence_id: null,
@@ -80,6 +81,8 @@ function scheduledBlock(overrides: Partial<ScheduledBlock> = {}): ScheduledBlock
     due_date: null,
     due_signal: 'none',
     reason: 'open · high priority',
+    parent_task_id: null,
+    parent_title: null,
     ...overrides,
   }
 }
@@ -124,6 +127,8 @@ describe('TodayPage', () => {
             due_date: '2026-06-20',
             due_signal: 'due_today',
             reason: 'in-progress · due today · high priority',
+            parent_task_id: null,
+            parent_title: null,
           },
         ],
       }),
@@ -178,6 +183,8 @@ describe('TodayPage', () => {
             due_date: null,
             due_signal: 'none',
             reason: 'open · medium priority',
+            parent_task_id: null,
+            parent_title: null,
           },
         ],
         overflow: [
@@ -191,6 +198,7 @@ describe('TodayPage', () => {
             due_signal: 'none',
             estimated_minutes: 45,
             estimate_assumed: false,
+            scheduled_subtask_count: 0,
           },
         ],
         blocked: [
@@ -214,9 +222,23 @@ describe('TodayPage', () => {
       </MemoryRouter>,
     )
 
-    expect(await screen.findByRole('heading', { name: /Didn.t fit \(1\)/ })).toBeInTheDocument()
+    // Secondary sections start collapsed: heading + count visible, rows hidden.
+    const overflowToggle = (
+      await screen.findByRole('heading', { name: /Didn.t fit \(1\)/ })
+    ).closest('button')
+    expect(overflowToggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('link', { name: 'Overflow task' })).not.toBeInTheDocument()
+
+    fireEvent.click(overflowToggle!)
     expect(screen.getByRole('link', { name: 'Overflow task' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Blocked (1)' })).toBeInTheDocument()
+
+    const blockedToggle = screen
+      .getByRole('heading', { name: 'Blocked (1)' })
+      .closest('button')
+    expect(
+      screen.queryByText(/Waiting on 1 unfinished dependency/),
+    ).not.toBeInTheDocument()
+    fireEvent.click(blockedToggle!)
     expect(screen.getByText(/Waiting on 1 unfinished dependency/)).toBeInTheDocument()
     // The blocker is named (not a bare #id) and shows its workflow status.
     const blockerLink = screen.getByRole('link', { name: 'Upstream dependency' })
@@ -299,6 +321,91 @@ describe('TodayPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('defers a task to the day after the plan date', async () => {
+    mockGetTodayPlan.mockResolvedValue(
+      makePlan({ scheduled: [scheduledBlock({ task_id: 7, workflow_status: 'open' })] }),
+    )
+    mockUpdateTask.mockResolvedValue({} as never)
+
+    render(
+      <MemoryRouter>
+        <TodayPage />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Defer Draft launch checklist to tomorrow',
+      }),
+    )
+
+    // Plan date is 2026-06-20, so the snooze lands on the 21st.
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(7, { deferred_until: '2026-06-21' }),
+    )
+    await waitFor(() => expect(mockGetTodayPlan).toHaveBeenCalledTimes(2))
+  })
+
+  it('labels a scheduled subtask with its parent task', async () => {
+    mockGetTodayPlan.mockResolvedValue(
+      makePlan({
+        scheduled: [
+          scheduledBlock({
+            task_id: 11,
+            title: 'Write intro section',
+            parent_task_id: 5,
+            parent_title: 'Draft the whitepaper',
+          }),
+        ],
+      }),
+    )
+
+    render(
+      <MemoryRouter>
+        <TodayPage />
+      </MemoryRouter>,
+    )
+
+    await screen.findByRole('link', { name: 'Write intro section' })
+    expect(screen.getByText(/part of/)).toBeInTheDocument()
+    const parentLink = screen.getByRole('link', { name: 'Draft the whitepaper' })
+    expect(parentLink).toHaveAttribute('href', '/?task=5')
+  })
+
+  it('notes partially scheduled overflow tasks', async () => {
+    mockGetTodayPlan.mockResolvedValue(
+      makePlan({
+        used_minutes: 0,
+        overflow: [
+          {
+            task_id: 2,
+            title: 'Big parent',
+            project_id: null,
+            priority: 'high',
+            workflow_status: 'open',
+            due_date: null,
+            due_signal: 'none',
+            estimated_minutes: 720,
+            estimate_assumed: false,
+            scheduled_subtask_count: 2,
+          },
+        ],
+      }),
+    )
+
+    render(
+      <MemoryRouter>
+        <TodayPage />
+      </MemoryRouter>,
+    )
+
+    const toggle = (
+      await screen.findByRole('heading', { name: /Didn.t fit \(1\)/ })
+    ).closest('button')
+    fireEvent.click(toggle!)
+    expect(screen.getByText('2 subtasks scheduled')).toBeInTheDocument()
+  })
+
   it('shows an empty state when nothing is schedulable', async () => {
     mockGetTodayPlan.mockResolvedValue(makePlan({ used_minutes: 0 }))
 
@@ -329,6 +436,7 @@ describe('TodayPage', () => {
             due_signal: 'none',
             estimated_minutes: 720,
             estimate_assumed: false,
+            scheduled_subtask_count: 0,
           },
         ],
       }),

@@ -61,6 +61,9 @@ class TaskUpdate(BaseModel):
     workflow_status: TaskWorkflowStatus | None = None
     priority: TaskPriority | None = None
     due_date: date | None = None
+    # Day-plan snooze (Today page "defer"): the scheduler skips the task while
+    # this is after the plan's target date. Explicit null clears the deferral.
+    deferred_until: date | None = None
     project_id: int | None = None
     parent_task_id: int | None = None
     estimated_minutes: PositiveMinutes | None = None
@@ -135,6 +138,7 @@ class TaskRead(BaseModel):
     workflow_status: TaskWorkflowStatus
     priority: TaskPriority
     due_date: date | None
+    deferred_until: date | None
     estimated_minutes: int | None
     repeat_interval: RepeatInterval | None
     recurrence_id: str | None

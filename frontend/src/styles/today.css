@@ -250,3 +250,88 @@
   gap: 10px;
 }
 
+/* Elapsed blocks (before the "now" marker) fade back so the current slot pops. */
+.today-block-past {
+  opacity: 0.55;
+}
+
+.today-now-marker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
+}
+
+.today-now-marker span {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.today-now-marker::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--red);
+  opacity: 0.5;
+}
+
+/* "part of <parent>" label on a subtask standing in for its parent. */
+.today-block-parent {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.today-block-parent a {
+  color: var(--text-h);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.today-block-parent a:hover {
+  text-decoration: underline;
+}
+
+/* Overflow "n subtasks scheduled" note. */
+.today-partial {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--blue-soft, rgba(59, 130, 246, 0.12));
+  color: var(--blue);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* Collapsed-by-default secondary sections (Didn't fit / Blocked). */
+.today-collapse-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-h);
+  cursor: pointer;
+  text-align: left;
+}
+
+.today-collapse-toggle h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.today-collapse-toggle svg {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+

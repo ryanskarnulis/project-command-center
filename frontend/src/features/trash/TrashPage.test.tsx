@@ -66,6 +66,7 @@ const trash: Trash = {
       workflow_status: 'open',
       priority: 'medium',
       due_date: null,
+      deferred_until: null,
       confidence: null,
       assignee_hint: null,
       created_at: '2026-06-01T17:00:00Z',

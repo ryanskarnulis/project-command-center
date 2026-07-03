@@ -20,6 +20,10 @@ export interface ScheduledBlock {
   due_signal: DueSignal
   // Deterministic, human-readable placement explanation. No model prose.
   reason: string
+  // Set when this block is a subtask standing in for a parent that didn't fit
+  // the remaining capacity; the UI labels it "part of <parent_title>".
+  parent_task_id: number | null
+  parent_title: string | null
 }
 
 export interface OverflowTask {
@@ -32,6 +36,8 @@ export interface OverflowTask {
   due_signal: DueSignal
   estimated_minutes: number
   estimate_assumed: boolean
+  // How many of this task's subtasks made the timeline in its place.
+  scheduled_subtask_count: number
 }
 
 export interface BlockingTask {

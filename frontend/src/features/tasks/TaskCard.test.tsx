@@ -18,6 +18,7 @@ const base: Task = {
   workflow_status: 'open',
   priority: 'high',
   due_date: null,
+  deferred_until: null,
   estimated_minutes: null,
   repeat_interval: null,
   recurrence_id: null,

@@ -41,6 +41,11 @@ class ScheduledBlock(BaseModel):
     # Deterministic, human-readable explanation of why this task ranked here,
     # e.g. "in-progress · overdue · high priority". No model prose.
     reason: str
+    # Set when this block is a subtask standing in for a parent that didn't fit
+    # the remaining capacity — the UI labels it "part of <parent_title>". Both
+    # null for a normally scheduled top-level task.
+    parent_task_id: int | None = None
+    parent_title: str | None = None
 
 
 class OverflowTask(BaseModel):
@@ -59,6 +64,9 @@ class OverflowTask(BaseModel):
     due_signal: DueSignal
     estimated_minutes: int
     estimate_assumed: bool
+    # How many of this task's subtasks made the timeline in its place. Non-zero
+    # means the parent overflowed but part of its work is still scheduled.
+    scheduled_subtask_count: int = 0
 
 
 class BlockingTask(BaseModel):

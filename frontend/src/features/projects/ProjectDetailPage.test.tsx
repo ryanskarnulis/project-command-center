@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -75,6 +75,7 @@ const task: Task = {
   workflow_status: 'open',
   priority: 'high',
   due_date: null,
+  deferred_until: null,
   estimated_minutes: null,
   repeat_interval: null,
   recurrence_id: null,
@@ -253,12 +254,14 @@ describe('ProjectDetailPage', () => {
 
     await user.click(await screen.findByRole('link', { name: 'Patch the router' }))
 
-    expect(await screen.findByRole('dialog', { name: 'Task details' })).toBeInTheDocument()
+    const panel = await screen.findByRole('dialog', { name: 'Task details' })
+    expect(panel).toBeInTheDocument()
     await waitFor(() => expect(mockGetTask).toHaveBeenCalledWith(3))
     expect(mockListTasks).toHaveBeenCalledTimes(1)
 
     // A chip edit inside the panel PATCHes and asks the host list to refetch.
-    await user.click(await screen.findByRole('button', { name: 'Priority: high' }))
+    // Scope to the panel: task cards now render their own priority pill.
+    await user.click(await within(panel).findByRole('button', { name: 'Priority: high' }))
     await user.click(screen.getByRole('button', { name: 'urgent' }))
 
     await waitFor(() =>

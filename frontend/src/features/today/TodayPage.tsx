@@ -1,6 +1,17 @@
-import { useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CalendarClock, Check, Clock3, Inbox, Play } from 'lucide-react'
+import {
+  AlertTriangle,
+  CalendarClock,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ChevronsRight,
+  Clock3,
+  CornerDownRight,
+  Inbox,
+  Play,
+} from 'lucide-react'
 import { markTaskDone, updateTask } from '../../api/tasks'
 import { useToast } from '../../components/ToastContext'
 import type { TaskPriority, TaskWorkflowStatus } from '../../types/task'
@@ -14,16 +25,14 @@ import { formatDuration } from '../../utils/duration'
 import { formatDueDate } from '../../utils/dates'
 import { TaskPanelProvider } from '../tasks/panel/TaskPanelProvider'
 import { useTaskLinkTo } from '../tasks/panel/taskPanelContext'
-import {
-  DEFAULT_AVAILABLE_MINUTES,
-  DEFAULT_START_TIME,
-  useTodayPlan,
-} from './useTodayPlan'
+import { DEFAULT_START_TIME, useTodayPlan } from './useTodayPlan'
 
 // Capacity presets keep the control daily-scannable while staying inside the
 // backend's 15–1440 bound. The current value is added if it isn't a preset so a
-// deep-linked or odd value still renders.
-const CAPACITY_PRESETS = [120, 240, 360, 480, 600]
+// deep-linked or odd value still renders. 'until_end' switches to computing
+// capacity from the start time until the chosen end-of-day time.
+const CAPACITY_PRESETS = [30, 60, 120, 240, 360, 480]
+const UNTIL_END_VALUE = 'until_end'
 
 const DUE_SIGNAL_LABEL: Record<DueSignal, string> = {
   overdue: 'Overdue',
@@ -38,6 +47,43 @@ const DUE_SIGNAL_CLASS: Record<DueSignal, string> = {
   due_today: 'due-today',
   due_soon: 'due-soon',
   none: 'due-none',
+}
+
+/** "YYYY-MM-DD" -> the next calendar day, for deferring out of this plan. */
+function nextDay(date: string): string {
+  const [year, month, day] = date.split('-').map(Number)
+  const next = new Date(year, month - 1, day + 1)
+  const m = String(next.getMonth() + 1).padStart(2, '0')
+  const d = String(next.getDate()).padStart(2, '0')
+  return `${next.getFullYear()}-${m}-${d}`
+}
+
+function localToday(): string {
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${day}`
+}
+
+/** Current local time as minutes from midnight, refreshed every minute. */
+function useNowMinutes(): number {
+  const [now, setNow] = useState(() => {
+    const d = new Date()
+    return d.getHours() * 60 + d.getMinutes()
+  })
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const d = new Date()
+      setNow(d.getHours() * 60 + d.getMinutes())
+    }, 60_000)
+    return () => clearInterval(timer)
+  }, [])
+  return now
+}
+
+function parseTime(value: string): number {
+  const [hours, minutes] = value.split(':')
+  return Number(hours) * 60 + Number(minutes)
 }
 
 function PriorityPill({ priority }: { priority: TaskPriority }) {
@@ -75,19 +121,23 @@ function EstimateLabel({
   )
 }
 
-// In-row Start / Mark done actions. Reuses the existing task endpoints and asks
-// the parent to refetch on success so the row re-ranks (Start) or drops out
-// (done). Mark done MUST go through the dedicated done endpoint so recurrence's
-// next-occurrence creation still fires — never a raw PATCH workflow_status=done.
+// In-row Start / Mark done / Defer actions. Reuses the existing task endpoints
+// and asks the parent to refetch on success so the row re-ranks (Start) or
+// drops out (done, defer). Mark done MUST go through the dedicated done
+// endpoint so recurrence's next-occurrence creation still fires — never a raw
+// PATCH workflow_status=done. Defer snoozes the task to the day after the
+// plan's date via `deferred_until`; the scheduler skips it until then.
 function TodayRowActions({
   taskId,
   title,
   workflowStatus,
+  planDate,
   onMutated,
 }: {
   taskId: number
   title: string
   workflowStatus: TaskWorkflowStatus
+  planDate: string
   onMutated: () => void
 }) {
   const { withToast } = useToast()
@@ -136,20 +186,39 @@ function TodayRowActions({
         <Check size={15} aria-hidden="true" />
         Mark done
       </button>
+      <button
+        type="button"
+        className="task-action"
+        disabled={pending}
+        aria-label={`Defer ${title} to tomorrow`}
+        onClick={() =>
+          void run(
+            () => updateTask(taskId, { deferred_until: nextDay(planDate) }),
+            'Deferred to tomorrow',
+          )
+        }
+      >
+        <ChevronsRight size={15} aria-hidden="true" />
+        Defer
+      </button>
     </div>
   )
 }
 
 function ScheduledRow({
   block,
+  past,
+  planDate,
   onMutated,
 }: {
   block: ScheduledBlock
+  past: boolean
+  planDate: string
   onMutated: () => void
 }) {
   const taskLinkTo = useTaskLinkTo()
   return (
-    <li className="today-block">
+    <li className={past ? 'today-block today-block-past' : 'today-block'}>
       <div className="today-block-time" aria-hidden="true">
         <strong>{block.start_time}</strong>
         <span>{block.end_time}</span>
@@ -163,6 +232,13 @@ function ScheduledRow({
           <WorkflowPill status={block.workflow_status} />
           <DueSignalPill signal={block.due_signal} />
         </div>
+        {block.parent_task_id !== null && block.parent_title !== null && (
+          <div className="today-block-parent">
+            <CornerDownRight size={13} aria-hidden="true" />
+            part of{' '}
+            <Link to={taskLinkTo(block.parent_task_id)}>{block.parent_title}</Link>
+          </div>
+        )}
         <div className="today-block-meta">
           <EstimateLabel minutes={block.estimated_minutes} assumed={block.estimate_assumed} />
           {block.due_date && (
@@ -175,6 +251,7 @@ function ScheduledRow({
         taskId={block.task_id}
         title={block.title}
         workflowStatus={block.workflow_status}
+        planDate={planDate}
         onMutated={onMutated}
       />
     </li>
@@ -183,9 +260,11 @@ function ScheduledRow({
 
 function OverflowRow({
   task,
+  planDate,
   onMutated,
 }: {
   task: OverflowTask
+  planDate: string
   onMutated: () => void
 }) {
   const taskLinkTo = useTaskLinkTo()
@@ -197,10 +276,17 @@ function OverflowRow({
       <PriorityPill priority={task.priority} />
       <DueSignalPill signal={task.due_signal} />
       <EstimateLabel minutes={task.estimated_minutes} assumed={task.estimate_assumed} />
+      {task.scheduled_subtask_count > 0 && (
+        <span className="today-partial" title="Part of this task is on the timeline">
+          {task.scheduled_subtask_count}{' '}
+          {task.scheduled_subtask_count === 1 ? 'subtask' : 'subtasks'} scheduled
+        </span>
+      )}
       <TodayRowActions
         taskId={task.task_id}
         title={task.title}
         workflowStatus={task.workflow_status}
+        planDate={planDate}
         onMutated={onMutated}
       />
     </li>
@@ -236,6 +322,49 @@ function BlockedRow({ task }: { task: BlockedTask }) {
   )
 }
 
+// Secondary sections ("Didn't fit", "Blocked") start collapsed so the timeline
+// owns the page; the header row still shows the count at a glance.
+function CollapsibleSection({
+  id,
+  title,
+  count,
+  hint,
+  children,
+}: {
+  id: string
+  title: string
+  count: number
+  hint: string
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <section className="panel today-section today-collapsible" aria-labelledby={id}>
+      <button
+        type="button"
+        className="today-collapse-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {open ? (
+          <ChevronDown size={16} aria-hidden="true" />
+        ) : (
+          <ChevronRight size={16} aria-hidden="true" />
+        )}
+        <h2 id={id}>
+          {title} ({count})
+        </h2>
+      </button>
+      {open && (
+        <>
+          <p className="today-section-hint">{hint}</p>
+          {children}
+        </>
+      )}
+    </section>
+  )
+}
+
 export function TodayPage() {
   const {
     plan,
@@ -244,15 +373,34 @@ export function TodayPage() {
     date,
     startTime,
     availableMinutes,
+    capacityMode,
+    capacityMinutes,
+    endOfDay,
     setDate,
     setStartTime,
-    setAvailableMinutes,
+    setCapacityMinutes,
+    setCapacityMode,
+    setEndOfDay,
     refetch,
   } = useTodayPlan()
 
-  const capacityOptions = CAPACITY_PRESETS.includes(availableMinutes)
-    ? CAPACITY_PRESETS
-    : [...CAPACITY_PRESETS, availableMinutes].sort((a, b) => a - b)
+  const nowMinutes = useNowMinutes()
+  const viewingToday = date === localToday()
+
+  const capacityOptions =
+    capacityMode === 'minutes' && !CAPACITY_PRESETS.includes(capacityMinutes)
+      ? [...CAPACITY_PRESETS, capacityMinutes].sort((a, b) => a - b)
+      : CAPACITY_PRESETS
+
+  // Index of the first block still in the future — the "now" divider renders
+  // just above it; everything before it is dimmed as already elapsed.
+  const nowIndex =
+    viewingToday && plan
+      ? plan.scheduled.findIndex((block) => parseTime(block.end_time) > nowMinutes)
+      : -1
+  const nowLabel = `${String(Math.floor(nowMinutes / 60)).padStart(2, '0')}:${String(
+    nowMinutes % 60,
+  ).padStart(2, '0')}`
 
   return (
     <TaskPanelProvider onMutated={refetch}>
@@ -289,18 +437,33 @@ export function TodayPage() {
         <label>
           <span>Capacity</span>
           <select
-            value={availableMinutes}
-            onChange={(event) =>
-              setAvailableMinutes(Number(event.target.value) || DEFAULT_AVAILABLE_MINUTES)
-            }
+            value={capacityMode === 'until_end' ? UNTIL_END_VALUE : capacityMinutes}
+            onChange={(event) => {
+              if (event.target.value === UNTIL_END_VALUE) {
+                setCapacityMode('until_end')
+              } else {
+                setCapacityMinutes(Number(event.target.value))
+              }
+            }}
           >
             {capacityOptions.map((minutes) => (
               <option key={minutes} value={minutes}>
                 {formatDuration(minutes)}
               </option>
             ))}
+            <option value={UNTIL_END_VALUE}>Until end of day</option>
           </select>
         </label>
+        {capacityMode === 'until_end' && (
+          <label>
+            <span>End of day</span>
+            <input
+              type="time"
+              value={endOfDay}
+              onChange={(event) => setEndOfDay(event.target.value)}
+            />
+          </label>
+        )}
       </div>
 
       {loading && <div className="page-loading">Loading today’s plan…</div>}
@@ -314,7 +477,7 @@ export function TodayPage() {
         <>
           <p className="today-summary">
             <strong>{formatDuration(plan.used_minutes)}</strong> planned of{' '}
-            {formatDuration(plan.available_minutes)} capacity ·{' '}
+            {formatDuration(availableMinutes)} capacity ·{' '}
             {plan.scheduled.length} scheduled · {plan.overflow.length} overflow ·{' '}
             {plan.blocked.length} blocked
           </p>
@@ -323,8 +486,20 @@ export function TodayPage() {
             <section className="panel today-section" aria-labelledby="today-timeline-heading">
               <h2 id="today-timeline-heading">Timeline</h2>
               <ol className="today-timeline">
-                {plan.scheduled.map((block) => (
-                  <ScheduledRow key={block.task_id} block={block} onMutated={refetch} />
+                {plan.scheduled.map((block, index) => (
+                  <Fragment key={block.task_id}>
+                    {index === nowIndex && (
+                      <li className="today-now-marker" aria-label={`Now, ${nowLabel}`}>
+                        <span>Now · {nowLabel}</span>
+                      </li>
+                    )}
+                    <ScheduledRow
+                      block={block}
+                      past={nowIndex >= 0 ? index < nowIndex : false}
+                      planDate={plan.date}
+                      onMutated={refetch}
+                    />
+                  </Fragment>
                 ))}
               </ol>
             </section>
@@ -345,31 +520,38 @@ export function TodayPage() {
           )}
 
           {plan.overflow.length > 0 && (
-            <section className="panel today-section" aria-labelledby="today-overflow-heading">
-              <h2 id="today-overflow-heading">Didn’t fit ({plan.overflow.length})</h2>
-              <p className="today-section-hint">
-                Ranked unscheduled work — increase capacity or push these to another day.
-              </p>
+            <CollapsibleSection
+              id="today-overflow-heading"
+              title="Didn’t fit"
+              count={plan.overflow.length}
+              hint="Ranked unscheduled work — increase capacity or push these to another day."
+            >
               <ul className="today-overflow-list">
                 {plan.overflow.map((task) => (
-                  <OverflowRow key={task.task_id} task={task} onMutated={refetch} />
+                  <OverflowRow
+                    key={task.task_id}
+                    task={task}
+                    planDate={plan.date}
+                    onMutated={refetch}
+                  />
                 ))}
               </ul>
-            </section>
+            </CollapsibleSection>
           )}
 
           {plan.blocked.length > 0 && (
-            <section className="panel today-section" aria-labelledby="today-blocked-heading">
-              <h2 id="today-blocked-heading">Blocked ({plan.blocked.length})</h2>
-              <p className="today-section-hint">
-                Kept out of the schedule until their dependencies are done.
-              </p>
+            <CollapsibleSection
+              id="today-blocked-heading"
+              title="Blocked"
+              count={plan.blocked.length}
+              hint="Kept out of the schedule until their dependencies are done."
+            >
               <ul className="today-blocked-list">
                 {plan.blocked.map((task) => (
                   <BlockedRow key={task.task_id} task={task} />
                 ))}
               </ul>
-            </section>
+            </CollapsibleSection>
           )}
         </>
       )}
