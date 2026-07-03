@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { AsyncState } from '../../components/AsyncState'
 import type { Project } from '../../types/project'
-import type { Task, TaskCreate } from '../../types/task'
+import type { Task, TaskCreate, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { SubtaskComposer } from './SubtaskComposer'
 import { TaskCard } from './TaskCard'
 import {
@@ -30,6 +30,10 @@ interface TaskListViewProps {
   hasNonStatusFilters: boolean
   create: (data: TaskCreate) => Promise<void>
   markDone: (id: number) => Promise<void>
+  // Inline chip edits on a card; status routes through onSetStatus so done
+  // transitions use the recurrence-safe endpoints.
+  update: (task: Task, patch: TaskUpdate) => Promise<void>
+  onSetStatus: (task: Task, target: TaskWorkflowStatus) => Promise<void>
   remove: (id: number) => Promise<void>
   reopen: (id: number) => Promise<void>
   reload: () => void
@@ -53,6 +57,8 @@ export function TaskListView({
   hasNonStatusFilters,
   create,
   markDone,
+  update,
+  onSetStatus,
   remove,
   reopen,
   reload,
@@ -131,6 +137,8 @@ export function TaskListView({
           projects={isGlobal ? projects : undefined}
           actions={actions}
           onComplete={() => void markDone(t.id).then(bumpActivity)}
+          onUpdate={(patch) => void update(t, patch)}
+          onSetStatus={(target) => void onSetStatus(t, target)}
         />
         {subtaskParentId === t.id && (
           <SubtaskComposer
@@ -185,6 +193,8 @@ export function TaskListView({
           task={t}
           projects={isGlobal ? projects : undefined}
           actions={actions}
+          onUpdate={(patch) => void update(t, patch)}
+          onSetStatus={(target) => void onSetStatus(t, target)}
         />
       </li>
     )

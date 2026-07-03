@@ -688,11 +688,6 @@
   margin: 4px 2px;
 }
 
-.kanban-move select {
-  font-size: 12px;
-  padding: 2px 4px;
-}
-
 /* --- Metadata chips: pill triggers that open an anchored editor.
        Used in the task hero (and later by quick-add + inbox triage). --- */
 

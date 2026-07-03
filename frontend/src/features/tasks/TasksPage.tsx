@@ -5,7 +5,7 @@ import { listProjects } from '../../api/projects'
 import { createUnscopedTask } from '../../api/tasks'
 import { useToast } from '../../components/ToastContext'
 import type { Project } from '../../types/project'
-import type { Task, TaskCreate, TaskWorkflowStatus } from '../../types/task'
+import type { Task, TaskCreate, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { ActivityFeed } from '../projects/ActivityFeed'
 import { ProjectTabs } from '../projects/ProjectTabs'
 import { QuickAddBar } from './quickadd/QuickAddBar'
@@ -90,6 +90,15 @@ export function TasksPage() {
     bumpActivity()
   }
 
+  // Inline chip edits from cards. Recurring tasks get no scope prompt here —
+  // an unscoped PATCH edits just this occurrence; series edits live in the panel.
+  async function handleUpdate(t: Task, patch: TaskUpdate) {
+    await update(t.id, patch)
+    // A done-column card can be edited on the board; keep the archive fresh.
+    if (t.workflow_status === 'done') reloadCompleted()
+    bumpActivity()
+  }
+
   return (
     <TaskPanelProvider
       onMutated={() => {
@@ -164,6 +173,7 @@ export function TasksPage() {
           completedError={completedError}
           filtersActive={filtersActive}
           onSetStatus={handleSetStatus}
+          onUpdate={handleUpdate}
         />
       ) : (
         <TaskListView
@@ -182,6 +192,8 @@ export function TasksPage() {
           hasNonStatusFilters={hasNonStatusFilters}
           create={create}
           markDone={markDone}
+          update={handleUpdate}
+          onSetStatus={handleSetStatus}
           remove={remove}
           reopen={reopen}
           reload={reload}

@@ -1212,6 +1212,28 @@ alias add/remove and description save-on-blur persistence.
 
 ---
 
+## UI/UX revamp — in-place editing (Slices 1–3)
+> Committed 2026-07-01, shipped as "Fable frontend revamp 1/2/3" (commits `58142bf`,
+> `77c310e`, `bfc57c1`). Frontend-only: no schema changes, no new AI calls — existing
+> endpoints throughout. Full slice detail (chip inventory, token grammar, per-candidate
+> capture wiring) is preserved in git history on `CURRENT.md` as of those commits.
+
+- [x] **Slice 1 — Peek panel + editable metadata chips.** Task cards open a right-side
+      slide-over panel instead of navigating away (`?task=<id>` on the host page,
+      `/tasks/:id` redirects); all 8 fields (status, priority, due, estimate, project,
+      assignee, repeat, parent task) became click-to-edit chips (`features/tasks/chips/`),
+      replacing the "Task Fields" form column as the one editing grammar. Chips are
+      controlled value/onChange components with no `Task` dependency, reused by slices 2–3.
+- [x] **Slice 2 — Quick-add bar (token parsing, no modal).** A permanent one-line input
+      atop Tasks list/board and project task pages parses `!priority #project ~estimate
+      @assignee` tokens deterministically in TS (`features/tasks/quickadd/`), with a chip
+      preview and "More options" escape hatch into the full modal (kept for edit/fallback,
+      no longer the default creation path).
+- [x] **Slice 3 — Inline inbox triage.** Candidate cards on note-review are edited in
+      place (title input + slice-1 chips, including description and assignee) instead of
+      detouring through the task detail page; approve/dismiss auto-advances to the next
+      candidate; correction capture to `ai_training_examples` is preserved unchanged.
+
 ## UI/UX revamp companion — card-level quick actions
 > Frontend-only. Shipped 2026-07-03 alongside the slices 1–3 in-place editing epic.
 
@@ -1234,3 +1256,29 @@ alias add/remove and description save-on-blur persistence.
       page under the drop updates in place. Vitest coverage in
       `TaskCard.test.tsx` (circle states, drag payload); drag + complete
       verified end-to-end in headless chromium against the live API.
+
+---
+
+## UI/UX revamp companion — inline pill editing on every task card
+> Frontend-only, shipped 2026-07-03. Extends the slice-1 chip components (peek panel)
+> onto `TaskCard` itself, so status/priority/due/estimate can be edited without opening
+> the panel — and removes the kanban board's now-redundant "Move to" dropdown.
+
+- [x] **`TaskCard` gained optional `onUpdate` / `onSetStatus` props.** When passed, the
+      status/priority/due-date/estimate pills render as the existing `StatusChip` /
+      `PriorityChip` / `DueDateChip` / `EstimateChip` popovers instead of static badges;
+      omitting the props (trash, breakdown-review cards) keeps the old read-only badges.
+      Chip clicks swallow the card's `<Link>` navigation (with a `requestSubmit()`
+      re-trigger for the chip editors that submit via a form), and dragging to select text
+      inside an open popover no longer starts a card drag.
+- [x] **Kanban board dropdown removed.** `KanbanBoard`'s per-card "Move to column" `<select>`
+      is gone; the status chip now routes moves through the same `move()` guards (blocked /
+      rolled-up-from-subtasks rules intact). Dead `.kanban-move` CSS removed.
+- [x] Wired through `TaskBoardView`, `TaskListView` (active + completed cards),
+      `TasksPage`, `ProjectDetailPage`, and `SubtaskGroup`. Done-column edits on the board
+      also refresh the completed archive. Inline edits on a recurring task apply to the
+      single occurrence only (no scope prompt from the card — that stays on the panel).
+- [x] Rewrote the 4 `KanbanBoard` dropdown-driven tests to drive the status chip instead;
+      all 130 tasks-feature Vitest cases pass, `tsc --noEmit` clean. Verified live in
+      headless chromium: zero dropdowns on the board, chip popover opens without
+      navigating, a priority change round-tripped through the API (then reset).

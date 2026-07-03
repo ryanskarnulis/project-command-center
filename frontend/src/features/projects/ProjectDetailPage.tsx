@@ -9,11 +9,11 @@ import {
   listAliases,
   updateProject,
 } from '../../api/projects'
-import { listCompletedTasks, listTasks, markTaskDone } from '../../api/tasks'
+import { listCompletedTasks, listTasks, markTaskDone, updateTask } from '../../api/tasks'
 import { useToast } from '../../components/ToastContext'
 import type { ProjectSummary } from '../../types/dashboard'
 import type { Project, ProjectAlias, ProjectUpdate } from '../../types/project'
-import type { Task } from '../../types/task'
+import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { useBeforeUnload } from '../../hooks/useBeforeUnload'
 import { buildProjectStats } from '../../utils/projectStatus'
 import { TaskCard } from '../tasks/TaskCard'
@@ -247,6 +247,22 @@ export function ProjectDetailPage() {
     setActivityKey((k) => k + 1)
   }
 
+  async function handleUpdateTask(t: Task, patch: TaskUpdate): Promise<void> {
+    await withToast(updateTask(t.id, patch), { success: 'Task saved' })
+    setTasksReloadKey((k) => k + 1)
+    setActivityKey((k) => k + 1)
+  }
+
+  // This list only shows open/in-progress tasks, so "done" is the only
+  // transition needing a dedicated (recurrence-safe) endpoint.
+  async function handleSetTaskStatus(t: Task, target: TaskWorkflowStatus): Promise<void> {
+    if (target === 'done') {
+      await handleCompleteTask(t)
+    } else {
+      await handleUpdateTask(t, { workflow_status: target })
+    }
+  }
+
   if (loadedProjectId !== id) {
     return <main className="task-detail"><div className="page-loading">Loading…</div></main>
   }
@@ -367,10 +383,17 @@ export function ProjectDetailPage() {
           <ul className="task-detail-list">
             {taskTree.roots.map((t) => (
               <li key={t.id}>
-                <TaskCard task={t} onComplete={() => void handleCompleteTask(t)} />
+                <TaskCard
+                  task={t}
+                  onComplete={() => void handleCompleteTask(t)}
+                  onUpdate={(patch) => void handleUpdateTask(t, patch)}
+                  onSetStatus={(target) => void handleSetTaskStatus(t, target)}
+                />
                 <SubtaskGroup
                   children={taskTree.childrenOf.get(t.id) ?? []}
                   onCompleteTask={(s) => void handleCompleteTask(s)}
+                  onUpdateTask={(s, patch) => void handleUpdateTask(s, patch)}
+                  onSetTaskStatus={(s, target) => void handleSetTaskStatus(s, target)}
                 />
               </li>
             ))}

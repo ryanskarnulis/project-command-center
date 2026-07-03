@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { AsyncState } from '../../components/AsyncState'
 import type { Project } from '../../types/project'
-import type { Task, TaskWorkflowStatus } from '../../types/task'
+import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { KanbanBoard } from './KanbanBoard'
 import { isActive, matchesFilters, type Filters } from './taskFilters'
 
@@ -17,6 +17,7 @@ interface TaskBoardViewProps {
   completedError: string | null
   filtersActive: boolean
   onSetStatus: (t: Task, target: TaskWorkflowStatus) => Promise<void>
+  onUpdate: (t: Task, patch: TaskUpdate) => Promise<void>
 }
 
 export function TaskBoardView({
@@ -31,6 +32,7 @@ export function TaskBoardView({
   completedError,
   filtersActive,
   onSetStatus,
+  onUpdate,
 }: TaskBoardViewProps) {
   // The board lays tasks out by workflow_status across three columns, so the
   // Status filter doesn't apply — keep every other filter, drop status.
@@ -71,6 +73,7 @@ export function TaskBoardView({
         projects={projects}
         isGlobal={isGlobal}
         onSetStatus={onSetStatus}
+        onUpdate={onUpdate}
       />
     </AsyncState>
   )

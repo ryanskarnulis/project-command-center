@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import type { Task } from '../../types/task'
+import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import type { Project } from '../../types/project'
 import { TaskCard } from './TaskCard'
 
@@ -9,6 +9,9 @@ interface SubtaskGroupProps {
   projects?: Project[]
   /** Enables the one-click complete circle on each subtask card. */
   onCompleteTask?: (task: Task) => void
+  /** Enables inline chip editing on each subtask card. */
+  onUpdateTask?: (task: Task, patch: TaskUpdate) => void
+  onSetTaskStatus?: (task: Task, target: TaskWorkflowStatus) => void
 }
 
 /**
@@ -16,7 +19,13 @@ interface SubtaskGroupProps {
  * Mirrors the `.task-subtasks` / `.task-children` markup used by the global task
  * list so subtasks look and behave consistently wherever they appear.
  */
-export function SubtaskGroup({ children, projects, onCompleteTask }: SubtaskGroupProps) {
+export function SubtaskGroup({
+  children,
+  projects,
+  onCompleteTask,
+  onUpdateTask,
+  onSetTaskStatus,
+}: SubtaskGroupProps) {
   const [expanded, setExpanded] = useState(false)
   if (children.length === 0) return null
   return (
@@ -42,6 +51,8 @@ export function SubtaskGroup({ children, projects, onCompleteTask }: SubtaskGrou
                 task={t}
                 projects={projects}
                 onComplete={onCompleteTask && (() => onCompleteTask(t))}
+                onUpdate={onUpdateTask && ((patch) => onUpdateTask(t, patch))}
+                onSetStatus={onSetTaskStatus && ((target) => onSetTaskStatus(t, target))}
               />
             </li>
           ))}

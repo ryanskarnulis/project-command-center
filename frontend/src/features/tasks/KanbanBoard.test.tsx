@@ -47,10 +47,23 @@ function renderBoard(
         completedTasks={completed}
         isGlobal={false}
         onSetStatus={onSetStatus}
+        onUpdate={vi.fn(() => Promise.resolve())}
       />
     </MemoryRouter>,
   )
   return onSetStatus
+}
+
+/** Opens a card's status chip and picks a target status from its menu. */
+async function moveViaStatusChip(
+  user: ReturnType<typeof userEvent.setup>,
+  fromLabel: string,
+  toLabel: string,
+) {
+  await user.click(screen.getByRole('button', { name: `Status: ${fromLabel}` }))
+  await user.click(
+    within(screen.getByRole('dialog')).getByRole('button', { name: toLabel }),
+  )
 }
 
 describe('KanbanBoard', () => {
@@ -70,15 +83,12 @@ describe('KanbanBoard', () => {
     expect(within(done).getByText('Finished')).toBeInTheDocument()
   })
 
-  it('routes a move via the per-card menu to onSetStatus', async () => {
+  it('routes a move via the card status chip to onSetStatus', async () => {
     const user = userEvent.setup()
     const onSetStatus = renderBoard([
       task({ id: 1, title: 'Open one', workflow_status: 'open' }),
     ])
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Move Open one to' }),
-      'in_progress',
-    )
+    await moveViaStatusChip(user, 'Open', 'In progress')
     expect(onSetStatus).toHaveBeenCalledTimes(1)
     expect(onSetStatus.mock.calls[0][0].id).toBe(1)
     expect(onSetStatus.mock.calls[0][1]).toBe('in_progress')
@@ -89,10 +99,7 @@ describe('KanbanBoard', () => {
     const onSetStatus = renderBoard([
       task({ id: 1, title: 'Blocked one', is_blocked: true }),
     ])
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Move Blocked one to' }),
-      'in_progress',
-    )
+    await moveViaStatusChip(user, 'Open', 'In progress')
     expect(onSetStatus).not.toHaveBeenCalled()
   })
 
@@ -106,10 +113,7 @@ describe('KanbanBoard', () => {
         is_blocked: true,
       }),
     ])
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Move Blocked one to' }),
-      'open',
-    )
+    await moveViaStatusChip(user, 'In progress', 'Open')
     expect(onSetStatus).toHaveBeenCalledWith(
       expect.objectContaining({ id: 1 }),
       'open',
@@ -122,10 +126,7 @@ describe('KanbanBoard', () => {
       [],
       [task({ id: 9, title: 'Finished', workflow_status: 'done' })],
     )
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Move Finished to' }),
-      'open',
-    )
+    await moveViaStatusChip(user, 'Done', 'Open')
     expect(onSetStatus).toHaveBeenCalledWith(
       expect.objectContaining({ id: 9, workflow_status: 'done' }),
       'open',

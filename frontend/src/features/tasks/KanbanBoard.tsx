@@ -1,7 +1,7 @@
 import { type DragEvent, useMemo, useState } from 'react'
 import { useToast } from '../../components/ToastContext'
 import type { Project } from '../../types/project'
-import type { Task, TaskWorkflowStatus } from '../../types/task'
+import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { compareTasks } from '../../utils/dates'
 import { TaskCard } from './TaskCard'
 
@@ -27,6 +27,8 @@ interface Props {
   // Route a task to a target column. Source status lives on the task, so the
   // page can pick the recurrence-safe done/reopen endpoints vs a plain PATCH.
   onSetStatus: (task: Task, target: TaskWorkflowStatus) => Promise<void>
+  // Inline chip edits (priority, due date, estimate) on a card.
+  onUpdate: (task: Task, patch: TaskUpdate) => Promise<void>
 }
 
 // A move into In progress or Done requires every dependency finished. "Blocked"
@@ -42,6 +44,7 @@ export function KanbanBoard({
   projects,
   isGlobal,
   onSetStatus,
+  onUpdate,
 }: Props) {
   const { notify } = useToast()
   const [pendingId, setPendingId] = useState<number | null>(null)
@@ -97,25 +100,6 @@ export function KanbanBoard({
 
   function renderCard(task: Task) {
     const pending = pendingId === task.id
-    const actions = (
-      <label className="kanban-move" title="Move to column">
-        <span className="visually-hidden">Move {task.title} to</span>
-        <select
-          aria-label={`Move ${task.title} to`}
-          value={task.workflow_status}
-          disabled={pending || task.has_subtasks}
-          onChange={(e) =>
-            void move(task, e.target.value as TaskWorkflowStatus)
-          }
-        >
-          {COLUMNS.map((c) => (
-            <option key={c.status} value={c.status}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-      </label>
-    )
     return (
       <li
         key={task.id}
@@ -128,8 +112,9 @@ export function KanbanBoard({
         <TaskCard
           task={task}
           projects={isGlobal ? projects : undefined}
-          actions={actions}
           onComplete={() => void move(task, 'done')}
+          onUpdate={(patch) => void onUpdate(task, patch)}
+          onSetStatus={(target) => void move(task, target)}
         />
       </li>
     )
