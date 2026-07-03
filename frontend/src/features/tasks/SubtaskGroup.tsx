@@ -7,6 +7,8 @@ import { TaskCard } from './TaskCard'
 interface SubtaskGroupProps {
   children: Task[]
   projects?: Project[]
+  /** Enables the one-click complete circle on each subtask card. */
+  onCompleteTask?: (task: Task) => void
 }
 
 /**
@@ -14,7 +16,7 @@ interface SubtaskGroupProps {
  * Mirrors the `.task-subtasks` / `.task-children` markup used by the global task
  * list so subtasks look and behave consistently wherever they appear.
  */
-export function SubtaskGroup({ children, projects }: SubtaskGroupProps) {
+export function SubtaskGroup({ children, projects, onCompleteTask }: SubtaskGroupProps) {
   const [expanded, setExpanded] = useState(false)
   if (children.length === 0) return null
   return (
@@ -36,7 +38,11 @@ export function SubtaskGroup({ children, projects }: SubtaskGroupProps) {
         <ul className="task-children">
           {children.map((t) => (
             <li key={t.id}>
-              <TaskCard task={t} projects={projects} />
+              <TaskCard
+                task={t}
+                projects={projects}
+                onComplete={onCompleteTask && (() => onCompleteTask(t))}
+              />
             </li>
           ))}
         </ul>

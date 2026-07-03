@@ -1209,3 +1209,28 @@ alias add/remove and description save-on-blur persistence.
       `taskFilters.ts` (pure helpers), `useTaskUrlState` (URL-backed state), `TaskFilters`,
       `TaskListView`, `TaskBoardView`, and `SubtaskComposer`. `TasksPage` reduced from ~865 to
       ~198 lines; zero behavior change, existing integration tests pass unchanged.
+
+---
+
+## UI/UX revamp companion — card-level quick actions
+> Frontend-only. Shipped 2026-07-03 alongside the slices 1–3 in-place editing epic.
+
+- [x] **One-click complete circle on every task card.** `TaskCard` gains an
+      always-visible leading circle (Todoist-style) via an `onComplete` prop —
+      no more hover-only "Mark done". Wired in the task list (replacing the
+      hover check action, same recurrence-safe done endpoint), the kanban board
+      (`move(task, 'done')`, guards intact), and ProjectDetailPage incl.
+      `SubtaskGroup`. Disabled with a title hint when status rolls up from
+      subtasks or the task is blocked; hidden on done cards.
+- [x] **Drag card → sidebar project to file it.** The sidebar now lists
+      projects under the Projects nav entry (`.shell-nav-projects`, refetched
+      per route change); each row is a nav link and a drop target. `TaskCard`
+      is draggable, carrying its id as `application/x-pcc-task` (plus
+      `text/plain` so kanban column drops keep working); dropping PATCHes
+      `project_id` with a "Task filed to X" toast.
+- [x] **Cross-page refresh seam.** New `TaskRefreshProvider` /
+      `useTaskRefresh` version context: the sidebar drop bumps it and
+      `useTasks` + ProjectDetailPage's task loaders refetch off it, so the
+      page under the drop updates in place. Vitest coverage in
+      `TaskCard.test.tsx` (circle states, drag payload); drag + complete
+      verified end-to-end in headless chromium against the live API.

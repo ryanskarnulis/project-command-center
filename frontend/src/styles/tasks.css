@@ -103,6 +103,35 @@
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+  flex: 1;
+}
+
+.task-complete-circle {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: transparent;
+  box-shadow: none;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.task-complete-circle:hover:not(:disabled),
+.task-complete-circle:focus-visible {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.task-complete-circle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .task-card-title {

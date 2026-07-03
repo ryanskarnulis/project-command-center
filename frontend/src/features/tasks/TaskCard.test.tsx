@@ -1,5 +1,5 @@
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
@@ -99,5 +99,63 @@ describe('TaskCard', () => {
   it('hides project name when projects not provided', () => {
     render_card()
     expect(screen.queryByText('HomeNetwork')).not.toBeInTheDocument()
+  })
+
+  describe('complete circle', () => {
+    function render_with_complete(task: Partial<Task> = {}) {
+      const onComplete = vi.fn()
+      render(
+        <MemoryRouter>
+          <TaskCard task={{ ...base, ...task }} onComplete={onComplete} />
+        </MemoryRouter>,
+      )
+      return onComplete
+    }
+
+    it('is hidden when onComplete is not provided', () => {
+      render_card()
+      expect(
+        screen.queryByRole('button', { name: 'Mark Patch the router done' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('calls onComplete on click without navigating', () => {
+      const onComplete = render_with_complete()
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Mark Patch the router done' }),
+      )
+      expect(onComplete).toHaveBeenCalledOnce()
+    })
+
+    it('is disabled for a blocked task', () => {
+      render_with_complete({ is_blocked: true })
+      expect(
+        screen.getByRole('button', { name: 'Mark Patch the router done' }),
+      ).toBeDisabled()
+    })
+
+    it('is disabled when status rolls up from subtasks', () => {
+      render_with_complete({ has_subtasks: true })
+      expect(
+        screen.getByRole('button', { name: 'Mark Patch the router done' }),
+      ).toBeDisabled()
+    })
+
+    it('is hidden on a done task', () => {
+      render_with_complete({ workflow_status: 'done' })
+      expect(
+        screen.queryByRole('button', { name: 'Mark Patch the router done' }),
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  it('sets the task id as drag data for sidebar filing and kanban drops', () => {
+    render_card()
+    const setData = vi.fn()
+    fireEvent.dragStart(screen.getByRole('link'), {
+      dataTransfer: { setData, effectAllowed: '' },
+    })
+    expect(setData).toHaveBeenCalledWith('application/x-pcc-task', '7')
+    expect(setData).toHaveBeenCalledWith('text/plain', '7')
   })
 })

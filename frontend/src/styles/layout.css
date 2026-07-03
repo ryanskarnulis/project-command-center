@@ -119,6 +119,43 @@
   color: var(--text-muted);
 }
 
+/* Project sublist under the Projects nav entry; each row is a drop target
+   for task cards dragged from any list/board. */
+.shell-nav-projects {
+  list-style: none;
+  margin: -2px 0 2px;
+  padding: 0 0 0 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shell-nav-project {
+  display: block;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px dashed transparent;
+}
+
+.shell-nav-project:hover,
+.shell-nav-project.active {
+  background: var(--blue-soft);
+  color: #0b55d9;
+}
+
+.shell-nav-project.drag-over {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  color: #0b55d9;
+}
+
 .focus-session {
   display: grid;
   grid-template-columns: 34px 1fr;

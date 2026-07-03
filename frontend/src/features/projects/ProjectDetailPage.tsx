@@ -9,7 +9,8 @@ import {
   listAliases,
   updateProject,
 } from '../../api/projects'
-import { listCompletedTasks, listTasks } from '../../api/tasks'
+import { listCompletedTasks, listTasks, markTaskDone } from '../../api/tasks'
+import { useToast } from '../../components/ToastContext'
 import type { ProjectSummary } from '../../types/dashboard'
 import type { Project, ProjectAlias, ProjectUpdate } from '../../types/project'
 import type { Task } from '../../types/task'
@@ -18,6 +19,7 @@ import { buildProjectStats } from '../../utils/projectStatus'
 import { TaskCard } from '../tasks/TaskCard'
 import { SubtaskGroup } from '../tasks/SubtaskGroup'
 import { TaskPanelProvider } from '../tasks/panel/TaskPanelProvider'
+import { useTaskRefresh } from '../tasks/taskRefreshContext'
 import { buildTaskTree } from '../tasks/taskTree'
 import { ActivityFeed } from './ActivityFeed'
 import { ProjectTabs } from './ProjectTabs'
@@ -62,6 +64,9 @@ export function ProjectDetailPage() {
   const [activityKey, setActivityKey] = useState(0)
   // Bumped after a peek-panel mutation so the task list refetches behind it.
   const [tasksReloadKey, setTasksReloadKey] = useState(0)
+  const { withToast } = useToast()
+  // Sidebar drag-to-file changes tasks outside this page — refetch off it too.
+  const { version: taskRefreshVersion } = useTaskRefresh()
 
   // AI summary (on-demand; 502-safe).
   const [summary, setSummary] = useState<ProjectSummary | null>(null)
@@ -112,7 +117,7 @@ export function ProjectDetailPage() {
         setTasksLoadedProjectId(id)
       })
     return () => { active = false }
-  }, [id, tasksReloadKey])
+  }, [id, tasksReloadKey, taskRefreshVersion])
 
   // Done count feeds the hero progress bar (best-effort).
   useEffect(() => {
@@ -121,7 +126,7 @@ export function ProjectDetailPage() {
       .then((data) => { if (active) setDoneCount(data.length) })
       .catch(() => { /* best-effort */ })
     return () => { active = false }
-  }, [id, tasksReloadKey])
+  }, [id, tasksReloadKey, taskRefreshVersion])
 
   useEffect(() => {
     let active = true
@@ -234,6 +239,12 @@ export function ProjectDetailPage() {
     } finally {
       setAliasBusy(false)
     }
+  }
+
+  async function handleCompleteTask(t: Task): Promise<void> {
+    await withToast(markTaskDone(t.id), { success: 'Task marked done' })
+    setTasksReloadKey((k) => k + 1)
+    setActivityKey((k) => k + 1)
   }
 
   if (loadedProjectId !== id) {
@@ -356,8 +367,11 @@ export function ProjectDetailPage() {
           <ul className="task-detail-list">
             {taskTree.roots.map((t) => (
               <li key={t.id}>
-                <TaskCard task={t} />
-                <SubtaskGroup children={taskTree.childrenOf.get(t.id) ?? []} />
+                <TaskCard task={t} onComplete={() => void handleCompleteTask(t)} />
+                <SubtaskGroup
+                  children={taskTree.childrenOf.get(t.id) ?? []}
+                  onCompleteTask={(s) => void handleCompleteTask(s)}
+                />
               </li>
             ))}
           </ul>

@@ -11,6 +11,7 @@ import {
 } from '../../api/tasks'
 import type { Task, TaskCreate, TaskUpdate } from '../../types/task'
 import { useTrashCount } from '../trash/trashCountContext'
+import { useTaskRefresh } from './taskRefreshContext'
 
 interface UseTasks {
   tasks: Task[]
@@ -30,6 +31,8 @@ export function useTasks(projectId?: number): UseTasks {
   const [refreshKey, setRefreshKey] = useState(0)
   const { withToast } = useToast()
   const { refresh: refreshTrashCount } = useTrashCount()
+  // Sidebar drag-to-file changes tasks outside this hook — refetch off it too.
+  const { version: taskRefreshVersion } = useTaskRefresh()
 
   const reload = useCallback(() => setRefreshKey((k) => k + 1), [])
 
@@ -53,7 +56,7 @@ export function useTasks(projectId?: number): UseTasks {
     return () => {
       active = false
     }
-  }, [projectId, refreshKey])
+  }, [projectId, refreshKey, taskRefreshVersion])
 
   const create = useCallback(
     async (data: TaskCreate) => {

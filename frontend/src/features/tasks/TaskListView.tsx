@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Check, ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { AsyncState } from '../../components/AsyncState'
 import type { Project } from '../../types/project'
 import type { Task, TaskCreate } from '../../types/task'
@@ -114,16 +114,6 @@ export function TaskListView({
           <Plus size={16} aria-hidden="true" />
           Add subtask
         </button>
-        {t.workflow_status !== 'done' && !t.has_subtasks && !t.is_blocked && (
-          <button
-            className="task-icon-action"
-            aria-label={`Mark ${t.title} done`}
-            title="Mark done"
-            onClick={() => void markDone(t.id).then(bumpActivity)}
-          >
-            <Check size={17} aria-hidden="true" />
-          </button>
-        )}
         <button
           className="task-icon-action danger-action"
           aria-label={`Delete ${t.title}`}
@@ -140,6 +130,7 @@ export function TaskListView({
           task={t}
           projects={isGlobal ? projects : undefined}
           actions={actions}
+          onComplete={() => void markDone(t.id).then(bumpActivity)}
         />
         {subtaskParentId === t.id && (
           <SubtaskComposer

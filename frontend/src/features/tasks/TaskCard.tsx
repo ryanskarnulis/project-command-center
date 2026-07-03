@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react'
-import { Repeat } from 'lucide-react'
+import type { DragEvent, ReactNode } from 'react'
+import { Check, Repeat } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Badge } from '../../components/Badge'
 import type { Project } from '../../types/project'
@@ -9,17 +9,22 @@ import { formatDuration } from '../../utils/duration'
 import { formatRepeatInterval } from '../../utils/recurrence'
 import { useTaskLinkTo } from './panel/taskPanelContext'
 
+/** dataTransfer type carrying a task id; sidebar projects accept drops of it. */
+export const TASK_DRAG_TYPE = 'application/x-pcc-task'
+
 interface Props {
   task: Task
   projects?: Project[]
   actions?: ReactNode
+  /** When set, a one-click complete circle leads the card (hidden on done). */
+  onComplete?: () => void
 }
 
 function blockingLabel(count: number): string {
   return `Blocking ${count} ${count === 1 ? 'task' : 'tasks'}`
 }
 
-export function TaskCard({ task, projects, actions }: Props) {
+export function TaskCard({ task, projects, actions, onComplete }: Props) {
   const taskLinkTo = useTaskLinkTo()
   const due = dueStatus(task.due_date)
   const projectName = projects?.find((p) => p.id === task.project_id)?.name
@@ -27,8 +32,46 @@ export function TaskCard({ task, projects, actions }: Props) {
     ? 'In progress'
     : task.workflow_status[0].toUpperCase() + task.workflow_status.slice(1)
 
+  // Parents roll status up from subtasks; blocked tasks can't move to done —
+  // same guards the list's old hover action and the board's move() enforce.
+  const completeDisabled = task.has_subtasks || task.is_blocked
+  const completeTitle = task.has_subtasks
+    ? 'Status is rolled up from subtasks'
+    : task.is_blocked
+      ? 'Blocked by an unfinished dependency'
+      : 'Mark done'
+
+  function onDragStart(e: DragEvent<HTMLAnchorElement>) {
+    // text/plain keeps the kanban column drop working; the custom type lets
+    // sidebar projects accept only task drags.
+    e.dataTransfer.setData(TASK_DRAG_TYPE, String(task.id))
+    e.dataTransfer.setData('text/plain', String(task.id))
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
   return (
-    <Link to={taskLinkTo(task.id)} className="task-card" aria-label={task.title}>
+    <Link
+      to={taskLinkTo(task.id)}
+      className="task-card"
+      aria-label={task.title}
+      draggable
+      onDragStart={onDragStart}
+    >
+      {onComplete && task.workflow_status !== 'done' && (
+        <button
+          type="button"
+          className="task-complete-circle"
+          aria-label={`Mark ${task.title} done`}
+          title={completeTitle}
+          disabled={completeDisabled}
+          onClick={(e) => {
+            e.preventDefault()
+            onComplete()
+          }}
+        >
+          <Check size={13} aria-hidden="true" />
+        </button>
+      )}
       <div className="task-card-body">
         <span className="task-card-title">{task.title}</span>
         <div className="task-card-badges">

@@ -76,22 +76,3 @@
       the existing `edits` payload on the per-candidate decide endpoint —
       diffed against what the backend would apply anyway; "Approve all"
       carries them too. No backend changes.)*
-
-## Slice 4 — Merged working landing screen
-
-*Design after slices 1–3 prove the interaction patterns.*
-
-- [ ] Merge Dashboard + Today into one Command Center working surface:
-      capture box, today's timeline (Start/Done inline), inbox candidates
-      triage-able in place, blockers — act there, don't navigate elsewhere.
-- [ ] Shrink the sidebar accordingly (Today and Command Center collapse into
-      one destination; target ~5–6 entries).
-- [ ] Re-point dashboard metric cards at in-place actions where one exists
-      (e.g. "Awaiting review" opens the triage queue inline, not `/inbox`).
-
-## Companions (opportunistic, not gating)
-
-- [ ] Command-palette verbs beyond `/new` + `/done` (`/start`, `/due`,
-      `/move`, go-to navigation) on the existing parseCommand seam.
-- [ ] One-click complete circle on every task card (today it hides in hover
-      actions); drag card → sidebar project to file it.

@@ -129,6 +129,7 @@ export function KanbanBoard({
           task={task}
           projects={isGlobal ? projects : undefined}
           actions={actions}
+          onComplete={() => void move(task, 'done')}
         />
       </li>
     )
