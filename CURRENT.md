@@ -81,10 +81,15 @@ next ceiling, and deploy widens the read paths. Add before the dataset grows.
 
 ## Slice 4 (stretch) — Rollup engine subtree scoping
 
-- [ ] **(low)** `_children_map` runs on every task list *and* every single-task read via
-      `_read(s)_with_blocked`, loading the whole task table each time. Scope it to the
-      requested subtree or memoize per request. Do only if Slices 1–3 land small — this is
-      the lowest-value of the deferred notes.
+- [x] **(low)** `_children_map` loaded the whole accepted task table on every call —
+      hit on every task list *and* every single-task read via `_read(s)_with_blocked`.
+      Replaced with `_children_map_for(db, roots)`, which descends level by level from the
+      requested root ids (each an indexed `parent_task_id.in_(...)` lookup, using the Slice 2
+      index) and stops at the subtree boundary. A leaf single-task read is now one zero-row
+      query instead of a full-table scan; the dashboard's full-set path
+      (`compute_rollups_for_full_set`) is unchanged. Guard test
+      `test_compute_rollups_scoped_to_subtree` covers a multi-level tree, an unrelated tree
+      that must not leak, and an ancestor+descendant root set (the descent's dedup path).
 
 ---
 

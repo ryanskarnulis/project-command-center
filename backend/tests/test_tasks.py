@@ -710,6 +710,28 @@ def test_completed_checklist_parent_leaves_open_list_and_counts(
     assert parent.id in completed_ids
 
 
+def test_compute_rollups_scoped_to_subtree(db_session: Session) -> None:
+    # Roll-ups are resolved from only the requested subtree, not the whole table.
+    # Two independent trees plus a root set that mixes an ancestor with its own
+    # descendant (exercises the level-by-level descent's dedup path): every
+    # resolved value must match a whole-table resolution.
+    parent = tasks_service.create_task(db_session, project_id=None, title="parent")
+    mid = _accepted_subtask(db_session, parent.id, title="mid", estimated_minutes=10)
+    _accepted_subtask(db_session, mid.id, title="leaf1", estimated_minutes=20)
+    _accepted_subtask(db_session, mid.id, title="leaf2", estimated_minutes=5)
+
+    # Unrelated tree that must not leak into parent's roll-up.
+    other = tasks_service.create_task(db_session, project_id=None, title="other")
+    _accepted_subtask(db_session, other.id, title="x", estimated_minutes=999)
+    db_session.commit()
+
+    rollups = tasks_service.compute_rollups(db_session, [parent, mid])
+    # parent = leaf1 + leaf2 (mid's own 10 ignored); mid resolves the same subtree.
+    assert rollups[parent.id].estimated_minutes == 25
+    assert rollups[mid.id].estimated_minutes == 25
+    assert rollups[parent.id].has_subtasks is True
+
+
 def test_candidate_children_do_not_count(db_session: Session) -> None:
     parent = tasks_service.create_task(db_session, project_id=None, title="parent")
     tasks_service.create_task(

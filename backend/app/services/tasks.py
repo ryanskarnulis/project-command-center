@@ -178,18 +178,39 @@ def _rollup_status(child_statuses: Sequence[TaskWorkflowStatus]) -> TaskWorkflow
     return TaskWorkflowStatus.in_progress
 
 
-def _children_map(db: Session) -> dict[int | None, list[Task]]:
-    """``parent_id -> children`` over all active, accepted tasks (one query)."""
-    rows = (
-        db.execute(
-            active(Task).where(Task.review_status == TaskReviewStatus.accepted)
-        )
-        .scalars()
-        .all()
-    )
+def _children_map_for(
+    db: Session, roots: Sequence[Task]
+) -> dict[int | None, list[Task]]:
+    """``parent_id -> children`` over ``roots`` and all their active, accepted
+    descendants.
+
+    Only the requested subtree is loaded, not the whole task table: we descend
+    level by level from the root ids, each query an indexed lookup on
+    ``parent_task_id``. A leaf read is a single zero-row query. The returned map
+    is complete for resolving the roll-up of every task in ``roots`` (which
+    ``_resolve_rollup`` only ever walks downward through), and no more.
+    """
     by_parent: dict[int | None, list[Task]] = {}
-    for row in rows:
-        by_parent.setdefault(row.parent_task_id, []).append(row)
+    frontier = [t.id for t in roots]
+    seen: set[int] = set(frontier)
+    while frontier:
+        rows = (
+            db.execute(
+                active(Task).where(
+                    Task.review_status == TaskReviewStatus.accepted,
+                    Task.parent_task_id.in_(frontier),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        next_frontier: list[int] = []
+        for row in rows:
+            by_parent.setdefault(row.parent_task_id, []).append(row)
+            if row.id not in seen:
+                seen.add(row.id)
+                next_frontier.append(row.id)
+        frontier = next_frontier
     return by_parent
 
 
@@ -224,13 +245,14 @@ def _rollups_over(
 
 
 def compute_rollups(db: Session, tasks: Sequence[Task]) -> dict[int, Rollup]:
-    """Derived roll-up per task id, resolved in a single query (no N+1).
+    """Derived roll-up per task id, resolved without an N+1 over children.
 
-    ``tasks`` may be any subset, so the child map is read fresh from the whole
-    accepted set. A caller that already holds that entire set (the dashboard's
+    ``tasks`` may be any subset, so the child map is read fresh — but scoped to
+    the requested subtree (``roots`` + descendants), not the whole accepted
+    table. A caller that already holds the entire accepted set (the dashboard's
     open-task scan) should use ``compute_rollups_for_full_set`` to skip the reread.
     """
-    return _rollups_over(tasks, _children_map(db))
+    return _rollups_over(tasks, _children_map_for(db, tasks))
 
 
 def compute_rollups_for_full_set(tasks: Sequence[Task]) -> dict[int, Rollup]:
