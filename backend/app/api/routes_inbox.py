@@ -51,9 +51,19 @@ def create_inbox(data: InboxCreate, db: Session = Depends(get_db)) -> InboxItem:
     return item
 
 
+# Server-side default cap for the otherwise-unbounded inbox read. Mirrors the
+# all-tasks shape; the UI requests everything, so the cap is generous.
+DEFAULT_INBOX_LIMIT = 200
+MAX_INBOX_LIMIT = 500
+
+
 @router.get("", response_model=list[InboxRead])
-def list_inbox(db: Session = Depends(get_db)) -> Sequence[InboxItem]:
-    return inbox_service.list_inbox_items(db)
+def list_inbox(
+    limit: int = Query(default=DEFAULT_INBOX_LIMIT, ge=1, le=MAX_INBOX_LIMIT),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> Sequence[InboxItem]:
+    return inbox_service.list_inbox_items(db, limit=limit, offset=offset)
 
 
 @router.get("/pending", response_model=list[InboxRead])

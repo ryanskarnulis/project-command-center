@@ -68,12 +68,16 @@ next ceiling, and deploy widens the read paths. Add before the dataset grows.
 
 ## Slice 3 — Pagination / limits on unbounded list endpoints (BE)
 
-- [ ] `GET /api/tasks` and `GET /api/inbox` are unbounded — give both a sane server-side
-      default limit (+ offset or cursor) even though the UI initially requests "all"
-      (trash/pending lists are already capped; mirror that shape).
-- [ ] Keep the frontend working against the new default (request the cap explicitly if the
-      list views genuinely need everything for now).
-- [ ] pytest for the limit/offset behaviour.
+- [x] `GET /api/tasks` and `GET /api/inbox` now take `limit`/`offset` query params with a
+      sane server-side default cap (tasks 500/max 1000, inbox 200/max 500), mirroring the
+      trash/pending shape. Services grew optional `limit`/`offset` (default unbounded, so
+      internal callers are unchanged); the default cap lives at the route layer. Caveat
+      recorded in `list_tasks`: because effective workflow-status roll-up filtering happens
+      in Python *after* the SQL page, a status-filtered page can return fewer than `limit`
+      rows — fine as a bounding cap, not exact page-boundary pagination.
+- [x] Frontend list views (`listAllTasks`, `listCompletedTasks`, `listInbox`) request the
+      max cap explicitly, so growth past the default doesn't silently truncate them.
+- [x] pytest for limit/offset paging and out-of-range (422) validation on both endpoints.
 
 ## Slice 4 (stretch) — Rollup engine subtree scoping
 

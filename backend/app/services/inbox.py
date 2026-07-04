@@ -66,8 +66,15 @@ def get_inbox_item(db: Session, inbox_item_id: int) -> InboxItem | None:
     ).scalar_one_or_none()
 
 
-def list_inbox_items(db: Session) -> Sequence[InboxItem]:
-    return db.execute(active(InboxItem).order_by(InboxItem.id)).scalars().all()
+def list_inbox_items(
+    db: Session, *, limit: int | None = None, offset: int = 0
+) -> Sequence[InboxItem]:
+    query = active(InboxItem).order_by(InboxItem.id)
+    if offset:
+        query = query.offset(offset)
+    if limit is not None:
+        query = query.limit(limit)
+    return db.execute(query).scalars().all()
 
 
 def list_pending_review_items(

@@ -13,15 +13,20 @@ export async function listTasks(projectId: number): Promise<Task[]> {
   return (await res.json()) as Task[]
 }
 
+// The all-tasks endpoint now caps its result server-side (default 500, max
+// 1000). These views want the full working set, so they request the max
+// explicitly rather than relying on the smaller default.
+const MAX_TASK_LIMIT = 1000
+
 export async function listAllTasks(): Promise<Task[]> {
-  const res = await apiClient('/api/tasks')
+  const res = await apiClient(`/api/tasks?limit=${MAX_TASK_LIMIT}`)
   return (await res.json()) as Task[]
 }
 
 export async function listCompletedTasks(projectId?: number): Promise<Task[]> {
   const path =
     projectId === undefined
-      ? '/api/tasks?workflow_status=done'
+      ? `/api/tasks?workflow_status=done&limit=${MAX_TASK_LIMIT}`
       : `/api/projects/${projectId}/tasks?workflow_status=done`
   const res = await apiClient(path)
   return (await res.json()) as Task[]

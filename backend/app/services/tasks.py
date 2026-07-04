@@ -291,7 +291,16 @@ def list_tasks(
     workflow_status: TaskWorkflowStatus | None = None,
     exclude_done: bool = False,
     top_level_only: bool = False,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> Sequence[Task]:
+    # ``limit``/``offset`` bound the SQL read (default: unbounded, for internal
+    # callers). They are applied to the *stored* row set, before the effective
+    # workflow-status roll-up filters below in Python — so when
+    # ``workflow_status``/``exclude_done`` is active a page can return fewer than
+    # ``limit`` rows even though more matches exist further down the id order.
+    # That is acceptable for a bounding cap (the purpose here) but means this is
+    # not exact page-boundary pagination for the status-filtered views.
     query = active(Task).order_by(Task.id)
     if project_id is not None:
         query = query.where(Task.project_id == project_id)
@@ -299,6 +308,10 @@ def list_tasks(
         query = query.where(Task.review_status == review_status)
     if top_level_only:
         query = query.where(Task.parent_task_id.is_(None))
+    if offset:
+        query = query.offset(offset)
+    if limit is not None:
+        query = query.limit(limit)
     tasks = db.execute(query).scalars().all()
 
     # Status filtering resolves EFFECTIVE (rolled-up) status, not the stored

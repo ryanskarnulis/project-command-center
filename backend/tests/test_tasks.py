@@ -178,6 +178,35 @@ def test_global_tasks_route_lists_accepted_tasks_across_projects(
     assert ids == [open_a.id, open_b.id]
 
 
+def test_global_tasks_route_limit_and_offset_page_the_result(
+    client: TestClient, db_session: Session
+) -> None:
+    project = projects_service.create_project(db_session, name="Bulk")
+    created = [
+        tasks_service.create_task(db_session, project_id=project.id, title=f"t{i}")
+        for i in range(5)
+    ]
+    db_session.commit()
+    ids = [t.id for t in created]
+
+    first = client.get("/api/tasks?limit=2")
+    assert first.status_code == 200
+    assert [r["id"] for r in first.json()] == ids[:2]
+
+    second = client.get("/api/tasks?limit=2&offset=2")
+    assert second.status_code == 200
+    assert [r["id"] for r in second.json()] == ids[2:4]
+
+    tail = client.get("/api/tasks?limit=2&offset=4")
+    assert [r["id"] for r in tail.json()] == ids[4:]
+
+
+def test_global_tasks_route_rejects_out_of_range_limit(client: TestClient) -> None:
+    assert client.get("/api/tasks?limit=0").status_code == 422
+    assert client.get("/api/tasks?limit=1001").status_code == 422
+    assert client.get("/api/tasks?offset=-1").status_code == 422
+
+
 def test_deleted_project_tasks_are_trashed_with_the_project(
     client: TestClient, db_session: Session
 ) -> None:

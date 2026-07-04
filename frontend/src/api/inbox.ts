@@ -18,8 +18,12 @@ export async function createInbox(data: InboxCreate): Promise<InboxItem> {
   return (await res.json()) as InboxItem
 }
 
+// The inbox list now caps server-side (default 200, max 500); request the max
+// so the full inbox still loads for now.
+const MAX_INBOX_LIMIT = 500
+
 export async function listInbox(): Promise<InboxItem[]> {
-  const res = await apiClient('/api/inbox')
+  const res = await apiClient(`/api/inbox?limit=${MAX_INBOX_LIMIT}`)
   return (await res.json()) as InboxItem[]
 }
 

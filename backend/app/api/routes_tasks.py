@@ -75,12 +75,21 @@ def list_tasks(
     )
 
 
+# Server-side default cap for the otherwise-unbounded all-tasks read. The UI
+# requests everything, so the cap is generous; a client that genuinely needs a
+# different window passes ``limit``/``offset`` explicitly.
+DEFAULT_TASK_LIMIT = 500
+MAX_TASK_LIMIT = 1000
+
+
 @router.get("/tasks", response_model=list[TaskRead])
 def list_all_tasks(
     review_status: TaskReviewStatus | None = Query(
         default=TaskReviewStatus.accepted
     ),
     workflow_status: TaskWorkflowStatus | None = Query(default=None),
+    limit: int = Query(default=DEFAULT_TASK_LIMIT, ge=1, le=MAX_TASK_LIMIT),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[TaskRead]:
     return reads_with_blocked(
@@ -90,6 +99,8 @@ def list_all_tasks(
             review_status=review_status,
             workflow_status=workflow_status,
             exclude_done=workflow_status is None,
+            limit=limit,
+            offset=offset,
         ),
     )
 

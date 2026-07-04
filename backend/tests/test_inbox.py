@@ -2,6 +2,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
@@ -14,6 +15,31 @@ from app.services.common import active, soft_delete
 def test_hash_text_is_deterministic() -> None:
     assert inbox_service.hash_text("hello") == inbox_service.hash_text("hello")
     assert inbox_service.hash_text("hello") != inbox_service.hash_text("world")
+
+
+def test_list_inbox_route_limit_and_offset_page_the_result(
+    client: TestClient, db_session: Session
+) -> None:
+    created = [
+        inbox_service.create_inbox_item(db_session, raw_text=f"note {i}")
+        for i in range(5)
+    ]
+    db_session.commit()
+    ids = [item.id for item in created]
+
+    first = client.get("/api/inbox?limit=2")
+    assert first.status_code == 200
+    assert [r["id"] for r in first.json()] == ids[:2]
+
+    second = client.get("/api/inbox?limit=2&offset=2")
+    assert second.status_code == 200
+    assert [r["id"] for r in second.json()] == ids[2:4]
+
+
+def test_list_inbox_route_rejects_out_of_range_limit(client: TestClient) -> None:
+    assert client.get("/api/inbox?limit=0").status_code == 422
+    assert client.get("/api/inbox?limit=501").status_code == 422
+    assert client.get("/api/inbox?offset=-1").status_code == 422
 
 
 def test_create_inbox_item_is_idempotent(db_session: Session) -> None:
