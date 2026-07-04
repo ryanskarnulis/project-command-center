@@ -11,10 +11,12 @@ import {
   CornerDownRight,
   Inbox,
   Play,
+  SkipForward,
 } from 'lucide-react'
-import { markTaskDone, updateTask } from '../../api/tasks'
+import { markTaskDone, skipOccurrence, updateTask } from '../../api/tasks'
 import { useToast } from '../../components/ToastContext'
 import type { TaskPriority, TaskWorkflowStatus } from '../../types/task'
+import { SkipOccurrenceConfirm } from '../tasks/SkipOccurrenceConfirm'
 import type {
   BlockedTask,
   DueSignal,
@@ -131,14 +133,20 @@ function TodayRowActions({
   taskId,
   title,
   workflowStatus,
+  isRecurring,
   planDate,
   onMutated,
+  onSkip,
 }: {
   taskId: number
   title: string
   workflowStatus: TaskWorkflowStatus
+  isRecurring: boolean
   planDate: string
   onMutated: () => void
+  // Opens the page-level skip confirm; the actual skip + refetch run there so a
+  // row unmounting mid-confirm doesn't strand the dialog.
+  onSkip: (taskId: number, title: string) => void
 }) {
   const { withToast } = useToast()
   const [pending, setPending] = useState(false)
@@ -201,6 +209,18 @@ function TodayRowActions({
         <ChevronsRight size={15} aria-hidden="true" />
         Defer
       </button>
+      {isRecurring && (
+        <button
+          type="button"
+          className="task-action"
+          disabled={pending}
+          aria-label={`Skip this occurrence of ${title}`}
+          onClick={() => onSkip(taskId, title)}
+        >
+          <SkipForward size={15} aria-hidden="true" />
+          Skip
+        </button>
+      )}
     </div>
   )
 }
@@ -210,11 +230,13 @@ function ScheduledRow({
   past,
   planDate,
   onMutated,
+  onSkip,
 }: {
   block: ScheduledBlock
   past: boolean
   planDate: string
   onMutated: () => void
+  onSkip: (taskId: number, title: string) => void
 }) {
   const taskLinkTo = useTaskLinkTo()
   return (
@@ -251,8 +273,10 @@ function ScheduledRow({
         taskId={block.task_id}
         title={block.title}
         workflowStatus={block.workflow_status}
+        isRecurring={block.is_recurring}
         planDate={planDate}
         onMutated={onMutated}
+        onSkip={onSkip}
       />
     </li>
   )
@@ -262,10 +286,12 @@ function OverflowRow({
   task,
   planDate,
   onMutated,
+  onSkip,
 }: {
   task: OverflowTask
   planDate: string
   onMutated: () => void
+  onSkip: (taskId: number, title: string) => void
 }) {
   const taskLinkTo = useTaskLinkTo()
   return (
@@ -286,8 +312,10 @@ function OverflowRow({
         taskId={task.task_id}
         title={task.title}
         workflowStatus={task.workflow_status}
+        isRecurring={task.is_recurring}
         planDate={planDate}
         onMutated={onMutated}
+        onSkip={onSkip}
       />
     </li>
   )
@@ -386,6 +414,19 @@ export function TodayPage() {
 
   const nowMinutes = useNowMinutes()
   const viewingToday = date === localToday()
+  const { withToast } = useToast()
+  // The recurring task whose skip is awaiting confirmation (null = no dialog).
+  const [skipTarget, setSkipTarget] = useState<{ id: number; title: string } | null>(
+    null,
+  )
+
+  async function confirmSkip() {
+    if (!skipTarget) return
+    const { id } = skipTarget
+    setSkipTarget(null)
+    await withToast(skipOccurrence(id), { success: 'Occurrence skipped' })
+    refetch()
+  }
 
   const capacityOptions =
     capacityMode === 'minutes' && !CAPACITY_PRESETS.includes(capacityMinutes)
@@ -498,6 +539,7 @@ export function TodayPage() {
                       past={nowIndex >= 0 ? index < nowIndex : false}
                       planDate={plan.date}
                       onMutated={refetch}
+                      onSkip={(id, title) => setSkipTarget({ id, title })}
                     />
                   </Fragment>
                 ))}
@@ -533,6 +575,7 @@ export function TodayPage() {
                     task={task}
                     planDate={plan.date}
                     onMutated={refetch}
+                    onSkip={(id, title) => setSkipTarget({ id, title })}
                   />
                 ))}
               </ul>
@@ -555,6 +598,12 @@ export function TodayPage() {
           )}
         </>
       )}
+
+      <SkipOccurrenceConfirm
+        taskTitle={skipTarget?.title ?? null}
+        onCancel={() => setSkipTarget(null)}
+        onConfirm={() => void confirmSkip()}
+      />
     </main>
     </TaskPanelProvider>
   )

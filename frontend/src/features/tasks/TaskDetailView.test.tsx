@@ -47,6 +47,7 @@ const task: Task = {
   estimated_minutes: null,
   repeat_interval: null,
   recurrence_id: null,
+  next_occurrence_date: null,
   confidence: null,
   assignee_hint: null,
   created_at: '2026-06-01T00:00:00Z',
@@ -224,6 +225,7 @@ describe('TaskDetailView', () => {
     mockGetTask.mockResolvedValue({
       ...task,
       recurrence_id: 'abc123',
+      next_occurrence_date: null,
       due_date: '2026-07-10',
       repeat_interval: { unit: 'week', every: 1 },
     })

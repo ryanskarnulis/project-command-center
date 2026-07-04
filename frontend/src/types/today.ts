@@ -18,6 +18,8 @@ export interface ScheduledBlock {
   workflow_status: TaskWorkflowStatus
   due_date: string | null
   due_signal: DueSignal
+  // True when the underlying task recurs, so the row can offer "skip occurrence".
+  is_recurring: boolean
   // Deterministic, human-readable placement explanation. No model prose.
   reason: string
   // Set when this block is a subtask standing in for a parent that didn't fit
@@ -34,6 +36,8 @@ export interface OverflowTask {
   workflow_status: TaskWorkflowStatus
   due_date: string | null
   due_signal: DueSignal
+  // True when the underlying task recurs, so the row can offer "skip occurrence".
+  is_recurring: boolean
   estimated_minutes: number
   estimate_assumed: boolean
   // How many of this task's subtasks made the timeline in its place.

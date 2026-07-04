@@ -28,6 +28,9 @@ class InboxRead(BaseModel):
     reviewed_at: UTCDateTime | None
     model_name: str | None
     suggested_project_id: int | None
+    # The project alias the deterministic matcher matched on, when the suggestion
+    # came from an alias hit. None for name matches, the AI fallback, or no match.
+    matched_alias: str | None = None
     created_at: UTCDateTime
     updated_at: UTCDateTime
     deleted_at: UTCDateTime | None = None

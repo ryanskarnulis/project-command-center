@@ -8,9 +8,17 @@ from sqlalchemy.orm import Session
 from app.ai import gateway
 from app.ai.workflows import match_project as match_workflow
 from app.config import Settings, get_settings
-from app.db.models import AITrainingExample, InboxItem, InboxSource, TaskReviewStatus
+from app.db.models import (
+    AITrainingExample,
+    InboxItem,
+    InboxSource,
+    TaskReviewStatus,
+    TaskWorkflowStatus,
+)
 from app.main import app
 from app.schemas.common import MAX_INBOX_RAW_TEXT_LENGTH
+from app.services import projects as projects_service
+from app.services import tasks as tasks_service
 from app.services.common import active
 
 _SECRET = "test-secret"
@@ -292,3 +300,144 @@ def test_discord_inbox_malformed_extraction_422_and_training_row(
     assert len(examples) == 1
     assert examples[0].accepted is False
     assert examples[0].model_output_json == bad
+
+
+# --- /api/discord/tasks (list) and /api/discord/tasks/search --------------------
+
+
+def test_discord_tasks_lists_only_open_tasks(
+    client: TestClient, db_session: Session, with_secret: None
+) -> None:
+    project = projects_service.create_project(db_session, name="Firewall")
+    tasks_service.create_task(db_session, project_id=project.id, title="audit rules")
+    tasks_service.create_task(
+        db_session,
+        project_id=project.id,
+        title="already finished",
+        workflow_status=TaskWorkflowStatus.done,
+    )
+    tasks_service.create_task(
+        db_session,
+        project_id=project.id,
+        title="still a candidate",
+        review_status=TaskReviewStatus.candidate,
+    )
+    deleted = tasks_service.create_task(
+        db_session, project_id=project.id, title="trashed"
+    )
+    tasks_service.soft_delete_task(db_session, deleted)
+    db_session.commit()
+
+    resp = client.get("/api/discord/tasks", headers=_HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [t["title"] for t in body["tasks"]] == ["audit rules"]
+    assert body["total"] == 1
+    assert body["tasks"][0]["project_name"] == "Firewall"
+
+
+def test_discord_tasks_filter_by_name_and_alias(
+    client: TestClient, db_session: Session, with_secret: None
+) -> None:
+    firewall = projects_service.create_project(db_session, name="Firewall")
+    projects_service.create_alias(db_session, project_id=firewall.id, alias="FW")
+    kitchen = projects_service.create_project(db_session, name="Kitchen")
+    tasks_service.create_task(db_session, project_id=firewall.id, title="audit rules")
+    tasks_service.create_task(db_session, project_id=kitchen.id, title="buy milk")
+    db_session.commit()
+
+    by_name = client.get("/api/discord/tasks?project=Firewall", headers=_HEADERS).json()
+    assert [t["title"] for t in by_name["tasks"]] == ["audit rules"]
+
+    # Alias resolves to the same project; matching is case/space-insensitive.
+    by_alias = client.get("/api/discord/tasks?project=fw", headers=_HEADERS).json()
+    assert [t["title"] for t in by_alias["tasks"]] == ["audit rules"]
+
+    unknown = client.get("/api/discord/tasks?project=Nope", headers=_HEADERS).json()
+    assert unknown == {"tasks": [], "total": 0}
+
+
+def test_discord_tasks_search_ranks_and_filters(
+    client: TestClient, db_session: Session, with_secret: None
+) -> None:
+    project = projects_service.create_project(db_session, name="Ops")
+    tasks_service.create_task(db_session, project_id=project.id, title="Deploy the firewall")
+    tasks_service.create_task(db_session, project_id=project.id, title="Deploy")
+    tasks_service.create_task(
+        db_session,
+        project_id=project.id,
+        title="Deploy old build",
+        workflow_status=TaskWorkflowStatus.done,
+    )
+    db_session.commit()
+
+    body = client.get("/api/discord/tasks/search?q=Deploy", headers=_HEADERS).json()
+    titles = [t["title"] for t in body["tasks"]]
+    # Exact-title match ranks first; the done task is excluded.
+    assert titles == ["Deploy", "Deploy the firewall"]
+
+
+def test_discord_tasks_search_blank_query_returns_empty(
+    client: TestClient, db_session: Session, with_secret: None
+) -> None:
+    project = projects_service.create_project(db_session, name="Ops")
+    tasks_service.create_task(db_session, project_id=project.id, title="Deploy")
+    db_session.commit()
+
+    body = client.get("/api/discord/tasks/search?q=%20%20", headers=_HEADERS).json()
+    assert body == {"tasks": []}
+
+
+def test_discord_tasks_requires_secret(
+    client: TestClient, with_secret: None
+) -> None:
+    assert client.get("/api/discord/tasks").status_code == 401
+    assert client.get("/api/discord/tasks/search?q=x").status_code == 401
+    assert (
+        client.get("/api/discord/tasks", headers={"X-Backend-Secret": "wrong"}).status_code
+        == 401
+    )
+
+
+def test_discord_tasks_unconfigured_503(client: TestClient) -> None:
+    app.dependency_overrides[get_settings] = lambda: Settings(backend_shared_secret="")
+    try:
+        assert client.get("/api/discord/tasks", headers=_HEADERS).status_code == 503
+        assert (
+            client.get("/api/discord/tasks/search?q=x", headers=_HEADERS).status_code
+            == 503
+        )
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+
+
+def test_discord_done_path_preserves_recurrence(
+    client: TestClient, db_session: Session
+) -> None:
+    """The bot's /done hits POST /api/tasks/{id}/done, which spawns the next occurrence."""
+    from datetime import date
+
+    project = projects_service.create_project(db_session, name="Ops")
+    task = tasks_service.create_task(
+        db_session,
+        project_id=project.id,
+        title="weekly backup",
+        due_date=date(2026, 7, 3),
+    )
+    task.repeat_interval = {"unit": "week", "every": 1}
+    db_session.commit()
+
+    resp = client.post(f"/api/tasks/{task.id}/done")
+    assert resp.status_code == 200
+
+    remaining = tasks_service.list_tasks(
+        db_session,
+        project.id,
+        review_status=TaskReviewStatus.accepted,
+        exclude_done=True,
+    )
+    # The completed task is gone from the open list; a fresh occurrence took its place.
+    next_occurrences = [t for t in remaining if t.title == "weekly backup"]
+    assert len(next_occurrences) == 1
+    assert next_occurrences[0].id != task.id
+    assert next_occurrences[0].due_date == date(2026, 7, 10)

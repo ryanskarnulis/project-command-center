@@ -251,3 +251,28 @@ def test_block_times_are_sequential_from_start(db_session: Session) -> None:
     assert plan.scheduled[1].start_time == "09:30"
     assert plan.scheduled[1].end_time == "10:15"
     assert plan.used_minutes == 75
+
+
+def test_scheduled_and_overflow_flag_recurring(db_session: Session) -> None:
+    plain = _task(db_session, "plain", due_date=TARGET, estimated_minutes=30)
+    rec = _task(db_session, "rec", due_date=TARGET, estimated_minutes=30)
+    task = tasks_service.get_task(db_session, rec)
+    assert task is not None
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+
+    # Scheduled: the recurring block is flagged, the plain one isn't.
+    plan = today_service.get_today_plan(db_session, target_date=TARGET)
+    scheduled = {b.task_id: b.is_recurring for b in plan.scheduled}
+    assert scheduled[rec] is True
+    assert scheduled[plain] is False
+
+    # Overflow carries the flag too (tiny capacity forces both to overflow).
+    tight = today_service.get_today_plan(
+        db_session, target_date=TARGET, available_minutes=15
+    )
+    overflow = {o.task_id: o.is_recurring for o in tight.overflow}
+    assert overflow[rec] is True
+    assert overflow[plain] is False

@@ -22,6 +22,7 @@ const base: Task = {
   estimated_minutes: null,
   repeat_interval: null,
   recurrence_id: null,
+  next_occurrence_date: null,
   confidence: null,
   assignee_hint: null,
   created_at: '2026-06-01T00:00:00',
@@ -146,6 +147,51 @@ describe('TaskCard', () => {
       render_with_complete({ workflow_status: 'done' })
       expect(
         screen.queryByRole('button', { name: 'Mark Patch the router done' }),
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  describe('recurrence', () => {
+    it('shows the next occurrence beside the repeat badge', () => {
+      render_card({
+        repeat_interval: { unit: 'week', every: 1 },
+        next_occurrence_date: '2026-07-10',
+      })
+      expect(screen.getByText(/weekly/)).toBeInTheDocument()
+      expect(screen.getByText(/next Jul 10/)).toBeInTheDocument()
+    })
+
+    it('omits the next-occurrence hint when the date is null', () => {
+      render_card({ repeat_interval: { unit: 'week', every: 1 }, next_occurrence_date: null })
+      expect(screen.queryByText(/next /)).not.toBeInTheDocument()
+    })
+
+    it('offers "Skip occurrence…" in the status menu for a recurring task', () => {
+      const onSkip = vi.fn()
+      render(
+        <MemoryRouter>
+          <TaskCard
+            task={{ ...base, repeat_interval: { unit: 'week', every: 1 } }}
+            onUpdate={vi.fn()}
+            onSkipOccurrence={onSkip}
+          />
+        </MemoryRouter>,
+      )
+      fireEvent.click(screen.getByRole('button', { name: /Status:/ }))
+      const skip = screen.getByRole('button', { name: 'Skip occurrence…' })
+      fireEvent.click(skip)
+      expect(onSkip).toHaveBeenCalledOnce()
+    })
+
+    it('hides the skip action for a non-recurring task', () => {
+      render(
+        <MemoryRouter>
+          <TaskCard task={base} onUpdate={vi.fn()} onSkipOccurrence={vi.fn()} />
+        </MemoryRouter>,
+      )
+      fireEvent.click(screen.getByRole('button', { name: /Status:/ }))
+      expect(
+        screen.queryByRole('button', { name: 'Skip occurrence…' }),
       ).not.toBeInTheDocument()
     })
   })

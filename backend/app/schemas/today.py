@@ -38,6 +38,9 @@ class ScheduledBlock(BaseModel):
     workflow_status: TaskWorkflowStatus
     due_date: date | None
     due_signal: DueSignal
+    # True when the underlying task recurs, so the row can offer "skip this
+    # occurrence" alongside mark-done/defer (a non-recurring task can't be skipped).
+    is_recurring: bool
     # Deterministic, human-readable explanation of why this task ranked here,
     # e.g. "in-progress · overdue · high priority". No model prose.
     reason: str
@@ -62,6 +65,9 @@ class OverflowTask(BaseModel):
     workflow_status: TaskWorkflowStatus
     due_date: date | None
     due_signal: DueSignal
+    # True when the underlying task recurs — enables "skip this occurrence" on the
+    # overflow row.
+    is_recurring: bool
     estimated_minutes: int
     estimate_assumed: bool
     # How many of this task's subtasks made the timeline in its place. Non-zero

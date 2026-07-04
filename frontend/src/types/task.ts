@@ -28,6 +28,10 @@ export interface Task {
   estimated_minutes: number | null
   repeat_interval: RepeatInterval | null
   recurrence_id: string | null
+  // Derived server-side: due date of the next occurrence for an open recurring
+  // task, shown as "next <date>" beside the repeat badge. Null when the task is
+  // not recurring or already done.
+  next_occurrence_date: string | null
   confidence: number | null
   assignee_hint: string | null
   created_at: string

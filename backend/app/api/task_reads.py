@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Task
 from app.schemas.tasks import TaskRead
 from app.services import task_dependencies as deps_service
+from app.services import task_recurrence
 from app.services import tasks as tasks_service
 
 
@@ -36,6 +37,7 @@ def read_with_blocked(db: Session, task: Task) -> TaskRead:
     return TaskRead.model_validate(task).model_copy(
         update={
             "is_blocked": deps_service.is_blocked(db, task.id),
+            "next_occurrence_date": task_recurrence.next_occurrence_date(task),
             **_blocking_update(blocker_counts.get(task.id, 0)),
             **_rollup_update(tasks_service.get_rollup(db, task)),
         }
@@ -52,6 +54,7 @@ def reads_with_blocked(db: Session, tasks: Sequence[Task]) -> list[TaskRead]:
         TaskRead.model_validate(t).model_copy(
             update={
                 "is_blocked": t.id in blocked,
+                "next_occurrence_date": task_recurrence.next_occurrence_date(t),
                 **_blocking_update(blocker_counts.get(t.id, 0)),
                 **_rollup_update(rollups[t.id]),
             }

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Repeat } from 'lucide-react'
+import { Repeat, SkipForward } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { getTaskSeries, stopRecurrence } from '../../api/tasks'
 import type { Task } from '../../types/task'
@@ -11,6 +11,9 @@ interface RecurrenceSeriesProps {
   /** Called with the updated task after recurrence is stopped, so the parent
    *  page can refresh its repeat badge and hide the stop affordance. */
   onStopped: (updated: Task) => void
+  /** Opens the detail view's skip-occurrence confirm for the current occurrence,
+   *  so skip is reachable from the timeline as well as the header. */
+  onSkip: () => void
 }
 
 function occurrenceState(o: Task): { label: string; className: string } {
@@ -25,7 +28,13 @@ function occurrenceState(o: Task): { label: string; className: string } {
 
 /** Series timeline + "Stop recurrence" for a task that belongs to a recurrence
  *  chain. The occurrence list is fetched lazily on first expand. */
-export function RecurrenceSeries({ task, onStopped }: RecurrenceSeriesProps) {
+export function RecurrenceSeries({ task, onStopped, onSkip }: RecurrenceSeriesProps) {
+  // Skip is offered on the current occurrence only while the series is live and
+  // this occurrence is still open (not done, not already skipped).
+  const canSkipCurrent =
+    task.repeat_interval !== null &&
+    task.workflow_status !== 'done' &&
+    !task.deleted_at
   const taskLinkTo = useTaskLinkTo()
   const [expanded, setExpanded] = useState(false)
   const [occurrences, setOccurrences] = useState<Task[] | null>(null)
@@ -132,7 +141,19 @@ export function RecurrenceSeries({ task, onStopped }: RecurrenceSeriesProps) {
                     </span>
                     <span className={`status-pill ${state.className}`}>{state.label}</span>
                     {isCurrent ? (
-                      <span className="recurrence-occurrence-here">This occurrence</span>
+                      <span className="recurrence-occurrence-here">
+                        This occurrence
+                        {canSkipCurrent && (
+                          <button
+                            type="button"
+                            className="recurrence-occurrence-skip"
+                            onClick={onSkip}
+                          >
+                            <SkipForward size={13} aria-hidden="true" />
+                            Skip
+                          </button>
+                        )}
+                      </span>
                     ) : o.deleted_at ? (
                       <span className="recurrence-occurrence-title">{o.title}</span>
                     ) : (

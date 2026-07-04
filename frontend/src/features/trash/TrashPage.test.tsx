@@ -56,6 +56,7 @@ const trash: Trash = {
       estimated_minutes: null,
       repeat_interval: null,
       recurrence_id: null,
+      next_occurrence_date: null,
       is_blocked: false,
       is_blocking: false,
       blocked_task_count: 0,
@@ -87,6 +88,7 @@ const trash: Trash = {
       reviewed_at: null,
       model_name: null,
       suggested_project_id: null,
+      matched_alias: null,
       created_at: '2026-06-01T17:00:00Z',
       updated_at: '2026-06-01T17:00:00Z',
       deleted_at: DELETED_AT,
@@ -336,6 +338,56 @@ describe('TrashPage', () => {
 
     expect(mockPurgeProject).not.toHaveBeenCalled()
     confirm.mockRestore()
+  })
+
+  it('bulk-restores the checked items via Restore selected', async () => {
+    const user = userEvent.setup()
+    mockRestoreTask.mockResolvedValue(trash.tasks[0])
+
+    renderPage()
+
+    await screen.findByText('Firewall')
+    // Isolate Tasks so a single Select all / bulk bar is present.
+    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
+    await user.click(screen.getByRole('checkbox', { name: 'Select task Pay invoice' }))
+    await user.click(screen.getByRole('button', { name: 'Restore selected' }))
+
+    expect(mockRestoreTask).toHaveBeenCalledWith(5)
+    expect(await screen.findByRole('status')).toHaveTextContent(/Restored 1 task./)
+  })
+
+  it('bulk-purges the checked items via Delete selected after confirm', async () => {
+    const user = userEvent.setup()
+    mockPurgeTask.mockResolvedValue(undefined)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderPage()
+
+    await screen.findByText('Firewall')
+    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
+    await user.click(screen.getByRole('checkbox', { name: 'Select task Pay invoice' }))
+    await user.click(screen.getByRole('button', { name: 'Delete selected' }))
+
+    expect(confirm).toHaveBeenCalled()
+    expect(mockPurgeTask).toHaveBeenCalledWith(5)
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /Permanently deleted 1 task./,
+    )
+    confirm.mockRestore()
+  })
+
+  it('select-all checks every item in a section', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Firewall')
+    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
+    await user.click(screen.getByRole('checkbox', { name: 'Select all' }))
+
+    expect(
+      screen.getByRole('checkbox', { name: 'Select task Pay invoice' }),
+    ).toBeChecked()
+    expect(screen.getByText('1 selected')).toBeInTheDocument()
   })
 
   it('empties the whole trash after the user confirms', async () => {

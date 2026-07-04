@@ -15,6 +15,9 @@ export interface InboxItem {
   reviewed_at: string | null
   model_name: string | null
   suggested_project_id: number | null
+  // The project alias the note matched on, when routed by an alias hit. Null for
+  // name matches, the AI fallback, or no match.
+  matched_alias: string | null
   created_at: string
   updated_at: string
   deleted_at?: string | null

@@ -175,6 +175,56 @@ def test_skip_soft_deletes_current_and_rolls_forward(db_session: Session) -> Non
     assert next_occurrence.workflow_status == TaskWorkflowStatus.open
 
 
+# --- next_occurrence_date on the read payload (Slice 2) ---------------------
+
+
+def test_next_occurrence_date_advances_open_recurring(db_session: Session) -> None:
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+
+    assert task_recurrence.next_occurrence_date(task) == date(2026, 6, 8)
+
+
+def test_next_occurrence_date_none_without_interval(db_session: Session) -> None:
+    task = _make_task(db_session, due=date(2026, 6, 1))
+
+    assert task_recurrence.next_occurrence_date(task) is None
+
+
+def test_next_occurrence_date_none_when_done(db_session: Session) -> None:
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    # Completing spawns the successor and marks this row done — no "next" here.
+    tasks_service.update_task(
+        db_session, task, {"workflow_status": TaskWorkflowStatus.done}
+    )
+    db_session.commit()
+
+    assert task_recurrence.next_occurrence_date(task) is None
+
+
+def test_task_read_exposes_next_occurrence_date(db_session: Session) -> None:
+    from app.api.task_reads import read_with_blocked
+
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+
+    read = read_with_blocked(db_session, task)
+    assert read.next_occurrence_date == date(2026, 6, 8)
+
+    plain = _make_task(db_session, due=date(2026, 6, 1))
+    assert read_with_blocked(db_session, plain).next_occurrence_date is None
+
+
 def test_skip_non_recurring_task_raises(db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
 

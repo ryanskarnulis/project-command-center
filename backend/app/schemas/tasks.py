@@ -142,6 +142,10 @@ class TaskRead(BaseModel):
     estimated_minutes: int | None
     repeat_interval: RepeatInterval | None
     recurrence_id: str | None
+    # Derived (not stored): the due date of the next occurrence for an open
+    # recurring task, so the UI can render "next <date>" beside the repeat badge.
+    # None for non-recurring or done tasks; populated by the read helpers.
+    next_occurrence_date: date | None = None
     confidence: float | None
     assignee_hint: str | None
     created_at: UTCDateTime

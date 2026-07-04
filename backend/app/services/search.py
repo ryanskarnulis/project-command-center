@@ -8,6 +8,8 @@ others.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from sqlalchemy import ColumnElement, case, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
@@ -174,4 +176,38 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
             SearchResultItem(kind="inbox", id=item.id, title=_inbox_title(item))
             for item in inbox_rows
         ],
+    )
+
+
+def search_open_tasks(db: Session, query: str, *, limit: int = 10) -> Sequence[Task]:
+    """Ranked open tasks whose title matches ``query`` — the ``/done`` candidate set.
+
+    "Open" means accepted and not yet done (the only tasks the Discord ``/done``
+    command can complete). Reuses the same escaped-``LIKE`` matching and relevance
+    tiering as :func:`search` (exact title, then prefix, then substring), but
+    returns full ``Task`` rows so the caller can surface the due date and owning
+    project. A blank query returns no candidates.
+    """
+    q = query.strip()
+    if not q:
+        return []
+
+    escaped = _escape_like(q)
+    prefix = f"{escaped}%"
+    contains = f"%{escaped}%"
+
+    text_score = _text_tier(Task.title, Task.description, q, prefix, contains)
+    return (
+        db.execute(
+            active(Task)
+            .where(
+                Task.title.ilike(contains, escape=_LIKE_ESCAPE),
+                Task.review_status == TaskReviewStatus.accepted,
+                Task.workflow_status != TaskWorkflowStatus.done,
+            )
+            .order_by(text_score.asc(), Task.id.desc())
+            .limit(limit)
+        )
+        .scalars()
+        .all()
     )

@@ -93,17 +93,24 @@ def match_inbox_item(db: Session, item: InboxItem) -> Project | None:
         for part in [item.project_hint, item.summary, item.raw_text, *task_titles]
         if part
     )
-    deterministic = projects_service.match_text_to_project(db, search_text)
-    if deterministic is not None:
+    match = projects_service.match_text_to_project_detailed(db, search_text)
+    if match is not None:
+        deterministic = match.project
         try:
             item.suggested_project_id = deterministic.id
+            # Record which alias routed the note (None for a project-name hit) so
+            # triage can show it; the AI fallback below leaves this unset.
+            item.matched_alias = match.matched_alias
             db.commit()
             db.refresh(item)
         except Exception:
             db.rollback()
             raise
         logger.info(
-            "match_deterministic", inbox_item_id=item.id, project_id=deterministic.id
+            "match_deterministic",
+            inbox_item_id=item.id,
+            project_id=deterministic.id,
+            matched_alias=match.matched_alias,
         )
         return deterministic
 

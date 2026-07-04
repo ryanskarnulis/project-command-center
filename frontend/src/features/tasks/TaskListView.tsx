@@ -34,6 +34,8 @@ interface TaskListViewProps {
   // transitions use the recurrence-safe endpoints.
   update: (task: Task, patch: TaskUpdate) => Promise<void>
   onSetStatus: (task: Task, target: TaskWorkflowStatus) => Promise<void>
+  // Opens the skip-occurrence confirm for a recurring task (owned by the page).
+  onSkip: (task: Task) => void
   remove: (id: number) => Promise<void>
   reopen: (id: number) => Promise<void>
   reload: () => void
@@ -59,6 +61,7 @@ export function TaskListView({
   markDone,
   update,
   onSetStatus,
+  onSkip,
   remove,
   reopen,
   reload,
@@ -139,6 +142,7 @@ export function TaskListView({
           onComplete={() => void markDone(t.id).then(bumpActivity)}
           onUpdate={(patch) => void update(t, patch)}
           onSetStatus={(target) => void onSetStatus(t, target)}
+          onSkipOccurrence={() => onSkip(t)}
         />
         {subtaskParentId === t.id && (
           <SubtaskComposer

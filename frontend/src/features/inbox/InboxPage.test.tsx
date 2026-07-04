@@ -3,7 +3,9 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { decideCandidate, dismissInbox, getCandidates, getInbox, listPendingInbox } from '../../api/inbox'
+import { listProjects } from '../../api/projects'
 import type { InboxItem } from '../../types/inbox'
+import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { InboxPage } from './InboxPage'
 
@@ -41,6 +43,7 @@ const pendingItem: InboxItem = {
   reviewed_at: null,
   model_name: null,
   suggested_project_id: null,
+  matched_alias: null,
   created_at: '2026-06-01T10:00:00Z',
   updated_at: '2026-06-01T10:00:00Z',
 }
@@ -60,6 +63,7 @@ const candidate: Task = {
   estimated_minutes: null,
   repeat_interval: null,
   recurrence_id: null,
+  next_occurrence_date: null,
   confidence: 0.9,
   assignee_hint: null,
   created_at: '2026-06-01T10:00:00Z',
@@ -115,6 +119,28 @@ describe('InboxPage', () => {
 
     expect(await screen.findByDisplayValue('Fix the router')).toBeInTheDocument()
     expect(screen.getByDisplayValue('Update firmware')).toBeInTheDocument()
+  })
+
+  it('shows the matched alias beside the suggested project', async () => {
+    const user = userEvent.setup()
+    const item: InboxItem = {
+      ...pendingItem,
+      suggested_project_id: 3,
+      matched_alias: 'firewall',
+    }
+    mockListPendingInbox.mockResolvedValue([item])
+    mockGetInbox.mockResolvedValue(item)
+    mockGetCandidates.mockResolvedValue([candidate])
+    vi.mocked(listProjects).mockResolvedValue([
+      { id: 3, name: 'Home Network' } as Project,
+    ])
+    renderPage()
+
+    await user.click(await screen.findByText('Sprint notes'))
+
+    const hint = await screen.findByText(/Suggested project/)
+    expect(hint).toHaveTextContent('Home Network')
+    expect(hint).toHaveTextContent(/matched alias .*firewall/)
   })
 
   it('dismiss removes a single candidate from the list', async () => {

@@ -11,12 +11,12 @@ archived in `DONE.md`.
 
 ## Current focus
 
-**UI/UX revamp — from forms and page-hops to in-place work** (committed 2026-07-01).
-Four slices tracked in `CURRENT.md`: (1) peek panel + editable metadata chips,
-(2) quick-add bar with token parsing, (3) inline inbox triage, (4) merged working
-landing screen. Frontend-only; no schema or AI-workflow changes. The round-5
-hardening pass closed 2026-07-01 (archived in `DONE.md`); its deferred performance
-notes carry below under "Deferred hardening notes".
+**Deployable app — Discord follow-ups, improvement sweep, docker-compose,
+litestream** (committed 2026-07-03). Four slices tracked in `CURRENT.md`:
+(1) Discord `/tasks` + `/done`, (2) remaining round-5 improvement ideas,
+(3) docker-compose deployment, (4) litestream replication. The previous UI/UX
+revamp epic is archived in `DONE.md`. The round-5 hardening pass's deferred
+performance notes carry below under "Deferred hardening notes".
 
 ### Deferred hardening notes (from round 5 — record now, act when warranted)
 
@@ -29,26 +29,13 @@ notes carry below under "Deferred hardening notes".
       trash/pending lists are already capped.
 
 ### Improvement ideas (nice-to-have — not blockers)
-*(How to make these flows more useful / easier to use, gathered during the round-5 review.
-Notes, not commitments — don't promote without sizing against scope discipline.)*
 
-- **Recurring "checklist" tasks** — the constructive form of the recurrence+subtasks bug:
-  when a recurring parent with subtasks completes, clone the whole subtree fresh for the next
-  occurrence. That turns recurrence into real multi-step routines ("weekly release checklist")
-  instead of single tasks.
-- **Show the next occurrence date** next to the repeat badge ("Every week · next Jul 1") so
-  the cadence is legible without opening the series timeline.
-- **Skip / mark-done a recurrence from the list, Today, and the series view** — today skip
-  lives only on the task detail page; surfacing it where the task actually shows up is faster.
-- **Restore-with-context on `/trash`** — when restoring a project, offer to also pull back the
-  tasks that were rehomed to General on delete (pairs with the restore-asymmetry fix above).
-- **Alias UX** — inline "already added" feedback as you type, and optionally surface which
-  aliases recently matched an inbox note so their value is visible (feeds match accuracy).
-- **Explicit Save + dirty indicator on project/task detail** — a visible "unsaved" dot and/or
-  Save button alongside save-on-blur, matching the Settings page, so the save model is obvious
-  and refresh-loss is impossible.
-- **Bulk select on `/trash`** — checkboxes for multi-restore / multi-purge instead of
-  per-card or all-of-a-kind only.
+*Promoted to `CURRENT.md` (2026-07-03).* The 2026-07-03 audit found four of the
+seven already shipped (recurring checklist tasks, restore-with-context on
+`/trash`, explicit Save + dirty indicator, inline alias duplicate feedback —
+see `DONE.md`). The remaining three (next-occurrence date on the repeat badge,
+skip-from-list/Today/series, bulk select on `/trash`) plus the optional
+alias-match-visibility stretch are Slice 2 of the current epic.
 
 
 ---
@@ -75,21 +62,13 @@ Notes, not commitments — don't promote without sizing against scope discipline
 
 ### Discord (follow-ups)
 
-- [ ] `/tasks` command — lists open tasks (optionally filtered to a project) without
-      opening the web UI. Calls a new `GET /api/discord/tasks` endpoint (shared-secret
-      guarded, same pattern as `/api/discord/inbox`). Bot formats results as a short
-      numbered list in the reply.
-- [ ] `/done <task search>` command — fuzzy-match a task title from the bot and mark it
-      workflow_status=`done`. Backend: use the recurrence-preserving
-      `POST /api/tasks/{id}/done` endpoint after resolving the task; add a
-      `GET /api/discord/tasks/search?q=` helper for the bot to resolve the title to an ID
-      first. If multiple matches, bot replies with a disambiguation list.
+*Promoted to `CURRENT.md` (2026-07-03) — Slice 1 of the current epic
+(`/tasks` + `/done` commands with their backend endpoints).*
 
 ### Deferred infra
 
-- [ ] `docker-compose.yml` — backend + frontend in containers (deferred: "clean restarts,
-      not prod").
-- [ ] litestream continuous replication instead of cron backups.
+*Promoted to `CURRENT.md` (2026-07-03) — Slices 3–4 of the current epic
+(docker-compose deployment, litestream replication).*
 
 ### Nice-to-have
 

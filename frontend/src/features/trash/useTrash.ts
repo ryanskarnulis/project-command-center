@@ -34,7 +34,15 @@ interface UseTrash {
   restoreTrainingById: (id: number, label: string) => Promise<void>
   restoreAll: (kind: TrashKind, items: RestoreItem[]) => Promise<void>
   purgeById: (kind: TrashKind, id: number, label: string) => Promise<void>
+  purgeAll: (kind: TrashKind, ids: number[]) => Promise<void>
   emptyTrashAll: () => Promise<void>
+}
+
+const KIND_NOUN: Record<TrashKind, string> = {
+  projects: 'project',
+  tasks: 'task',
+  inbox: 'note',
+  training: 'training example',
 }
 
 const RESTORE: Record<TrashKind, (id: number) => Promise<unknown>> = {
@@ -244,6 +252,34 @@ export function useTrash(): UseTrash {
     [reload],
   )
 
+  const purgeAll = useCallback(
+    async (kind: TrashKind, ids: number[]) => {
+      setError(null)
+      setNotice(null)
+      let deleted = 0
+      let failed = false
+      for (const id of ids) {
+        try {
+          await PURGE[kind](id)
+          deleted += 1
+        } catch (e: unknown) {
+          failed = true
+          setError(e instanceof Error ? e.message : 'Failed to delete items')
+          break
+        }
+      }
+      reload()
+      if (deleted > 0) {
+        const noun = KIND_NOUN[kind]
+        setNotice(
+          `Permanently deleted ${deleted} ${noun}${deleted === 1 ? '' : 's'}.` +
+            (failed ? ' Stopped at the first error.' : ''),
+        )
+      }
+    },
+    [reload],
+  )
+
   const emptyTrashAll = useCallback(async () => {
     setError(null)
     setNotice(null)
@@ -273,6 +309,7 @@ export function useTrash(): UseTrash {
     restoreTrainingById,
     restoreAll,
     purgeById,
+    purgeAll,
     emptyTrashAll,
   }
 }

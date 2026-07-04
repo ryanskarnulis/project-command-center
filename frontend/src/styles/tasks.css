@@ -8,6 +8,13 @@
   color: var(--purple);
 }
 
+/* "next <date>" hint beside the repeat chip in the detail view. */
+.next-occurrence {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  align-self: center;
+}
+
 .edit-scope-actions {
   display: flex;
   flex-wrap: wrap;
@@ -30,6 +37,32 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+/* Shared skip-occurrence confirm modal body (SkipOccurrenceConfirm). */
+.skip-confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* "Skip" affordance on the current occurrence row in the series timeline. */
+.recurrence-occurrence-skip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 0.85em;
+  border: 1px solid var(--orange);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--orange);
+  box-shadow: none;
+}
+
+.recurrence-occurrence-skip:hover:not(:disabled) {
+  background: var(--orange-soft);
 }
 
 .activity-feed {

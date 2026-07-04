@@ -47,6 +47,7 @@ const baseTask: Task = {
   estimated_minutes: null,
   repeat_interval: { unit: 'week', every: 1 },
   recurrence_id: 'series-abc',
+  next_occurrence_date: null,
   confidence: null,
   assignee_hint: null,
   created_at: '2026-06-01T00:00:00Z',

@@ -37,6 +37,7 @@ def test_match_deterministic_alias_makes_no_model_call(
     assert matched is not None and matched.id == project.id
     db_session.refresh(item)
     assert item.suggested_project_id == project.id
+    assert item.matched_alias == "firewall"  # the alias that routed the note
     assert item.match_output_json is None  # deterministic: no model output
 
 
@@ -77,6 +78,7 @@ def test_match_ai_fallback_sets_suggestion(
     assert matched is not None and matched.id == project.id
     db_session.refresh(item)
     assert item.suggested_project_id == project.id
+    assert item.matched_alias is None  # AI fallback has no literal alias to report
     assert item.match_output_json == raw
     assert item.match_model_name == gateway.get_profile("project_matching").model
     assert item.match_input_text is not None and "Home Network" in item.match_input_text

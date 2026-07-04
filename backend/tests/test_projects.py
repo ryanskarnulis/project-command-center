@@ -253,6 +253,28 @@ def test_match_hint_matches_name_and_alias(db_session: Session) -> None:
     assert matched is not None and matched.id == project.id
 
 
+def test_match_detailed_reports_matched_alias(db_session: Session) -> None:
+    project = projects_service.create_project(db_session, name="Home Network")
+    projects_service.create_alias(db_session, project_id=project.id, alias="firewall")
+    db_session.commit()
+
+    # Alias hit → the raw alias is reported.
+    by_alias = projects_service.match_text_to_project_detailed(
+        db_session, "firewall ruleset cleanup before the audit"
+    )
+    assert by_alias is not None
+    assert by_alias.project.id == project.id
+    assert by_alias.matched_alias == "firewall"
+
+    # Name hit → matched_alias is None (it's not an alias).
+    by_name = projects_service.match_text_to_project_detailed(
+        db_session, "  home   NETWORK "
+    )
+    assert by_name is not None
+    assert by_name.project.id == project.id
+    assert by_name.matched_alias is None
+
+
 def test_match_hint_no_or_empty_hint_returns_none(db_session: Session) -> None:
     projects_service.create_project(db_session, name="Home Network")
     db_session.commit()

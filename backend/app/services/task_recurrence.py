@@ -42,6 +42,22 @@ def _next_due_date(due_date: date, interval: Mapping[str, Any]) -> date:
     raise ValueError(f"Unknown recurrence unit: {unit!r}")
 
 
+def next_occurrence_date(task: Task) -> date | None:
+    """When this recurring task repeats next, or ``None`` if it never will.
+
+    Derived for the read payload so the UI can show "next <date>" beside the
+    repeat badge without re-implementing the interval math in TypeScript. Only an
+    open recurring task with a due date has a next occurrence — a done task has
+    already spawned its successor as a separate row, and a task without a due date
+    or interval isn't scheduled.
+    """
+    if task.repeat_interval is None or task.due_date is None:
+        return None
+    if task.workflow_status == TaskWorkflowStatus.done:
+        return None
+    return _next_due_date(task.due_date, task.repeat_interval)
+
+
 def _clone_subtask_tree(
     db: Session, source: Task, new_parent_id: int, due_date: date | None
 ) -> None:

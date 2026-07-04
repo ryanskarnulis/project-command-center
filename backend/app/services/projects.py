@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, NamedTuple
 
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select, update
@@ -347,8 +347,21 @@ def list_projects_with_aliases(
     return [(project, aliases_by_project[project.id]) for project in list_projects(db)]
 
 
-def match_text_to_project(db: Session, text: str | None) -> Project | None:
-    """Deterministically resolve a project from a note's text.
+class ProjectMatch(NamedTuple):
+    """A deterministic project match plus *how* it matched.
+
+    ``matched_alias`` is the raw alias string when the note matched one of the
+    project's aliases, and ``None`` when it matched the project's own name — so a
+    caller can honestly tell the user "matched alias 'firewall'" without claiming
+    an alias for a plain name hit.
+    """
+
+    project: Project
+    matched_alias: str | None
+
+
+def match_text_to_project_detailed(db: Session, text: str | None) -> ProjectMatch | None:
+    """Like :func:`match_text_to_project`, but also reports the matched alias.
 
     A project matches when its normalized name, or any of its normalized aliases,
     appears as a substring of the normalized ``text`` — which the caller builds
@@ -357,9 +370,10 @@ def match_text_to_project(db: Session, text: str | None) -> Project | None:
     hint, is the point: the extractor often won't surface an alias as the hint,
     but the alias is right there in the note ("finish the *firewall* cleanup…").
 
-    Returns the project only when exactly one matches — zero or an ambiguous
-    (multi-project) result returns ``None`` so the caller can fall back to the AI
-    matcher. Pure Python: no model is consulted here.
+    A name match takes precedence over an alias match (``matched_alias`` is then
+    ``None``). Returns a match only when exactly one project matches — zero or an
+    ambiguous (multi-project) result returns ``None`` so the caller can fall back
+    to the AI matcher. Pure Python: no model is consulted here.
     """
     if text is None:
         return None
@@ -367,11 +381,50 @@ def match_text_to_project(db: Session, text: str | None) -> Project | None:
     if not norm:
         return None
 
-    matches: list[Project] = []
+    matches: list[ProjectMatch] = []
     for project, aliases in list_projects_with_aliases(db):
         name_norm = _normalize(project.name)
-        if (name_norm and name_norm in norm) or any(
-            (alias_norm := _normalize(alias)) and alias_norm in norm for alias in aliases
-        ):
-            matches.append(project)
+        if name_norm and name_norm in norm:
+            matches.append(ProjectMatch(project, None))
+            continue
+        matched_alias = next(
+            (
+                alias
+                for alias in aliases
+                if (alias_norm := _normalize(alias)) and alias_norm in norm
+            ),
+            None,
+        )
+        if matched_alias is not None:
+            matches.append(ProjectMatch(project, matched_alias))
     return matches[0] if len(matches) == 1 else None
+
+
+def match_text_to_project(db: Session, text: str | None) -> Project | None:
+    """Deterministically resolve a project from a note's text.
+
+    Thin wrapper over :func:`match_text_to_project_detailed` for callers that only
+    need the project. See that function for the matching rules.
+    """
+    match = match_text_to_project_detailed(db, text)
+    return match.project if match is not None else None
+
+
+def find_project_by_name_or_alias(db: Session, text: str) -> Project | None:
+    """Exactly resolve a project by its (normalized) name or one of its aliases.
+
+    Unlike ``match_text_to_project`` (intentionally fuzzy substring matching used
+    by inbox triage), this is an *exact* normalized-equality lookup: the Discord
+    ``/tasks <project>`` filter should only match a project the user named, not
+    every project whose name happens to appear inside the query. Returns the
+    single match, or ``None`` when the name/alias is unknown.
+    """
+    norm = _normalize(text)
+    if not norm:
+        return None
+    for project, aliases in list_projects_with_aliases(db):
+        if _normalize(project.name) == norm or any(
+            _normalize(alias) == norm for alias in aliases
+        ):
+            return project
+    return None

@@ -237,6 +237,10 @@ class InboxItem(Base, TimestampMixin, SoftDeleteMixin):
     suggested_project_id: Mapped[int | None] = mapped_column(
         ForeignKey("projects.id"), default=None
     )
+    # The project alias that the deterministic matcher matched on, when the
+    # suggestion came from an alias hit (not the project name, and not the AI
+    # fallback). Surfaced at triage so the user sees *why* the note was routed.
+    matched_alias: Mapped[str | None] = mapped_column(default=None)
     match_input_text: Mapped[str | None] = mapped_column(default=None)
     match_output_json: Mapped[str | None] = mapped_column(default=None)
     match_model_name: Mapped[str | None] = mapped_column(default=None)

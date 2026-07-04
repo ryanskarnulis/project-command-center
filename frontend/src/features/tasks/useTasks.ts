@@ -7,6 +7,7 @@ import {
   listAllTasks,
   listTasks,
   markTaskDone,
+  skipOccurrence,
   updateTask,
 } from '../../api/tasks'
 import type { Task, TaskCreate, TaskUpdate } from '../../types/task'
@@ -20,6 +21,7 @@ interface UseTasks {
   create: (data: TaskCreate) => Promise<void>
   update: (id: number, data: TaskUpdate) => Promise<void>
   markDone: (id: number) => Promise<void>
+  skip: (id: number) => Promise<void>
   remove: (id: number) => Promise<void>
   reload: () => void
 }
@@ -87,6 +89,17 @@ export function useTasks(projectId?: number): UseTasks {
     [reload, withToast],
   )
 
+  const skip = useCallback(
+    async (id: number) => {
+      // Skips the current occurrence (soft-deleted to trash) and advances the
+      // series; refresh the trash count like a delete does.
+      await withToast(skipOccurrence(id), { success: 'Occurrence skipped' })
+      reload()
+      void refreshTrashCount()
+    },
+    [reload, refreshTrashCount, withToast],
+  )
+
   const remove = useCallback(
     async (id: number) => {
       await withToast(deleteTask(id), { success: 'Task moved to trash' })
@@ -96,5 +109,5 @@ export function useTasks(projectId?: number): UseTasks {
     [reload, refreshTrashCount, withToast],
   )
 
-  return { tasks, loading, error, create, update, markDone, remove, reload }
+  return { tasks, loading, error, create, update, markDone, skip, remove, reload }
 }

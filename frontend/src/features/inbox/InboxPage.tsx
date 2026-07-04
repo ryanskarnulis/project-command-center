@@ -87,6 +87,11 @@ export function InboxPage() {
           {suggestedProjectName && (
             <p className="suggested-project">
               Suggested project: <strong>{suggestedProjectName}</strong>
+              {inboxItem.matched_alias && (
+                <span className="matched-alias">
+                  {' '}· matched alias “{inboxItem.matched_alias}”
+                </span>
+              )}
             </p>
           )}
           <CandidateTriage

@@ -20,9 +20,55 @@
 .trash-section-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+/* "Select all" sits just after the heading; margin-right:auto pushes the
+   "Restore all" button to the far right of the head row. */
+.trash-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+/* Per-item checkbox column: a card sits beside its selection box in a row. */
+.trash-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.trash-item > .trash-item-check {
+  margin-top: 14px;
+  flex-shrink: 0;
+}
+
+.trash-item > :not(.trash-item-check) {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Multi-restore / multi-purge bar, shown once a section has a selection. */
+.trash-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.trash-selected-count {
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .trash-section-hint {

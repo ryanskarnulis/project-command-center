@@ -9,6 +9,7 @@ import { Badge } from '../../components/Badge'
 import { useBeforeUnload } from '../../hooks/useBeforeUnload'
 import type { Project } from '../../types/project'
 import type { Task, TaskCreate } from '../../types/task'
+import { formatDueDate } from '../../utils/dates'
 import { BreakdownReview } from './BreakdownReview'
 import { CandidateDecisionBar } from './CandidateDecisionBar'
 import { EditScopeModal } from './EditScopeModal'
@@ -478,6 +479,11 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
             disabled={!task.due_date}
             disabledHint="Set a due date to enable recurrence"
           />
+          {task.next_occurrence_date && (
+            <span className="next-occurrence">
+              next {formatDueDate(task.next_occurrence_date)}
+            </span>
+          )}
           <ProjectChip
             value={task.project_id}
             projects={projects}
@@ -560,7 +566,11 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
       )}
 
       {!isCandidate && task.recurrence_id && (
-        <RecurrenceSeries task={task} onStopped={applyUpdated} />
+        <RecurrenceSeries
+          task={task}
+          onStopped={applyUpdated}
+          onSkip={() => setConfirmingSkip(true)}
+        />
       )}
 
       {!isCandidate && <TaskDependencies task={task} tasks={allTasks} />}

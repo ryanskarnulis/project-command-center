@@ -13,6 +13,7 @@ import { TaskFormModal } from './TaskFormModal'
 import { TaskFilters } from './TaskFilters'
 import { TaskListView } from './TaskListView'
 import { TaskBoardView } from './TaskBoardView'
+import { SkipOccurrenceConfirm } from './SkipOccurrenceConfirm'
 import { TaskPanelProvider } from './panel/TaskPanelProvider'
 import { useCompletedTasks } from './useCompletedTasks'
 import { useTaskUrlState } from './useTaskUrlState'
@@ -22,8 +23,10 @@ export function TasksPage() {
   const { projectId } = useParams()
   const id = projectId === undefined ? undefined : Number(projectId)
   const isGlobal = id === undefined
-  const { tasks, loading, error, create, update, markDone, remove, reload } =
+  const { tasks, loading, error, create, update, markDone, skip, remove, reload } =
     useTasks(id)
+  // The recurring task whose skip is awaiting confirmation (null = no dialog).
+  const [skipTarget, setSkipTarget] = useState<Task | null>(null)
 
   const {
     view,
@@ -194,6 +197,7 @@ export function TasksPage() {
           markDone={markDone}
           update={handleUpdate}
           onSetStatus={handleSetStatus}
+          onSkip={setSkipTarget}
           remove={remove}
           reopen={reopen}
           reload={reload}
@@ -201,6 +205,15 @@ export function TasksPage() {
           onOpenSubtaskModal={setDraftModalDefaults}
         />
       )}
+
+      <SkipOccurrenceConfirm
+        taskTitle={skipTarget?.title ?? null}
+        onCancel={() => setSkipTarget(null)}
+        onConfirm={() => {
+          if (skipTarget) void skip(skipTarget.id).then(bumpActivity)
+          setSkipTarget(null)
+        }}
+      />
 
       {!isGlobal && <ActivityFeed projectId={id} refreshKey={activityKey} />}
 

@@ -29,6 +29,11 @@ interface Props {
    * done/reopen endpoints. Falls back to a plain onUpdate patch when absent.
    */
   onSetStatus?: (target: TaskWorkflowStatus) => void
+  /**
+   * When set on a recurring, not-done task, the status chip menu offers "Skip
+   * occurrence…". The caller owns the confirm + skip call.
+   */
+  onSkipOccurrence?: () => void
 }
 
 function blockingLabel(count: number): string {
@@ -42,6 +47,7 @@ export function TaskCard({
   onComplete,
   onUpdate,
   onSetStatus,
+  onSkipOccurrence,
 }: Props) {
   const taskLinkTo = useTaskLinkTo()
   const due = dueStatus(task.due_date)
@@ -128,6 +134,13 @@ export function TaskCard({
               }
               disabled={task.has_subtasks}
               disabledHint="Rolled up from subtasks"
+              onSkipOccurrence={
+                onSkipOccurrence &&
+                task.repeat_interval &&
+                task.workflow_status !== 'done'
+                  ? onSkipOccurrence
+                  : undefined
+              }
             />
           ) : (
             <span className={`status-pill workflow-${task.workflow_status}`}>
@@ -176,6 +189,7 @@ export function TaskCard({
             <Badge tone="purple" className="repeat-badge">
               <Repeat size={12} aria-hidden="true" />
               {formatRepeatInterval(task.repeat_interval)}
+              {task.next_occurrence_date && ` · next ${formatDueDate(task.next_occurrence_date)}`}
             </Badge>
           )}
           {task.review_status === 'candidate' && task.confidence !== null && (
