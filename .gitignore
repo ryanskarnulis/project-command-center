@@ -26,6 +26,9 @@ data/app.db
 data/app.db-*
 data/backups/*
 !data/backups/.gitkeep
+# Litestream file replica + its shadow-WAL meta dir next to the db
+data/replica/
+data/.app.db-litestream/
 
 # Training artifacts (large)
 training/unsloth/models/*

@@ -131,22 +131,33 @@ over the host gateway. SQLite lives on a bind-mounted `data/` volume.
 
 **Commit stop 3.**
 
-## Slice 4 — litestream continuous replication
+## Slice 4 — litestream continuous replication (done 2026-07-03)
 
-- [ ] `litestream.yml` — replicate `data/app.db`; default target a local second
+- [x] `litestream.yml` — replicate `data/app.db`; default target a local second
       path (e.g. mounted `data/replica/` or NFS), S3-compatible target left as a
       commented example. No new cloud dependency by default.
-- [ ] `litestream` sidecar service in `docker-compose.yml` (official image,
+- [x] `litestream` sidecar service in `docker-compose.yml` (official image,
       same `data/` volume); short doc note for running it via systemd in the
       non-docker setup.
-- [ ] Keep `scripts/backup_db.sh` as the manual/cron snapshot path — litestream
+- [x] Keep `scripts/backup_db.sh` as the manual/cron snapshot path — litestream
       complements it, doesn't replace it (README states this).
-- [ ] **Restore drill** — actually run `litestream restore` to a scratch path
+- [x] **Restore drill** — actually run `litestream restore` to a scratch path
       once and diff row counts against the live DB; document the restore
       procedure in README.
-- [ ] README backups section updated.
+- [x] README backups section updated.
 
-**Commit stop 4.**
+**Commit stop 4.** Default-on `litestream/litestream:0.3` sidecar sharing the
+`./data` mount, `command: replicate` against `litestream.yml` (file replica at
+`data/replica/`, WAL prerequisite already met — the app runs SQLite in WAL mode).
+S3 target left commented in `litestream.yml` with `LITESTREAM_S3_*` stubs in
+`.env.example`; `.gitignore` now excludes `data/replica/` and litestream's
+`.app.db-litestream/` shadow dir. **Restore drill run live:** brought the stack
+up, created a project through the API *after* the initial snapshot, then
+`litestream restore`d the file replica to a scratch path — the post-snapshot
+project was present and all ten tables' row counts matched the live DB
+(tasks 152, projects 12, activity_events 698, ai_training_examples 79, …),
+proving the WAL stream round-trips, not just the snapshot. No Python/schema/AI
+touched, so no migration or eval case; backend suite still green.
 
 ---
 

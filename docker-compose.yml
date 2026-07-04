@@ -63,6 +63,26 @@ services:
     networks:
       - appnet
 
+  litestream:
+    # Continuous WAL replication of data/app.db. Complements (does not replace)
+    # scripts/backup_db.sh. Shares the ./data volume so it can read app.db and
+    # write the replica; default target is data/replica/ on the same mount (see
+    # litestream.yml for the off-host / S3 upgrade path).
+    image: litestream/litestream:0.3
+    restart: unless-stopped
+    command: replicate
+    # Only needed if you enable the s3 replica in litestream.yml (LITESTREAM_S3_*
+    # vars). Harmless for the default file replica.
+    env_file: .env
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./data:/data
+      - ./litestream.yml:/etc/litestream.yml:ro
+    networks:
+      - appnet
+
   discord-bot:
     image: pcc-backend
     # Only starts with `--profile discord`; also self-exits if the token is unset.

@@ -1,0 +1,40 @@
+# Litestream continuous replication for Project Command Center.
+#
+# Litestream streams the SQLite WAL to a replica as writes happen, giving
+# point-in-time recovery between the coarse-grained snapshots that
+# scripts/backup_db.sh already takes. The app runs SQLite in WAL mode
+# (see backend/app/db/session.py), which is Litestream's one hard requirement.
+#
+# It COMPLEMENTS backup_db.sh — it does not replace it. Keep taking snapshots.
+#
+# Default target: a second path on the SAME bind mount (data/replica/). That
+# protects against app-level corruption, a bad migration, or a mistaken delete
+# — you can restore to any point in time. It does NOT protect against losing the
+# disk, since primary and replica share it. For real disaster recovery, point
+# the replica at an NFS mount / second physical disk, or uncomment the
+# S3-compatible block below (no cloud dependency is pulled in by default).
+#
+# Run:  litestream replicate -config /etc/litestream.yml   (the compose sidecar
+#       does this). Restore procedure is in the README backups section.
+
+dbs:
+  - path: /data/app.db
+    replicas:
+      # Default: local file replica on the mounted data volume. Zero config,
+      # no credentials, no network. Repoint `path` at an NFS/second-disk mount
+      # for off-host durability.
+      - type: file
+        path: /data/replica
+
+      # --- Off-host S3-compatible target (optional) --------------------------
+      # Uncomment and fill in via .env to replicate to S3, MinIO, Backblaze B2,
+      # etc. This is the real disaster-recovery upgrade. Leaving it commented
+      # keeps the default deployment free of any cloud dependency.
+      #
+      # - type: s3
+      #   bucket: ${LITESTREAM_S3_BUCKET}
+      #   path: app.db
+      #   endpoint: ${LITESTREAM_S3_ENDPOINT}      # omit for AWS S3 proper
+      #   region: ${LITESTREAM_S3_REGION:-us-east-1}
+      #   access-key-id: ${LITESTREAM_S3_ACCESS_KEY_ID}
+      #   secret-access-key: ${LITESTREAM_S3_SECRET_ACCESS_KEY}

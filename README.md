@@ -26,7 +26,8 @@ Logging:       structlog (with request IDs)
 AI Runtime:    Ollama (v1) → llama.cpp (v2, custom models)
 Training:      Unsloth
 Discord:       discord.py (separate process, HTTP to the API)
-Backups:       scripts/backup_db.sh (stdlib sqlite3 online backup) + cron
+Backups:       scripts/backup_db.sh (stdlib sqlite3 online backup) + cron;
+               Litestream continuous WAL replication (docker sidecar)
 ```
 
 ## Architecture
@@ -235,6 +236,42 @@ docker compose --profile discord up   # needs DISCORD_BOT_TOKEN + BACKEND_SHARED
 (`app.db` + WAL sidecars survive restarts). `./scripts/backup_db.sh` is still the
 snapshot path — run it on the host against `data/app.db`, or from inside the
 container.
+
+**Continuous replication (Litestream).** The `litestream` compose service streams
+`data/app.db`'s write-ahead log to a replica as writes land, giving point-in-time
+recovery *between* the coarse snapshots `backup_db.sh` takes. The two **complement
+each other — keep running both**; Litestream is not a snapshot archive. By default
+it writes a local file replica to `data/replica/` (zero config, no credentials).
+That protects against app-level corruption, a bad migration, or a mistaken delete,
+but **not disk loss** (the replica shares the mount). For off-host durability,
+repoint the replica `path` in `litestream.yml` at an NFS / second-disk mount, or
+uncomment the S3 block there and set `LITESTREAM_S3_*` in `.env` — no cloud
+dependency is pulled in by default.
+
+Restore runs against the same config. It reconstructs the DB from the replica's
+snapshot + WAL into a scratch file you can inspect before going live:
+
+```
+docker compose run --rm --no-deps litestream \
+  restore -config /etc/litestream.yml -o /data/restored.db /data/app.db
+# Go live: stop the app, replace data/app.db with the restored copy, restart.
+```
+
+*Restore drill verified 2026-07-03:* with the stack up, a project created through
+the API **after** the initial snapshot was present in a `litestream restore` of the
+file replica, and every table's row count matched the live DB — confirming the WAL
+stream (not just the startup snapshot) round-trips.
+
+**Non-docker (`main.sh`) setup.** Litestream also runs as a plain host binary
+against the same `litestream.yml` (point `path` at your real `data/app.db`). Run it
+under systemd so it restarts with the box:
+
+```
+# /etc/systemd/system/litestream.service — then: systemctl enable --now litestream
+[Service]
+ExecStart=/usr/local/bin/litestream replicate -config /path/to/litestream.yml
+Restart=always
+```
 
 **Settings writes in docker mode.** Profile/prompt saves and eval runs (the
 loopback-guarded routes) **work from the host by default.** The reasoning: with

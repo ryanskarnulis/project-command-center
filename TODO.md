@@ -68,7 +68,8 @@ alias-match-visibility stretch are Slice 2 of the current epic.
 ### Deferred infra
 
 *Promoted to `CURRENT.md` (2026-07-03) — Slices 3–4 of the current epic
-(docker-compose deployment, litestream replication).*
+(docker-compose deployment, litestream replication). Both **done** 2026-07-03;
+the whole "Deployable app" epic is now implemented across its four slices.*
 
 ### Nice-to-have
 
