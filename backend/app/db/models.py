@@ -114,6 +114,26 @@ class ProjectAlias(Base, TimestampMixin, SoftDeleteMixin):
 
 class Task(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "tasks"
+    # Read-path indexes (Sprint 29 hardening). Profiled against the real service
+    # queries, not the raw column list, to avoid dead write-overhead:
+    #   * The active-task list, calendar feed, search, and candidate list all
+    #     filter ``deleted_at IS NULL`` together with ``review_status`` — one
+    #     compound index serves them, and its leading ``deleted_at`` column also
+    #     covers the trash queries' ``deleted_at IS NOT NULL`` scan, so no
+    #     standalone ``deleted_at``/``review_status`` index is needed.
+    #   * ``project_id``, ``parent_task_id``, ``recurrence_id`` each back a
+    #     frequent equality filter (project scoping, subtree/children fetch,
+    #     recurrence-series lookup) with no shared leading column, so each gets
+    #     its own single-column index.
+    # ``workflow_status`` is intentionally NOT indexed: it is never a SQL filter
+    # (effective status is rolled up in Python), so an index on it would only add
+    # write cost. Add one here if a SQL ``WHERE workflow_status`` ever lands.
+    __table_args__ = (
+        Index("ix_tasks_deleted_at_review_status", "deleted_at", "review_status"),
+        Index("ix_tasks_project_id", "project_id"),
+        Index("ix_tasks_parent_task_id", "parent_task_id"),
+        Index("ix_tasks_recurrence_id", "recurrence_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int | None] = mapped_column(

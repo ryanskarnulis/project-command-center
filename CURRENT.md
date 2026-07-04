@@ -50,14 +50,21 @@ Net-new from the review; small. No backend, schema, or dependency change.
 Promoted from TODO's "deferred hardening" — the review independently flagged it as the
 next ceiling, and deploy widens the read paths. Add before the dataset grows.
 
-- [ ] Single-column indexes on `tasks`: `deleted_at`, `project_id`, `review_status`,
-      `workflow_status`, `parent_task_id`, `recurrence_id` (all table scans today).
-- [ ] Compound index(es) for the common active-task query
-      (`deleted_at IS NULL` + `review_status`/`workflow_status`) — profile the real list
-      queries first, don't add speculative composites.
-- [ ] `alembic revision --autogenerate`, review the generated file, apply. Happy-path
-      test that the hot queries still return correct rows (indexes are transparent, so this
-      is a regression guard, not a perf assertion).
+- [x] Single-column indexes on `tasks`: `project_id`, `parent_task_id`, `recurrence_id`.
+      Profiling trimmed the original list: `deleted_at` and `review_status` are always
+      queried together (via `active()`), so they're served by the compound below (its
+      leading `deleted_at` column also covers the trash `IS NOT NULL` scan) — a standalone
+      index on either would be redundant write-overhead. `workflow_status` is **not**
+      indexed: it is never a SQL filter (effective status rolls up in Python), so an index
+      would be pure write cost. Add one if a `WHERE workflow_status` ever lands.
+- [x] Compound `(deleted_at, review_status)` for the common active-task query — this is the
+      real shared shape across `list_tasks`, calendar, search, and candidate list.
+      `workflow_status` was excluded from the composite for the same reason as above (no SQL
+      filter), so the composite stayed non-speculative.
+- [x] `alembic revision --autogenerate`, reviewed (stripped autogen's spurious
+      `DROP TABLE _litestream_*` — replication sidecar tables, not app schema), applied.
+      Regression-guard test `test_read_path_indexes_present_and_hot_queries_correct` asserts
+      the index set is declared and the filtered read paths still return the right rows.
 
 ## Slice 3 — Pagination / limits on unbounded list endpoints (BE)
 

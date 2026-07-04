@@ -39,6 +39,79 @@ def test_task_create_markdone_softdelete(db_session: Session) -> None:
     ]
 
 
+def test_read_path_indexes_present_and_hot_queries_correct(
+    db_session: Session,
+) -> None:
+    """Regression guard for the Sprint 29 task read-path indexes.
+
+    Indexes are transparent to results, so this asserts (a) the expected index
+    set is actually declared on the model — catching an accidental drop or a
+    model/migration drift — and (b) the filtered read paths those indexes back
+    still return exactly the right rows.
+    """
+    from sqlalchemy import inspect
+
+    from app.services import task_trash as trash_service
+
+    inspector = inspect(db_session.get_bind())
+    index_names = {ix["name"] for ix in inspector.get_indexes("tasks")}
+    assert {
+        "ix_tasks_deleted_at_review_status",
+        "ix_tasks_project_id",
+        "ix_tasks_parent_task_id",
+        "ix_tasks_recurrence_id",
+    } <= index_names
+
+    proj_a = projects_service.create_project(db_session, name="Alpha")
+    proj_b = projects_service.create_project(db_session, name="Beta")
+    db_session.commit()
+
+    # project_id + deleted_at/review_status paths
+    top = tasks_service.create_task(db_session, project_id=proj_a.id, title="top a")
+    other = tasks_service.create_task(db_session, project_id=proj_b.id, title="top b")
+    candidate = tasks_service.create_task(
+        db_session,
+        project_id=proj_a.id,
+        title="unreviewed",
+        review_status=TaskReviewStatus.candidate,
+    )
+    db_session.commit()
+
+    # parent_task_id path (subtree fetch)
+    child = tasks_service.create_task(
+        db_session, project_id=proj_a.id, title="child", parent_task_id=top.id
+    )
+    db_session.commit()
+
+    # deleted_at IS NOT NULL path (trash), still covered by the composite's
+    # leading column.
+    tasks_service.soft_delete_task(db_session, other)
+    db_session.commit()
+
+    # Active, project-scoped, accepted-only list.
+    active_a = tasks_service.list_tasks(
+        db_session, project_id=proj_a.id, review_status=TaskReviewStatus.accepted
+    )
+    active_ids = {t.id for t in active_a}
+    assert top.id in active_ids and child.id in active_ids
+    assert candidate.id not in active_ids  # review_status filter
+    assert other.id not in active_ids  # different project AND soft-deleted
+
+    # Subtree fetch via parent_task_id.
+    subtasks = tasks_service.list_tasks(db_session, project_id=proj_a.id)
+    assert child.id in {t.id for t in subtasks}
+    top_level = tasks_service.list_tasks(
+        db_session, project_id=proj_a.id, top_level_only=True
+    )
+    assert child.id not in {t.id for t in top_level}
+    assert top.id in {t.id for t in top_level}
+
+    # deleted_at IS NOT NULL scan returns the trashed row.
+    trashed_ids = {t.id for t in trash_service.list_deleted_tasks(db_session)}
+    assert other.id in trashed_ids
+    assert top.id not in trashed_ids
+
+
 def test_accepted_task_without_project_defaults_to_general(
     db_session: Session,
 ) -> None:

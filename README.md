@@ -118,6 +118,12 @@ Key decisions:
   re-extracts. `inbox_items.matched_alias` records which project alias routed a
   note (when the deterministic matcher matched an alias, not the project name),
   surfaced at triage as "matched alias '…'".
+- **`tasks` read-path indexes** back the hot list/read queries: a compound
+  `(deleted_at, review_status)` (active-task list, calendar, search, and — via
+  its leading column — the trash `deleted_at IS NOT NULL` scan) plus single
+  `project_id`, `parent_task_id`, `recurrence_id`. `workflow_status` is
+  deliberately not indexed (effective status rolls up in Python; it is never a
+  SQL filter).
 
 ### The most important table
 
