@@ -4,7 +4,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    # env_ignore_empty: an empty env var (e.g. DISCORD_GUILD_ID= in a compose
+    # .env) is treated as unset and falls back to the default, rather than being
+    # parsed as "" — which would crash a typed-optional field like the guild id.
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", env_ignore_empty=True
+    )
 
     app_env: str = "development"
     database_url: str = "sqlite:///../data/app.db"
@@ -14,6 +19,19 @@ class Settings(BaseSettings):
     # "0.0.0.0" in .env to expose the API on the LAN. Settings read routes are
     # visible over the LAN, but settings writes are guarded localhost-only.
     api_host: str = "127.0.0.1"
+
+    # Reverse-proxy trust list for the write-guard and per-IP rate limiter.
+    # Comma-separated IPs/CIDRs (e.g. "172.28.0.0/16"). Empty (default) = trust
+    # nothing: the direct TCP peer is always the client, exactly as a direct bind.
+    # Set this only to a proxy you control (the nginx container).
+    trusted_proxy_ips: str = ""
+
+    # How the dashboard's published port is bound in the docker deployment. Loopback
+    # (the default) means only the host can reach the proxy, so the write-guard
+    # accepts Settings writes forwarded by the trusted proxy. Set to "0.0.0.0" (via
+    # FRONTEND_BIND) to expose the dashboard on the LAN — that automatically re-guards
+    # Settings writes to loopback/exec clients only. See api/request_ip.py.
+    frontend_bind: str = "127.0.0.1"
 
     # Discord integration (Sprint 3). The bot is a separate process that calls the
     # API over HTTP. The shared secret is the real protection on the discord route

@@ -6,28 +6,40 @@ from typing import TypeVar
 
 from fastapi import HTTPException, Request, status
 
+from app.api.request_ip import direct_peer, is_trusted_proxy, proxy_is_host_only
+
 RowT = TypeVar("RowT")
 
 
 def require_local_write(request: Request) -> None:
-    """Allow sensitive mutations only from direct loopback/test clients.
+    """Allow sensitive mutations only from the host.
 
     Guards the routes that change configuration (settings/prompt writes) or
     destroy data irreversibly (purge, empty-trash): with ``API_HOST=0.0.0.0`` the
     API is reachable from the whole LAN with no auth, and these are the only
-    operations that can't be undone from the UI. This trusts
-    ``request.client.host`` for direct binds. Reverse-proxy deployments need
-    explicit trusted-proxy handling before forwarding these writes.
+    operations that can't be undone from the UI. Two callers are allowed:
+
+    1. A direct loopback peer — a direct-bind dev server, or a ``docker exec``
+       client inside the backend container.
+    2. A request forwarded by the trusted reverse proxy *when the dashboard is
+       bound host-only* (``proxy_is_host_only``). In that mode the LAN cannot
+       reach the proxy, so every forwarded request is from the host. We do not
+       trust ``X-Forwarded-For`` to look like loopback — the leftmost entries are
+       client-forgeable — so exposing the dashboard on the LAN
+       (``FRONTEND_BIND=0.0.0.0``) automatically re-denies proxied writes.
     """
-    host = request.client.host if request.client else None
-    if host in {"localhost", "testclient"}:
+    peer = direct_peer(request)
+    if peer in {"localhost", "testclient"}:
         return
-    if host is not None:
+    if peer is not None:
         try:
-            if ip_address(host).is_loopback:
+            if ip_address(peer).is_loopback:
                 return
         except ValueError:
             pass
+
+    if is_trusted_proxy(peer) and proxy_is_host_only():
+        return
 
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,

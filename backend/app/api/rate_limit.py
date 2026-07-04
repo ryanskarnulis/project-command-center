@@ -21,6 +21,7 @@ from collections.abc import Callable
 import structlog
 from fastapi import HTTPException, Request, status
 
+from app.api.request_ip import resolve_client_ip
 from app.config import get_settings
 
 logger = structlog.get_logger(__name__)
@@ -49,7 +50,7 @@ def rate_limit(
 
     def dependency(request: Request) -> None:
         limit: int = getattr(get_settings(), per_min_attr)
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = resolve_client_ip(request) or "unknown"
         key = f"{bucket}:{client_ip}"
         now = time.monotonic()
         cutoff = now - window_seconds

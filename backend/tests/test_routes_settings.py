@@ -9,6 +9,8 @@ import yaml
 from fastapi.testclient import TestClient
 
 from app.ai import gateway
+from app.api import request_ip
+from app.config import Settings
 from app.main import app
 from app.services import settings as settings_service
 
@@ -340,3 +342,63 @@ class TestEvalRun:
         assert resp.status_code == 403
         assert resp.json()["detail"] == "this operation is only allowed from localhost"
         assert called is False
+
+
+class TestTrustedProxyGuard:
+    """The write-guard behind the nginx reverse proxy (docker-compose mode)."""
+
+    PROXY = "172.28.0.9"
+
+    def _apply_settings(
+        self, monkeypatch: pytest.MonkeyPatch, *, frontend_bind: str
+    ) -> None:
+        settings = Settings(
+            trusted_proxy_ips="172.28.0.0/16", frontend_bind=frontend_bind
+        )
+        monkeypatch.setattr(request_ip, "get_settings", lambda: settings)
+
+    def _proxy_client(self) -> TestClient:
+        # Simulate the request arriving from the nginx container's IP.
+        return TestClient(app, client=(self.PROXY, 40000))
+
+    def test_host_only_dashboard_allows_proxied_write(
+        self, monkeypatch: pytest.MonkeyPatch, isolated_local: Path
+    ) -> None:
+        # Default host-only bind: the LAN can't reach nginx, so a write it forwards
+        # is from the host and is allowed — no loopback X-Forwarded-For needed.
+        self._apply_settings(monkeypatch, frontend_bind="127.0.0.1")
+        with self._proxy_client() as proxied:
+            resp = proxied.patch(
+                "/api/settings/profiles/task_extraction",
+                json={"temperature": 0.7},
+            )
+        assert resp.status_code == 200
+        assert isolated_local.exists()
+
+    def test_lan_exposed_dashboard_forbids_proxied_write(
+        self, monkeypatch: pytest.MonkeyPatch, isolated_local: Path
+    ) -> None:
+        # FRONTEND_BIND=0.0.0.0 exposes the dashboard on the LAN, so proxied writes
+        # are re-guarded even with a spoofed loopback X-Forwarded-For.
+        self._apply_settings(monkeypatch, frontend_bind="0.0.0.0")
+        with self._proxy_client() as proxied:
+            resp = proxied.patch(
+                "/api/settings/profiles/task_extraction",
+                json={"temperature": 0.7},
+                headers={"X-Forwarded-For": "127.0.0.1"},
+            )
+        assert resp.status_code == 403
+        assert not isolated_local.exists()
+
+    def test_untrusted_peer_is_forbidden(
+        self, lan_client: TestClient, isolated_local: Path
+    ) -> None:
+        # No proxy is trusted by default, so a forged X-Forwarded-For from a LAN
+        # peer hitting the backend directly must not smuggle a write past the guard.
+        resp = lan_client.patch(
+            "/api/settings/profiles/task_extraction",
+            json={"temperature": 0.7},
+            headers={"X-Forwarded-For": "127.0.0.1"},
+        )
+        assert resp.status_code == 403
+        assert not isolated_local.exists()

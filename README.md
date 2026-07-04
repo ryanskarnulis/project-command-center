@@ -204,16 +204,78 @@ intentionally bumping a backend dependency, regenerate the lock:
 cd backend && .venv/bin/python -m pip freeze --exclude-editable > requirements.lock
 ```
 
+## Deploy with Docker
+
+`./main.sh` remains the dev path. For a persistent deployment on a home server,
+`docker compose` stands up the backend (uvicorn) and the frontend (nginx serving
+the built SPA and reverse-proxying `/api` to the backend). **Ollama is not
+containerized** — it stays on the host (GPU) and the backend reaches it over the
+host gateway.
+
+Prerequisites: Docker + the compose plugin, and Ollama already running on the
+host with the configured model pulled.
+
+```
+cp .env.example .env          # then edit: secrets, exposure, trusted proxy
+docker compose up --build     # backend + frontend
+```
+
+The dashboard is **host-only by default** (`http://127.0.0.1:8080`), matching the
+`API_HOST`/`DEV_HOST` posture. To expose it on the LAN, set `FRONTEND_BIND=0.0.0.0`
+in `.env` (optionally `FRONTEND_PORT`). The backend itself publishes no host
+port; it is reachable only via nginx and the compose network.
+
+**Discord bot** (optional) runs as a compose profile so it only starts when asked:
+
+```
+docker compose --profile discord up   # needs DISCORD_BOT_TOKEN + BACKEND_SHARED_SECRET in .env
+```
+
+**Data & backups.** SQLite lives on the bind-mounted `./data` volume
+(`app.db` + WAL sidecars survive restarts). `./scripts/backup_db.sh` is still the
+snapshot path — run it on the host against `data/app.db`, or from inside the
+container.
+
+**Settings writes in docker mode.** Profile/prompt saves and eval runs (the
+loopback-guarded routes) **work from the host by default.** The reasoning: with
+the dashboard bound host-only (the default), the LAN cannot reach nginx at all,
+so every request nginx forwards is necessarily from the host — the backend trusts
+those. The moment you expose the dashboard on the LAN (`FRONTEND_BIND=0.0.0.0`),
+the backend **automatically re-guards** these writes to `403` for proxied clients;
+no second switch to remember. This is driven by two values the compose file passes
+to the backend: `TRUSTED_PROXY_IPS` (the nginx/compose subnet) and `FRONTEND_BIND`.
+
+The guard never trusts `X-Forwarded-For` to *look* like loopback (the leftmost
+entries are client-forgeable), so a spoofed header can't smuggle a write past it.
+For rate limiting behind nginx, the backend keys on the address nginx actually
+observed (the rightmost `X-Forwarded-For` entry), which a client can't fake.
+
+In LAN-exposed mode, make Settings changes from the `./main.sh` dev environment or
+from inside the backend container — a request from within the container is a true
+loopback client (the slim image has Python, not curl):
+
+```
+docker compose exec backend python -c \
+  "import urllib.request,json; \
+   req=urllib.request.Request('http://127.0.0.1:8000/api/settings/profiles/task_extraction', \
+   data=json.dumps({'temperature':0.5}).encode(), method='PATCH', \
+   headers={'Content-Type':'application/json'}); \
+   print(urllib.request.urlopen(req).read().decode())"
+```
+
 ## Network & security posture
 
 Single-user, trusted-LAN app. `API_HOST` and `DEV_HOST` default to `127.0.0.1`;
 setting `API_HOST=0.0.0.0` is intentional and supported:
 
 - Normal project/task/inbox/trash/training routes are open to LAN reads and writes.
-- **Settings writes stay localhost-only** (profile/prompt saves, eval runs) —
-  LAN clients get `403`. Read-only Settings routes (Ollama health, installed
-  models) work from the LAN. The loopback check assumes a direct bind;
-  a reverse proxy would need trusted-proxy handling first.
+- **Settings writes stay host-only** (profile/prompt saves, eval runs) — LAN
+  clients get `403`. Read-only Settings routes (Ollama health, installed models)
+  work from the LAN. On a direct bind the guard trusts loopback peers. Behind the
+  docker reverse proxy it trusts writes the proxy forwards *only while the
+  dashboard is bound host-only* (`FRONTEND_BIND`); exposing it on the LAN
+  re-guards them automatically. `X-Forwarded-For` is never trusted to look like
+  loopback, so a spoofed header can't bypass the guard.
 - Discord routes are protected by `BACKEND_SHARED_SECRET`, not the bind address.
 - The two Ollama-calling routes (`POST /api/discord/inbox`,
   `GET /api/projects/{id}/summary`) are per-IP rate limited

@@ -62,20 +62,20 @@ tests in `test_routes_discord.py`; full backend suite green (334).
 
 ## Slice 2 — Remaining improvement ideas (frontend-heavy)
 
-- [ ] **Next occurrence next to the repeat badge** — "Every week · next Jul 1"
+- [X] **Next occurrence next to the repeat badge** — "Every week · next Jul 1"
       on `TaskCard`'s repeat badge (and task detail). Next-date math already
       lives in `services/task_recurrence.py`; expose it on the task read payload
       rather than duplicating scheduling math in TS.
-- [ ] **Skip an occurrence from where the task shows up** — skip action on the
+- [X] **Skip an occurrence from where the task shows up** — skip action on the
       task list card menu, Today page, and the series timeline (today it lives
       only on the task detail page). Reuse the existing skip endpoint + confirm
       pattern; mark-done from cards already shipped (complete circle, sprint 23).
-- [ ] **Bulk select on `/trash`** — checkboxes + select-all per section,
+- [X] **Bulk select on `/trash`** — checkboxes + select-all per section,
       multi-restore / multi-purge using the existing per-item iteration in
       `useTrash` (409-tolerant, restored-vs-skipped reporting).
-- [ ] *(stretch)* Alias match visibility — surface which alias matched on a
+- [X] *(stretch)* Alias match visibility — surface which alias matched on a
       triaged inbox note. Skip if the slice is already at a healthy size.
-- [ ] Vitest for the new UI states; happy-path pytest if the task payload gains
+- [X] Vitest for the new UI states; happy-path pytest if the task payload gains
       the next-occurrence field.
 
 **Commit stop 2.**
@@ -85,30 +85,48 @@ tests in `test_routes_discord.py`; full backend suite green (334).
 The deployability core. Ollama stays on the host (GPU); containers reach it
 over the host gateway. SQLite lives on a bind-mounted `data/` volume.
 
-- [ ] `backend/Dockerfile` — Python 3.11+, install from `requirements.lock`,
-      entrypoint runs `alembic upgrade head` then uvicorn.
-- [ ] `frontend/Dockerfile` — `npm ci` + `vite build`, served by nginx with
-      `/api` reverse-proxied to the backend container (keeps the derive-from-host
-      API URL behavior irrelevant in prod; no CORS config needed).
-- [ ] `docker-compose.yml` — `backend`, `frontend`, optional `discord-bot`
-      service behind a compose profile (only starts when tokens are set),
-      healthchecks, `.env`-driven config, `data/` volume,
+- [x] `backend/Dockerfile` — Python 3.11+, install from `requirements.lock`
+      (`pip install -e . -c requirements.lock`, no `[dev]`), CMD runs
+      `alembic upgrade head` then uvicorn (single worker, no reload).
+- [x] `frontend/Dockerfile` — `npm ci` + `vite build`, served by nginx with
+      `/api` reverse-proxied to the backend container. Built with an empty
+      `VITE_API_URL` so the client emits relative `/api` paths (same-origin, no
+      CORS). `nginx.conf` adds SPA fallback + a 200s proxy timeout for AI routes.
+- [x] `docker-compose.yml` — `backend`, `frontend`, optional `discord-bot`
+      service behind the `discord` compose profile, healthcheck on `/health`,
+      `.env`-driven config, `./data` volume,
       `OLLAMA_BASE_URL=http://host.docker.internal:11434` via
-      `extra_hosts: host-gateway`.
-- [ ] **Settings-write guard decision** — behind nginx the backend sees the
+      `extra_hosts: host-gateway`. Dashboard is host-only by default
+      (`FRONTEND_BIND=127.0.0.1`), LAN a one-line opt-in. Fixed compose subnet so
+      `TRUSTED_PROXY_IPS` has a deterministic value. Backend publishes no host port.
+- [x] **Settings-write guard decision** — behind nginx the backend sees the
       proxy's container IP, so the loopback check in `api/guards.py` would 403
       all Settings writes. Plan: nginx sets `X-Forwarded-For`; guard gains an
       opt-in `TRUSTED_PROXY_IPS` setting (empty default = current behavior
       exactly) and only then trusts the forwarded client IP. Settings writes
       remain loopback-clients-only in both modes.
-      *Assumed this is the right call because README already names
-      trusted-proxy handling as the prerequisite — change if you'd rather keep
-      Settings writes host-direct-only and skip the config knob.*
-- [ ] Verify end-to-end on a clean checkout: `docker compose up` → capture an
-      inbox note through the LAN UI → task lands in DB → visible in UI.
-      Settings writes verified 403 from LAN, allowed per the guard decision.
-- [ ] README: new "Deploy with Docker" section (compose commands, env vars,
-      volume/backup notes, Ollama-on-host requirement); note that `main.sh`
+      *Refined per follow-up: Settings writes now work **from the host by default**.
+      Docker's NAT means no external client presents as loopback, so instead of
+      trusting a forwarded loopback IP (spoofable), the guard trusts writes the
+      nginx proxy forwards **only while the dashboard is bound host-only** — then
+      the LAN can't reach nginx, so every forwarded request is from the host.
+      Exposing the dashboard (`FRONTEND_BIND=0.0.0.0`) auto-re-guards writes to 403.
+      Implemented in `app/api/request_ip.py` (`is_trusted_proxy`,
+      `proxy_is_host_only`, spoof-resistant rightmost-XFF `resolve_client_ip`) +
+      `TRUSTED_PROXY_IPS`/`FRONTEND_BIND` settings; compose passes both to the
+      backend. Verified live in both modes (host write 200 / LAN write 403).*
+- [x] Verify end-to-end: built both images, brought the stack up (scratch data
+      volume), confirmed backend healthy + migrations ran, nginx serves the SPA
+      with client-route fallback, `/api` proxied to the backend, `host.docker.internal`
+      reaches host Ollama, and POST inbox → process extracted two tasks into the DB.
+      Host Settings write through nginx returns 200 (host-only default); with
+      `FRONTEND_BIND=0.0.0.0` the same write returns 403 (incl. spoofed XFF);
+      reads 200. Data survived a backend restart (volume). Full backend suite green
+      (359). *Verification surfaced two real deploy bugs, both fixed: empty
+      `DISCORD_GUILD_ID=` crashed startup (added `env_ignore_empty=True`), and the
+      slim image has no `curl` (README admin snippet uses Python).*
+- [x] README: new "Deploy with Docker" section (compose commands, env vars,
+      volume/backup notes, Ollama-on-host requirement); notes that `main.sh`
       remains the dev path.
 
 **Commit stop 3.**

@@ -1,0 +1,41 @@
+# Both images build from the repo root, so this keeps build context lean and,
+# critically, keeps secrets and the dev database out of image layers.
+
+.git
+.gitignore
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+backend/.venv/
+**/*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Node / build output
+node_modules/
+frontend/node_modules/
+frontend/dist/
+.vite/
+
+# Secrets & env — must never enter an image (backend/.env has real tokens).
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+frontend/.env
+frontend/.env.*
+
+# Runtime data — the DB is a bind-mounted volume, never baked into the image.
+data/
+
+# Training artifacts (large)
+training/
+
+# Docs / editor / OS
+*.md
+.idea/
+.vscode/
+.DS_Store
