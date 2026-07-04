@@ -240,7 +240,7 @@ function projectWorkloadWidth(row: ProjectOpenTasksRow, maxOpenTasks: number): s
 }
 
 export function DashboardPage() {
-  const { overview, tasks, loading, error } = useDashboard()
+  const { overview, tasks, loading, refreshing, error, reload } = useDashboard()
   const [pendingReviewCount, setPendingReviewCount] = useState<number | null>(null)
   const pendingCount = pendingReviewCount ?? 0
 
@@ -300,7 +300,7 @@ export function DashboardPage() {
   const greeting =
     hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
   return (
-    <div className="dashboard">
+    <div className="dashboard" aria-busy={refreshing}>
       <section className="dashboard-hero">
         <div>
           <h1>{greeting}</h1>
@@ -314,6 +314,7 @@ export function DashboardPage() {
         className="panel command-inbox-panel"
         headingLevel={2}
         onPendingCountChange={setPendingReviewCount}
+        onTasksChanged={reload}
       />
 
       <section className="focus-panel" aria-labelledby="focus-now-heading">

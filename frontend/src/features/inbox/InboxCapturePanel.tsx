@@ -11,6 +11,9 @@ interface InboxCapturePanelProps {
   className?: string
   headingLevel?: 1 | 2
   onPendingCountChange?: (count: number) => void
+  /** Fired after a review/decision that accepts or dismisses candidates, so an
+   *  embedding page (e.g. the dashboard) can refetch its task-derived state. */
+  onTasksChanged?: () => void
 }
 
 export function InboxCapturePanel({
@@ -19,6 +22,7 @@ export function InboxCapturePanel({
   className = '',
   headingLevel = 1,
   onPendingCountChange,
+  onTasksChanged,
 }: InboxCapturePanelProps) {
   const {
     inboxItem,
@@ -76,12 +80,15 @@ export function InboxCapturePanel({
   async function handleReview(decisions: Parameters<typeof review>[0]) {
     await review(decisions)
     setText('')
+    onTasksChanged?.()
   }
 
   async function handleDecide(taskId: number, decision: CandidateDecision) {
     if (inboxItem === null) return
     const res = await decide(inboxItem.id, taskId, decision)
-    if (res?.finalized) setFinalized(true)
+    if (res === undefined) return
+    if (res.finalized) setFinalized(true)
+    onTasksChanged?.()
   }
 
   const alreadyReviewed = inboxItem?.reviewed_at != null

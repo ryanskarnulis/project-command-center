@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useToast } from '../../components/ToastContext'
 import {
   createTask,
@@ -16,7 +16,10 @@ import { useTaskRefresh } from './taskRefreshContext'
 
 interface UseTasks {
   tasks: Task[]
+  /** True only during the initial load; a background refetch uses `refreshing`. */
   loading: boolean
+  /** True while a reload/cross-page refetch is in flight after the first load. */
+  refreshing: boolean
   error: string | null
   create: (data: TaskCreate) => Promise<void>
   update: (id: number, data: TaskUpdate) => Promise<void>
@@ -29,17 +32,22 @@ interface UseTasks {
 export function useTasks(projectId?: number): UseTasks {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const { withToast } = useToast()
   const { refresh: refreshTrashCount } = useTrashCount()
   // Sidebar drag-to-file changes tasks outside this hook — refetch off it too.
   const { version: taskRefreshVersion } = useTaskRefresh()
+  // Once the first load resolves we never flip `loading` back on — subsequent
+  // refetches surface through `refreshing` so the list doesn't flash a spinner.
+  const hasLoaded = useRef(false)
 
   const reload = useCallback(() => setRefreshKey((k) => k + 1), [])
 
   useEffect(() => {
     let active = true
+    if (hasLoaded.current) setRefreshing(true)
     const request = projectId === undefined ? listAllTasks() : listTasks(projectId)
     request
       .then((data) => {
@@ -53,7 +61,10 @@ export function useTasks(projectId?: number): UseTasks {
         }
       })
       .finally(() => {
-        if (active) setLoading(false)
+        if (!active) return
+        hasLoaded.current = true
+        setLoading(false)
+        setRefreshing(false)
       })
     return () => {
       active = false
@@ -109,5 +120,5 @@ export function useTasks(projectId?: number): UseTasks {
     [reload, refreshTrashCount, withToast],
   )
 
-  return { tasks, loading, error, create, update, markDone, skip, remove, reload }
+  return { tasks, loading, refreshing, error, create, update, markDone, skip, remove, reload }
 }

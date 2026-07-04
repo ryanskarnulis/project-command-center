@@ -1318,3 +1318,41 @@ alias add/remove and description save-on-blur persistence.
       chromium against the running app — now marker/dimming, subtask fill-in label,
       collapsed→expand, "Until end of day" capacity, and a real defer that wrote
       `deferred_until` to the DB and dropped the row (test tasks cleaned up after).
+
+---
+
+## Deployable app — Discord follow-ups, improvement sweep, docker-compose, litestream
+> Shipped 2026-07-03 (commits 26–28). Four slices; full detail lived in `CURRENT.md`
+> before archival.
+
+- [x] **Slice 1 — Discord `/tasks` + `/done`.** `GET /api/discord/tasks` (open tasks,
+      optional `?project=` name/alias filter) and `GET /api/discord/tasks/search?q=`
+      (ranked fuzzy title match over open tasks), shared-secret guarded; `/tasks [project]`
+      numbered-list bot command and `/done <search>` (exactly-one → recurrence-preserving
+      `POST /api/tasks/{id}/done`, multiple → disambiguation, zero → no-match; no writes on
+      ambiguity). 8 new tests; README Discord section updated.
+- [x] **Slice 2 — Remaining round-5 improvement ideas.** Next-occurrence date on the repeat
+      badge (exposed off `services/task_recurrence.py` on the task read payload), skip-an-
+      occurrence from the task card menu / Today / series timeline, bulk select + multi-
+      restore/purge on `/trash`, and alias-match visibility on triaged inbox notes. Vitest +
+      happy-path pytest for the payload field.
+- [x] **Slice 3 — docker-compose deployment.** `backend/Dockerfile` (alembic upgrade then
+      single-worker uvicorn), `frontend/Dockerfile` (vite build + nginx `/api` reverse proxy,
+      SPA fallback, 200s AI-route timeout), `docker-compose.yml` (backend/frontend + optional
+      discord-bot profile, `/health` healthcheck, `./data` volume, host-gateway Ollama). The
+      settings-write guard was reworked for the NAT'd proxy: `app/api/request_ip.py`
+      (`is_trusted_proxy`, `proxy_is_host_only`, spoof-resistant rightmost-XFF
+      `resolve_client_ip`) trusts nginx-forwarded writes only while the dashboard is bound
+      host-only; `FRONTEND_BIND=0.0.0.0` auto-re-guards writes to 403. Verified end-to-end in
+      both modes; two real deploy bugs found and fixed (empty `DISCORD_GUILD_ID=` startup
+      crash → `env_ignore_empty=True`; no `curl` in the slim image → Python admin snippet).
+      README "Deploy with Docker" section added.
+- [x] **Slice 4 — litestream continuous replication.** Default-on `litestream/litestream:0.3`
+      sidecar sharing the `./data` mount, `command: replicate` against `litestream.yml` (file
+      replica at `data/replica/`; WAL already met — app runs SQLite in WAL mode). S3 target
+      left commented with `LITESTREAM_S3_*` stubs; `.gitignore` excludes `data/replica/` +
+      the litestream shadow dir. `scripts/backup_db.sh` kept as the manual snapshot path.
+      **Restore drill run live:** created a project *after* the initial snapshot, then
+      `litestream restore`d the file replica to a scratch path — the post-snapshot project
+      was present and all ten tables' row counts matched the live DB, proving the WAL stream
+      round-trips. README backups section updated.

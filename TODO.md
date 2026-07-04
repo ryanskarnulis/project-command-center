@@ -11,22 +11,17 @@ archived in `DONE.md`.
 
 ## Current focus
 
-**Deployable app — Discord follow-ups, improvement sweep, docker-compose,
-litestream** (committed 2026-07-03). Four slices tracked in `CURRENT.md`:
-(1) Discord `/tasks` + `/done`, (2) remaining round-5 improvement ideas,
-(3) docker-compose deployment, (4) litestream replication. The previous UI/UX
-revamp epic is archived in `DONE.md`. The round-5 hardening pass's deferred
-performance notes carry below under "Deferred hardening notes".
+**Post-deploy hardening & polish** (checked out 2026-07-03). Legitimate follow-ups
+from an external code review, tracked in `CURRENT.md`: (1) frontend data-consistency
+polish, (2) task indexes, (3) pagination on unbounded list endpoints, (4) stretch:
+rollup subtree scoping. The prior "Deployable app" epic (Discord `/tasks`+`/done`,
+improvement sweep, docker-compose, litestream) is archived in `DONE.md`.
 
-### Deferred hardening notes (from round 5 — record now, act when warranted)
+### Deferred hardening notes (from round 5)
 
-- [ ] **(low) Rollup engine loads the whole task table per request** — `_children_map`
-      runs on every task list *and* every single-task read via `_read(s)_with_blocked`;
-      scope it to the requested subtree or memoize once task counts grow.
-- [ ] **(low) Indexes for hot task filters** — `project_id`, `review_status`,
-      `workflow_status`, `deleted_at`, `recurrence_id` are all table scans today.
-- [ ] **(low) Pagination for `GET /api/tasks` and `GET /api/inbox`** — both unbounded;
-      trash/pending lists are already capped.
+*Promoted to `CURRENT.md` (2026-07-03) — the indexes, pagination, and rollup-scan items
+are Slices 2–4 of the current epic, warranted now that the app is deployable and an
+external review independently flagged them as the next ceiling.*
 
 ### Improvement ideas (nice-to-have — not blockers)
 
