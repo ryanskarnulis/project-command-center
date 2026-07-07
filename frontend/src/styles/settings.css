@@ -265,7 +265,7 @@
   padding: 0 8px;
   border-radius: 999px;
   background: var(--blue-soft);
-  color: #0b55d9;
+  color: var(--link);
   font-family: var(--mono);
   font-size: 12px;
   font-weight: 700;

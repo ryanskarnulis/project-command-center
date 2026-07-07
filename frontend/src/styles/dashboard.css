@@ -12,7 +12,7 @@
 .panel {
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--frost);
   box-shadow: var(--shadow-soft);
 }
 
@@ -72,7 +72,7 @@
   background: var(--surface);
   color: var(--text);
   padding: 18px 18px 56px;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+  box-shadow: var(--shadow-card);
 }
 
 .metric-card:hover {
@@ -104,9 +104,9 @@
 
 .metric-corner-action:hover,
 .metric-corner-action:focus-visible {
-  border-color: rgba(59, 130, 246, 0.32);
+  border-color: var(--blue-border);
   background: var(--blue);
-  color: #ffffff;
+  color: var(--on-accent);
 }
 
 .focus-due-card {
@@ -171,7 +171,7 @@
   height: 9px;
   overflow: hidden;
   border-radius: 999px;
-  background: #e6ebf2;
+  background: var(--track);
 }
 
 .mini-progress {
@@ -294,7 +294,7 @@
   height: 7px;
   overflow: hidden;
   border-radius: 999px;
-  background: #e6ebf2;
+  background: var(--track);
 }
 
 .workload-bar span {

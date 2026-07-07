@@ -2,10 +2,10 @@
    Split from index.css. The barrel (../index.css) controls load order. */
 
 @media (prefers-color-scheme: dark) {
-  .priority-pill.priority-urgent { background: #3f1212; color: #f87171; }
-  .priority-pill.priority-high   { background: #3f1f0a; color: #fb923c; }
-  .status-pill.workflow-open      { background: #0f2a5e; color: #93c5fd; }
-  .status-pill.workflow-done      { background: #052e16; color: #4ade80; }
+  .priority-pill.priority-urgent { background: var(--dark-urgent-bg); color: var(--dark-urgent-text); }
+  .priority-pill.priority-high   { background: var(--dark-high-bg); color: var(--dark-high-text); }
+  .status-pill.workflow-open      { background: var(--dark-open-bg); color: var(--dark-open-text); }
+  .status-pill.workflow-done      { background: var(--dark-done-bg); color: var(--dark-done-text); }
 }
 
 @media (max-width: 880px) {

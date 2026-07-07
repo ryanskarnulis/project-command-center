@@ -192,8 +192,8 @@
   overflow: auto;
   max-height: 360px;
   border-radius: 8px;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--code-bg);
+  color: var(--code-text);
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.5;
@@ -215,16 +215,16 @@
 }
 
 .training-diff-line.is-add {
-  background: rgba(34, 197, 94, 0.22);
-  color: #bbf7d0;
+  background: var(--code-ok-bg);
+  color: var(--code-ok-text);
 }
 
 .training-diff-line.is-del {
-  background: rgba(239, 68, 68, 0.22);
-  color: #fecaca;
+  background: var(--code-err-bg);
+  color: var(--code-err-text);
 }
 
 .training-diff-line.is-eq {
-  color: #94a3b8;
+  color: var(--code-muted);
 }
 

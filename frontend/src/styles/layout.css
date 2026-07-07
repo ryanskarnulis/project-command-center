@@ -16,7 +16,7 @@
   height: 100svh;
   padding: 28px 18px 22px;
   border-right: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.88);
+  background: var(--frost-soft);
   backdrop-filter: blur(18px);
 }
 
@@ -112,7 +112,7 @@
 .shell-nav-link:hover:not(:disabled),
 .shell-nav-link.active {
   background: var(--blue-soft);
-  color: #0b55d9;
+  color: var(--link);
 }
 
 .shell-nav-link.disabled {
@@ -147,13 +147,13 @@
 .shell-nav-project:hover,
 .shell-nav-project.active {
   background: var(--blue-soft);
-  color: #0b55d9;
+  color: var(--link);
 }
 
 .shell-nav-project.drag-over {
   border-color: var(--blue);
   background: var(--blue-soft);
-  color: #0b55d9;
+  color: var(--link);
 }
 
 .focus-session {
@@ -223,7 +223,7 @@
   min-height: 92px;
   padding: 18px 28px;
   border-bottom: 1px solid var(--border);
-  background: rgba(247, 249, 252, 0.86);
+  background: var(--frost-bg);
   backdrop-filter: blur(18px);
 }
 
@@ -347,7 +347,7 @@
   padding: 0 6px;
   border-radius: 999px;
   background: var(--blue-soft);
-  color: #0b55d9;
+  color: var(--link);
   font-size: 12px;
   font-weight: 700;
   text-align: center;

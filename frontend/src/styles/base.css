@@ -10,7 +10,7 @@ body {
   min-height: 100svh;
   margin: 0;
   background:
-    radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 28rem),
+    radial-gradient(circle at top left, var(--bg-glow), transparent 28rem),
     var(--bg);
 }
 
@@ -32,7 +32,7 @@ a {
 }
 
 a:hover {
-  color: #1d4ed8;
+  color: var(--accent-strong);
 }
 
 button {
@@ -47,7 +47,7 @@ button {
   gap: 8px;
   min-height: 38px;
   padding: 8px 12px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--shadow-xs);
 }
 
 button:hover:not(:disabled) {
@@ -81,7 +81,7 @@ select:focus,
 textarea:focus,
 button:focus-visible,
 a:focus-visible {
-  outline: 3px solid rgba(59, 130, 246, 0.24);
+  outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
 }
 

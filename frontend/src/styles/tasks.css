@@ -122,12 +122,12 @@
   background: var(--surface);
   text-decoration: none;
   color: var(--text-h);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-lift-sm);
   transition: box-shadow 0.15s, border-color 0.15s;
 }
 
 .task-card:hover {
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-lift);
   border-color: var(--blue);
 }
 
@@ -206,7 +206,7 @@
 .task-suggested-lead {
   margin: 0 0 8px;
   font-size: 13px;
-  color: var(--muted, #6b7280);
+  color: var(--muted);
 }
 
 .task-icon-action {
@@ -260,7 +260,7 @@
   gap: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--frost);
   box-shadow: var(--shadow-soft);
   padding: 14px;
   margin: 12px 0;
@@ -351,9 +351,9 @@
 }
 
 .task-filter-toggles label.selected {
-  border-color: rgba(59, 130, 246, 0.36);
+  border-color: var(--blue-border-strong);
   background: var(--blue-soft);
-  color: #0b55d9;
+  color: var(--link);
 }
 
 .task-filter-toggles input {
@@ -457,7 +457,7 @@
   align-items: center;
   border-radius: 6px;
   background: var(--orange-soft);
-  color: #b45309;
+  color: var(--orange-strong);
   font-size: 12px;
   font-weight: 760;
   line-height: 1;
@@ -662,7 +662,7 @@
 
 .view-toggle button.selected {
   background: var(--blue);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* Kanban board: three status columns. */
@@ -687,7 +687,7 @@
 
 .kanban-column.drag-over {
   border-color: var(--blue);
-  background: rgba(37, 99, 235, 0.06);
+  background: var(--blue-tint);
 }
 
 .kanban-column-header {
@@ -764,7 +764,7 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+  box-shadow: var(--shadow-modal);
 }
 
 .chip-popover--right {
@@ -954,7 +954,7 @@
 
 .due-day[aria-current='date'] {
   background: var(--blue-soft);
-  color: #0b55d9;
+  color: var(--link);
 }
 
 /* --- Peek panel: right-side slide-over hosting the task detail surface
@@ -964,7 +964,7 @@
   position: fixed;
   inset: 0;
   z-index: 90; /* below .modal-overlay (100) so EditScopeModal stacks above */
-  background: rgba(15, 23, 42, 0.25);
+  background: var(--overlay);
 }
 
 .peek-panel {
@@ -977,7 +977,7 @@
   padding: 16px 20px 20px;
   background: var(--bg);
   border-left: 1px solid var(--border);
-  box-shadow: -18px 0 42px rgba(15, 23, 42, 0.14);
+  box-shadow: var(--shadow-drawer);
   animation: peek-slide-in 160ms ease-out;
   outline: none;
 }

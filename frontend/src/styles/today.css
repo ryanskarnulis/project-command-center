@@ -154,7 +154,7 @@
   padding: 1px 6px;
   border-radius: 999px;
   background: var(--orange-soft);
-  color: #b45309;
+  color: var(--orange-strong);
   font-size: 0.68rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -267,7 +267,7 @@
   padding: 1px 8px;
   border-radius: 999px;
   background: var(--red);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -306,7 +306,7 @@
 .today-partial {
   padding: 1px 8px;
   border-radius: 999px;
-  background: var(--blue-soft, rgba(59, 130, 246, 0.12));
+  background: var(--blue-soft);
   color: var(--blue);
   font-size: 0.72rem;
   font-weight: 600;

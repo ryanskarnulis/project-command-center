@@ -30,6 +30,60 @@
   --mono:
     'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, ui-monospace, monospace;
 
+  /* --- consolidation tokens: swept from the feature partials, values
+     unchanged (pixel-identical refactor). Role names so a future theme swap
+     can retune them independently. --- */
+  --muted: #6b7280; /* was only a var() fallback in tasks.css; now real */
+  --on-accent: #ffffff; /* text on --blue/--red/--accent fills */
+  --link: #0b55d9;
+  --accent: #2f6fe0; /* primary button fill */
+  --accent-strong: #1d4ed8; /* link/button hover */
+  --blue-border: rgba(59, 130, 246, 0.32);
+  --blue-border-strong: rgba(59, 130, 246, 0.36);
+  --blue-tint: rgba(37, 99, 235, 0.06);
+  --bg-glow: rgba(59, 130, 246, 0.08); /* page-corner radial */
+  --focus-ring: rgba(59, 130, 246, 0.24);
+  --green-strong: #0b7a3b;
+  --orange-strong: #b45309;
+  --neutral-strong: #cbd5e1; /* disabled fills */
+  --track: #e6ebf2; /* progress/workload bar troughs */
+  --frost: rgba(255, 255, 255, 0.94); /* frosted sticky panels */
+  --frost-soft: rgba(255, 255, 255, 0.88);
+  --frost-bg: rgba(247, 249, 252, 0.86);
+  --overlay: rgba(15, 23, 42, 0.25); /* modal/drawer scrims */
+  --overlay-strong: rgba(15, 23, 42, 0.42);
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-card: 0 8px 22px rgba(15, 23, 42, 0.05);
+  --shadow-pop: 0 8px 24px rgba(15, 23, 42, 0.12);
+  --shadow-modal: 0 16px 40px rgba(15, 23, 42, 0.16);
+  --shadow-drawer: -18px 0 42px rgba(15, 23, 42, 0.14);
+  --shadow-lift-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-lift: 0 3px 8px rgba(0, 0, 0, 0.1);
+  /* priority/status pills (light scheme) */
+  --urgent-bg: #fef2f2;
+  --urgent-text: #dc2626;
+  --high-bg: #fff7ed;
+  --high-text: #ea580c;
+  --done-bg: #f0fdf4;
+  /* terminal-style block on the training page */
+  --code-bg: #0f172a;
+  --code-text: #e2e8f0;
+  --code-muted: #94a3b8;
+  --code-ok-bg: rgba(34, 197, 94, 0.22);
+  --code-ok-text: #bbf7d0;
+  --code-err-bg: rgba(239, 68, 68, 0.22);
+  --code-err-text: #fecaca;
+  /* dark-scheme pill overrides in responsive.css — the app's only
+     dark-mode rules today; a full dark theme would absorb these. */
+  --dark-urgent-bg: #3f1212;
+  --dark-urgent-text: #f87171;
+  --dark-high-bg: #3f1f0a;
+  --dark-high-text: #fb923c;
+  --dark-open-bg: #0f2a5e;
+  --dark-open-text: #93c5fd;
+  --dark-done-bg: #052e16;
+  --dark-done-text: #4ade80;
+
   font-family: var(--sans);
   color: var(--text);
   background: var(--bg);

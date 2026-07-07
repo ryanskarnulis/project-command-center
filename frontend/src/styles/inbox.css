@@ -7,7 +7,7 @@
   gap: 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--frost);
   padding: 18px;
   box-shadow: var(--shadow-soft);
 }
@@ -49,18 +49,18 @@
   min-height: 36px;
   border-radius: 50%;
   background: var(--blue);
-  color: #ffffff;
+  color: var(--on-accent);
   padding: 0;
 }
 
 .inbox-submit-button:hover:not(:disabled) {
   border-color: var(--blue);
-  background: #1d4ed8;
+  background: var(--accent-strong);
 }
 
 .inbox-submit-button:disabled {
-  background: #cbd5e1;
-  color: #64748b;
+  background: var(--neutral-strong);
+  color: var(--text-muted);
   opacity: 1;
 }
 

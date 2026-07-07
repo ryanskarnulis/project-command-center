@@ -4,12 +4,13 @@ Generated preview kit for syncing the app's design system to **claude.ai/design*
 
 ## Source of truth
 
-`app.css` is a **verbatim copy** of [`../frontend/src/index.css`](../frontend/src/index.css).
-That stylesheet is the source of truth — do not hand-edit `app.css`. To refresh the kit
-after the app's styles change:
+`app.css` is the app's stylesheet **flattened**: the `src/styles/*.css` partials
+concatenated in the exact order [`../frontend/src/index.css`](../frontend/src/index.css)
+imports them (the barrel is the source of truth for order; the partials for content).
+Do not hand-edit `app.css`. To refresh the kit after the app's styles change:
 
 ```sh
-cp frontend/src/index.css design-kit/app.css
+scripts/refresh_design_kit.sh
 ```
 
 then re-sync (below).

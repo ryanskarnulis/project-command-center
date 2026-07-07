@@ -78,7 +78,7 @@
 }
 
 .trash-notice {
-  color: #0b7a3b;
+  color: var(--green-strong);
   font-weight: 700;
 }
 
