@@ -1,88 +1,86 @@
 /* Design tokens: :root custom properties (colors, shadows, fonts).
-   Split from index.css. The barrel (../index.css) controls load order. */
+   Split from index.css. The barrel (../index.css) controls load order.
+
+   Night-silk theme (The Web design language), dark only. The palette
+   primitives (--bg, --surface, --ink, --muted, --glow, status colors, --sans,
+   --mono, ...) come from silk.css — a verbatim copy of gateway/theme/silk.css,
+   loaded just before this file. This file maps PCC's semantic tokens onto
+   those primitives; feature partials keep consuming the semantic names.
+   The old light palette lives in git history (pre silk-theme). */
 
 :root {
-  --bg: #f7f9fc;
-  --surface: #ffffff;
-  --surface-soft: #f8fafc;
-  --surface-strong: #eef4ff;
-  --text: #475569;
-  --text-h: #0f172a;
-  --text-muted: #64748b;
-  --border: #dbe3ef;
-  --border-strong: #c8d3e1;
-  --blue: #3b82f6;
-  --blue-soft: #e9f1ff;
-  --green: #16a34a;
-  --green-soft: #e9f8ee;
-  --orange: #f59e0b;
-  --orange-soft: #fff5e3;
-  --red: #e11d48;
-  --red-soft: #ffe8ee;
-  --purple: #7c3aed;
-  --purple-soft: #f1eafe;
-  --neutral-soft: #eef2f7;
-  --shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
-  --shadow-soft: 0 10px 28px rgba(15, 23, 42, 0.06);
-  --sans:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    sans-serif;
-  --mono:
-    'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, ui-monospace, monospace;
+  color-scheme: dark;
 
-  /* --- consolidation tokens: swept from the feature partials, values
-     unchanged (pixel-identical refactor). Role names so a future theme swap
-     can retune them independently. --- */
-  --muted: #6b7280; /* was only a var() fallback in tasks.css; now real */
-  --on-accent: #ffffff; /* text on --blue/--red/--accent fills */
-  --link: #0b55d9;
-  --accent: #2f6fe0; /* primary button fill */
-  --accent-strong: #1d4ed8; /* link/button hover */
-  --blue-border: rgba(59, 130, 246, 0.32);
-  --blue-border-strong: rgba(59, 130, 246, 0.36);
-  --blue-tint: rgba(37, 99, 235, 0.06);
-  --bg-glow: rgba(59, 130, 246, 0.08); /* page-corner radial */
-  --focus-ring: rgba(59, 130, 246, 0.24);
-  --green-strong: #0b7a3b;
-  --orange-strong: #b45309;
-  --neutral-strong: #cbd5e1; /* disabled fills */
-  --track: #e6ebf2; /* progress/workload bar troughs */
-  --frost: rgba(255, 255, 255, 0.94); /* frosted sticky panels */
-  --frost-soft: rgba(255, 255, 255, 0.88);
-  --frost-bg: rgba(247, 249, 252, 0.86);
-  --overlay: rgba(15, 23, 42, 0.25); /* modal/drawer scrims */
-  --overlay-strong: rgba(15, 23, 42, 0.42);
-  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-card: 0 8px 22px rgba(15, 23, 42, 0.05);
-  --shadow-pop: 0 8px 24px rgba(15, 23, 42, 0.12);
-  --shadow-modal: 0 16px 40px rgba(15, 23, 42, 0.16);
-  --shadow-drawer: -18px 0 42px rgba(15, 23, 42, 0.14);
-  --shadow-lift-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
-  --shadow-lift: 0 3px 8px rgba(0, 0, 0, 0.1);
-  /* priority/status pills (light scheme) */
-  --urgent-bg: #fef2f2;
-  --urgent-text: #dc2626;
-  --high-bg: #fff7ed;
-  --high-text: #ea580c;
-  --done-bg: #f0fdf4;
-  /* terminal-style block on the training page */
-  --code-bg: #0f172a;
-  --code-text: #e2e8f0;
-  --code-muted: #94a3b8;
-  --code-ok-bg: rgba(34, 197, 94, 0.22);
-  --code-ok-text: #bbf7d0;
-  --code-err-bg: rgba(239, 68, 68, 0.22);
-  --code-err-text: #fecaca;
-  /* dark-scheme pill overrides in responsive.css — the app's only
-     dark-mode rules today; a full dark theme would absorb these. */
-  --dark-urgent-bg: #3f1212;
-  --dark-urgent-text: #f87171;
-  --dark-high-bg: #3f1f0a;
-  --dark-high-text: #fb923c;
-  --dark-open-bg: #0f2a5e;
-  --dark-open-text: #93c5fd;
-  --dark-done-bg: #052e16;
-  --dark-done-text: #4ade80;
+  /* surfaces: lift steps above --surface (silk) for hover/selected fills */
+  --surface-soft: #141a28;
+  --surface-strong: #1a2233;
+
+  /* text: body wears the silk strand color; headings get full ink */
+  --text: var(--silk);
+  --text-h: var(--ink);
+  --text-muted: var(--muted);
+
+  --border: var(--silk-border);
+  --border-strong: rgba(199, 211, 228, 0.38);
+
+  /* status hues → silk's night-desaturated set */
+  --blue: var(--info);
+  --blue-soft: var(--info-soft);
+  --green: var(--ok);
+  --green-soft: var(--ok-soft);
+  --orange: var(--warn);
+  --orange-soft: var(--warn-soft);
+  --red: var(--danger);
+  --red-soft: var(--danger-soft);
+  --purple: var(--violet);
+  --purple-soft: var(--violet-soft);
+  --neutral-soft: rgba(199, 211, 228, 0.08);
+
+  --shadow: 0 18px 42px rgba(0, 0, 0, 0.5);
+  --shadow-soft: 0 10px 28px rgba(0, 0, 0, 0.42);
+
+  /* accents: fills are light on night, so text-on-fill is dark (--on-accent);
+     hover brightens toward the glow instead of darkening */
+  --on-accent: var(--bg);
+  --link: var(--glow);
+  --accent: var(--glow); /* primary button hover fill */
+  --accent-strong: var(--glow); /* link hover / submit-button hover fill */
+  --blue-border: rgba(143, 190, 242, 0.35);
+  --blue-border-strong: rgba(143, 190, 242, 0.45);
+  --blue-tint: rgba(143, 190, 242, 0.08);
+  --focus-ring: rgba(155, 231, 255, 0.35);
+  --green-strong: var(--ok); /* light-theme "darker" variants collapse into */
+  --orange-strong: var(--warn); /* the base status colors on night */
+  --neutral-strong: rgba(199, 211, 228, 0.15); /* disabled fills; 0.15 keeps
+     --text-muted on it above AA (4.86) — see the silk-theme contrast check */
+  --track: rgba(199, 211, 228, 0.12); /* progress/workload bar troughs */
+  --frost: rgba(15, 19, 29, 0.9); /* frosted sticky panels (night veils) */
+  --frost-soft: rgba(15, 19, 29, 0.84);
+  --frost-bg: rgba(10, 12, 18, 0.8);
+  --overlay: rgba(4, 6, 10, 0.55); /* modal/drawer scrims */
+  --overlay-strong: rgba(4, 6, 10, 0.72);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-card: 0 8px 22px rgba(0, 0, 0, 0.35);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-modal: 0 16px 40px rgba(0, 0, 0, 0.6);
+  --shadow-drawer: -18px 0 42px rgba(0, 0, 0, 0.55);
+  --shadow-lift-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-lift: 0 3px 8px rgba(0, 0, 0, 0.45);
+  /* priority/status pills (single dark scheme; the old --dark-* overrides
+     and responsive.css's prefers-color-scheme block are gone) */
+  --urgent-bg: var(--danger-soft);
+  --urgent-text: var(--danger);
+  --high-bg: var(--warn-soft);
+  --high-text: var(--warn);
+  --done-bg: var(--ok-soft);
+  /* terminal-style block on the training page: a step darker than the page */
+  --code-bg: #080b12;
+  --code-text: var(--ink);
+  --code-muted: var(--muted);
+  --code-ok-bg: rgba(143, 220, 170, 0.2);
+  --code-ok-text: var(--ok);
+  --code-err-bg: rgba(242, 143, 164, 0.2);
+  --code-err-text: var(--danger);
 
   font-family: var(--sans);
   color: var(--text);
@@ -93,4 +91,3 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
-

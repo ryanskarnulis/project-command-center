@@ -5,6 +5,10 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  /* The launcher's web motif, dashboard only — a faint quarter orb-web pinned
+     to the viewport corner (same asset as chess; opacity baked into the SVG). */
+  background: url('../assets/corner-web.svg') top right / min(680px, 88vmin) auto
+    no-repeat fixed;
 }
 
 .dashboard-hero,

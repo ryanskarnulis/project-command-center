@@ -149,13 +149,13 @@
 
 .calendar-chip.due-overdue {
   background: var(--orange-soft);
-  color: #b45309;
+  color: var(--orange);
 }
 
 .calendar-chip.due-today,
 .calendar-chip.due-soon {
   background: var(--blue-soft);
-  color: #0b55d9;
+  color: var(--blue);
 }
 
 .calendar-chip-done {
@@ -180,7 +180,7 @@
   background: var(--text-muted);
 }
 
-.calendar-chip-dot.priority-urgent { background: #dc2626; }
-.calendar-chip-dot.priority-high { background: #ea580c; }
+.calendar-chip-dot.priority-urgent { background: var(--red); }
+.calendar-chip-dot.priority-high { background: var(--orange); }
 .calendar-chip-dot.priority-medium { background: var(--blue); }
 .calendar-chip-dot.priority-low { background: var(--text-muted); }

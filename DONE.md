@@ -1356,3 +1356,23 @@ alias add/remove and description save-on-blur persistence.
       `litestream restore`d the file replica to a scratch path — the post-snapshot project
       was present and all ten tables' row counts matched the live DB, proving the WAL stream
       round-trips. README backups section updated.
+
+---
+
+## Night-silk retheme — The Web design language (spiderweb-restyle phase 3)
+
+- [x] **Dark-only silk theme.** `styles/silk.css` added as a verbatim copy of
+      `gateway/theme/silk.css` (canonical; re-copy to fix drift), loaded first in the
+      barrel. `tokens.css` remaps every PCC semantic token onto the silk primitives —
+      feature partials and components needed zero color changes (the phase-2 token
+      consolidation paid off). Old light palette lives in git history. `color-scheme:
+      dark`, night-vignette body background, glow hover on buttons, glow focus rings,
+      the launcher's corner-web SVG faintly behind the dashboard only.
+- [x] **Cleanups the swap enabled:** responsive.css's `prefers-color-scheme` pill block
+      and the eight `--dark-*` tokens deleted (single scheme now); calendar.css's four
+      stray hex colors tokenized; `theme-color` meta added.
+- [x] **Verified:** 31 WCAG pairs (text on every surface, all status chips, accent
+      fills, code block) pass AA ≥ 4.5 — `--neutral-strong` alpha nudged 0.18 → 0.15
+      for the disabled-fill pair. Headless-chromium walk of all 10 routes plus modal,
+      task drawer, and focus states, screenshots eyeballed; eslint + 339 vitest + build
+      green; design kit regenerated.

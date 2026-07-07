@@ -1,12 +1,7 @@
-/* All @media blocks (dark mode + breakpoints). Loaded last so overrides win.
-   Split from index.css. The barrel (../index.css) controls load order. */
-
-@media (prefers-color-scheme: dark) {
-  .priority-pill.priority-urgent { background: var(--dark-urgent-bg); color: var(--dark-urgent-text); }
-  .priority-pill.priority-high   { background: var(--dark-high-bg); color: var(--dark-high-text); }
-  .status-pill.workflow-open      { background: var(--dark-open-bg); color: var(--dark-open-text); }
-  .status-pill.workflow-done      { background: var(--dark-done-bg); color: var(--dark-done-text); }
-}
+/* All @media breakpoint blocks. Loaded last so overrides win.
+   Split from index.css. The barrel (../index.css) controls load order.
+   (The prefers-color-scheme pill block is gone — the app is dark-only silk;
+   pill tokens in tokens.css carry the night values directly.) */
 
 @media (max-width: 880px) {
   .task-card {
