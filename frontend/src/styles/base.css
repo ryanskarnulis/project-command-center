@@ -9,9 +9,11 @@ body {
   min-width: 320px;
   min-height: 100svh;
   margin: 0;
+  /* Night vignette (The Web design language) — same recipe as the launcher
+     and chess: a soft glow center fading into the page night. */
   background:
-    radial-gradient(circle at top left, var(--bg-glow), transparent 28rem),
-    var(--bg);
+    radial-gradient(1100px 750px at 50% 30%, var(--bg-vignette) 0%, var(--bg) 62%)
+    fixed;
 }
 
 button,
@@ -51,8 +53,9 @@ button {
 }
 
 button:hover:not(:disabled) {
-  border-color: var(--border-strong);
+  border-color: var(--glow);
   background: var(--surface-soft);
+  box-shadow: 0 0 12px var(--glow-soft);
 }
 
 button:disabled,

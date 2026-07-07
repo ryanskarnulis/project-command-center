@@ -7,6 +7,7 @@
  * so its @media overrides win over the base rules they adjust.
  *
  * Edit feature styles in the matching src/styles/<feature>.css file, not here. */
+@import './styles/silk.css';
 @import './styles/tokens.css';
 @import './styles/base.css';
 @import './styles/layout.css';
