@@ -184,8 +184,8 @@ wait_for_http() {
 }
 
 preflight_ports() {
-  if port_is_open 127.0.0.1 8000; then
-    die "Port 8000 is already in use. Stop the existing backend process, then rerun ./main.sh."
+  if port_is_open 127.0.0.1 8101; then
+    die "Port 8101 is already in use. Stop the existing backend process, then rerun ./main.sh."
   fi
 
   if port_is_open 127.0.0.1 5173; then
@@ -212,10 +212,10 @@ run_migrations() {
 }
 
 start_backend() {
-  log "Starting backend on port 8000."
+  log "Starting backend on port 8101."
   (cd "$BACKEND_DIR" && "$BACKEND_PYTHON" -m app.main) &
   CHILD_PIDS+=("$!")
-  wait_for_http "Backend" "http://127.0.0.1:8000/health" 30
+  wait_for_http "Backend" "http://127.0.0.1:8101/health" 30
 }
 
 start_frontend() {
@@ -255,7 +255,7 @@ main() {
 
   log "Dev stack is running."
   log "Frontend: http://127.0.0.1:5173"
-  log "Backend:  http://127.0.0.1:8000"
+  log "Backend:  http://127.0.0.1:8101"
   log "Press Ctrl-C to stop."
 
   set +e
