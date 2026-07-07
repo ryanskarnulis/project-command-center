@@ -1,0 +1,16 @@
+# Workspace app manifest — consumed by gateway/gen.py (and later the hub app).
+# Schema reference: ../gateway/README.md
+name: tasks
+title: Project Command Center
+description: Project and task management with AI-assisted capture from messy text and Discord.
+icon: "🗂️"
+upstream: 127.0.0.1:8100
+# Frontend liveness only — the backend's /health is not proxied by nginx.
+health: /
+lan: true
+runtime:
+  type: compose
+  start: docker compose up -d
+  stop: docker compose down
+  notes: "Ollama runs on the host. Discord bot: `docker compose --profile discord up -d`."
+tags: [productivity, ai]

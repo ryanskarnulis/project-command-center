@@ -57,9 +57,12 @@ services:
       backend:
         condition: service_healthy
     # Host-only by default (mirrors API_HOST/DEV_HOST). Set FRONTEND_BIND=0.0.0.0
-    # in .env to expose the dashboard on the LAN.
+    # in .env to expose the dashboard on the LAN — required when the workspace
+    # gateway (tasks.$HOMELAB_DOMAIN → 127.0.0.1:8100) fronts it, so Settings
+    # writes stay re-guarded. Port 8100 sits in the PCC 8100-8199 block; see
+    # ../gateway/README.md.
     ports:
-      - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-8080}:80"
+      - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-8100}:80"
     networks:
       - appnet
 

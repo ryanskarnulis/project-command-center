@@ -227,10 +227,13 @@ cp .env.example .env          # then edit: secrets, exposure, trusted proxy
 docker compose up --build     # backend + frontend
 ```
 
-The dashboard is **host-only by default** (`http://127.0.0.1:8080`), matching the
+The dashboard is **host-only by default** (`http://127.0.0.1:8100`), matching the
 `API_HOST`/`DEV_HOST` posture. To expose it on the LAN, set `FRONTEND_BIND=0.0.0.0`
-in `.env` (optionally `FRONTEND_PORT`). The backend itself publishes no host
-port; it is reachable only via nginx and the compose network.
+in `.env` (optionally `FRONTEND_PORT`; 8100 is PCC's slot in the workspace port
+registry — see `../gateway/README.md`). The workspace gateway proxies
+`tasks.$HOMELAB_DOMAIN` here and expects the LAN-exposed setting, so the
+Settings-write re-guard applies to proxied clients. The backend itself publishes
+no host port; it is reachable only via nginx and the compose network.
 
 **Discord bot** (optional) runs as a compose profile so it only starts when asked:
 
