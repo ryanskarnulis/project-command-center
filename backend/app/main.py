@@ -70,5 +70,8 @@ async def health() -> dict[str, str]:
 
 if __name__ == "__main__":
     uvicorn.run(
-        "app.main:app", host=get_settings().api_host, port=8000, reload=True
+        "app.main:app",
+        host=get_settings().api_host,
+        port=get_settings().api_port,
+        reload=True,
     )

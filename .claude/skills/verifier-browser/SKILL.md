@@ -13,8 +13,8 @@ This skill drives the app in headless chromium to observe the real interaction.
 
 - `playwright` is a devDependency in `frontend/package.json`.
 - Chromium is downloaded (`npx playwright install chromium`, in `~/.cache/ms-playwright`).
-- Backend on `http://127.0.0.1:8000`, frontend (Vite) on `http://127.0.0.1:5173`.
-  Check both are up: `curl -s -m2 http://127.0.0.1:8000/api/projects` and
+- Backend on `http://127.0.0.1:8101`, frontend (Vite) on `http://127.0.0.1:5173`.
+  Check both are up: `curl -s -m2 http://127.0.0.1:8101/api/projects` and
   `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5173`.
 
 ## How to drive
@@ -51,7 +51,7 @@ await page.mouse.up()
 
 ### Evidence
 
-- DB truth via the API: `fetch('http://127.0.0.1:8000/api/tasks/<id>')` before
+- DB truth via the API: `fetch('http://127.0.0.1:8101/api/tasks/<id>')` before
   and after — assert `estimated_minutes` / `scheduled_start` changed.
 - Screenshots: `await page.screenshot({ path: '/tmp/.../after.png' })`, then Read
   the PNG to confirm the bar span, the axis, and the toast.

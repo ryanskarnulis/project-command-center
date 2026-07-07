@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     # visible over the LAN, but settings writes are guarded localhost-only.
     api_host: str = "127.0.0.1"
 
+    # Port the dev API binds to (`python -m app.main`). 8101 sits in PCC's
+    # 8100-8199 workspace block (8100 is the docker-published dashboard);
+    # 8000 now belongs to the chess app. The docker image binds its own
+    # container-internal 8000 in the Dockerfile CMD, independent of this.
+    api_port: int = 8101
+
     # Reverse-proxy trust list for the write-guard and per-IP rate limiter.
     # Comma-separated IPs/CIDRs (e.g. "172.28.0.0/16"). Empty (default) = trust
     # nothing: the direct TCP peer is always the client, exactly as a direct bind.
@@ -39,7 +45,8 @@ class Settings(BaseSettings):
     backend_shared_secret: str = ""
     discord_bot_token: str = ""
     # Where the bot process reaches the API (loopback by default — same host).
-    backend_base_url: str = "http://127.0.0.1:8000"
+    # Matches the api_port dev default; docker-compose overrides it via env.
+    backend_base_url: str = "http://127.0.0.1:8101"
     # Optional: sync slash commands to this one guild for instant availability
     # during testing. Global sync (when unset) can take up to ~an hour to appear.
     discord_guild_id: int | None = None
