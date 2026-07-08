@@ -307,7 +307,7 @@ describe('TaskDetailView', () => {
 
     expect(await screen.findByRole('heading', { name: 'Blocking' })).toBeInTheDocument()
     expect(screen.getByText('1 downstream task waiting')).toBeInTheDocument()
-    const dependent = screen.getByRole('link', { name: 'Install the router' })
+    const dependent = await screen.findByRole('link', { name: 'Install the router' })
     expect(dependent).toHaveAttribute('href', '/tasks/12')
     expect(screen.getByText('waiting')).toBeInTheDocument()
   })

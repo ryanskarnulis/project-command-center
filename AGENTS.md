@@ -11,6 +11,39 @@ See `README.md` for the architecture and plan; `TODO.md` for the backlog;
 `CURRENT.md` for the checked-out focus; `DONE.md` for the changelog. This file is
 rules of engagement, not the plan.
 
+## Commands
+
+```bash
+./main.sh                 # bootstrap env/deps, migrate, start Ollama + backend
+                          # + frontend (+ Discord bot when tokens are set)
+./test.sh                 # backend pytest/ruff/mypy + frontend Vitest/lint/build
+./test.sh --ai-evals      # also run the Ollama-backed AI eval suites (needs
+                          # Ollama + the configured local model)
+./scripts/backup_db.sh    # online snapshot of data/app.db → data/backups/
+```
+
+After intentionally bumping a backend dependency, regenerate the lock:
+`cd backend && .venv/bin/python -m pip freeze --exclude-editable > requirements.lock`.
+Docker deployment details are in `README.md`.
+
+For frontend changes whose surface is the rendered page — especially
+pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
+`verifier-browser` skill (`.claude/skills/verifier-browser`), not just tests.
+
+## Git workflow
+
+- **Never commit or push directly to `main`.** For every change: create a
+  branch (`feat/<slug>`, `fix/<slug>`, `chore/<slug>`, `docs/<slug>`), commit,
+  push, and open a PR with `gh pr create`.
+- PRs are **squash-merged once CI is green**. GitHub's native auto-merge and
+  branch protection are unavailable (private repo on the Free plan), so after
+  opening a PR run `gh pr checks --watch` and, when green,
+  `gh pr merge --squash`. Never merge with failing or pending checks.
+- CI (`.github/workflows/ci.yml`) mirrors `./test.sh`: backend pytest, ruff,
+  and mypy; frontend Vitest, lint, and build. The AI eval suites stay
+  local-only (they need Ollama + the model) — run `./test.sh` (with
+  `--ai-evals` when AI code changed) before pushing.
+
 ## Prime directives
 
 1. **The app owns the logic. AI returns structured suggestions, nothing more.**
