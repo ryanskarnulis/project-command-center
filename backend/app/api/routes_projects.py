@@ -6,7 +6,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.guards import require_local_write, trashed_row_or_error
+from app.api.guards import trashed_row_or_error
 from app.db.models import ActivityEvent, Project, ProjectAlias
 from app.db.session import get_db
 from app.schemas.activity import ActivityEventRead
@@ -121,7 +121,6 @@ def restore_project(
 @router.delete(
     "/{project_id}/purge",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_local_write)],
 )
 def purge_project(project_id: int, db: Session = Depends(get_db)) -> None:
     project = trashed_row_or_error(

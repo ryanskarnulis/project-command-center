@@ -4,7 +4,6 @@ import structlog
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.guards import require_local_write
 from app.db.session import get_db
 from app.schemas.trash import (
     EmptyTrashResult,
@@ -62,7 +61,6 @@ def get_trash_count(db: Session = Depends(get_db)) -> TrashCountResult:
 @router.delete(
     "",
     response_model=EmptyTrashResult,
-    dependencies=[Depends(require_local_write)],
 )
 def empty_trash(db: Session = Depends(get_db)) -> EmptyTrashResult:
     """Permanently delete every trashed row. Idempotent; protected projects spared."""

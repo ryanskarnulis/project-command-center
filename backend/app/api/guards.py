@@ -14,10 +14,10 @@ RowT = TypeVar("RowT")
 def require_local_write(request: Request) -> None:
     """Allow sensitive mutations only from the host.
 
-    Guards the routes that change configuration (settings/prompt writes) or
-    destroy data irreversibly (purge, empty-trash): with ``API_HOST=0.0.0.0`` the
-    API is reachable from the whole LAN with no auth, and these are the only
-    operations that can't be undone from the UI. Two callers are allowed:
+    Guards the routes that change configuration (settings/prompt writes): with
+    ``API_HOST=0.0.0.0`` the API is reachable from the whole LAN with no auth,
+    and a bad settings write can lock the app out of its model provider. Two
+    callers are allowed:
 
     1. A direct loopback peer — a direct-bind dev server, or a ``docker exec``
        client inside the backend container.
