@@ -1376,3 +1376,17 @@ alias add/remove and description save-on-blur persistence.
       for the disabled-fill pair. Headless-chromium walk of all 10 routes plus modal,
       task drawer, and focus states, screenshots eyeballed; eslint + 339 vitest + build
       green; design kit regenerated.
+
+---
+
+## GPU sharing — free VRAM after each Ollama call
+
+- [x] **`keep_alive` on every `/api/chat` request** (`OLLAMA_KEEP_ALIVE`, default
+      `2m`, new Settings field). The RTX 3060 is shared with the chess app's
+      llama.cpp server; Ollama's server-side default kept `gemma4:e2b` resident
+      for 5 minutes after each call. Two minutes keeps the model warm across one
+      multi-call workflow (extract → match → breakdown) but frees ~8GB soon
+      after. Chess-side counterpart: its llama-server now sleeps after 10 idle
+      minutes; the structural fix (llama-swap, one owner for the GPU) is planned
+      in `../future-plans/llama-swap.md`. New `test_ollama_provider.py` pins the
+      payload wire format.

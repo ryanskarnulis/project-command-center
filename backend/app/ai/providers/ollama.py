@@ -21,9 +21,15 @@ class OllamaProvider(BaseProvider):
     matter of adding a sibling provider, not rewriting workflows.
     """
 
-    def __init__(self, base_url: str | None = None, timeout: float = 120.0) -> None:
+    def __init__(
+        self,
+        base_url: str | None = None,
+        timeout: float = 120.0,
+        keep_alive: str | None = None,
+    ) -> None:
         self._base_url = (base_url or get_settings().ollama_base_url).rstrip("/")
         self._timeout = timeout
+        self._keep_alive = keep_alive or get_settings().ollama_keep_alive
 
     @property
     def base_url(self) -> str:
@@ -74,6 +80,9 @@ class OllamaProvider(BaseProvider):
             "model": model,
             "messages": messages,
             "stream": False,
+            # Free VRAM shortly after the call instead of Ollama's 5m default —
+            # the GPU is shared with other model servers (see config.py).
+            "keep_alive": self._keep_alive,
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
