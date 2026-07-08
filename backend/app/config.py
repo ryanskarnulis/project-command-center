@@ -15,6 +15,13 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///../data/app.db"
     ollama_base_url: str = "http://localhost:11434"
 
+    # How long Ollama keeps the model in (V)RAM after a request ("2m", "0" =
+    # unload immediately, "-1" = forever). Short on purpose: the GPU is shared
+    # with the chess app's llama.cpp server, so the model should stay warm
+    # across one multi-call workflow but free VRAM soon after. Overrides
+    # Ollama's server-side default (5m) per request.
+    ollama_keep_alive: str = "2m"
+
     # Host the API binds to. Constitution default is loopback-only; set to
     # "0.0.0.0" in .env to expose the API on the LAN. Settings read routes are
     # visible over the LAN, but settings writes are guarded localhost-only.
