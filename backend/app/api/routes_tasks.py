@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.gateway import GatewayError
 from app.ai.workflows import break_down_task as breakdown_workflow
-from app.api.guards import require_local_write, trashed_row_or_error
+from app.api.guards import trashed_row_or_error
 from app.api.rate_limit import rate_limit
 from app.api.task_reads import read_with_blocked, reads_with_blocked
 from app.db.models import Task, TaskReviewStatus, TaskWorkflowStatus
@@ -372,7 +372,6 @@ def restore_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
 @router.delete(
     "/tasks/{task_id}/purge",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_local_write)],
 )
 def purge_task(task_id: int, db: Session = Depends(get_db)) -> None:
     task = trashed_row_or_error(

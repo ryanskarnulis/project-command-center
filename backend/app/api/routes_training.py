@@ -7,7 +7,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.guards import require_local_write, trashed_row_or_error
+from app.api.guards import trashed_row_or_error
 from app.db.models import AITrainingExample
 from app.db.session import get_db
 from app.schemas.training import TaskStat, TrainingExampleRead, TrainingStatsRead
@@ -96,7 +96,6 @@ def restore_example(
 @router.delete(
     "/{example_id}/purge",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_local_write)],
 )
 def purge_example(example_id: int, db: Session = Depends(get_db)) -> None:
     """Permanently delete a trashed training example (irreversible)."""

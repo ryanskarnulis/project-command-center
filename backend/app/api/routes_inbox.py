@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.ai.gateway import GatewayError
 from app.ai.workflows import extract_tasks as extract_workflow
 from app.ai.workflows import match_project as match_workflow
-from app.api.guards import require_local_write, trashed_row_or_error
+from app.api.guards import trashed_row_or_error
 from app.api.rate_limit import rate_limit
 from app.db.models import InboxItem, Task, TaskReviewStatus
 from app.db.session import get_db
@@ -111,7 +111,6 @@ def restore_inbox(inbox_item_id: int, db: Session = Depends(get_db)) -> InboxIte
 @router.delete(
     "/{inbox_item_id}/purge",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_local_write)],
 )
 def purge_inbox(inbox_item_id: int, db: Session = Depends(get_db)) -> None:
     item = trashed_row_or_error(

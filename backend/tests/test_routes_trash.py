@@ -410,10 +410,11 @@ def test_empty_trash_clears_all_and_is_idempotent(
     assert client.get("/api/projects").json()  # General still present
 
 
-# --- Loopback gating --------------------------------------------------------
+# --- LAN clients may purge --------------------------------------------------
 #
-# Purge/empty-trash are the app's only irreversible deletes; with
-# API_HOST=0.0.0.0 they must not be reachable from arbitrary LAN clients.
+# Purge/empty-trash are the app's only irreversible deletes, but the trusted
+# single-user LAN reaches the whole UI through a gateway, so they must be
+# usable from a LAN client too (the loopback-only guard was removed).
 
 
 @pytest.fixture
@@ -427,25 +428,31 @@ def lan_client(client: TestClient) -> Generator[TestClient, None, None]:
         yield test_client
 
 
-def test_lan_client_cannot_empty_trash(lan_client: TestClient) -> None:
+def test_lan_client_can_empty_trash(
+    client: TestClient, lan_client: TestClient
+) -> None:
+    tid = client.post("/api/tasks", json={"title": "LAN task"}).json()["id"]
+    client.delete(f"/api/tasks/{tid}")
+
     resp = lan_client.delete("/api/trash")
-    assert resp.status_code == 403
-    assert resp.json()["detail"] == "this operation is only allowed from localhost"
+    assert resp.status_code == 200
+    assert client.get("/api/trash").json()["tasks"] == []
 
 
-def test_lan_client_cannot_purge_but_can_trash_and_restore(
+def test_lan_client_can_purge_and_restore(
     client: TestClient, lan_client: TestClient
 ) -> None:
     tid = client.post("/api/tasks", json={"title": "LAN-managed task"}).json()["id"]
 
     # Reversible operations stay open to LAN clients (that's the normal app flow)…
     assert lan_client.delete(f"/api/tasks/{tid}").status_code == 204
-    # …but the irreversible purge is loopback-only.
-    assert lan_client.delete(f"/api/tasks/{tid}/purge").status_code == 403
     assert lan_client.post(f"/api/tasks/{tid}/restore").status_code == 200
+    # …and so is the irreversible purge, now that the loopback guard is gone.
+    assert lan_client.delete(f"/api/tasks/{tid}").status_code == 204
+    assert lan_client.delete(f"/api/tasks/{tid}/purge").status_code == 204
 
 
-def test_lan_client_cannot_purge_any_kind(
+def test_lan_client_can_purge_any_kind(
     client: TestClient, lan_client: TestClient, db_session: Session
 ) -> None:
     pid = client.post("/api/projects", json={"name": "Kept"}).json()["id"]
@@ -455,14 +462,14 @@ def test_lan_client_cannot_purge_any_kind(
     client.delete(f"/api/inbox/{inbox_id}")
     client.delete(f"/api/training-examples/{example_id}")
 
-    assert lan_client.delete(f"/api/projects/{pid}/purge").status_code == 403
-    assert lan_client.delete(f"/api/inbox/{inbox_id}/purge").status_code == 403
+    assert lan_client.delete(f"/api/projects/{pid}/purge").status_code == 204
+    assert lan_client.delete(f"/api/inbox/{inbox_id}/purge").status_code == 204
     assert (
         lan_client.delete(f"/api/training-examples/{example_id}/purge").status_code
-        == 403
+        == 204
     )
-    # Nothing was destroyed: everything is still in trash for loopback to see.
+    # All were destroyed: trash is empty for loopback too.
     trash = client.get("/api/trash").json()
-    assert [p["id"] for p in trash["projects"]] == [pid]
-    assert [i["id"] for i in trash["inbox_items"]] == [inbox_id]
-    assert [e["id"] for e in trash["training_examples"]] == [example_id]
+    assert [p["id"] for p in trash["projects"]] == []
+    assert [i["id"] for i in trash["inbox_items"]] == []
+    assert [e["id"] for e in trash["training_examples"]] == []
