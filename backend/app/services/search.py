@@ -1,19 +1,17 @@
-"""Global search across projects, tasks, and inbox items.
+"""Global search across projects and tasks.
 
 Read-only, deterministic SQL ``LIKE`` over active (non-soft-deleted) rows. No model
-call and no AI surface — this is plain navigation, not extraction. Results are grouped
-by kind and each group is independently capped so one noisy kind can't crowd out the
-others.
+call — this is plain navigation. Results are grouped by kind and each group is
+independently capped so one noisy kind can't crowd out the other.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 
 from sqlalchemy import ColumnElement, case, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
-from app.db.models import InboxItem, Project, Task, TaskReviewStatus, TaskWorkflowStatus
+from app.db.models import Project, Task, TaskReviewStatus, TaskWorkflowStatus
 from app.schemas.search import SearchResultItem, SearchResults
 from app.services.common import active
 
@@ -50,22 +48,14 @@ def _text_tier(
     )
 
 
-def _inbox_title(item: InboxItem) -> str:
-    """Prefer the AI summary as the display line; fall back to trimmed raw text."""
-    if item.summary:
-        return item.summary
-    text = item.raw_text.strip()
-    return text[:80] + "…" if len(text) > 80 else text
-
-
 def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
-    """Find active projects/tasks/inbox items matching ``query``.
+    """Find active projects/tasks matching ``query``.
 
     A blank query returns empty groups (the caller need not special-case it).
     """
     q = query.strip()
     if not q:
-        return SearchResults(projects=[], tasks=[], inbox_items=[])
+        return SearchResults(projects=[], tasks=[])
 
     # Three escaped LIKE patterns share one escaped term: prefix and substring use
     # wildcards; the exact tier compares lowercased equality (no LIKE needed).
@@ -129,28 +119,6 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
             .all()
         )
 
-    # Inbox: the summary is the human-facing line, so a summary hit beats a raw-text-
-    # only hit.
-    inbox_score = case(
-        (InboxItem.summary.ilike(contains, escape=_LIKE_ESCAPE), 0),
-        else_=1,
-    )
-    inbox_rows = (
-        db.execute(
-            active(InboxItem)
-            .where(
-                or_(
-                    InboxItem.raw_text.ilike(contains, escape=_LIKE_ESCAPE),
-                    InboxItem.summary.ilike(contains, escape=_LIKE_ESCAPE),
-                )
-            )
-            .order_by(inbox_score.asc(), InboxItem.id.desc())
-            .limit(per_kind)
-        )
-        .scalars()
-        .all()
-    )
-
     return SearchResults(
         projects=[
             SearchResultItem(
@@ -172,42 +140,4 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
             )
             for t in task_rows
         ],
-        inbox_items=[
-            SearchResultItem(kind="inbox", id=item.id, title=_inbox_title(item))
-            for item in inbox_rows
-        ],
-    )
-
-
-def search_open_tasks(db: Session, query: str, *, limit: int = 10) -> Sequence[Task]:
-    """Ranked open tasks whose title matches ``query`` — the ``/done`` candidate set.
-
-    "Open" means accepted and not yet done (the only tasks the Discord ``/done``
-    command can complete). Reuses the same escaped-``LIKE`` matching and relevance
-    tiering as :func:`search` (exact title, then prefix, then substring), but
-    returns full ``Task`` rows so the caller can surface the due date and owning
-    project. A blank query returns no candidates.
-    """
-    q = query.strip()
-    if not q:
-        return []
-
-    escaped = _escape_like(q)
-    prefix = f"{escaped}%"
-    contains = f"%{escaped}%"
-
-    text_score = _text_tier(Task.title, Task.description, q, prefix, contains)
-    return (
-        db.execute(
-            active(Task)
-            .where(
-                Task.title.ilike(contains, escape=_LIKE_ESCAPE),
-                Task.review_status == TaskReviewStatus.accepted,
-                Task.workflow_status != TaskWorkflowStatus.done,
-            )
-            .order_by(text_score.asc(), Task.id.desc())
-            .limit(limit)
-        )
-        .scalars()
-        .all()
     )

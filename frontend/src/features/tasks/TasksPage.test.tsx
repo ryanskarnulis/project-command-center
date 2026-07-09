@@ -10,7 +10,6 @@ import type { Task } from '../../types/task'
 import { TasksPage } from './TasksPage'
 
 vi.mock('../../api/tasks', () => ({
-  breakDownTask: vi.fn(),
   createTask: vi.fn(),
   createUnscopedTask: vi.fn(),
   deleteTask: vi.fn(),
@@ -22,7 +21,6 @@ vi.mock('../../api/tasks', () => ({
   listTasks: vi.fn(),
   markTaskDone: vi.fn(),
   reopenTask: vi.fn(),
-  reviewBreakdown: vi.fn(),
   skipOccurrence: vi.fn(),
   stopRecurrence: vi.fn(),
   updateTask: vi.fn(),
@@ -55,7 +53,6 @@ const mockListDependents = vi.mocked(listDependents)
 const baseTask: Task = {
   id: 1,
   project_id: null,
-  inbox_item_id: null,
   parent_task_id: null,
   title: 'Fix the VPN',
   description: null,

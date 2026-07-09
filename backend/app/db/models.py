@@ -37,11 +37,6 @@ class SoftDeleteMixin:
     deleted_at: Mapped[datetime | None] = mapped_column(default=None)
 
 
-class InboxSource(enum.StrEnum):
-    web = "web"
-    discord = "discord"
-
-
 class TaskReviewStatus(enum.StrEnum):
     candidate = "candidate"
     accepted = "accepted"
@@ -116,11 +111,11 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "tasks"
     # Read-path indexes (Sprint 29 hardening). Profiled against the real service
     # queries, not the raw column list, to avoid dead write-overhead:
-    #   * The active-task list, calendar feed, search, and candidate list all
-    #     filter ``deleted_at IS NULL`` together with ``review_status`` — one
-    #     compound index serves them, and its leading ``deleted_at`` column also
-    #     covers the trash queries' ``deleted_at IS NOT NULL`` scan, so no
-    #     standalone ``deleted_at``/``review_status`` index is needed.
+    #   * The active-task list, calendar feed, and search all filter
+    #     ``deleted_at IS NULL`` together with ``review_status`` — one compound
+    #     index serves them, and its leading ``deleted_at`` column also covers
+    #     the trash queries' ``deleted_at IS NOT NULL`` scan, so no standalone
+    #     ``deleted_at``/``review_status`` index is needed.
     #   * ``project_id``, ``parent_task_id``, ``recurrence_id`` each back a
     #     frequent equality filter (project scoping, subtree/children fetch,
     #     recurrence-series lookup) with no shared leading column, so each gets
@@ -138,9 +133,6 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int | None] = mapped_column(
         ForeignKey("projects.id"), default=None
-    )
-    inbox_item_id: Mapped[int | None] = mapped_column(
-        ForeignKey("inbox_items.id"), default=None
     )
     # Self-referential nesting (Sprint 7 task-model slice). A null parent is a
     # top-level task; cycle prevention (no A->B->A) lives in services/tasks.py,
@@ -175,12 +167,6 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     recurrence_id: Mapped[str | None] = mapped_column(String(36), default=None)
     confidence: Mapped[float | None] = mapped_column(default=None)
     assignee_hint: Mapped[str | None] = mapped_column(default=None)
-    # Raw "break this down" model output (Sprint 10a), held on the parent task
-    # only between generating subtask candidates and reviewing them. The
-    # correction (accepted/edited subtasks vs this original) is captured to
-    # ai_training_examples at review time (prime directive #4); this column is
-    # cleared once the breakdown is reviewed. Null = no pending breakdown.
-    breakdown_output_json: Mapped[str | None] = mapped_column(default=None)
     # Set when a task is cascade-soft-deleted because its PROJECT was deleted
     # (services/projects.soft_delete_project). Lets restore_project bring back
     # exactly the set it removed — not tasks the user trashed independently.
@@ -192,7 +178,6 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     project: Mapped[Project | None] = relationship(
         back_populates="tasks", foreign_keys=[project_id]
     )
-    inbox_item: Mapped[InboxItem | None] = relationship(back_populates="candidates")
     parent: Mapped[Task | None] = relationship(
         back_populates="subtasks", remote_side=[id]
     )
@@ -227,47 +212,6 @@ class TaskDependency(Base, TimestampMixin, SoftDeleteMixin):
     depends_on_task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"))
 
 
-class InboxItem(Base, TimestampMixin, SoftDeleteMixin):
-    __tablename__ = "inbox_items"
-    __table_args__ = (
-        Index(
-            "uq_inbox_items_active_input_hash",
-            "input_hash",
-            unique=True,
-            sqlite_where=text("deleted_at IS NULL"),
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    raw_text: Mapped[str]
-    input_hash: Mapped[str]
-    source: Mapped[InboxSource] = mapped_column(default=InboxSource.web)
-    summary: Mapped[str | None] = mapped_column(default=None)
-    project_hint: Mapped[str | None] = mapped_column(default=None)
-    needs_review: Mapped[bool] = mapped_column(default=True)
-    processed_at: Mapped[datetime | None] = mapped_column(default=None)
-    reviewed_at: Mapped[datetime | None] = mapped_column(default=None)
-    model_output_json: Mapped[str | None] = mapped_column(default=None)
-    model_name: Mapped[str | None] = mapped_column(default=None)
-
-    # Project-matching suggestion (Sprint 4). ``suggested_project_id`` is the
-    # project Python (alias lookup) or the model proposed for this note's tasks;
-    # the match_* columns capture the model I/O when the AI fallback produced it,
-    # so an override at review can be saved as a training example.
-    suggested_project_id: Mapped[int | None] = mapped_column(
-        ForeignKey("projects.id"), default=None
-    )
-    # The project alias that the deterministic matcher matched on, when the
-    # suggestion came from an alias hit (not the project name, and not the AI
-    # fallback). Surfaced at triage so the user sees *why* the note was routed.
-    matched_alias: Mapped[str | None] = mapped_column(default=None)
-    match_input_text: Mapped[str | None] = mapped_column(default=None)
-    match_output_json: Mapped[str | None] = mapped_column(default=None)
-    match_model_name: Mapped[str | None] = mapped_column(default=None)
-
-    candidates: Mapped[list[Task]] = relationship(back_populates="inbox_item")
-
-
 class ActivityEvent(Base, TimestampMixin):
     """Append-only audit log of project/task lifecycle changes (Sprint 6).
 
@@ -287,34 +231,3 @@ class ActivityEvent(Base, TimestampMixin):
     entity_id: Mapped[int]
     action: Mapped[str]  # "created" | "updated" | "completed" | "deleted"
     summary: Mapped[str]  # human-readable, e.g. 'Task "Fix VPN" created'
-
-
-class EvalRun(Base, TimestampMixin):
-    """Append-only history of eval-suite runs (Sprint 7).
-
-    Like ``ActivityEvent``, this is deliberately NOT soft-deletable (no
-    ``deleted_at``): it is a run log, never user-edited — the second documented
-    exception to the soft-delete rule in CLAUDE.md. One row per suite run;
-    ``created_at`` is the run time. Lets prompt/profile edits be judged as
-    helping or regressing over time.
-    """
-
-    __tablename__ = "eval_runs"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    suite: Mapped[str] = mapped_column(index=True)
-    passed: Mapped[int]
-    total: Mapped[int]
-
-
-class AITrainingExample(Base, TimestampMixin, SoftDeleteMixin):
-    __tablename__ = "ai_training_examples"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    task_name: Mapped[str]
-    input_text: Mapped[str]
-    model_output_json: Mapped[str]
-    corrected_output_json: Mapped[str | None] = mapped_column(default=None)
-    accepted: Mapped[bool] = mapped_column(default=False)
-    model_profile: Mapped[str]
-    model_name: Mapped[str]

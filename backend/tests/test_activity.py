@@ -1,14 +1,10 @@
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db.models import AITrainingExample, InboxItem, TaskReviewStatus
-from app.schemas.inbox import ReviewDecision, ReviewEdit
+from app.db.models import TaskReviewStatus
 from app.services import activity as activity_service
 from app.services import projects as projects_service
-from app.services import review as review_service
 from app.services import tasks as tasks_service
-from app.services.common import active
 
 
 def test_record_and_list_events_newest_first_and_limit(db_session: Session) -> None:
@@ -67,15 +63,15 @@ def test_task_lifecycle_emits_events_only_with_project(db_session: Session) -> N
     project = projects_service.create_project(db_session, name="Home")
     db_session.commit()
 
-    # Candidate with no project: no task event.
-    candidate = tasks_service.create_task(
+    # A task with no project: no task event (the per-project feed can't show it).
+    unfiled = tasks_service.create_task(
         db_session,
         project_id=None,
-        title="loose candidate",
+        title="loose task",
         review_status=TaskReviewStatus.candidate,
     )
     db_session.commit()
-    assert candidate.project_id is None
+    assert unfiled.project_id is None
     task_events = [
         e
         for e in activity_service.list_events(db_session, project.id)
@@ -83,10 +79,10 @@ def test_task_lifecycle_emits_events_only_with_project(db_session: Session) -> N
     ]
     assert task_events == []
 
-    # Accepting the candidate (review sets project_id) logs an "updated" event.
-    tasks_service.update_task(db_session, candidate, {"project_id": project.id})
-    tasks_service.mark_done(db_session, candidate)
-    tasks_service.soft_delete_task(db_session, candidate)
+    # Filing it into a project (update sets project_id) logs an "updated" event.
+    tasks_service.update_task(db_session, unfiled, {"project_id": project.id})
+    tasks_service.mark_done(db_session, unfiled)
+    tasks_service.soft_delete_task(db_session, unfiled)
     db_session.commit()
 
     task_actions = [
@@ -112,191 +108,6 @@ def test_created_task_with_project_emits_created_event(db_session: Session) -> N
     ]
     assert [e.action for e in task_events] == ["created"]
     assert task_events[0].summary == 'Task "direct task" created'
-
-
-def test_review_accept_emits_task_created_event(db_session: Session) -> None:
-    # The AI path: a candidate accepted into a project at review must appear in
-    # the feed even though review commits in bulk (not via tasks_service).
-    project = projects_service.create_project(db_session, name="Filed")
-    db_session.commit()
-    item = InboxItem(raw_text="messy note", input_hash="hash-1", summary="s")
-    db_session.add(item)
-    db_session.commit()
-    db_session.refresh(item)
-    candidate = tasks_service.create_task(
-        db_session,
-        project_id=None,
-        title="from inbox",
-        review_status=TaskReviewStatus.candidate,
-        inbox_item_id=item.id,
-    )
-    db_session.commit()
-
-    review_service.review_inbox(
-        db_session,
-        item,
-        [
-            ReviewDecision(
-                task_id=candidate.id,
-                action="accept",
-                edits=ReviewEdit(project_id=project.id),
-            )
-        ],
-    )
-    db_session.commit()
-
-    task_events = [
-        e
-        for e in activity_service.list_events(db_session, project.id)
-        if e.entity_type == "task"
-    ]
-    assert [e.action for e in task_events] == ["created"]
-    assert task_events[0].summary == 'Task "from inbox" created'
-
-
-def test_review_accept_without_project_files_to_general(db_session: Session) -> None:
-    item = InboxItem(raw_text="messy note", input_hash="hash-general", summary="s")
-    db_session.add(item)
-    db_session.commit()
-    db_session.refresh(item)
-    candidate = tasks_service.create_task(
-        db_session,
-        project_id=None,
-        title="from inbox",
-        review_status=TaskReviewStatus.candidate,
-        inbox_item_id=item.id,
-    )
-    db_session.commit()
-
-    review_service.review_inbox(
-        db_session,
-        item,
-        [ReviewDecision(task_id=candidate.id, action="accept")],
-    )
-
-    general = projects_service.get_default_project(db_session)
-    assert general is not None
-    db_session.refresh(candidate)
-    assert candidate.project_id == general.id
-
-
-def test_review_explicit_null_project_files_to_general(db_session: Session) -> None:
-    item = InboxItem(raw_text="messy note", input_hash="hash-general-null", summary="s")
-    db_session.add(item)
-    db_session.commit()
-    db_session.refresh(item)
-    candidate = tasks_service.create_task(
-        db_session,
-        project_id=None,
-        title="from inbox",
-        review_status=TaskReviewStatus.candidate,
-        inbox_item_id=item.id,
-    )
-    db_session.commit()
-
-    review_service.review_inbox(
-        db_session,
-        item,
-        [
-            ReviewDecision(
-                task_id=candidate.id,
-                action="accept",
-                edits=ReviewEdit(project_id=None),
-            )
-        ],
-    )
-
-    general = projects_service.get_default_project(db_session)
-    assert general is not None
-    db_session.refresh(candidate)
-    assert candidate.project_id == general.id
-
-
-def test_review_rolls_back_statuses_activity_and_training_on_failure(
-    db_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    project = projects_service.create_project(db_session, name="Filed")
-    db_session.commit()
-    item = InboxItem(raw_text="messy note", input_hash="hash-rollback", summary="s")
-    item.model_output_json = '{"summary": "s", "tasks": [], "needs_review": true}'
-    db_session.add(item)
-    db_session.commit()
-    db_session.refresh(item)
-    candidate = tasks_service.create_task(
-        db_session,
-        project_id=None,
-        title="from inbox",
-        review_status=TaskReviewStatus.candidate,
-        inbox_item_id=item.id,
-    )
-    db_session.commit()
-    item_id = item.id
-    candidate_id = candidate.id
-
-    def fail_record_example(*args: object, **kwargs: object) -> object:
-        raise RuntimeError("training write failed")
-
-    monkeypatch.setattr(review_service, "record_example", fail_record_example)
-
-    with pytest.raises(RuntimeError, match="training write failed"):
-        review_service.review_inbox(
-            db_session,
-            item,
-            [
-                ReviewDecision(
-                    task_id=candidate.id,
-                    action="accept",
-                    edits=ReviewEdit(project_id=project.id),
-                )
-            ],
-        )
-
-    db_session.expire_all()
-    saved_item = db_session.get(InboxItem, item_id)
-    saved_candidate = tasks_service.get_task(db_session, candidate_id)
-    assert saved_item is not None
-    assert saved_candidate is not None
-    assert saved_item.reviewed_at is None
-    assert saved_candidate.review_status == TaskReviewStatus.candidate
-    assert saved_candidate.project_id is None
-    task_events = [
-        e
-        for e in activity_service.list_events(db_session, project.id)
-        if e.entity_type == "task"
-    ]
-    assert task_events == []
-    assert db_session.execute(active(AITrainingExample)).scalars().all() == []
-
-
-def test_review_reject_emits_no_task_event(db_session: Session) -> None:
-    project = projects_service.create_project(db_session, name="Empty")
-    db_session.commit()
-    item = InboxItem(raw_text="note", input_hash="hash-2")
-    db_session.add(item)
-    db_session.commit()
-    db_session.refresh(item)
-    candidate = tasks_service.create_task(
-        db_session,
-        project_id=None,
-        title="rejected",
-        review_status=TaskReviewStatus.candidate,
-        inbox_item_id=item.id,
-    )
-    db_session.commit()
-
-    review_service.review_inbox(
-        db_session,
-        item,
-        [ReviewDecision(task_id=candidate.id, action="reject")],
-    )
-    db_session.commit()
-
-    task_events = [
-        e
-        for e in activity_service.list_events(db_session, project.id)
-        if e.entity_type == "task"
-    ]
-    assert task_events == []
 
 
 def test_activity_route_returns_events_and_404(client: TestClient) -> None:

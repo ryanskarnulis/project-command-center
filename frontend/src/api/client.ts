@@ -18,11 +18,9 @@ export class ApiTimeoutError extends Error {
 const BASE_URL =
   import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8101`
 
-// Every request aborts eventually so a hung backend (e.g. a stuck Ollama call)
-// can't leave a permanent spinner. Model-backed endpoints pass AI_TIMEOUT_MS —
-// local extraction/breakdown legitimately runs tens of seconds.
+// Every request aborts eventually so a hung backend can't leave a permanent
+// spinner.
 const DEFAULT_TIMEOUT_MS = 30_000
-export const AI_TIMEOUT_MS = 180_000
 
 export interface ApiOptions extends RequestInit {
   timeoutMs?: number

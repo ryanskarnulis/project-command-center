@@ -16,11 +16,8 @@ engagement, not the plan.
 ## Commands
 
 ```bash
-./main.sh                 # bootstrap env/deps, migrate, start Ollama + backend
-                          # + frontend (+ Discord bot when tokens are set)
+./main.sh                 # bootstrap env/deps, migrate, start backend + frontend
 ./test.sh                 # backend pytest/ruff/mypy + frontend Vitest/lint/build
-./test.sh --ai-evals      # also run the Ollama-backed AI eval suites (needs
-                          # Ollama + the configured local model)
 ./scripts/backup_db.sh    # online snapshot of data/app.db → data/backups/
 ```
 
@@ -42,9 +39,7 @@ pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
   opening a PR run `gh pr checks --watch` and, when green,
   `gh pr merge --squash`. Never merge with failing or pending checks.
 - CI (`.github/workflows/ci.yml`) mirrors `./test.sh`: backend pytest, ruff,
-  and mypy; frontend Vitest, lint, and build. The AI eval suites stay
-  local-only (they need Ollama + the model) — run `./test.sh` (with
-  `--ai-evals` when AI code changed) before pushing.
+  and mypy; frontend Vitest, lint, and build. Run `./test.sh` before pushing.
 
 ## Prime directives
 
@@ -54,9 +49,8 @@ pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
    `activity_events`. Never let anything — route handler, agent tool, script —
    write around it.
 
-2. **The legacy subsystems are being removed; do not extend them.** The AI
-   subsystem (`backend/app/ai/`), training pipeline, inbox, Discord bot, and
-   calendar are scheduled for deletion (see the strip epic in `CURRENT.md`).
+2. **The remaining legacy subsystem is being removed; do not extend it.** The
+   calendar is scheduled for deletion (see the strip epic in `CURRENT.md`).
    Touch that code only to delete it. If a request would grow it, raise the
    conflict.
 
@@ -84,13 +78,13 @@ pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
 
 - **Python 3.11+, SQLAlchemy 2.0 typed syntax** (`Mapped[str]`,
   `mapped_column(...)`). Not legacy declarative, not SQLModel.
-- **Pydantic v2** for all schemas, including model I/O in `ai/schemas.py`.
+- **Pydantic v2** for all schemas.
 - **Alembic for every schema change** — `alembic revision --autogenerate`, then
   review the generated file before applying. Never edit the schema without a
   migration.
 - **Soft deletes only.** User-facing tables have `deleted_at`; queries filter it
-  via the service-layer helper, not sprinkled ad-hoc. (`activity_events` and
-  `eval_runs` are append-only exceptions.)
+  via the service-layer helper, not sprinkled ad-hoc. (`activity_events` is an
+  append-only exception.)
 - **Structured logging with `structlog`.** Request ID bound to the logger on
   every request; every workflow log line carries it. No bare `print()` or
   field-less `logging.info()`.
@@ -111,18 +105,16 @@ pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
 
 ## Legacy subsystems (removal in progress)
 
-The old AI subsystem rules (gateway, profiles, prompts, evals, training-data
-capture, inbox idempotency) are retired with the code they governed — git
-history has both. Until each strip slice lands, the remaining legacy code is
-frozen: no fixes, no extensions, deletion only.
+The AI subsystem, training pipeline, inbox, and Discord bot have been removed
+— git history has the old rules and code. The calendar is the one remaining
+legacy subsystem scheduled for deletion (Slice 3): frozen until then — no
+fixes, no extensions, deletion only.
 
 ## Network rules
 
 - Default bind is `127.0.0.1`, but **LAN exposure via `API_HOST=0.0.0.0` is an
-  intentional, supported mode** (single-user trusted LAN). Settings writes must
-  stay localhost-only while the Settings feature exists — preserve the guard
-  when touching routes. Keep the rate-limit module; agent endpoints will need
-  it.
+  intentional, supported mode** (single-user trusted LAN). Keep the rate-limit
+  module; agent endpoints will need it.
 
 ## Dependencies
 

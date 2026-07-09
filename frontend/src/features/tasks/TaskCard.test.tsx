@@ -10,7 +10,6 @@ afterEach(cleanup)
 const base: Task = {
   id: 7,
   project_id: 1,
-  inbox_item_id: null,
   parent_task_id: null,
   title: 'Patch the router',
   description: null,

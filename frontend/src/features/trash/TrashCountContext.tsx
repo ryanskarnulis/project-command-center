@@ -10,8 +10,6 @@ function toTrashCounts(counts: TrashCounts): TrashCounts {
   return {
     projects: counts.projects,
     tasks: counts.tasks,
-    inbox_items: counts.inbox_items,
-    training_examples: counts.training_examples,
   }
 }
 
@@ -46,8 +44,7 @@ export function TrashCountProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const count =
-    counts.projects + counts.tasks + counts.inbox_items + counts.training_examples
+  const count = counts.projects + counts.tasks
 
   return (
     <TrashCountContext.Provider value={{ count, counts, refresh }}>

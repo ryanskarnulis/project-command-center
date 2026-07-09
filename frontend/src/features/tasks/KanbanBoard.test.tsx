@@ -10,7 +10,6 @@ afterEach(cleanup)
 const base: Task = {
   id: 1,
   project_id: 1,
-  inbox_item_id: null,
   parent_task_id: null,
   title: 'Task',
   description: null,

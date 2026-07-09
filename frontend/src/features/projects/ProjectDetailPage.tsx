@@ -1,7 +1,6 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '../../api/client'
-import { getProjectSummary } from '../../api/dashboard'
 import {
   createAlias,
   deleteAlias,
@@ -11,7 +10,6 @@ import {
 } from '../../api/projects'
 import { listCompletedTasks, listTasks, markTaskDone, updateTask } from '../../api/tasks'
 import { useToast } from '../../components/ToastContext'
-import type { ProjectSummary } from '../../types/dashboard'
 import type { Project, ProjectAlias, ProjectUpdate } from '../../types/project'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { useBeforeUnload } from '../../hooks/useBeforeUnload'
@@ -67,11 +65,6 @@ export function ProjectDetailPage() {
   const { withToast } = useToast()
   // Sidebar drag-to-file changes tasks outside this page — refetch off it too.
   const { version: taskRefreshVersion } = useTaskRefresh()
-
-  // AI summary (on-demand; 502-safe).
-  const [summary, setSummary] = useState<ProjectSummary | null>(null)
-  const [summaryLoading, setSummaryLoading] = useState(false)
-  const [summaryError, setSummaryError] = useState<string | null>(null)
 
   // Aliases (managed in place via the dedicated alias endpoints).
   const [aliases, setAliases] = useState<ProjectAlias[]>([])
@@ -186,22 +179,6 @@ export function ProjectDetailPage() {
 
   function handleNameKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') e.currentTarget.blur()
-  }
-
-  async function handleSummarize() {
-    setSummaryLoading(true)
-    setSummaryError(null)
-    try {
-      setSummary(await getProjectSummary(id))
-    } catch (e: unknown) {
-      if (e instanceof ApiError && e.status === 502) {
-        setSummaryError('Summary unavailable — is Ollama running?')
-      } else {
-        setSummaryError(e instanceof Error ? e.message : 'Failed to summarize')
-      }
-    } finally {
-      setSummaryLoading(false)
-    }
   }
 
   // Mirror services.projects._normalize: lowercase, trim, collapse whitespace.
@@ -353,26 +330,6 @@ export function ProjectDetailPage() {
 
       <section className="task-detail-panel">
         <div className="task-section-heading">
-          <h2>AI Summary</h2>
-          <button type="button" onClick={() => void handleSummarize()} disabled={summaryLoading}>
-            {summaryLoading ? 'Summarizing…' : 'Summarize'}
-          </button>
-        </div>
-        {summaryError && <p role="alert">{summaryError}</p>}
-        {summary ? (
-          <>
-            <p className="project-summary-text">{summary.summary}</p>
-            <small>Model: {summary.model_name}</small>
-          </>
-        ) : (
-          !summaryLoading && !summaryError && (
-            <p>No summary yet — generate one from this project's open tasks.</p>
-          )
-        )}
-      </section>
-
-      <section className="task-detail-panel">
-        <div className="task-section-heading">
           <h2>Tasks</h2>
           <Link to={`/projects/${project.id}/tasks`}>View all tasks →</Link>
         </div>
@@ -407,7 +364,7 @@ export function ProjectDetailPage() {
         <div className="task-section-heading">
           <h2>Aliases</h2>
         </div>
-        <p>Names that map inbox text to this project when matching extracted tasks.</p>
+        <p>Alternate names for this project, used to match it elsewhere.</p>
         {aliases.length > 0 ? (
           <ul className="project-alias-list">
             {aliases.map((alias) => (

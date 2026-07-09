@@ -1,97 +1,82 @@
+"""The rate-limit factory is retained for future agent endpoints but no route
+uses it yet, so it's exercised in isolation on a throwaway app rather than
+through a real endpoint."""
+
+from collections.abc import Generator
+
 import pytest
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
 
 from app.api import rate_limit
-from app.config import Settings
-from app.services import projects as projects_service
+
+
+class _StubSettings:
+    """Minimal stand-in exposing the per-minute attr the factory reads live."""
+
+    rate_limit_test_per_min = 2
+
+
+def _app_with_limited_route(bucket: str, path: str) -> FastAPI:
+    app = FastAPI()
+
+    @app.get(
+        path,
+        dependencies=[
+            Depends(rate_limit.rate_limit(bucket, per_min_attr="rate_limit_test_per_min"))
+        ],
+    )
+    def _handler() -> dict[str, bool]:
+        return {"ok": True}
+
+    return app
 
 
 @pytest.fixture
-def small_limits(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Drive both buckets down to 2/min so a breach is cheap to trigger.
-    settings = Settings(
-        rate_limit_discord_inbox_per_min=2,
-        rate_limit_summary_per_min=2,
-        rate_limit_inbox_process_per_min=2,
-        rate_limit_breakdown_per_min=2,
-        backend_shared_secret="s3cret",
-    )
-    monkeypatch.setattr(rate_limit, "get_settings", lambda: settings)
+def stub_settings(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+    monkeypatch.setattr(rate_limit, "get_settings", lambda: _StubSettings())
+    rate_limit._reset()
+    yield
+    rate_limit._reset()
 
 
-def test_summary_route_throttles_after_limit(
-    client: TestClient,
-    db_session: Session,
-    small_limits: None,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project = projects_service.create_project(db_session, name="Firewall")
-    db_session.commit()
+def test_route_throttles_after_limit(stub_settings: None) -> None:
+    client = TestClient(_app_with_limited_route("ping", "/ping"))
 
-    # Avoid a real Ollama call — the limiter runs before the handler regardless.
-    monkeypatch.setattr(
-        "app.api.routes_ai.summarize_project_ai",
-        lambda **_: "stub summary",
-    )
+    assert client.get("/ping").status_code == 200
+    assert client.get("/ping").status_code == 200
 
-    url = f"/api/projects/{project.id}/summary"
-    assert client.get(url).status_code == 200
-    assert client.get(url).status_code == 200
-
-    resp = client.get(url)
+    resp = client.get("/ping")
     assert resp.status_code == 429
     assert "Retry-After" in resp.headers
 
 
-def test_inbox_process_route_throttles_after_limit(
-    client: TestClient,
-    small_limits: None,
-) -> None:
-    # The limiter is a dependency that runs (and records its hit) before the
-    # handler, so a missing id still counts toward the cap — no model call needed.
-    url = "/api/inbox/999999/process"
-    assert client.post(url).status_code == 404
-    assert client.post(url).status_code == 404
+def test_buckets_are_independent(stub_settings: None) -> None:
+    app = FastAPI()
 
-    resp = client.post(url)
-    assert resp.status_code == 429
-    assert "Retry-After" in resp.headers
-
-
-def test_breakdown_route_throttles_after_limit(
-    client: TestClient,
-    small_limits: None,
-) -> None:
-    url = "/api/tasks/999999/break-down"
-    assert client.post(url).status_code == 404
-    assert client.post(url).status_code == 404
-
-    resp = client.post(url)
-    assert resp.status_code == 429
-    assert "Retry-After" in resp.headers
-
-
-def test_buckets_are_independent(
-    client: TestClient,
-    db_session: Session,
-    small_limits: None,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project = projects_service.create_project(db_session, name="Firewall")
-    db_session.commit()
-    monkeypatch.setattr(
-        "app.api.routes_ai.summarize_project_ai",
-        lambda **_: "stub summary",
+    @app.get(
+        "/a",
+        dependencies=[
+            Depends(rate_limit.rate_limit("a", per_min_attr="rate_limit_test_per_min"))
+        ],
     )
+    def _a() -> dict[str, bool]:
+        return {"ok": True}
 
-    url = f"/api/projects/{project.id}/summary"
-    # Exhaust the summary bucket.
-    client.get(url)
-    client.get(url)
-    assert client.get(url).status_code == 429
+    @app.get(
+        "/b",
+        dependencies=[
+            Depends(rate_limit.rate_limit("b", per_min_attr="rate_limit_test_per_min"))
+        ],
+    )
+    def _b() -> dict[str, bool]:
+        return {"ok": True}
 
-    # The discord bucket is untouched by the summary breach: it short-circuits at
-    # its own auth guard, never a 429 from a leaked cross-bucket counter.
-    resp = client.post("/api/discord/inbox", json={"raw_text": "buy milk"})
-    assert resp.status_code != 429
+    client = TestClient(app)
+    # Exhaust bucket "a".
+    client.get("/a")
+    client.get("/a")
+    assert client.get("/a").status_code == 429
+
+    # Bucket "b" keeps its own independent counter.
+    assert client.get("/b").status_code == 200

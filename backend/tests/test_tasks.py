@@ -680,7 +680,7 @@ def test_completed_checklist_parent_leaves_open_list_and_counts(
     db_session.commit()
     open_ids = {t.id for t in tasks_service.list_tasks(db_session, exclude_done=True)}
     assert parent.id in open_ids
-    total, _per_project, _recent = dashboard_service.get_overview(db_session)
+    total, _per_project = dashboard_service.get_overview(db_session)
     assert total == 2
 
     # Completing the last child rolls the parent up to done. Its stored column is
@@ -695,7 +695,7 @@ def test_completed_checklist_parent_leaves_open_list_and_counts(
     )
     open_ids = {t.id for t in tasks_service.list_tasks(db_session, exclude_done=True)}
     assert parent.id not in open_ids
-    total, per_project, _recent = dashboard_service.get_overview(db_session)
+    total, per_project = dashboard_service.get_overview(db_session)
     assert total == 0
     assert {p.id: c for p, c in per_project}[project.id] == 0
 

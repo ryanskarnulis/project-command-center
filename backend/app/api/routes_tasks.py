@@ -2,25 +2,18 @@ from __future__ import annotations
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from app.ai.gateway import GatewayError
-from app.ai.workflows import break_down_task as breakdown_workflow
 from app.api.guards import trashed_row_or_error
-from app.api.rate_limit import rate_limit
 from app.api.task_reads import read_with_blocked, reads_with_blocked
 from app.db.models import Task, TaskReviewStatus, TaskWorkflowStatus
 from app.db.session import get_db
 from app.schemas.tasks import (
-    BreakdownReviewRequest,
-    BreakdownReviewResult,
     TaskCreate,
     TaskRead,
     TaskSeries,
     TaskUpdate,
 )
-from app.services import breakdown as breakdown_service
 from app.services import projects as projects_service
 from app.services import task_recurrence, task_trash
 from app.services import tasks as tasks_service
@@ -173,72 +166,6 @@ def list_subtasks(task_id: int, db: Session = Depends(get_db)) -> list[TaskRead]
     """Direct active children of a task, including candidates and done (unlike GET /api/tasks)."""
     _get_task_or_404(db, task_id)
     return reads_with_blocked(db, tasks_service.list_subtasks(db, task_id))
-
-
-@router.post(
-    "/tasks/{task_id}/break-down",
-    response_model=list[TaskRead],
-    dependencies=[
-        Depends(
-            rate_limit("task_breakdown", per_min_attr="rate_limit_breakdown_per_min")
-        )
-    ],
-)
-def break_down_task(task_id: int, db: Session = Depends(get_db)) -> list[TaskRead]:
-    """Suggest subtasks for a task via the model, as candidate children.
-
-    Idempotent: a task with a pending breakdown returns its existing candidates
-    without a second model call. A model output that fails Pydantic validation is
-    recorded as a training failure and surfaced as a 422 (prime directive #3).
-    """
-    task = _get_task_or_404(db, task_id)
-    try:
-        candidates = breakdown_workflow.break_down_task(db, task)
-    except ValidationError as exc:
-        logger.exception("breakdown_validation_failed", task_id=task_id)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="The model returned an invalid breakdown",
-        ) from exc
-    except GatewayError as exc:
-        # Ollama unreachable / timeout: report an upstream failure, never a 500.
-        logger.error("breakdown_upstream_error", task_id=task_id, error=str(exc))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="breakdown service unavailable — is Ollama running?",
-        ) from exc
-    logger.info(
-        "task_broken_down", task_id=task_id, candidate_count=len(candidates)
-    )
-    return reads_with_blocked(db, candidates)
-
-
-@router.post(
-    "/tasks/{task_id}/breakdown/review", response_model=BreakdownReviewResult
-)
-def review_breakdown(
-    task_id: int, data: BreakdownReviewRequest, db: Session = Depends(get_db)
-) -> BreakdownReviewResult:
-    """Approve/dismiss suggested subtasks; capture training once all are decided."""
-    task = _get_task_or_404(db, task_id)
-    try:
-        result = breakdown_service.review_breakdown(db, task, data.decisions)
-    except breakdown_service.AlreadyReviewedError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
-    logger.info(
-        "breakdown_review_recorded",
-        task_id=task_id,
-        approved=result.approved,
-        dismissed=result.dismissed,
-        finalized=result.finalized,
-    )
-    return result
 
 
 @router.patch("/tasks/{task_id}", response_model=TaskRead)

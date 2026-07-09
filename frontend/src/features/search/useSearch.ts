@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { search } from '../../api/search'
 import type { SearchResults } from '../../types/search'
 
-const EMPTY: SearchResults = { projects: [], tasks: [], inbox_items: [] }
+const EMPTY: SearchResults = { projects: [], tasks: [] }
 
 interface UseSearch {
   results: SearchResults
@@ -72,8 +72,7 @@ export function useSearch(query: string, debounceMs = 200): UseSearch {
   const results = isBlank || !isCurrent ? EMPTY : state.results
   const loading = !isBlank && (!isCurrent || state.loading)
   const error = isBlank || !isCurrent ? null : state.error
-  const total =
-    results.projects.length + results.tasks.length + results.inbox_items.length
+  const total = results.projects.length + results.tasks.length
 
   return { results, loading, error, total }
 }

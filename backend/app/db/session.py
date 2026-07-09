@@ -13,7 +13,7 @@ def enable_sqlite_fk_enforcement(engine: Engine) -> None:
     - ``foreign_keys = ON``: SQLite ignores foreign keys unless this is issued on
       each connection, so orphaned FKs persist silently without it.
     - ``journal_mode = WAL``: the default rollback journal blocks readers during
-      any write; WAL lets the web UI and the Discord bot write concurrently
+      any write; WAL lets concurrent clients read while a write is in flight
       without "database is locked" errors. Persistent, but cheap to re-issue.
     - ``busy_timeout``: when two writers do collide, wait for the lock instead of
       failing immediately.

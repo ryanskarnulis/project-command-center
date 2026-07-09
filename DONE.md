@@ -1420,3 +1420,48 @@ shipped slices:
       descends level-by-level over the indexed `parent_task_id` instead of
       loading the whole accepted-task table on every read; guard test covers
       multi-level trees, leak prevention, and ancestor+descendant root sets.
+
+---
+
+## The strip — Slices 1 + 2 (AI subsystem, training, inbox, Discord)
+> Goal: rip out the AI-assisted-capture / training-data / custom-model track,
+> the inbox, and the Discord bot, leaving a plain project manager. Slices 1 and
+> 2 were **merged into one PR**: inbox/Discord are pure AI consumers (their
+> extraction/matching/review flow imports `app.ai` and writes the training
+> table), so AI could not be removed while they remained — see the merge note in
+> `CURRENT.md`.
+
+### Backend
+- [x] Deleted `app/ai/` (gateway, providers, prompts, profiles, schemas,
+      workflows, evals), `app/integrations/discord/`, and the routes/services
+      for AI, training, settings, inbox, Discord, breakdown, review, and eval
+      history.
+- [x] Relocated the non-AI `GET /api/dashboard` endpoint into
+      `routes_dashboard.py`; dropped the AI project-summary endpoint and the
+      dashboard's inbox-insight surface.
+- [x] Search and the trash service/routes trimmed to projects + tasks (inbox and
+      training kinds gone).
+- [x] Models: removed `InboxItem`, `EvalRun`, `AITrainingExample`, the
+      `InboxSource` enum, and the `tasks.inbox_item_id` / `breakdown_output_json`
+      columns. Kept `review_status`, `confidence`, `assignee_hint` (deferred — see
+      `TODO.md`).
+- [x] Alembic migration `019a9b406cae` drops `ai_training_examples`, `eval_runs`,
+      `inbox_items`, and the two task columns (upgrade/downgrade round-trip
+      verified).
+- [x] Config: dropped `OLLAMA_*`, Discord, `BACKEND_SHARED_SECRET`, and the
+      per-route rate-limit settings. Kept the rate-limit and write-guard modules
+      (retained for Phase 2 agent endpoints; rate-limit tested in isolation).
+- [x] Backend tests reworked/pruned; `./test.sh` green (pytest, ruff, mypy).
+
+### Frontend
+- [x] Deleted the `inbox`, `settings`, and `training` feature folders, their API
+      clients, types, and styles; removed the break-down UI and the project-AI-
+      summary panel; trimmed dashboard, search, and trash to match the new API.
+- [x] Removed the corresponding nav entries and routes; Vitest, lint, and build
+      green.
+
+### Infra & docs
+- [x] `main.sh` no longer starts Ollama or the Discord bot; `test.sh` dropped
+      `--ai-evals`; docker-compose lost the Ollama env/host-gateway and the
+      Discord profile; `.env` examples cleaned.
+- [x] `README.md` and `CLAUDE.md` sections for the removed subsystems excised.

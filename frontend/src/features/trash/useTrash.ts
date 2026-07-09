@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ApiError } from '../../api/client'
-import { purgeInbox, restoreInbox } from '../../api/inbox'
 import { listProjects, purgeProject, restoreProject } from '../../api/projects'
 import { purgeTask, restoreTask } from '../../api/tasks'
-import { purgeTrainingExample, restoreTrainingExample } from '../../api/training'
 import { emptyTrash, getTrash } from '../../api/trash'
 import type { Task } from '../../types/task'
 import type { Trash } from '../../types/trash'
 import { useTrashCount } from './trashCountContext'
 
-const EMPTY: Trash = { projects: [], tasks: [], inbox_items: [], training_examples: [] }
+const EMPTY: Trash = { projects: [], tasks: [] }
 
-const INBOX_409 =
-  'That note was re-captured after it was dismissed — the active copy already represents it.'
-
-export type TrashKind = 'projects' | 'tasks' | 'inbox' | 'training'
+export type TrashKind = 'projects' | 'tasks'
 
 export interface RestoreItem {
   id: number
@@ -30,8 +24,6 @@ interface UseTrash {
   notice: string | null
   restoreProjectById: (id: number, name: string, archivedTaskCount: number) => Promise<void>
   restoreTaskById: (id: number, title: string) => Promise<void>
-  restoreInboxById: (id: number, label: string) => Promise<void>
-  restoreTrainingById: (id: number, label: string) => Promise<void>
   restoreAll: (kind: TrashKind, items: RestoreItem[]) => Promise<void>
   purgeById: (kind: TrashKind, id: number, label: string) => Promise<void>
   purgeAll: (kind: TrashKind, ids: number[]) => Promise<void>
@@ -41,22 +33,16 @@ interface UseTrash {
 const KIND_NOUN: Record<TrashKind, string> = {
   projects: 'project',
   tasks: 'task',
-  inbox: 'note',
-  training: 'training example',
 }
 
 const RESTORE: Record<TrashKind, (id: number) => Promise<unknown>> = {
   projects: restoreProject,
   tasks: restoreTask,
-  inbox: restoreInbox,
-  training: restoreTrainingExample,
 }
 
 const PURGE: Record<TrashKind, (id: number) => Promise<void>> = {
   projects: purgeProject,
   tasks: purgeTask,
-  inbox: purgeInbox,
-  training: purgeTrainingExample,
 }
 
 export function useTrash(): UseTrash {
@@ -121,12 +107,6 @@ export function useTrash(): UseTrash {
         setNotice(buildNotice(result))
         reload()
       } catch (e: unknown) {
-        // A dismissed inbox item can 409 if the same text was re-captured since.
-        if (e instanceof ApiError && e.status === 409) {
-          setError(INBOX_409)
-          reload()
-          return
-        }
         setError(e instanceof Error ? e.message : 'Failed to restore item')
       }
     },
@@ -167,15 +147,6 @@ export function useTrash(): UseTrash {
       }),
     [runRestore, projectNames],
   )
-  const restoreInboxById = useCallback(
-    (id: number, label: string) => runRestore('inbox', id, () => `Restored note “${label}”.`),
-    [runRestore],
-  )
-  const restoreTrainingById = useCallback(
-    (id: number, label: string) =>
-      runRestore('training', id, () => `Restored training example “${label}”.`),
-    [runRestore],
-  )
 
   const restoreAll = useCallback(
     async (kind: TrashKind, items: RestoreItem[]) => {
@@ -194,7 +165,6 @@ export function useTrash(): UseTrash {
           }?`,
         )
       let restored = 0
-      let skipped = 0
       let restoredTasks = 0
       let failed = false
       for (const item of items) {
@@ -207,11 +177,6 @@ export function useTrash(): UseTrash {
           }
           restored += 1
         } catch (e: unknown) {
-          // Inbox re-capture races 409 — skip and keep going.
-          if (e instanceof ApiError && e.status === 409) {
-            skipped += 1
-            continue
-          }
           failed = true
           setError(e instanceof Error ? e.message : 'Failed to restore items')
           break
@@ -219,19 +184,13 @@ export function useTrash(): UseTrash {
       }
       reload()
       if (restored > 0) {
-        const noun =
-          kind === 'inbox'
-            ? 'note'
-            : kind === 'training'
-              ? 'training example'
-              : kind.slice(0, -1)
+        const noun = kind.slice(0, -1)
         const parts = [`Restored ${restored} ${noun}${restored === 1 ? '' : 's'}.`]
         if (kind === 'projects' && restoredTasks > 0)
           parts.push(`Brought back ${restoredTasks} task${restoredTasks === 1 ? '' : 's'}.`)
-        if (skipped > 0) parts.push(`${skipped} re-captured and skipped.`)
         setNotice(parts.join(' '))
-      } else if (skipped > 0 && !failed) {
-        setError(INBOX_409)
+      } else if (!failed) {
+        setError(null)
       }
     },
     [reload],
@@ -285,8 +244,7 @@ export function useTrash(): UseTrash {
     setNotice(null)
     try {
       const result = await emptyTrash()
-      const total =
-        result.projects + result.tasks + result.inbox_items + result.training_examples
+      const total = result.projects + result.tasks
       setNotice(
         total === 0
           ? 'Trash was already empty.'
@@ -305,8 +263,6 @@ export function useTrash(): UseTrash {
     notice,
     restoreProjectById,
     restoreTaskById,
-    restoreInboxById,
-    restoreTrainingById,
     restoreAll,
     purgeById,
     purgeAll,

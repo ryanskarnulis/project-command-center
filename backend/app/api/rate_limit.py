@@ -1,9 +1,9 @@
-"""In-process per-IP rate limiting for the model-calling routes.
+"""In-process per-IP rate limiting, exposed as a FastAPI dependency factory.
 
-A tiny sliding-window limiter used as a FastAPI dependency on the two endpoints
-that invoke Ollama (``POST /api/discord/inbox`` and
-``GET /api/projects/{id}/summary``). A runaway client or a hot Discord channel
-could otherwise queue unbounded model work against the single Ollama instance.
+A tiny sliding-window limiter attached to a route via ``Depends(rate_limit(...))``.
+No route uses it right now (the model-calling endpoints it guarded were removed
+with the AI subsystem), but it is retained deliberately: the Phase 2 local-agent
+endpoints will want to cap runaway work, and the limiter is the intended tool.
 
 Deliberately dependency-free and process-local: this is a single-process,
 single-user, local-first app, so a shared (Redis-backed) limiter would be

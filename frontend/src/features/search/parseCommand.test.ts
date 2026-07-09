@@ -16,13 +16,6 @@ describe('parseCommand', () => {
     })
   })
 
-  it('parses /new with text into a capture command', () => {
-    expect(parseCommand('/new call the bank tomorrow')).toEqual({
-      kind: 'new',
-      text: 'call the bank tomorrow',
-    })
-  })
-
   it('parses /done with a query into a completion command', () => {
     expect(parseCommand('/done audit firewall')).toEqual({
       kind: 'done',
@@ -31,25 +24,19 @@ describe('parseCommand', () => {
   })
 
   it('is case-insensitive on the verb', () => {
-    expect(parseCommand('/NEW thing')).toEqual({ kind: 'new', text: 'thing' })
     expect(parseCommand('/Done thing')).toEqual({ kind: 'done', query: 'thing' })
   })
 
   it('trims the argument', () => {
-    expect(parseCommand('/new    spaced out   ')).toEqual({
-      kind: 'new',
-      text: 'spaced out',
+    expect(parseCommand('/done    spaced out   ')).toEqual({
+      kind: 'done',
+      query: 'spaced out',
     })
   })
 
   it('returns a root hint for a bare slash', () => {
     expect(parseCommand('/')).toEqual({ kind: 'hint', verb: 'root' })
     expect(parseCommand('   /   ')).toEqual({ kind: 'hint', verb: 'root' })
-  })
-
-  it('returns a verb hint when /new has no argument', () => {
-    expect(parseCommand('/new')).toEqual({ kind: 'hint', verb: 'new' })
-    expect(parseCommand('/new   ')).toEqual({ kind: 'hint', verb: 'new' })
   })
 
   it('returns a verb hint when /done has no argument', () => {
@@ -63,10 +50,10 @@ describe('parseCommand', () => {
     })
   })
 
-  it('requires a whitespace separator so /newfoo is an unknown verb', () => {
-    expect(parseCommand('/newfoo')).toEqual({
+  it('requires a whitespace separator so /donefoo is an unknown verb', () => {
+    expect(parseCommand('/donefoo')).toEqual({
       kind: 'search',
-      query: '/newfoo',
+      query: '/donefoo',
     })
   })
 })

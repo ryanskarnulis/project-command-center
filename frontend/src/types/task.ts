@@ -14,7 +14,6 @@ export type EditScope = 'this' | 'future'
 export interface Task {
   id: number
   project_id: number | null
-  inbox_item_id: number | null
   parent_task_id: number | null
   title: string
   description: string | null
@@ -73,27 +72,6 @@ export interface TaskDependent {
   dependent_title: string
   dependent_workflow_status: TaskWorkflowStatus
   dependent_done: boolean
-}
-
-/** Per-subtask edits applied when approving a suggested breakdown subtask. */
-export interface SubtaskEdit {
-  title?: string
-  description?: string | null
-  priority?: TaskPriority
-  estimated_minutes?: number | null
-}
-
-export interface SubtaskDecision {
-  task_id: number
-  action: 'approve' | 'dismiss'
-  edits?: SubtaskEdit
-}
-
-export interface BreakdownReviewResult {
-  approved: number
-  dismissed: number
-  finalized: boolean
-  training_example_id: number | null
 }
 
 export interface TaskCreate {

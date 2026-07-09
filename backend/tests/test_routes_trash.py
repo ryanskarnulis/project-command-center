@@ -1,4 +1,3 @@
-import json
 from collections.abc import Generator
 
 import pytest
@@ -6,12 +5,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai import gateway
 from app.main import app
 from app.db.models import (
     ActivityEvent,
-    AITrainingExample,
-    InboxItem,
     Project,
     ProjectAlias,
     Task,
@@ -20,44 +16,11 @@ from app.db.models import (
 from app.services.common import soft_delete
 
 
-def _make_training_example(db: Session) -> int:
-    """A self-contained training row (no FK to any user table) to prove survival."""
-    row = AITrainingExample(
-        task_name="task_extraction",
-        input_text="raw note",
-        model_output_json="{}",
-        model_profile="default",
-        model_name="gemma4:e2b",
-    )
-    db.add(row)
-    db.commit()
-    db.refresh(row)
-    return row.id
-
-_VALID_OUTPUT = {
-    "summary": "One task.",
-    "project_hint": None,
-    "tasks": [
-        {
-            "title": "Do the thing",
-            "description": None,
-            "due_date": None,
-            "priority": "medium",
-            "assignee_hint": None,
-            "confidence": 0.8,
-        }
-    ],
-    "needs_review": False,
-}
-
-
 def test_trash_empty_by_default(client: TestClient) -> None:
     body = client.get("/api/trash").json()
     assert body == {
         "projects": [],
         "tasks": [],
-        "inbox_items": [],
-        "training_examples": [],
     }
 
 
@@ -70,8 +33,6 @@ def test_trash_count_reports_each_kind(client: TestClient) -> None:
     assert client.get("/api/trash/count").json() == {
         "projects": 1,
         "tasks": 1,
-        "inbox_items": 0,
-        "training_examples": 0,
     }
 
 
@@ -161,50 +122,6 @@ def test_task_delete_appears_in_trash_and_restores(client: TestClient) -> None:
     assert active.json()["deleted_at"] is None  # active row serializes null
 
 
-def test_inbox_dismiss_appears_in_trash_and_restores(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
-
-    inbox_id = client.post("/api/inbox", json={"raw_text": "restore me"}).json()["id"]
-    client.post(f"/api/inbox/{inbox_id}/process")
-    assert client.delete(f"/api/inbox/{inbox_id}").status_code == 204
-
-    trash = client.get("/api/trash").json()
-    assert [i["id"] for i in trash["inbox_items"]] == [inbox_id]
-    assert trash["inbox_items"][0]["deleted_at"] is not None  # trashed row carries it
-
-    restored = client.post(f"/api/inbox/{inbox_id}/restore")
-    assert restored.status_code == 200
-    assert restored.json()["id"] == inbox_id
-    assert client.get("/api/trash").json()["inbox_items"] == []
-    assert client.get(f"/api/inbox/{inbox_id}").status_code == 200
-
-
-def test_restore_inbox_conflicts_when_text_recaptured(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
-
-    first_id = client.post("/api/inbox", json={"raw_text": "same text"}).json()["id"]
-    assert client.delete(f"/api/inbox/{first_id}").status_code == 204
-
-    # The same text is captured again → a new active item owns the hash now.
-    second_id = client.post("/api/inbox", json={"raw_text": "same text"}).json()["id"]
-    assert second_id != first_id
-
-    # Restoring the dismissed original would violate the active-hash uniqueness.
-    conflict = client.post(f"/api/inbox/{first_id}/restore")
-    assert conflict.status_code == 409
-    # The original stays dismissed; the active copy is untouched.
-    assert client.get(f"/api/inbox/{first_id}").status_code == 404
-    assert client.get(f"/api/inbox/{second_id}").status_code == 200
-
-
-def test_restore_unknown_inbox_404(client: TestClient) -> None:
-    assert client.post("/api/inbox/424242/restore").status_code == 404
-
-
 # --- Permanent delete / purge (Sprint 9f) ----------------------------------
 
 
@@ -227,18 +144,6 @@ def test_purge_active_task_409(client: TestClient) -> None:
 
 def test_purge_unknown_task_404(client: TestClient) -> None:
     assert client.delete("/api/tasks/424242/purge").status_code == 404
-
-
-def test_purge_task_keeps_training_examples(
-    client: TestClient, db_session: Session
-) -> None:
-    example_id = _make_training_example(db_session)
-    tid = client.post("/api/tasks", json={"title": "Disposable"}).json()["id"]
-    client.delete(f"/api/tasks/{tid}")
-
-    assert client.delete(f"/api/tasks/{tid}/purge").status_code == 204
-    # Prime directive #4: training data has no FK to tasks and must survive.
-    assert db_session.get(AITrainingExample, example_id) is not None
 
 
 def test_purge_task_cleans_dependency_edges(
@@ -282,12 +187,7 @@ def test_purge_project_cleans_all_fk_edges(
         f"/api/projects/{pid}/tasks", json={"title": "Patch it"}
     ).json()["id"]
 
-    # An inbox item suggesting this project, and the project's activity events,
-    # both hold a real FK into projects that purge must clear.
-    item = InboxItem(raw_text="note", input_hash="h-fw", suggested_project_id=pid)
-    db_session.add(item)
-    db_session.commit()
-    item_id = item.id
+    # The project's activity events hold a real FK into projects that purge must clear.
     assert (
         db_session.execute(
             select(ActivityEvent).where(ActivityEvent.project_id == pid)
@@ -310,9 +210,6 @@ def test_purge_project_cleans_all_fk_edges(
     assert db_session.get(ProjectAlias, aid) is None
     assert db_session.get(Task, tid) is None  # soft-deleted owned task purged
     # Nullable FKs cleared, not dangling; the audit row itself survives.
-    suggesting_item = db_session.get(InboxItem, item_id)
-    assert suggesting_item is not None
-    assert suggesting_item.suggested_project_id is None
     assert (
         db_session.execute(
             select(ActivityEvent).where(ActivityEvent.project_id == pid)
@@ -341,72 +238,30 @@ def test_purge_protected_project_403(client: TestClient, db_session: Session) ->
     assert db_session.get(Project, general.id) is not None  # untouched
 
 
-def test_purge_inbox_keeps_training_and_detaches_active_task(
-    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
-    example_id = _make_training_example(db_session)
-
-    inbox_id = client.post("/api/inbox", json={"raw_text": "extract me"}).json()["id"]
-    client.post(f"/api/inbox/{inbox_id}/process")  # creates a candidate task
-    candidate = db_session.execute(
-        select(Task).where(Task.inbox_item_id == inbox_id)
-    ).scalar_one()
-    candidate_id = candidate.id
-    client.delete(f"/api/inbox/{inbox_id}")  # dismiss → trash (task stays active)
-
-    assert client.delete(f"/api/inbox/{inbox_id}/purge").status_code == 204
-    assert client.get("/api/trash").json()["inbox_items"] == []
-    # Training survives; the still-active candidate is detached, not destroyed.
-    assert db_session.get(AITrainingExample, example_id) is not None
-    detached = db_session.get(Task, candidate_id)
-    assert detached is not None
-    assert detached.inbox_item_id is None
-
-
-def test_purge_inbox_active_409_and_unknown_404(client: TestClient) -> None:
-    inbox_id = client.post("/api/inbox", json={"raw_text": "alive"}).json()["id"]
-    assert client.delete(f"/api/inbox/{inbox_id}/purge").status_code == 409
-    assert client.delete("/api/inbox/424242/purge").status_code == 404
-
-
 def test_empty_trash_clears_all_and_is_idempotent(
-    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, db_session: Session
 ) -> None:
-    monkeypatch.setattr(gateway, "complete", lambda **_: json.dumps(_VALID_OUTPUT))
-    example_id = _make_training_example(db_session)
-
     pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
     tid = client.post("/api/tasks", json={"title": "Doomed task"}).json()["id"]
-    inbox_id = client.post("/api/inbox", json={"raw_text": "doomed note"}).json()["id"]
-    client.post(f"/api/inbox/{inbox_id}/process")
     client.delete(f"/api/projects/{pid}")
     client.delete(f"/api/tasks/{tid}")
-    client.delete(f"/api/inbox/{inbox_id}")
 
     result = client.delete("/api/trash")
     assert result.status_code == 200
     counts = result.json()
     assert counts["projects"] == 1
-    assert counts["inbox_items"] == 1
-    assert counts["tasks"] >= 1  # the deleted task (+ any dismissed-note candidate)
+    assert counts["tasks"] >= 1
 
     assert client.get("/api/trash").json() == {
         "projects": [],
         "tasks": [],
-        "inbox_items": [],
-        "training_examples": [],
     }
     # Re-running clears nothing and protected General is spared.
     again = client.delete("/api/trash").json()
     assert again == {
         "projects": 0,
         "tasks": 0,
-        "inbox_items": 0,
-        "training_examples": 0,
     }
-    # The example here was never trashed, so empty-trash leaves it untouched.
-    assert db_session.get(AITrainingExample, example_id) is not None
     assert client.get("/api/projects").json()  # General still present
 
 
@@ -452,24 +307,13 @@ def test_lan_client_can_purge_and_restore(
     assert lan_client.delete(f"/api/tasks/{tid}/purge").status_code == 204
 
 
-def test_lan_client_can_purge_any_kind(
-    client: TestClient, lan_client: TestClient, db_session: Session
+def test_lan_client_can_purge_project(
+    client: TestClient, lan_client: TestClient
 ) -> None:
     pid = client.post("/api/projects", json={"name": "Kept"}).json()["id"]
-    inbox_id = client.post("/api/inbox", json={"raw_text": "kept note"}).json()["id"]
-    example_id = _make_training_example(db_session)
     client.delete(f"/api/projects/{pid}")
-    client.delete(f"/api/inbox/{inbox_id}")
-    client.delete(f"/api/training-examples/{example_id}")
 
     assert lan_client.delete(f"/api/projects/{pid}/purge").status_code == 204
-    assert lan_client.delete(f"/api/inbox/{inbox_id}/purge").status_code == 204
-    assert (
-        lan_client.delete(f"/api/training-examples/{example_id}/purge").status_code
-        == 204
-    )
-    # All were destroyed: trash is empty for loopback too.
+    # Destroyed: trash is empty for loopback too.
     trash = client.get("/api/trash").json()
     assert [p["id"] for p in trash["projects"]] == []
-    assert [i["id"] for i in trash["inbox_items"]] == []
-    assert [e["id"] for e in trash["training_examples"]] == []

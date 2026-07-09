@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Bootstraps env/deps, runs migrations, and starts the backend + frontend
+# dev servers.
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -193,19 +195,6 @@ preflight_ports() {
   fi
 }
 
-ensure_ollama() {
-  if http_ok "http://localhost:11434/api/tags"; then
-    log "Ollama is already running."
-    return 0
-  fi
-
-  require_command ollama
-  log "Starting Ollama."
-  ollama serve &
-  CHILD_PIDS+=("$!")
-  wait_for_http "Ollama" "http://localhost:11434/api/tags" 30
-}
-
 run_migrations() {
   log "Applying database migrations."
   (cd "$BACKEND_DIR" && "$BACKEND_VENV/bin/alembic" upgrade head)
@@ -225,22 +214,6 @@ start_frontend() {
   wait_for_http "Frontend" "http://127.0.0.1:5173/" 30
 }
 
-start_discord_if_configured() {
-  local token
-  local secret
-
-  token="$(read_env_value "$BACKEND_DIR/.env" "DISCORD_BOT_TOKEN")"
-  secret="$(read_env_value "$BACKEND_DIR/.env" "BACKEND_SHARED_SECRET")"
-
-  if [ -n "$token" ] && [ -n "$secret" ]; then
-    log "Starting Discord bot."
-    (cd "$BACKEND_DIR" && "$BACKEND_PYTHON" -m app.integrations.discord.bot) &
-    CHILD_PIDS+=("$!")
-  else
-    log "Skipping Discord bot; set DISCORD_BOT_TOKEN and BACKEND_SHARED_SECRET in backend/.env to enable it."
-  fi
-}
-
 main() {
   copy_env_if_missing "$BACKEND_DIR/.env" "$BACKEND_DIR/.env.example"
   copy_env_if_missing "$FRONTEND_DIR/.env" "$FRONTEND_DIR/.env.example"
@@ -248,10 +221,8 @@ main() {
   ensure_frontend_deps
   preflight_ports
   run_migrations
-  ensure_ollama
   start_backend
   start_frontend
-  start_discord_if_configured
 
   log "Dev stack is running."
   log "Frontend: http://127.0.0.1:5173"

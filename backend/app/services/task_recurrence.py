@@ -67,8 +67,8 @@ def _clone_subtask_tree(
     series member); title/description/priority/estimate are copied. Every clone
     inherits ``due_date`` (the new occurrence's date) so the reset checklist is due
     with its occurrence rather than carrying the previous cadence's stale dates.
-    Grandchildren recurse. Only active, accepted children are cloned — a pending AI
-    breakdown isn't part of the routine until the user approves it.
+    Grandchildren recurse. Only active, accepted children are cloned — a
+    non-accepted child isn't part of the routine.
     """
     for child in list_subtasks(db, source.id):
         if child.review_status != TaskReviewStatus.accepted:
