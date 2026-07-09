@@ -6,10 +6,12 @@ acting.
 
 ## What this project is
 
-A local-first project and task management web app with AI-assisted task capture.
-See `README.md` for the architecture and plan; `TODO.md` for the backlog;
-`CURRENT.md` for the checked-out focus; `DONE.md` for the changelog. This file is
-rules of engagement, not the plan.
+A local-first project and task management web app, being stripped to a simple
+core ahead of building a local agent (llama.cpp + tools + MCP + retrieval) on
+top of it. See `README.md` for the architecture and the direction-change note;
+`TODO.md` for the backlog (including the Phase 2 agent plan); `CURRENT.md` for
+the checked-out focus; `DONE.md` for the changelog. This file is rules of
+engagement, not the plan.
 
 ## Commands
 
@@ -46,24 +48,27 @@ pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
 
 ## Prime directives
 
-1. **The app owns the logic. AI returns structured suggestions, nothing more.**
-   Workflows, validation, and persistence are Python. The model produces JSON
-   that Python decides what to do with. Never let an AI call write to the
-   database or decide a control-flow branch without a Python guard.
+1. **The service layer is the only write path.** UI routes, API clients, and
+   the future agent's tools are all peers: every mutation goes through
+   `services/`, gets validated, respects soft deletes, and lands in
+   `activity_events`. Never let anything — route handler, agent tool, script —
+   write around it.
 
-2. **Never call a model provider directly from workflow code.** All model calls
-   go through `ai/gateway.py`. If you're tempted to `import ollama` outside
-   `ai/providers/`, stop and use the gateway.
+2. **The legacy subsystems are being removed; do not extend them.** The AI
+   subsystem (`backend/app/ai/`), training pipeline, inbox, Discord bot, and
+   calendar are scheduled for deletion (see the strip epic in `CURRENT.md`).
+   Touch that code only to delete it. If a request would grow it, raise the
+   conflict.
 
-3. **Validate every model output with Pydantic before it touches anything
-   else.** If validation fails, log the raw output, save it to
-   `ai_training_examples` as a failure case, and surface the error. No
-   best-effort parsing of bad JSON, no silently returning an empty list.
+3. **Agent work (Phase 2) starts only after the strip is done**, and inherits
+   rule 1: the agent acts exclusively through tools backed by the service
+   layer, every action auditable in `activity_events` and undoable via the
+   trash. No hard deletes from the agent, ever. Model outputs are validated
+   with Pydantic at the boundary — no best-effort parsing of bad JSON.
 
-4. **Capture training data on every correction.** When a user edits or rejects
-   an AI suggestion, write the original input, the full original model output,
-   and the corrected output to `ai_training_examples`. This is the most valuable
-   thing the app produces. Treat it like accounting data.
+4. **Local-first stays load-bearing.** The agent runs on llama.cpp on this
+   machine; retrieval stays in-process (FTS5 first, `sqlite-vec` only if
+   needed). No cloud model providers, no external vector DB.
 
 ## Scope discipline
 
@@ -72,8 +77,8 @@ pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
   diffs reviewable and don't speculatively build unrelated backlog items.
 - **Work from `TODO.md` / `CURRENT.md`.** If a request pulls in something well
   outside the current focus, flag it rather than silently expanding scope.
-- **The "Do not build yet" list in README.md is binding.** No custom models,
-  calendar sync, auth, Celery, or vector DB. If asked, push back.
+- **The "Do not build yet" list in README.md is binding.** No multi-user auth,
+  Celery, external vector DB, or cloud model providers. If asked, push back.
 
 ## Code rules
 
@@ -104,29 +109,20 @@ pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
 - **No state library.** React state + context. If you think there's a real
   reason for one, raise it first.
 
-## AI subsystem rules
+## Legacy subsystems (removal in progress)
 
-- **Prompts live in `ai/prompts/*.md`**, not in Python string literals — the
-  Settings UI edits them at runtime.
-- **Profiles live in `ai/profiles.yaml`**; code reads a profile by name. Don't
-  hardcode model names or temperatures in workflow code.
-- **`response_mode: json_schema`** unless the profile explicitly says `text`
-  (free-form text is for summaries only). Watch out: fields the model must
-  always emit need **no Pydantic default**, or json_schema/Ollama will omit them
-  and you silently get `None`.
-- **Idempotency on inbox processing.** Same input hash → return the existing
-  inbox item, don't re-extract.
-- **Every workflow has an eval case** in the matching `ai/evals/*_cases.yaml`.
-  Add or update cases when you add or change a workflow; the harness must pass.
+The old AI subsystem rules (gateway, profiles, prompts, evals, training-data
+capture, inbox idempotency) are retired with the code they governed — git
+history has both. Until each strip slice lands, the remaining legacy code is
+frozen: no fixes, no extensions, deletion only.
 
-## Network & Discord rules
+## Network rules
 
-- The Discord bot is a **separate process** that calls the API over HTTP,
-  authenticated by `BACKEND_SHARED_SECRET` in env — no tokens in code or git.
 - Default bind is `127.0.0.1`, but **LAN exposure via `API_HOST=0.0.0.0` is an
   intentional, supported mode** (single-user trusted LAN). Settings writes must
-  stay localhost-only, and Ollama-calling routes stay rate-limited — preserve
-  both when touching routes.
+  stay localhost-only while the Settings feature exists — preserve the guard
+  when touching routes. Keep the rate-limit module; agent endpoints will need
+  it.
 
 ## Dependencies
 
@@ -149,15 +145,16 @@ pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
 2. At least one happy-path backend test (pytest); the user handles frontend
    tests later.
 3. Structured logs with request IDs.
-4. If it touches AI: eval case + Pydantic validation.
+4. If it deletes a feature (strip slices): its `README.md`/`CLAUDE.md`
+   sections, routes, services, frontend feature folder, env vars, and tables
+   (migration) all go in the same PR.
 5. If it touches the schema: Alembic migration committed.
 6. `README.md` updated if setup steps, dev commands, schema, or status changed.
 
-Not done, even if it seems done: unrun migrations; a model call that skipped the
-gateway "because it was simpler" (revert it); validation that fails silently; a
-dependency added without asking (revert, then ask).
+Not done, even if it seems done: unrun migrations; validation that fails
+silently; a dependency added without asking (revert, then ask); a "removal"
+that left doc sections, env vars, or dead config behind.
 
 ## Re-read when context is unclear
 
-`README.md` · `TODO.md` / `CURRENT.md` · `ai/profiles.yaml` · `ai/prompts/` ·
-this file
+`README.md` · `TODO.md` / `CURRENT.md` · this file

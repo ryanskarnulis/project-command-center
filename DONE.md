@@ -1390,3 +1390,33 @@ alias add/remove and description save-on-blur persistence.
       minutes; the structural fix (llama-swap, one owner for the GPU) is planned
       in `../future-plans/llama-swap.md`. New `test_ollama_provider.py` pins the
       payload wire format.
+
+---
+
+## Post-deploy hardening & polish (epic, 2026-07-03 → 2026-07-09)
+
+Follow-ups from an external code review after the deployable-app epic shipped.
+Two review claims were triaged out (rate-limiter "bug" was a false alarm —
+defaultdict re-indexing is correct, proven by `test_rate_limit.py`; real
+auth/internet exposure stays out of scope for a trusted home LAN). The four
+shipped slices:
+
+- [x] **Frontend data-consistency polish** — `useDashboard` gained `reload()` +
+      `taskRefreshVersion` subscription (wired via `onTasksChanged` on the
+      dashboard's capture panel); `loading` is now initial-load-only with a
+      separate `refreshing` flag (no full-page spinner flash), surfaced via
+      `aria-busy`; Vitest coverage for both hooks.
+- [x] **Task read-path indexes** — single-column `project_id`,
+      `parent_task_id`, `recurrence_id` plus compound
+      `(deleted_at, review_status)` (also covers the trash scan via its leading
+      column). `workflow_status` deliberately unindexed (never a SQL filter).
+      Alembic migration reviewed (stripped autogen's spurious litestream table
+      drops); regression-guard test asserts the index set and hot-query rows.
+- [x] **Pagination on unbounded list endpoints** — `GET /api/tasks` (500/max
+      1000) and `GET /api/inbox` (200/max 500) take `limit`/`offset`; services
+      grew optional paging (internal callers unchanged); frontend list views
+      request the max cap explicitly; pytest for paging + 422 validation.
+- [x] **Rollup engine subtree scoping** — `_children_map_for(db, roots)`
+      descends level-by-level over the indexed `parent_task_id` instead of
+      loading the whole accepted-task table on every read; guard test covers
+      multi-level trees, leak prevention, and ancestor+descendant root sets.
