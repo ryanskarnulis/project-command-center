@@ -1,37 +1,15 @@
 import { cleanup, render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getDashboard, getProjectSummary } from '../../api/dashboard'
-import {
-  createInbox,
-  decideCandidate,
-  getInbox,
-  listPendingInbox,
-  processInbox,
-} from '../../api/inbox'
+import { getDashboard } from '../../api/dashboard'
 import { listProjects } from '../../api/projects'
 import { listAllTasks } from '../../api/tasks'
 import type { DashboardOverview } from '../../types/dashboard'
-import type { InboxItem } from '../../types/inbox'
 import type { Task } from '../../types/task'
 import { DashboardPage } from './DashboardPage'
 
 vi.mock('../../api/dashboard', () => ({
   getDashboard: vi.fn(),
-  getProjectSummary: vi.fn(),
-}))
-
-vi.mock('../../api/inbox', () => ({
-  createInbox: vi.fn(),
-  decideCandidate: vi.fn(),
-  dismissInbox: vi.fn(),
-  getCandidates: vi.fn(),
-  getInbox: vi.fn(),
-  listInbox: vi.fn(),
-  listPendingInbox: vi.fn(),
-  processInbox: vi.fn(),
-  reviewInbox: vi.fn(),
 }))
 
 vi.mock('../../api/projects', () => ({
@@ -49,12 +27,6 @@ vi.mock('../../api/tasks', () => ({
 }))
 
 const mockGetDashboard = vi.mocked(getDashboard)
-const mockGetProjectSummary = vi.mocked(getProjectSummary)
-const mockCreateInbox = vi.mocked(createInbox)
-const mockDecideCandidate = vi.mocked(decideCandidate)
-const mockGetInbox = vi.mocked(getInbox)
-const mockListPendingInbox = vi.mocked(listPendingInbox)
-const mockProcessInbox = vi.mocked(processInbox)
 const mockListProjects = vi.mocked(listProjects)
 const mockListAllTasks = vi.mocked(listAllTasks)
 
@@ -73,24 +45,12 @@ const overview: DashboardOverview = {
     { project_id: 1, project_name: 'Customer Portal', open_task_count: 2 },
     { project_id: 2, project_name: 'Training Rollout', open_task_count: 1 },
   ],
-  recent_inbox: [
-    {
-      id: 10,
-      source: 'web',
-      summary: 'Review launch notes',
-      processed_at: '2026-06-01T17:00:00Z',
-      reviewed_at: null,
-      resolved_project_id: 1,
-      created_at: '2026-06-01T17:00:00Z',
-    },
-  ],
 }
 
 const tasks: Task[] = [
   {
     id: 1,
     project_id: 1,
-    inbox_item_id: null,
     parent_task_id: null,
     title: 'Fix project dashboard',
     description: null,
@@ -115,7 +75,6 @@ const tasks: Task[] = [
   {
     id: 2,
     project_id: 1,
-    inbox_item_id: null,
     parent_task_id: null,
     title: 'Review capture queue',
     description: null,
@@ -139,66 +98,12 @@ const tasks: Task[] = [
   },
 ]
 
-const pending: InboxItem[] = [
-  {
-    id: 100,
-    raw_text: 'messy note',
-    input_hash: 'hash',
-    source: 'web',
-    summary: 'messy note',
-    project_hint: null,
-    needs_review: true,
-    processed_at: '2026-06-01T17:00:00Z',
-    reviewed_at: null,
-    model_name: 'test-model',
-    suggested_project_id: null,
-    matched_alias: null,
-    created_at: '2026-06-01T17:00:00Z',
-    updated_at: '2026-06-01T17:00:00Z',
-  },
-]
-
 describe('DashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetDashboard.mockResolvedValue(overview)
-    mockGetProjectSummary.mockResolvedValue({
-      project_id: 1,
-      summary: 'summary',
-      model_name: 'test-model',
-    })
     mockListAllTasks.mockResolvedValue(tasks)
-    mockListPendingInbox.mockResolvedValue(pending)
     mockListProjects.mockResolvedValue([])
-    mockCreateInbox.mockResolvedValue(pending[0])
-    mockGetInbox.mockResolvedValue(pending[0])
-    mockProcessInbox.mockResolvedValue([
-      {
-        id: 200,
-        project_id: null,
-        inbox_item_id: pending[0].id,
-        parent_task_id: null,
-        title: 'Turn notes into a task',
-        description: null,
-        review_status: 'candidate',
-        workflow_status: 'open',
-        priority: 'medium',
-        due_date: null,
-        deferred_until: null,
-        estimated_minutes: null,
-        repeat_interval: null,
-        recurrence_id: null,
-        next_occurrence_date: null,
-        confidence: 0.86,
-        assignee_hint: null,
-        created_at: '2026-06-01T17:00:00Z',
-        updated_at: '2026-06-01T17:00:00Z',
-        is_blocked: false,
-        is_blocking: false,
-        blocked_task_count: 0,
-        has_subtasks: false,
-      },
-    ])
   })
 
   afterEach(() => {
@@ -215,22 +120,10 @@ describe('DashboardPage', () => {
     expect(await screen.findByRole('heading', { name: 'Focus Now' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open Tasks: View tasks' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Add task' })).toBeInTheDocument()
-    expect(screen.getByText('Awaiting Review')).toBeInTheDocument()
     expect(screen.getByText("Today's Tasks / Due Soon")).toBeInTheDocument()
     expect(screen.queryByText('Training Progress')).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Capture Tasks' })).toBeInTheDocument()
-    expect(
-      screen.getByRole('textbox', { name: 'Messy text for AI task extraction' }),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Extract tasks' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Capture Tasks' })).not.toBeInTheDocument()
     expect(screen.getByText('Customer Portal')).toBeInTheDocument()
-    expect(screen.queryByText('Review launch notes')).not.toBeInTheDocument()
-    // Pending captures surface as the "Awaiting Review" metric card linking to
-    // /inbox (the inline dashboard pending-list was removed); the list itself
-    // lives on the Inbox page now.
-    expect(
-      await screen.findByRole('link', { name: 'Awaiting Review: Review now' }),
-    ).toBeInTheDocument()
     const blockers = screen.getByRole('link', { name: 'Blocking Work: View blockers' })
     expect(blockers).toHaveAttribute('href', '/tasks?status=blocking')
     expect(screen.getByText('2 downstream tasks waiting')).toBeInTheDocument()
@@ -239,46 +132,6 @@ describe('DashboardPage', () => {
     expect(screen.queryByText('1 blocked task')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Create project' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Quick Actions' })).not.toBeInTheDocument()
-  })
-
-  it('extracts messy text and triages candidates inline on the dashboard', async () => {
-    const user = userEvent.setup()
-    mockDecideCandidate.mockResolvedValue({
-      task_id: 200,
-      action: 'approved',
-      finalized: true,
-      training_example_id: null,
-      match_training_example_id: null,
-    })
-    render(
-      <MemoryRouter>
-        <DashboardPage />
-      </MemoryRouter>,
-    )
-
-    const input = await screen.findByRole('textbox', {
-      name: 'Messy text for AI task extraction',
-    })
-    await user.type(input, 'turn this messy thought into a task')
-    await user.click(screen.getByRole('button', { name: 'Extract tasks' }))
-
-    expect(mockCreateInbox).toHaveBeenCalledWith({
-      raw_text: 'turn this messy thought into a task',
-    })
-    expect(mockProcessInbox).toHaveBeenCalledWith(pending[0].id)
-    // The fresh capture reviews with the same inline triage grammar as the
-    // note-review screen: editable candidate card + per-card decisions.
-    expect(await screen.findByText('1 remaining to review')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('Turn notes into a task')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Approve all' })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Approve' }))
-    expect(mockDecideCandidate).toHaveBeenCalledWith(pending[0].id, 200, {
-      action: 'approve',
-    })
-    // Finalizing the note must not be mistaken for an empty extraction.
-    expect(await screen.findByRole('button', { name: 'New capture' })).toBeInTheDocument()
-    expect(screen.queryByText('No tasks were extracted from this note.')).not.toBeInTheDocument()
   })
 
   it('does not ship inert placeholder controls', async () => {

@@ -39,46 +39,53 @@ Decisions already made (don't relitigate):
 - After each slice: `./test.sh` green locally before push (the `--ai-evals` flag
   disappears with Slice 1).
 
-## Slice 1 — Strip the AI subsystem + training pipeline (BE + FE + migration)
+## Slices 1 + 2 — Strip AI subsystem + training + inbox + Discord (MERGED) ✅
 
-The big one. Everything model-related goes.
+**Merged into one PR.** Slice 1 (AI/training) and Slice 2 (inbox/Discord) as
+documented were not cleanly separable in the AI-first order: inbox and Discord
+are pure AI consumers — their extraction/matching/review flow imports `app.ai`
+and writes `ai_training_examples`, the table Slice 1 drops. Doing Slice 1 alone
+would have forced rewriting inbox/Discord into stubs one PR before deleting them
+(violating "touch that code only to delete it"). Decision (2026-07-09): strip
+all four together.
 
-- [ ] Delete `backend/app/ai/` entirely (gateway, providers, prompts, profiles,
-      schemas, workflows, evals) and `routes_ai.py`.
-- [ ] Delete `services/breakdown.py`, `services/training_data.py`,
-      `services/eval_history.py`, and `routes_training.py`.
-- [ ] Settings: remove profile/prompt editing, eval runs, and Ollama health from
-      service, routes, and the frontend Settings page. What survives of Settings
-      is app-level config only; if nothing meaningful survives, remove the
-      feature and note it here.
-- [ ] Frontend: delete `features/training/`; remove training-meter surfaces and
-      nav entries.
-- [ ] Delete the repo-root `training/` directory.
-- [ ] Alembic migration: drop `ai_training_examples` and `eval_runs`.
-- [ ] Infra: remove Ollama from `main.sh`, `.env` examples, docker docs, and the
-      `OLLAMA_*` settings; remove `--ai-evals` from `test.sh` and CI notes;
-      remove the Ollama-route rate limits (keep the rate-limit module itself —
-      the agent endpoints will want it).
-- [ ] Docs: excise the AI subsystem / training-table / roadmap sections from
-      `README.md`; drop the legacy-AI rules from `CLAUDE.md`.
-
-## Slice 2 — Strip inbox + Discord (BE + FE + migration)
-
-- [ ] Delete `routes_inbox.py`, `routes_discord.py`, `services/inbox.py`, and
+- [x] Delete `backend/app/ai/` entirely (gateway, providers, prompts, profiles,
+      schemas, workflows, evals) and `routes_ai.py` (its non-AI `/dashboard`
+      endpoint relocated to `routes_dashboard.py`).
+- [x] Delete `services/breakdown.py`, `services/training_data.py`,
+      `services/eval_history.py`, `services/settings.py`, `services/review.py`,
+      `services/inbox.py`, and `routes_training.py` / `routes_settings.py`.
+- [x] Settings: nothing app-level survived — the feature is removed entirely
+      (service, routes, and the frontend Settings page/nav).
+- [x] Frontend: delete `features/training/`, `features/inbox/`,
+      `features/settings/`; remove their nav entries, the training-meter and
+      break-down surfaces, and the inbox capture panel (dashboard panel removed
+      outright, no replacement quick-add).
+- [x] Delete `routes_inbox.py`, `routes_discord.py`, and
       `backend/app/integrations/discord/`.
-- [ ] Frontend: delete `features/inbox/` (including `InboxCapturePanel` on the
-      dashboard — replace with a plain quick-add task form if the dashboard
-      needs a mutation surface, else remove and drop the `onTasksChanged`
-      plumbing).
-- [ ] Alembic migration: drop `inbox_items`.
-- [ ] Infra: remove the Discord compose profile, `DISCORD_*` env vars, and
-      `BACKEND_SHARED_SECRET` (nothing else uses it).
-- [ ] Decide: with no AI extraction and no inbox, nothing produces
-      `review_status="candidate"` tasks. Either collapse `review_status`
-      (schema + service simplification, index rework) in this slice or record
-      it as an explicit follow-up in `TODO.md` — don't leave it undecided.
-- [ ] Docs: remove Discord setup/network sections from `README.md`; trim the
-      Discord rules from `CLAUDE.md`.
+- [x] Delete the repo-root `training/` directory.
+- [x] Alembic migration `019a9b406cae`: drop `ai_training_examples`,
+      `eval_runs`, and `inbox_items` (plus the `tasks.inbox_item_id` /
+      `breakdown_output_json` columns). Upgrade/downgrade round-trip verified.
+- [x] Infra: remove Ollama from `main.sh`, `.env` examples, docker docs, and the
+      `OLLAMA_*` settings; remove `--ai-evals` from `test.sh`; remove the
+      per-route rate limits and `DISCORD_*` / `BACKEND_SHARED_SECRET` config.
+      **Kept the rate-limit module and the loopback write-guard** — the Phase 2
+      agent endpoints will want them (rate-limit now tested in isolation).
+- [x] Docs: excised the AI subsystem / training-table / inbox / Discord / roadmap
+      sections from `README.md` and the legacy rules from `CLAUDE.md`.
+- [x] **`review_status` decision — DEFERRED** (recorded in `TODO.md`). Nothing
+      produces `candidate` tasks now, but collapsing `review_status` touches the
+      compound index and every task-listing service; it's a coherent separate
+      cleanup, bundled with the leftover AI-only task columns below.
+
+### Deferred to the tasks-table post-strip cleanup (see `TODO.md`)
+
+The `tasks` table keeps three now-AI-only columns this PR left in place to bound
+its blast radius: `review_status` (load-bearing index + pervasive service
+filtering), `confidence` (extraction-only, read-only in `TaskRead`), and
+`assignee_hint` (settable via the task API). Collapsing/removing them is one
+follow-up.
 
 ## Slice 3 — Strip the calendar (BE + FE)
 

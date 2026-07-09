@@ -18,11 +18,8 @@ import {
   CalendarDays,
   CheckSquare,
   ChevronDown,
-  ClipboardCheck,
   FolderKanban,
-  Inbox,
   LayoutDashboard,
-  Settings,
   ShieldCheck,
   Sun,
   Trash2,
@@ -35,16 +32,13 @@ interface AppShellProps {
 const primaryNav = [
   { to: '/dashboard', label: 'Command Center', icon: LayoutDashboard },
   { to: '/today', label: 'Today', icon: Sun },
-  { to: '/inbox', label: 'Inbox', icon: Inbox },
   { to: '/projects', label: 'Projects', icon: FolderKanban },
   { to: '/tasks', label: 'Tasks', icon: CheckSquare },
   { to: '/calendar', label: 'Calendar', icon: CalendarDays },
-  { to: '/training', label: 'Training', icon: ClipboardCheck },
 ]
 
 const utilityNav = [
   { to: '/trash', label: 'Trash', icon: Trash2 },
-  { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
 function navClass({ isActive }: { isActive: boolean }) {

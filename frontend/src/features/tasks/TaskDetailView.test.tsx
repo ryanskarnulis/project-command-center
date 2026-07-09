@@ -4,20 +4,18 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
 import { listDependencies, listDependents } from '../../api/taskDependencies'
-import { breakDownTask, getSubtasks, getTask, listAllTasks, reviewBreakdown, updateTask } from '../../api/tasks'
+import { getSubtasks, getTask, listAllTasks, updateTask } from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { todayISO } from '../../utils/dates'
 import { TaskDetailView } from './TaskDetailView'
 
 vi.mock('../../api/tasks', () => ({
-  breakDownTask: vi.fn(),
   createUnscopedTask: vi.fn(),
   deleteTask: vi.fn(),
   getSubtasks: vi.fn(),
   getTask: vi.fn(),
   listAllTasks: vi.fn(),
-  reviewBreakdown: vi.fn(),
   updateTask: vi.fn(),
 }))
 
@@ -35,7 +33,6 @@ vi.mock('../../api/taskDependencies', () => ({
 const task: Task = {
   id: 7,
   project_id: 1,
-  inbox_item_id: null,
   parent_task_id: null,
   title: 'Patch the router',
   description: null,
@@ -75,16 +72,6 @@ const mockListProjects = vi.mocked(listProjects)
 const mockListDependencies = vi.mocked(listDependencies)
 const mockListDependents = vi.mocked(listDependents)
 const mockUpdateTask = vi.mocked(updateTask)
-const mockBreakDownTask = vi.mocked(breakDownTask)
-const mockReviewBreakdown = vi.mocked(reviewBreakdown)
-
-const suggestedSubtask: Task = {
-  ...task,
-  id: 21,
-  parent_task_id: 7,
-  title: 'Back up the config first',
-  review_status: 'candidate',
-}
 
 function renderDetail() {
   return render(
@@ -104,13 +91,6 @@ describe('TaskDetailView', () => {
     mockListDependencies.mockResolvedValue([])
     mockListDependents.mockResolvedValue([])
     mockUpdateTask.mockImplementation(async (_id, patch) => ({ ...task, ...patch }))
-    mockBreakDownTask.mockResolvedValue([suggestedSubtask])
-    mockReviewBreakdown.mockResolvedValue({
-      approved: 1,
-      dismissed: 0,
-      finalized: true,
-      training_example_id: 5,
-    })
   })
 
   afterEach(cleanup)
@@ -263,27 +243,6 @@ describe('TaskDetailView', () => {
     const estimate = screen.getByRole('button', { name: 'Estimate: 90 minutes' })
     expect(estimate).toBeDisabled()
     expect(estimate).toHaveAttribute('title', 'Sum of subtask estimates')
-  })
-
-  it('breaks a task down and approves a suggested subtask', async () => {
-    const user = userEvent.setup()
-    renderDetail()
-
-    await user.click(await screen.findByRole('button', { name: 'Break this down' }))
-
-    await waitFor(() => expect(mockBreakDownTask).toHaveBeenCalledWith(7))
-    // The suggested subtask renders as a card (scoped by its link aria-label —
-    // the title also appears in the Parent-task dropdown).
-    expect(
-      await screen.findByRole('link', { name: 'Back up the config first' }),
-    ).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Approve' }))
-
-    await waitFor(() =>
-      expect(mockReviewBreakdown).toHaveBeenCalledWith(7, [
-        { task_id: 21, action: 'approve' },
-      ]),
-    )
   })
 
   it('shows dependents when the task is blocking downstream work', async () => {

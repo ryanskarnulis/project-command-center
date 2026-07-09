@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { FolderX, GraduationCap, Inbox, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { useMemo, useRef, useEffect, useState, type ReactNode } from 'react'
+import { FolderX, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { useTrash, type RestoreItem, type TrashKind } from './useTrash'
 import { useTrashCount } from './trashCountContext'
 import { TaskCard } from '../tasks/TaskCard'
@@ -89,18 +89,7 @@ function NoNav({ children }: { children: ReactNode }) {
   return <div onClickCapture={(e) => e.preventDefault()}>{children}</div>
 }
 
-type TypeFilter = 'all' | 'projects' | 'tasks' | 'inbox' | 'training'
-
-// An inbox item's display label: the summary if the model produced one, else a
-// snippet of the raw text (matches what the inbox section renders).
-function inboxLabel(item: { summary: string | null; raw_text: string }): string {
-  return item.summary ?? item.raw_text.slice(0, 60)
-}
-
-// A training example's display label: a snippet of the input that produced it.
-function trainingLabel(example: { input_text: string }): string {
-  return example.input_text.slice(0, 80)
-}
+type TypeFilter = 'all' | 'projects' | 'tasks'
 
 export function TrashPage() {
   const {
@@ -110,8 +99,6 @@ export function TrashPage() {
     notice,
     restoreProjectById,
     restoreTaskById,
-    restoreInboxById,
-    restoreTrainingById,
     restoreAll,
     purgeById,
     purgeAll,
@@ -129,8 +116,6 @@ export function TrashPage() {
   const [selected, setSelected] = useState<Record<TrashKind, Set<number>>>(() => ({
     projects: new Set(),
     tasks: new Set(),
-    inbox: new Set(),
-    training: new Set(),
   }))
 
   const toggleItem = (kind: TrashKind, id: number) =>
@@ -147,11 +132,7 @@ export function TrashPage() {
   const clearSelection = (kind: TrashKind) =>
     setSelected((prev) => ({ ...prev, [kind]: new Set() }))
 
-  const totalCount =
-    trash.projects.length +
-    trash.tasks.length +
-    trash.inbox_items.length +
-    trash.training_examples.length
+  const totalCount = trash.projects.length + trash.tasks.length
   const isEmpty = totalCount === 0
 
   // Purge is irreversible (it really deletes the row), so every purge path is
@@ -195,32 +176,19 @@ export function TrashPage() {
   // Search (case-insensitive, over each item's display label) + type filter are
   // both client-side. A list is included only when the type filter selects it;
   // the search then narrows within whatever's included.
-  const { projects, tasks, inboxItems, trainingExamples } = useMemo(() => {
+  const { projects, tasks } = useMemo(() => {
     const q = search.trim().toLowerCase()
     const showProjects = typeFilter === 'all' || typeFilter === 'projects'
     const showTasks = typeFilter === 'all' || typeFilter === 'tasks'
-    const showInbox = typeFilter === 'all' || typeFilter === 'inbox'
-    const showTraining = typeFilter === 'all' || typeFilter === 'training'
     const match = (label: string) => q === '' || label.toLowerCase().includes(q)
     return {
       projects: showProjects ? trash.projects.filter((p) => match(p.name)) : [],
       tasks: showTasks ? trash.tasks.filter((t) => match(t.title)) : [],
-      inboxItems: showInbox ? trash.inbox_items.filter((i) => match(inboxLabel(i))) : [],
-      trainingExamples: showTraining
-        ? trash.training_examples.filter(
-            (e) => match(e.task_name) || match(trainingLabel(e)),
-          )
-        : [],
     }
   }, [trash, search, typeFilter])
 
   const filtersActive = search.trim() !== '' || typeFilter !== 'all'
-  const noMatches =
-    !isEmpty &&
-    projects.length === 0 &&
-    tasks.length === 0 &&
-    inboxItems.length === 0 &&
-    trainingExamples.length === 0
+  const noMatches = !isEmpty && projects.length === 0 && tasks.length === 0
 
   // The number shown next to a section title. While filtering, the filtered
   // length is what's honest (it matches the cards shown). Otherwise show the true
@@ -238,14 +206,6 @@ export function TrashPage() {
     archivedTaskCount: p.archived_task_count,
   }))
   const taskItems: RestoreItem[] = tasks.map((t) => ({ id: t.id, label: t.title }))
-  const inboxRestoreItems: RestoreItem[] = inboxItems.map((i) => ({
-    id: i.id,
-    label: inboxLabel(i),
-  }))
-  const trainingItems: RestoreItem[] = trainingExamples.map((e) => ({
-    id: e.id,
-    label: trainingLabel(e),
-  }))
   // The subset of each section currently checked (intersected with what's shown).
   const selectedIn = (kind: TrashKind, items: RestoreItem[]) =>
     items.filter((i) => selected[kind].has(i.id))
@@ -302,7 +262,7 @@ export function TrashPage() {
                 aria-label="Search trash"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Project, task, or note text"
+                placeholder="Project or task"
               />
             </div>
           </label>
@@ -318,8 +278,6 @@ export function TrashPage() {
                 <option value="all">All</option>
                 <option value="projects">Projects</option>
                 <option value="tasks">Tasks</option>
-                <option value="inbox">Inbox</option>
-                <option value="training">Training</option>
               </select>
             </label>
           </div>
@@ -482,160 +440,6 @@ export function TrashPage() {
                 </NoNav>
               </li>
             ))}
-          </ul>
-        </section>
-      )}
-
-      {!loading && inboxItems.length > 0 && (
-        <section className="trash-section">
-          <div className="trash-section-head">
-            <h2>
-              <Inbox size={18} aria-hidden="true" />
-              Inbox items ({headingCount(inboxItems.length, trash.inbox_items.length, counts.inbox_items)})
-            </h2>
-            <SelectAll
-              ids={inboxRestoreItems.map((i) => i.id)}
-              selected={selected.inbox}
-              onChange={(select) =>
-                toggleAll('inbox', inboxRestoreItems.map((i) => i.id), select)
-              }
-            />
-            <button
-              type="button"
-              className="secondary-action"
-              onClick={() => void restoreAll('inbox', inboxRestoreItems)}
-            >
-              Restore all
-            </button>
-          </div>
-          <BulkBar
-            count={selectedIn('inbox', inboxRestoreItems).length}
-            onRestore={() => restoreSelected('inbox', selectedIn('inbox', inboxRestoreItems))}
-            onDelete={() =>
-              purgeSelected('inbox', selectedIn('inbox', inboxRestoreItems).map((i) => i.id))
-            }
-          />
-          <TruncationHint loaded={trash.inbox_items.length} total={counts.inbox_items} />
-          <ul className="task-list">
-            {inboxItems.map((item) => {
-              const label = inboxLabel(item)
-              return (
-                <li key={item.id} className="trash-item">
-                  <input
-                    type="checkbox"
-                    className="trash-item-check"
-                    aria-label={`Select inbox item ${label}`}
-                    checked={selected.inbox.has(item.id)}
-                    onChange={() => toggleItem('inbox', item.id)}
-                  />
-                  <div className="task-card">
-                    <div className="task-card-body">
-                      <span className="task-card-title">{label}</span>
-                      <div className="task-card-badges">
-                        <span className="source-pill">{item.source}</span>
-                      </div>
-                    </div>
-                    <div className="task-card-actions">
-                      <DeletedAt at={item.deleted_at} />
-                      <button
-                        type="button"
-                        aria-label={`Restore inbox item ${label}`}
-                        onClick={() => void restoreInboxById(item.id, label)}
-                      >
-                        Restore
-                      </button>
-                      <button
-                        type="button"
-                        className="trash-danger"
-                        aria-label={`Delete inbox item ${label} forever`}
-                        onClick={() => confirmPurge('inbox', item.id, label)}
-                      >
-                        Delete forever
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-      )}
-
-      {!loading && trainingExamples.length > 0 && (
-        <section className="trash-section">
-          <div className="trash-section-head">
-            <h2>
-              <GraduationCap size={18} aria-hidden="true" />
-              Training examples ({headingCount(trainingExamples.length, trash.training_examples.length, counts.training_examples)})
-            </h2>
-            <SelectAll
-              ids={trainingItems.map((i) => i.id)}
-              selected={selected.training}
-              onChange={(select) =>
-                toggleAll('training', trainingItems.map((i) => i.id), select)
-              }
-            />
-            <button
-              type="button"
-              className="secondary-action"
-              onClick={() => void restoreAll('training', trainingItems)}
-            >
-              Restore all
-            </button>
-          </div>
-          <BulkBar
-            count={selectedIn('training', trainingItems).length}
-            onRestore={() => restoreSelected('training', selectedIn('training', trainingItems))}
-            onDelete={() =>
-              purgeSelected('training', selectedIn('training', trainingItems).map((i) => i.id))
-            }
-          />
-          <TruncationHint
-            loaded={trash.training_examples.length}
-            total={counts.training_examples}
-          />
-          <ul className="task-list">
-            {trainingExamples.map((example) => {
-              const label = trainingLabel(example)
-              return (
-                <li key={example.id} className="trash-item">
-                  <input
-                    type="checkbox"
-                    className="trash-item-check"
-                    aria-label={`Select training example ${label}`}
-                    checked={selected.training.has(example.id)}
-                    onChange={() => toggleItem('training', example.id)}
-                  />
-                  <div className="task-card">
-                    <div className="task-card-body">
-                      <span className="task-card-title">{label}</span>
-                      <div className="task-card-badges">
-                        <span className="source-pill">{example.task_name}</span>
-                        <span className="source-pill">{example.model_name}</span>
-                      </div>
-                    </div>
-                    <div className="task-card-actions">
-                      <DeletedAt at={example.deleted_at} />
-                      <button
-                        type="button"
-                        aria-label={`Restore training example ${label}`}
-                        onClick={() => void restoreTrainingById(example.id, label)}
-                      >
-                        Restore
-                      </button>
-                      <button
-                        type="button"
-                        className="trash-danger"
-                        aria-label={`Delete training example ${label} forever`}
-                        onClick={() => confirmPurge('training', example.id, label)}
-                      >
-                        Delete forever
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              )
-            })}
           </ul>
         </section>
       )}

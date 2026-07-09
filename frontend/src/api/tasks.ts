@@ -1,12 +1,5 @@
-import { AI_TIMEOUT_MS, apiClient } from './client'
-import type {
-  BreakdownReviewResult,
-  SubtaskDecision,
-  Task,
-  TaskCreate,
-  TaskSeries,
-  TaskUpdate,
-} from '../types/task'
+import { apiClient } from './client'
+import type { Task, TaskCreate, TaskSeries, TaskUpdate } from '../types/task'
 
 export async function listTasks(projectId: number): Promise<Task[]> {
   const res = await apiClient(`/api/projects/${projectId}/tasks`)
@@ -112,25 +105,4 @@ export async function purgeTask(id: number): Promise<void> {
 export async function getSubtasks(id: number): Promise<Task[]> {
   const res = await apiClient(`/api/tasks/${id}/subtasks`)
   return (await res.json()) as Task[]
-}
-
-/** Ask the model to suggest subtasks; returns them as candidate children. */
-export async function breakDownTask(id: number): Promise<Task[]> {
-  const res = await apiClient(`/api/tasks/${id}/break-down`, {
-    method: 'POST',
-    timeoutMs: AI_TIMEOUT_MS,
-  })
-  return (await res.json()) as Task[]
-}
-
-export async function reviewBreakdown(
-  id: number,
-  decisions: SubtaskDecision[],
-): Promise<BreakdownReviewResult> {
-  const res = await apiClient(`/api/tasks/${id}/breakdown/review`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ decisions }),
-  })
-  return (await res.json()) as BreakdownReviewResult
 }

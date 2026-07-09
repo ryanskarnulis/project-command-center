@@ -3,20 +3,18 @@
 // this logic stays unit-testable without rendering.
 //
 //   <text>            → { kind: 'search', query }      (no leading slash)
-//   /new <text>       → { kind: 'new', text }
 //   /done <query>     → { kind: 'done', query }
-//   /  ·  /new  ·  /done  (no argument) → { kind: 'hint', verb }   (disabled hint)
+//   /  ·  /done  (no argument) → { kind: 'hint', verb }   (disabled hint)
 //   /unknown ...      → { kind: 'search', query }      (unrecognized verb)
 //
 // The verb is matched case-insensitively and must be a whole word (separated from
-// its argument by whitespace), so `/newfoo` is an unknown verb, not `/new foo`.
+// its argument by whitespace), so `/donefoo` is an unknown verb, not `/done foo`.
 
 /** Which empty-argument state produced a hint row. */
-export type HintVerb = 'root' | 'new' | 'done'
+export type HintVerb = 'root' | 'done'
 
 export type Command =
   | { kind: 'search'; query: string }
-  | { kind: 'new'; text: string }
   | { kind: 'done'; query: string }
   | { kind: 'hint'; verb: HintVerb }
 
@@ -38,9 +36,6 @@ export function parseCommand(raw: string): Command {
   const verb = (spaceIndex === -1 ? body : body.slice(0, spaceIndex)).toLowerCase()
   const arg = spaceIndex === -1 ? '' : body.slice(spaceIndex + 1).trim()
 
-  if (verb === 'new') {
-    return arg === '' ? { kind: 'hint', verb: 'new' } : { kind: 'new', text: arg }
-  }
   if (verb === 'done') {
     return arg === '' ? { kind: 'hint', verb: 'done' } : { kind: 'done', query: arg }
   }

@@ -8,7 +8,7 @@ from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.db.models import ActivityEvent, InboxItem, Project, ProjectAlias, Task
+from app.db.models import ActivityEvent, Project, ProjectAlias, Task
 from app.services import activity
 from app.services.common import active, deleted, hard_delete, restore, soft_delete
 
@@ -233,9 +233,9 @@ def purge_project(db: Session, project: Project) -> None:
     cascade-soft-deleted with it (they keep ``project_id``), so every task still
     pointing here is purged (via ``purge_task`` so their dependency/subtree edges
     go too). Aliases are hard-deleted. The nullable FKs that would otherwise
-    dangle — ``inbox_items.suggested_project_id``, ``activity_events.project_id``
-    (the audit log, kept but with the ref cleared), and any
-    ``tasks.deleted_with_project_id`` still pointing here — are nulled.
+    dangle — ``activity_events.project_id`` (the audit log, kept but with the ref
+    cleared) and any ``tasks.deleted_with_project_id`` still pointing here — are
+    nulled.
     ``hard_delete``'s guard enforces the project is already in trash. Caller commits.
     """
     from app.services import task_trash  # local: avoid circular import
@@ -260,11 +260,6 @@ def purge_project(db: Session, project: Project) -> None:
             task_trash.purge_task(db, task)
 
     db.execute(sql_delete(ProjectAlias).where(ProjectAlias.project_id == project.id))
-    db.execute(
-        update(InboxItem)
-        .where(InboxItem.suggested_project_id == project.id)
-        .values(suggested_project_id=None)
-    )
     db.execute(
         update(ActivityEvent)
         .where(ActivityEvent.project_id == project.id)
@@ -408,23 +403,3 @@ def match_text_to_project(db: Session, text: str | None) -> Project | None:
     """
     match = match_text_to_project_detailed(db, text)
     return match.project if match is not None else None
-
-
-def find_project_by_name_or_alias(db: Session, text: str) -> Project | None:
-    """Exactly resolve a project by its (normalized) name or one of its aliases.
-
-    Unlike ``match_text_to_project`` (intentionally fuzzy substring matching used
-    by inbox triage), this is an *exact* normalized-equality lookup: the Discord
-    ``/tasks <project>`` filter should only match a project the user named, not
-    every project whose name happens to appear inside the query. Returns the
-    single match, or ``None`` when the name/alias is unknown.
-    """
-    norm = _normalize(text)
-    if not norm:
-        return None
-    for project, aliases in list_projects_with_aliases(db):
-        if _normalize(project.name) == norm or any(
-            _normalize(alias) == norm for alias in aliases
-        ):
-            return project
-    return None

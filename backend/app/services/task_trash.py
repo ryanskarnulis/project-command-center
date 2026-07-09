@@ -128,8 +128,7 @@ def purge_task(db: Session, task: Task) -> None:
     Cleans the real FK edges first: dependency rows on either side of any subtree
     task, and any stray ``parent_task_id`` from a row outside the purge set (e.g. a
     child that was individually restored while its parent stayed in trash). The
-    caller is responsible for committing. ``ai_training_examples`` has no FK to
-    tasks and is deliberately untouched.
+    caller is responsible for committing.
     """
     subtree = _deleted_subtree_depth_first(db, task)
     ids = [t.id for t in subtree]

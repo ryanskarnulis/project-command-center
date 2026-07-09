@@ -5,7 +5,6 @@ import { Badge, type BadgeTone } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { AsyncState } from '../../components/AsyncState'
 import { useToast } from '../../components/ToastContext'
-import { createInbox, processInbox } from '../../api/inbox'
 import { markTaskDone } from '../../api/tasks'
 import type { SearchKind, SearchResultItem } from '../../types/search'
 import { parseCommand, type HintVerb } from './parseCommand'
@@ -19,10 +18,9 @@ const KIND_META: Record<
 > = {
   project: { label: 'Project', tone: 'blue', path: (i) => `/projects/${i.id}` },
   task: { label: 'Task', tone: 'purple', path: (i) => `/tasks/${i.id}` },
-  inbox: { label: 'Inbox', tone: 'orange', path: (i) => `/inbox/${i.id}` },
 }
 
-// One dropdown row, whatever produced it (search hit, /new confirm, /done match).
+// One dropdown row, whatever produced it (search hit, /done match).
 // Keyboard nav iterates these uniformly; each carries its own `onSelect`.
 interface ActionRow {
   key: string
@@ -40,15 +38,12 @@ interface ActionGroup {
 
 const HINT_TEXT: Record<HintVerb, string> = {
   root: 'Type after the slash to run a command.',
-  new: 'Type something to capture, e.g. /new call the bank tomorrow',
   done: 'Type a task to find, e.g. /done audit firewall rules',
 }
 
 export function CommandSearch() {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
-  // In-flight lock for /new so a double-Enter can't create two inbox items.
-  const [capturing, setCapturing] = useState(false)
   const navigate = useNavigate()
   const { notify } = useToast()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -56,7 +51,7 @@ export function CommandSearch() {
 
   const command = useMemo(() => parseCommand(query), [query])
 
-  // Only search/done hit the backend; /new and hint states pass a blank query so
+  // Only search/done hit the backend; hint states pass a blank query so
   // `useSearch` short-circuits without an API call.
   const searchQuery =
     command.kind === 'search' || command.kind === 'done' ? command.query : ''
@@ -73,26 +68,6 @@ export function CommandSearch() {
       reset()
     },
     [navigate, reset],
-  )
-
-  // /new: capture raw text → run extraction → land on the note-review route.
-  const runNew = useCallback(
-    async (text: string) => {
-      if (capturing) return
-      setCapturing(true)
-      try {
-        const item = await createInbox({ raw_text: text })
-        await processInbox(item.id)
-        notify('success', 'Captured to inbox and extracted tasks.')
-        navigate(`/inbox/${item.id}`)
-        reset()
-      } catch (e: unknown) {
-        notify('error', e instanceof Error ? e.message : 'Capture failed.')
-      } finally {
-        setCapturing(false)
-      }
-    },
-    [capturing, navigate, notify, reset],
   )
 
   // /done: complete the chosen task via the dedicated endpoint (preserves recurrence).
@@ -113,25 +88,6 @@ export function CommandSearch() {
   )
 
   const groups: ActionGroup[] = useMemo(() => {
-    if (command.kind === 'new') {
-      return [
-        {
-          label: null,
-          rows: [
-            {
-              key: 'new',
-              badge: { label: 'Capture', tone: 'green' },
-              title: capturing
-                ? 'Capturing & extracting…'
-                : `Capture & extract: ${command.text}`,
-              onSelect: () => void runNew(command.text),
-              disabled: capturing,
-            },
-          ],
-        },
-      ]
-    }
-
     if (command.kind === 'done') {
       // Only accepted, not-yet-done tasks are valid completion targets; candidates
       // and already-done tasks are filtered out (status fields come from search).
@@ -155,7 +111,6 @@ export function CommandSearch() {
         [
           { label: 'Projects', items: results.projects },
           { label: 'Tasks', items: results.tasks },
-          { label: 'Inbox', items: results.inbox_items },
         ] as const
       )
         .filter((g) => g.items.length > 0)
@@ -175,7 +130,7 @@ export function CommandSearch() {
     }
 
     return [] // hint: rendered separately, nothing selectable
-  }, [command, results, capturing, runNew, runDone, goto])
+  }, [command, results, runDone, goto])
 
   const flat = useMemo(() => groups.flatMap((g) => g.rows), [groups])
   const activeKey = useMemo(
@@ -224,7 +179,6 @@ export function CommandSearch() {
   const trimmed = query.trim()
   const showDropdown = open && trimmed !== ''
   const isHint = command.kind === 'hint'
-  // /new always shows its confirm row; search/done show async + empty states.
   const showAsyncState = command.kind === 'search' || command.kind === 'done'
   const emptyLabel =
     command.kind === 'done'
@@ -267,7 +221,7 @@ export function CommandSearch() {
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
           placeholder="Search, or type / for commands…"
-          aria-label="Search projects, tasks, and inbox, or run a slash command"
+          aria-label="Search projects and tasks, or run a slash command"
           role="combobox"
           aria-expanded={showDropdown}
           aria-controls="command-search-results"
@@ -286,10 +240,6 @@ export function CommandSearch() {
             <div className="command-search-group">
               <p className="command-search-group-label">Commands</p>
               <ul>
-                <li className="command-search-hint">
-                  <Badge tone="green">/new</Badge>
-                  <span>capture a thought → inbox &amp; extract tasks</span>
-                </li>
                 <li className="command-search-hint">
                   <Badge tone="purple">/done</Badge>
                   <span>complete a task</span>

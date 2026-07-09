@@ -10,17 +10,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
 
 from app.api import (
-    routes_ai,
     routes_calendar,
-    routes_discord,
-    routes_inbox,
+    routes_dashboard,
     routes_projects,
     routes_search,
-    routes_settings,
     routes_task_dependencies,
     routes_tasks,
     routes_today,
-    routes_training,
     routes_trash,
 )
 from app.config import get_settings
@@ -32,11 +28,7 @@ api_router = APIRouter()
 api_router.include_router(routes_projects.router)
 api_router.include_router(routes_tasks.router)
 api_router.include_router(routes_task_dependencies.router)
-api_router.include_router(routes_inbox.router)
-api_router.include_router(routes_discord.router)
-api_router.include_router(routes_ai.router)
-api_router.include_router(routes_settings.router)
-api_router.include_router(routes_training.router)
+api_router.include_router(routes_dashboard.router)
 api_router.include_router(routes_trash.router)
 api_router.include_router(routes_search.router)
 api_router.include_router(routes_today.router)

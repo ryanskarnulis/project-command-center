@@ -1,9 +1,7 @@
 # Docker-compose deployment for Project Command Center.
 #
 #   docker compose up --build              # backend + frontend
-#   docker compose --profile discord up    # also start the Discord bot
 #
-# Ollama runs on the HOST (GPU); containers reach it via host.docker.internal.
 # Copy .env.example -> .env and fill it in first. See README "Deploy with Docker".
 
 services:
@@ -18,19 +16,14 @@ services:
       # Container-specific values that override anything in .env.
       DATABASE_URL: sqlite:////data/app.db
       API_HOST: 0.0.0.0            # in-container bind; no host port is published
-      OLLAMA_BASE_URL: http://host.docker.internal:11434
-      # The backend derives its Settings-write policy from these: the trusted
-      # proxy is nginx (compose subnet), and FRONTEND_BIND tells it whether the
-      # dashboard is host-only (writes allowed from the host) or LAN-exposed
-      # (writes re-guarded). Keep them in sync with the frontend port binding.
+      # Trusted proxy is nginx (compose subnet); keep in sync with the
+      # frontend port binding.
       TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-172.28.0.0/16}
       FRONTEND_BIND: ${FRONTEND_BIND:-127.0.0.1}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/data              # SQLite file + WAL sidecars + backups persist here
     # No `ports:` — the backend is reachable only over the compose network
-    # (nginx, discord-bot), never from the host or LAN directly.
+    # (nginx), never from the host or LAN directly.
     healthcheck:
       test:
         - CMD
@@ -83,26 +76,6 @@ services:
     volumes:
       - ./data:/data
       - ./litestream.yml:/etc/litestream.yml:ro
-    networks:
-      - appnet
-
-  discord-bot:
-    image: pcc-backend
-    # Only starts with `--profile discord`; also self-exits if the token is unset.
-    profiles:
-      - discord
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    restart: unless-stopped
-    command: python -m app.integrations.discord.bot
-    env_file: .env
-    environment:
-      # The bot reaches the API by service name over the compose network.
-      BACKEND_BASE_URL: http://backend:8000
-    depends_on:
-      backend:
-        condition: service_healthy
     networks:
       - appnet
 

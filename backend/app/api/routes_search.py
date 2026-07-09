@@ -18,7 +18,7 @@ def search(
     q: str = Query(default="", max_length=200, description="Search text"),
     db: Session = Depends(get_db),
 ) -> SearchResults:
-    """Global search across active projects, tasks, and inbox items.
+    """Global search across active projects and tasks.
 
     A blank/whitespace ``q`` returns empty groups so the client can debounce freely
     without special-casing the empty input.
@@ -29,6 +29,5 @@ def search(
         query_length=len(q.strip()),
         projects=len(results.projects),
         tasks=len(results.tasks),
-        inbox_items=len(results.inbox_items),
     )
     return results

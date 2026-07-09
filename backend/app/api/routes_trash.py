@@ -11,10 +11,8 @@ from app.schemas.trash import (
     TrashCountResult,
     TrashRead,
 )
-from app.services import inbox as inbox_service
 from app.services import projects as projects_service
 from app.services import task_trash
-from app.services import training_data as training_service
 from app.services import trash as trash_service
 
 logger = structlog.get_logger(__name__)
@@ -27,7 +25,7 @@ def get_trash(
     limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
 ) -> TrashRead:
-    """Recently soft-deleted projects, tasks, and inbox items — the restore view."""
+    """Recently soft-deleted projects and tasks — the restore view."""
     deleted_projects = projects_service.list_deleted_projects(db, limit=limit)
     return TrashRead(
         projects=[
@@ -41,8 +39,6 @@ def get_trash(
             for p in deleted_projects
         ],
         tasks=task_trash.list_deleted_tasks(db, limit=limit),  # type: ignore[arg-type]
-        inbox_items=inbox_service.list_deleted_inbox_items(db, limit=limit),  # type: ignore[arg-type]
-        training_examples=training_service.list_deleted_examples(db, limit=limit),  # type: ignore[arg-type]
     )
 
 
@@ -53,8 +49,6 @@ def get_trash_count(db: Session = Depends(get_db)) -> TrashCountResult:
     return TrashCountResult(
         projects=counts.projects,
         tasks=counts.tasks,
-        inbox_items=counts.inbox_items,
-        training_examples=counts.training_examples,
     )
 
 
@@ -70,12 +64,8 @@ def empty_trash(db: Session = Depends(get_db)) -> EmptyTrashResult:
         "trash_emptied",
         projects=counts.projects,
         tasks=counts.tasks,
-        inbox_items=counts.inbox_items,
-        training_examples=counts.training_examples,
     )
     return EmptyTrashResult(
         projects=counts.projects,
         tasks=counts.tasks,
-        inbox_items=counts.inbox_items,
-        training_examples=counts.training_examples,
     )

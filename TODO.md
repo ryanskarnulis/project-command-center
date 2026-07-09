@@ -82,6 +82,14 @@ the items below are scope, not order.
 
 - [ ] Task due-date reminders
 - [ ] Export tasks to markdown
-- [ ] `review_status` simplification, if Slice 2 of the strip defers it (see
-      `CURRENT.md`): with inbox gone nothing produces candidates — collapse the
-      column, the service filtering, and the compound index.
+- [ ] **Tasks-table post-strip cleanup** (deferred from the merged Slice 1+2 —
+      see `CURRENT.md`). With AI extraction and the inbox gone, three `tasks`
+      columns are now dead weight but were left in place to keep the strip PR
+      bounded:
+      - `review_status`: nothing produces `candidate` anymore — collapse the
+        column, the pervasive `review_status == accepted` service filtering, and
+        the `(deleted_at, review_status)` compound index.
+      - `confidence`: AI-extraction output, always `None` now, still surfaced in
+        `TaskRead` — drop it.
+      - `assignee_hint`: AI-extraction hint, still settable via the task API —
+        decide whether it becomes a real "assignee" field or is dropped.

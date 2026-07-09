@@ -2,7 +2,6 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getProjectSummary } from '../../api/dashboard'
 import {
   createAlias,
   deleteAlias,
@@ -27,7 +26,6 @@ vi.mock('../../api/projects', () => ({
 }))
 
 vi.mock('../../api/tasks', () => ({
-  breakDownTask: vi.fn(),
   createUnscopedTask: vi.fn(),
   deleteTask: vi.fn(),
   getSubtasks: vi.fn(() => Promise.resolve([])),
@@ -37,7 +35,6 @@ vi.mock('../../api/tasks', () => ({
   listCompletedTasks: vi.fn(),
   listTasks: vi.fn(),
   markTaskDone: vi.fn(),
-  reviewBreakdown: vi.fn(),
   skipOccurrence: vi.fn(),
   stopRecurrence: vi.fn(),
   updateTask: vi.fn(),
@@ -48,10 +45,6 @@ vi.mock('../../api/taskDependencies', () => ({
   listDependencies: vi.fn(() => Promise.resolve([])),
   listDependents: vi.fn(() => Promise.resolve([])),
   removeDependency: vi.fn(),
-}))
-
-vi.mock('../../api/dashboard', () => ({
-  getProjectSummary: vi.fn(),
 }))
 
 const project: Project = {
@@ -67,7 +60,6 @@ const project: Project = {
 const task: Task = {
   id: 3,
   project_id: 7,
-  inbox_item_id: null,
   parent_task_id: null,
   title: 'Patch the router',
   description: null,
@@ -107,7 +99,6 @@ const mockListAliases = vi.mocked(listAliases)
 const mockCreateAlias = vi.mocked(createAlias)
 const mockDeleteAlias = vi.mocked(deleteAlias)
 const mockGetProjectActivity = vi.mocked(getProjectActivity)
-const mockGetProjectSummary = vi.mocked(getProjectSummary)
 
 function renderDetail() {
   return render(
@@ -192,23 +183,6 @@ describe('ProjectDetailPage', () => {
 
     cleanup()
     expect(removeSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function))
-  })
-
-  it('generates an AI summary on demand', async () => {
-    const user = userEvent.setup()
-    mockGetProjectSummary.mockResolvedValue({
-      project_id: 7,
-      summary: 'Two open tasks remain on the edge firewall.',
-      model_name: 'gemma4:e2b',
-    })
-    renderDetail()
-
-    await user.click(await screen.findByRole('button', { name: 'Summarize' }))
-
-    expect(mockGetProjectSummary).toHaveBeenCalledWith(7)
-    expect(
-      await screen.findByText('Two open tasks remain on the edge firewall.'),
-    ).toBeInTheDocument()
   })
 
   it('adds and removes aliases via the dedicated endpoints', async () => {

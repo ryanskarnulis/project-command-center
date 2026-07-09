@@ -6,19 +6,19 @@ from pydantic import BaseModel
 
 from app.db.models import TaskReviewStatus, TaskWorkflowStatus
 
-SearchKind = Literal["project", "task", "inbox"]
+SearchKind = Literal["project", "task"]
 
 
 class SearchResultItem(BaseModel):
-    """One match, normalized across the three searched entity types.
+    """One match, normalized across the searched entity types.
 
     ``title`` is the primary display line; ``subtitle`` is an optional secondary
-    line (e.g. a task's project name or an inbox item's summary). ``project_id``
-    is populated for tasks so the UI can route to the owning project when needed.
+    line (e.g. a task's project name). ``project_id`` is populated for tasks so
+    the UI can route to the owning project when needed.
 
     ``review_status``/``workflow_status`` are populated only for the ``task`` kind
-    (``None`` for projects and inbox items). They let the command bar's ``/done``
-    action offer only acceptable, not-yet-done tasks; plain search ignores them.
+    (``None`` for projects). They let the command bar's ``/done`` action offer
+    only acceptable, not-yet-done tasks; plain search ignores them.
     """
 
     kind: SearchKind
@@ -35,4 +35,3 @@ class SearchResults(BaseModel):
 
     projects: list[SearchResultItem]
     tasks: list[SearchResultItem]
-    inbox_items: list[SearchResultItem]

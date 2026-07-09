@@ -12,7 +12,6 @@ vi.mock('../../api/today', () => ({
 }))
 
 vi.mock('../../api/tasks', () => ({
-  breakDownTask: vi.fn(),
   createUnscopedTask: vi.fn(),
   deleteTask: vi.fn(),
   getSubtasks: vi.fn(() => Promise.resolve([])),
@@ -20,7 +19,6 @@ vi.mock('../../api/tasks', () => ({
   getTaskSeries: vi.fn(),
   listAllTasks: vi.fn(() => Promise.resolve([])),
   markTaskDone: vi.fn(),
-  reviewBreakdown: vi.fn(),
   skipOccurrence: vi.fn(),
   stopRecurrence: vi.fn(),
   updateTask: vi.fn(),
@@ -45,7 +43,6 @@ const mockGetTask = vi.mocked(getTask)
 const panelTask: Task = {
   id: 7,
   project_id: null,
-  inbox_item_id: null,
   parent_task_id: null,
   title: 'Draft launch checklist',
   description: null,

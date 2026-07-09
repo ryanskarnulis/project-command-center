@@ -15,7 +15,6 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   return {
     id: 1,
     project_id: null,
-    inbox_item_id: null,
     parent_task_id: null,
     title: 'Ship the calendar',
     description: null,

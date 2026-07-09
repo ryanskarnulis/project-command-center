@@ -5,12 +5,10 @@ dependencies, recurrence), Today, search, trash, dashboard. A local agent
 (llama.cpp + tools + MCP + retrieval) that operates the app through its service
 layer is the next major direction.
 
-> **Direction change (2026-07-09).** The AI-assisted-capture / training-data /
-> custom-model track, the inbox, the Discord bot, and the calendar are being
-> **removed** — see the strip epic in `CURRENT.md`. Sections below that describe
-> those features document code that still exists but is scheduled for deletion;
-> each strip slice removes the code and its section together. The agent plan
-> lives in `TODO.md` ("Phase 2 — local agent").
+> **Direction change (2026-07-09), strip in progress.** The AI-assisted-capture
+> / training-data / custom-model track, the inbox, and the Discord bot have been
+> **removed**; the calendar is scheduled to follow — see the strip epic in
+> `CURRENT.md`. The agent plan lives in `TODO.md` ("Phase 2 — local agent").
 
 ## Core principle
 
@@ -31,9 +29,6 @@ ORM:           SQLAlchemy 2.0 (typed syntax)
 Migrations:    Alembic
 Validation:    Pydantic v2
 Logging:       structlog (with request IDs)
-AI Runtime:    Ollama                 (being removed; Phase 2 agent: llama.cpp)
-Training:      Unsloth                (being removed)
-Discord:       discord.py             (being removed)
 Backups:       scripts/backup_db.sh (stdlib sqlite3 online backup) + cron;
                Litestream continuous WAL replication (docker sidecar)
 ```
@@ -44,22 +39,10 @@ Backups:       scripts/backup_db.sh (stdlib sqlite3 online backup) + cron;
 React Web App
   ↓
 FastAPI Backend
-  ├── Project / Task / Inbox / Today / Calendar / Search / Trash / Training APIs
-  ├── AI Workflows  ──→  ModelGateway  ──→  Provider (Ollama / llama.cpp)
-  ├── Settings/Config API
-  └── Discord API endpoints
+  └── Project / Task / Today / Calendar / Search / Trash APIs
        ↓
 SQLite Database
-
-Discord Bot (separate process)
-  ↓ (shared secret auth)
-FastAPI Backend
 ```
-
-**The model gateway is the single most important architectural decision.**
-Workflow code never calls Ollama directly — always
-`workflow → ModelGateway → provider`. That's what lets the custom-trained
-llama.cpp model swap in later without touching workflow code.
 
 ## Repo layout
 
@@ -69,24 +52,16 @@ backend/app/
   api/          route modules (routes_*.py), guards, rate limiting
   db/           models.py, session.py
   alembic/      migrations
-  services/     one responsibility per module (tasks, inbox, projects,
-                trash, today, recurrence, dependencies, training_data, …)
-  ai/
-    gateway.py, schemas.py, profiles.yaml
-    providers/  base.py, ollama.py  (llamacpp.py planned, not built)
-    prompts/    *.md — one per workflow, editable at runtime via Settings
-    workflows/  extract_tasks, match_project, summarize_project, break_down_task
-    evals/      *_cases.yaml + run_*_evals.py per workflow
-  integrations/discord/   bot.py, commands.py
+  services/     one responsibility per module (tasks, projects, trash, today,
+                recurrence, dependencies, …)
 
 frontend/src/
   api/          all HTTP calls (components consume hooks; hooks call this layer)
-  features/     feature folders: dashboard, projects, tasks, inbox, today,
-                calendar, search, settings, training, trash, errors
+  features/     feature folders: dashboard, projects, tasks, today, calendar,
+                search, trash, errors
   components/   shared primitives (Button, Card, Badge, Modal, AppShell, …)
   routes/, types/
 
-training/       exports + Unsloth fine-tune scripts (future)
 data/           app.db + backups/
 scripts/        backup_db.sh
 main.sh         dev bootstrap + run
@@ -96,17 +71,18 @@ test.sh         full quality gate
 ## Database schema
 
 Tables: `projects`, `project_aliases`, `tasks`, `task_dependencies`,
-`inbox_items`, `activity_events`, `eval_runs`, `ai_training_examples`.
+`activity_events`.
 
 Key decisions:
 
 - **Soft deletes everywhere** via `deleted_at`; queries filter it by default
   through a service-layer helper. The only true delete is user-triggered purge
-  from `/trash`, and only of already-soft-deleted rows. Exceptions:
-  `activity_events` and `eval_runs` are append-only logs with no `deleted_at`.
-- **Candidates and real tasks share the `tasks` table**, split by
-  `review_status` (`candidate | accepted | rejected`). User-facing progress is
-  separate: `workflow_status` (`open | in_progress | done`).
+  from `/trash`, and only of already-soft-deleted rows. Exception:
+  `activity_events` is an append-only log with no `deleted_at`.
+- Tasks carry a `review_status` (`candidate | accepted | rejected`) alongside
+  user-facing progress in `workflow_status` (`open | in_progress | done`); a
+  follow-up will collapse `review_status` now that the capture flow that
+  produced candidates is gone.
 - **Subtasks** nest via nullable `parent_task_id` (a tree — cycles refused with
   `409`). Deleting a parent cascade-soft-deletes the subtree; restore is
   per-task. A parent's estimate and status **roll up from accepted subtasks**
@@ -122,10 +98,6 @@ Key decisions:
   stamped with `deleted_with_project_id` so restore can offer to bring them
   back together. A protected `General` project is seeded (system key
   `general`).
-- `inbox_items.input_hash` gives idempotency — the same input text never
-  re-extracts. `inbox_items.matched_alias` records which project alias routed a
-  note (when the deterministic matcher matched an alias, not the project name),
-  surfaced at triage as "matched alias '…'".
 - **`tasks` read-path indexes** back the hot list/read queries: a compound
   `(deleted_at, review_status)` (active-task list, calendar, search, and — via
   its leading column — the trash `deleted_at IS NOT NULL` scan) plus single
@@ -133,52 +105,14 @@ Key decisions:
   deliberately not indexed (effective status rolls up in Python; it is never a
   SQL filter).
 
-### The most important table
-
-```
-ai_training_examples
-- task_name           ("extract_tasks", "match_project", …)
-- input_text          (raw input, exactly as the model saw it)
-- model_output_json   (FULL model output, not just the diff)
-- corrected_output_json
-- accepted (bool), model_profile, model_name, created_at
-```
-
-Every AI correction the user makes lands here automatically — this is the
-fine-tuning corpus. Never store just the diff; the full input/output pair is
-what training needs.
-
-## AI subsystem
-
-Profiles live in `backend/app/ai/profiles.yaml` (currently four:
-`task_extraction`, `break_down_task`, `project_matching`, `summary` — all on
-Ollama `gemma4:e2b`, JSON-schema mode except the text-mode summary). Local
-tuning via the Settings UI writes to `profiles.local.yaml` (gitignored),
-deep-merged over the committed defaults.
-
-The inbox capture flow:
-
-```
-Raw inbox text
-→ hash input, dedupe (idempotency) → save inbox item
-→ extraction model via gateway → Pydantic validation
-→ task rows with review_status="candidate"
-→ user reviews inline → accept/edit/reject
-→ correction saved to ai_training_examples
-```
-
-Every workflow has prompt file(s) in `ai/prompts/*.md` and eval cases in
-`ai/evals/*_cases.yaml`. The Settings page edits profiles and prompts at
-runtime, runs evals per suite with pass-rate history, and shows Ollama health.
-
 ## Status & roadmap
 
 Sprints 0–25 shipped the full core (tasks/projects, recurrence, subtasks +
-dependencies, Today, trash, dashboard, Settings, docker + litestream deploy),
-plus features now scheduled for removal (inbox capture, Discord bot, AI
-workflows, training meter). A Gantt/calendar planning epic was built and then
-**removed** — it didn't earn its complexity; the rest of the calendar follows it
-out in the strip.
+dependencies, Today, trash, dashboard, docker + litestream deploy). A
+Gantt/calendar planning epic was built and then **removed** — it didn't earn
+its complexity; the rest of the calendar follows it out in the strip. The
+AI-assisted capture flow, the inbox, the training pipeline, and the Discord
+bot have been removed as part of the current strip.
 
 - `CURRENT.md` — the checked-out focus (currently: the strip epic)
 - `TODO.md` — the backlog, including the Phase 2 agent plan
@@ -187,7 +121,7 @@ out in the strip.
 Roadmap in two phases:
 
 ```
-Phase 1 (now):  strip AI, training, inbox, Discord, calendar → simple core
+Phase 1 (in progress): strip AI, training, inbox, Discord, calendar → simple core
 Phase 2:        local agent — llama.cpp runtime, PCC MCP server (service layer
                 as tools), agent loop, FTS5-first retrieval, chat UI
 ```
@@ -205,11 +139,8 @@ Obsidian integration · Email ingestion
 ## Dev commands
 
 ```
-./main.sh                 # bootstrap env/deps, migrate, start Ollama + backend
-                          # + frontend (+ Discord bot when tokens are set)
+./main.sh                 # bootstrap env/deps, migrate, start backend + frontend
 ./test.sh                 # backend pytest/ruff/mypy + frontend Vitest/lint/build
-./test.sh --ai-evals      # also run the Ollama-backed AI eval suites (opt-in:
-                          # they need Ollama + the configured local model)
 ./scripts/backup_db.sh    # online snapshot of data/app.db → data/backups/
                           # (prunes past BACKUP_RETENTION_DAYS, default 14)
 ```
@@ -228,15 +159,12 @@ cd backend && .venv/bin/python -m pip freeze --exclude-editable > requirements.l
 
 `./main.sh` remains the dev path. For a persistent deployment on a home server,
 `docker compose` stands up the backend (uvicorn) and the frontend (nginx serving
-the built SPA and reverse-proxying `/api` to the backend). **Ollama is not
-containerized** — it stays on the host (GPU) and the backend reaches it over the
-host gateway.
+the built SPA and reverse-proxying `/api` to the backend).
 
-Prerequisites: Docker + the compose plugin, and Ollama already running on the
-host with the configured model pulled.
+Prerequisites: Docker + the compose plugin.
 
 ```
-cp .env.example .env          # then edit: secrets, exposure, trusted proxy
+cp .env.example .env          # then edit: exposure, trusted proxy
 docker compose up --build     # backend + frontend
 ```
 
@@ -244,15 +172,8 @@ The dashboard is **host-only by default** (`http://127.0.0.1:8100`), matching th
 `API_HOST`/`DEV_HOST` posture. To expose it on the LAN, set `FRONTEND_BIND=0.0.0.0`
 in `.env` (optionally `FRONTEND_PORT`; 8100 is PCC's slot in the workspace port
 registry — see `../gateway/README.md`). The workspace gateway proxies
-`tasks.$HOMELAB_DOMAIN` here and expects the LAN-exposed setting, so the
-Settings-write re-guard applies to proxied clients. The backend itself publishes
-no host port; it is reachable only via nginx and the compose network.
-
-**Discord bot** (optional) runs as a compose profile so it only starts when asked:
-
-```
-docker compose --profile discord up   # needs DISCORD_BOT_TOKEN + BACKEND_SHARED_SECRET in .env
-```
+`tasks.$HOMELAB_DOMAIN` here. The backend itself publishes no host port; it is
+reachable only via nginx and the compose network.
 
 **Data & backups.** SQLite lives on the bind-mounted `./data` volume
 (`app.db` + WAL sidecars survive restarts). `./scripts/backup_db.sh` is still the
@@ -295,72 +216,16 @@ ExecStart=/usr/local/bin/litestream replicate -config /path/to/litestream.yml
 Restart=always
 ```
 
-**Settings writes in docker mode.** Profile/prompt saves and eval runs (the
-loopback-guarded routes) **work from the host by default.** The reasoning: with
-the dashboard bound host-only (the default), the LAN cannot reach nginx at all,
-so every request nginx forwards is necessarily from the host — the backend trusts
-those. The moment you expose the dashboard on the LAN (`FRONTEND_BIND=0.0.0.0`),
-the backend **automatically re-guards** these writes to `403` for proxied clients;
-no second switch to remember. This is driven by two values the compose file passes
-to the backend: `TRUSTED_PROXY_IPS` (the nginx/compose subnet) and `FRONTEND_BIND`.
-
-The guard never trusts `X-Forwarded-For` to *look* like loopback (the leftmost
-entries are client-forgeable), so a spoofed header can't smuggle a write past it.
-For rate limiting behind nginx, the backend keys on the address nginx actually
-observed (the rightmost `X-Forwarded-For` entry), which a client can't fake.
-
-In LAN-exposed mode, make Settings changes from the `./main.sh` dev environment or
-from inside the backend container — a request from within the container is a true
-loopback client (the slim image has Python, not curl):
-
-```
-docker compose exec backend python -c \
-  "import urllib.request,json; \
-   req=urllib.request.Request('http://127.0.0.1:8000/api/settings/profiles/task_extraction', \
-   data=json.dumps({'temperature':0.5}).encode(), method='PATCH', \
-   headers={'Content-Type':'application/json'}); \
-   print(urllib.request.urlopen(req).read().decode())"
-```
-
 ## Network & security posture
 
 Single-user, trusted-LAN app. `API_HOST` and `DEV_HOST` default to `127.0.0.1`;
 setting `API_HOST=0.0.0.0` is intentional and supported:
 
-- Normal project/task/inbox/trash/training routes are open to LAN reads and writes.
-- **Settings writes stay host-only** (profile/prompt saves, eval runs) — LAN
-  clients get `403`. Read-only Settings routes (Ollama health, installed models)
-  work from the LAN. On a direct bind the guard trusts loopback peers. Behind the
-  docker reverse proxy it trusts writes the proxy forwards *only while the
-  dashboard is bound host-only* (`FRONTEND_BIND`); exposing it on the LAN
-  re-guards them automatically. `X-Forwarded-For` is never trusted to look like
-  loopback, so a spoofed header can't bypass the guard.
-- Discord routes are protected by `BACKEND_SHARED_SECRET`, not the bind address.
-- The two Ollama-calling routes (`POST /api/discord/inbox`,
-  `GET /api/projects/{id}/summary`) are per-IP rate limited
-  (`RATE_LIMIT_DISCORD_INBOX_PER_MIN`, `RATE_LIMIT_SUMMARY_PER_MIN`).
+- Normal project/task/trash routes are open to LAN reads and writes.
+- The rate-limit module is retained in code for future agent endpoints, but
+  there are no rate-limited routes right now.
 
 This is not multi-user auth; revisit real auth before exposing beyond a home LAN.
-
-## Discord setup
-
-1. Create the app + bot at https://discord.com/developers/applications; copy the
-   bot token.
-2. In `backend/.env` set `DISCORD_BOT_TOKEN` and `BACKEND_SHARED_SECRET` (any
-   long random string; empty disables the discord route with 503). Optional
-   `DISCORD_GUILD_ID` for instant slash-command registration while testing.
-3. Invite via OAuth2 URL Generator: scopes `bot` + `applications.commands`,
-   permission `Send Messages`.
-4. Run `./main.sh`. Commands available in Discord:
-   - `/inbox <messy text>` → bot replies with extracted titles; candidates land
-     in the web app's inbox for review.
-   - `/tasks [project]` → numbered list of open tasks (accepted, not done),
-     optionally filtered to a project by name or alias; long lists are capped
-     with an "…and N more" line.
-   - `/done <search>` → fuzzy title search over open tasks. One match completes
-     it (recurring tasks spawn their next occurrence, same as the web app);
-     several matches list the candidates so you can narrow the search — it never
-     completes a task on an ambiguous match; no match says so.
 
 ## North star
 

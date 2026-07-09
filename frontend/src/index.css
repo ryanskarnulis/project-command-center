@@ -13,11 +13,8 @@
 @import './styles/layout.css';
 @import './styles/primitives.css';
 @import './styles/dashboard.css';
-@import './styles/inbox.css';
 @import './styles/tasks.css';
 @import './styles/projects.css';
-@import './styles/settings.css';
-@import './styles/training.css';
 @import './styles/trash.css';
 @import './styles/today.css';
 @import './styles/responsive.css';

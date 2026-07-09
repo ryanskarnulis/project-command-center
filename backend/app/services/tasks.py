@@ -84,11 +84,9 @@ def _default_project_id_for_status(
 def log_task_event(db: Session, task: Task, action: str) -> None:
     """Record an activity event for a task, but only once it belongs to a project.
 
-    Extraction creates candidates with ``project_id=None``; logging those would
-    flood the per-project feed with rows no feed can show. (Accepting a candidate
-    at review files it into a project, but that path commits in bulk in
-    ``services.review`` and logs its own ``created`` event there, not through this
-    helper.)
+    A task with ``project_id=None`` is unfiled; logging it would flood the
+    per-project feed with rows no feed can show. Filing it into a project later
+    logs an ``updated`` event through the normal update path.
     """
     if task.project_id is None:
         return
@@ -145,8 +143,8 @@ def list_subtasks(db: Session, parent_task_id: int) -> Sequence[Task]:
 #
 # Derived, never stored (mirrors the ``is_blocked`` precedent): a parent's
 # estimate and progress summarize its accepted subtasks. Only accepted children
-# count — a pending AI breakdown (review_status="candidate") must not flip a
-# parent to read-only or pad its estimate before the user approves it.
+# count — a non-accepted (candidate/rejected) child must not flip a parent to
+# read-only or pad its estimate.
 
 
 class Rollup:
@@ -379,7 +377,6 @@ def create_task(
     workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open,
     priority: TaskPriority | None = None,
     due_date: date | None = None,
-    inbox_item_id: int | None = None,
     confidence: float | None = None,
     assignee_hint: str | None = None,
     parent_task_id: int | None = None,
@@ -412,7 +409,6 @@ def create_task(
         workflow_status=workflow_status,
         priority=priority,
         due_date=due_date,
-        inbox_item_id=inbox_item_id,
         confidence=confidence,
         assignee_hint=assignee_hint,
         parent_task_id=parent_task_id,

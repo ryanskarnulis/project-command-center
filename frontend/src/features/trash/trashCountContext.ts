@@ -3,8 +3,6 @@ import { createContext, useContext } from 'react'
 export interface TrashCounts {
   projects: number
   tasks: number
-  inbox_items: number
-  training_examples: number
 }
 
 export interface TrashCount {
@@ -19,8 +17,6 @@ export interface TrashCount {
 export const ZERO_TRASH_COUNTS: TrashCounts = {
   projects: 0,
   tasks: 0,
-  inbox_items: 0,
-  training_examples: 0,
 }
 
 // Default is a no-op so consumers (e.g. AppShell) render fine with no provider —

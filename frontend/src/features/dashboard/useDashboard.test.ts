@@ -8,7 +8,6 @@ import { useDashboard } from './useDashboard'
 
 vi.mock('../../api/dashboard', () => ({
   getDashboard: vi.fn(),
-  getProjectSummary: vi.fn(),
 }))
 
 vi.mock('../../api/tasks', () => ({
@@ -21,7 +20,6 @@ const mockListAllTasks = vi.mocked(listAllTasks)
 const overview: DashboardOverview = {
   total_open_tasks: 0,
   projects: [],
-  recent_inbox: [],
 }
 
 describe('useDashboard', () => {

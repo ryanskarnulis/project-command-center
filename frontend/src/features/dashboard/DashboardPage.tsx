@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { LucideIcon } from 'lucide-react'
 import {
@@ -9,7 +9,6 @@ import {
   ClipboardList,
   Clock3,
   FolderKanban,
-  Inbox,
   ListChecks,
   Plus,
   Target,
@@ -18,7 +17,6 @@ import type { ProjectOpenTasksRow } from '../../types/dashboard'
 import type { Task } from '../../types/task'
 import { compareByDue, dueStatus, formatDueDate } from '../../utils/dates'
 import { projectStatus, type Tone } from '../../utils/projectStatus'
-import { InboxCapturePanel } from '../inbox/InboxCapturePanel'
 import { UpcomingEvents } from './UpcomingEvents'
 import { useDashboard } from './useDashboard'
 
@@ -157,10 +155,7 @@ function topBlockingTasks(tasks: Task[]): Task[] {
     )
 }
 
-function buildInsights(
-  tasks: Task[],
-  pendingReview: number,
-): Insight[] {
+function buildInsights(tasks: Task[]): Insight[] {
   const blocking = topBlockingTasks(tasks)
   const blocked = tasks.filter(
     (task) =>
@@ -204,15 +199,6 @@ function buildInsights(
       to: '/tasks',
     })
   }
-  if (pendingReview > 0) {
-    insights.push({
-      icon: Inbox,
-      title: `${pendingReview} capture${pendingReview === 1 ? '' : 's'} awaiting review`,
-      detail: 'Accept or reject AI suggestions to keep training data clean.',
-      tone: 'blue',
-      to: '/inbox',
-    })
-  }
   if (dueSoon.length > 0) {
     insights.push({
       icon: Target,
@@ -226,7 +212,7 @@ function buildInsights(
     insights.push({
       icon: CheckCircle2,
       title: 'Command center is clear',
-      detail: 'No blocking work, overdue work, or pending captures right now.',
+      detail: 'No blocking or overdue work right now.',
       tone: 'green',
       to: '/tasks',
     })
@@ -240,9 +226,7 @@ function projectWorkloadWidth(row: ProjectOpenTasksRow, maxOpenTasks: number): s
 }
 
 export function DashboardPage() {
-  const { overview, tasks, loading, refreshing, error, reload } = useDashboard()
-  const [pendingReviewCount, setPendingReviewCount] = useState<number | null>(null)
-  const pendingCount = pendingReviewCount ?? 0
+  const { overview, tasks, loading, refreshing, error } = useDashboard()
 
   const dashboard = useMemo(() => {
     const blockingTasks = topBlockingTasks(tasks)
@@ -272,9 +256,9 @@ export function DashboardPage() {
       todayCount,
       overdueCount,
       weekCount,
-      insights: buildInsights(tasks, pendingCount),
+      insights: buildInsights(tasks),
     }
-  }, [tasks, pendingCount])
+  }, [tasks])
 
   if (loading) {
     return (
@@ -304,18 +288,9 @@ export function DashboardPage() {
       <section className="dashboard-hero">
         <div>
           <h1>{greeting}</h1>
-          <p>Mission-critical work, captures, and due dates in one place.</p>
+          <p>Mission-critical work and due dates in one place.</p>
         </div>
       </section>
-
-      <InboxCapturePanel
-        title="Capture Tasks"
-        description="Paste messy text here. Extracted task candidates will show below for approval."
-        className="panel command-inbox-panel"
-        headingLevel={2}
-        onPendingCountChange={setPendingReviewCount}
-        onTasksChanged={reload}
-      />
 
       <section className="focus-panel" aria-labelledby="focus-now-heading">
         <div className="section-heading">
@@ -342,15 +317,6 @@ export function DashboardPage() {
             cornerIcon={Plus}
             cornerLabel="Add task"
             cornerTo="/tasks?new=1"
-          />
-          <MetricCard
-            icon={Clock3}
-            title="Awaiting Review"
-            value={pendingCount}
-            detail="AI captures ready to triage"
-            tone="orange"
-            to="/inbox"
-            action="Review now"
           />
           <MetricCard
             icon={AlertTriangle}

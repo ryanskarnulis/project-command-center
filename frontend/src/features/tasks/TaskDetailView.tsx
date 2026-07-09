@@ -1,17 +1,14 @@
 import { type KeyboardEvent, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Circle, PlayCircle, SkipForward, Sparkles, Trash2 } from 'lucide-react'
-import { Link, useNavigate } from 'react-router-dom'
-import { breakDownTask, createUnscopedTask, deleteTask, getSubtasks, getTask, listAllTasks, reviewBreakdown, skipOccurrence } from '../../api/tasks'
+import { CheckCircle2, Circle, PlayCircle, SkipForward, Trash2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { createUnscopedTask, deleteTask, getSubtasks, getTask, listAllTasks, skipOccurrence } from '../../api/tasks'
 import { ApiError } from '../../api/client'
-import { decideCandidate } from '../../api/inbox'
 import { listProjects } from '../../api/projects'
 import { Badge } from '../../components/Badge'
 import { useBeforeUnload } from '../../hooks/useBeforeUnload'
 import type { Project } from '../../types/project'
 import type { Task, TaskCreate } from '../../types/task'
 import { formatDueDate } from '../../utils/dates'
-import { BreakdownReview } from './BreakdownReview'
-import { CandidateDecisionBar } from './CandidateDecisionBar'
 import { EditScopeModal } from './EditScopeModal'
 import { RecurrenceSeries } from './RecurrenceSeries'
 import { SubtaskComposer } from './SubtaskComposer'
@@ -104,10 +101,6 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [taskDraft, setTaskDraft] = useState<TaskDraft>(EMPTY_TASK_DRAFT)
   const [addingSubtask, setAddingSubtask] = useState(false)
-  const [deciding, setDeciding] = useState(false)
-  const [breakingDown, setBreakingDown] = useState(false)
-  // Per-suggested-subtask in-flight guard so a double-click can't double-fire.
-  const [decidingSubtaskId, setDecidingSubtaskId] = useState<number | null>(null)
   const [confirmingSkip, setConfirmingSkip] = useState(false)
 
   function applyUpdated(updated: Task) {
@@ -236,60 +229,6 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
     }
   }
 
-  async function handleBreakDown() {
-    if (!task) return
-    setBreakingDown(true)
-    setSaveError(null)
-    try {
-      const suggested = await breakDownTask(task.id)
-      // Drop any already-listed candidate (idempotent re-run returns the same
-      // rows) before appending, so we never show a subtask twice.
-      const suggestedIds = new Set(suggested.map((s) => s.id))
-      setSubtasks((items) => [
-        ...items.filter((s) => !suggestedIds.has(s.id)),
-        ...suggested,
-      ])
-      setAllTasks((items) => [
-        ...items.filter((s) => !suggestedIds.has(s.id)),
-        ...suggested,
-      ])
-      if (suggested.length === 0) {
-        setSaveState('saved')
-        setSaveError('The model had no subtasks to suggest for this task.')
-      }
-    } catch (e: unknown) {
-      setSaveState('error')
-      setSaveError(e instanceof Error ? e.message : 'Failed to break down task')
-    } finally {
-      setBreakingDown(false)
-    }
-  }
-
-  // Approve/dismiss one suggested subtask. The breakdown's training row is
-  // captured server-side once the last suggestion is decided.
-  async function handleSubtaskDecision(subtaskId: number, action: 'approve' | 'dismiss') {
-    if (!task) return
-    setDecidingSubtaskId(subtaskId)
-    setSaveError(null)
-    try {
-      await reviewBreakdown(task.id, [{ task_id: subtaskId, action }])
-      setSubtasks((items) =>
-        action === 'dismiss'
-          ? items.filter((s) => s.id !== subtaskId)
-          : items.map((s) =>
-              s.id === subtaskId ? { ...s, review_status: 'accepted' } : s,
-            ),
-      )
-      setSaveState('saved')
-      onMutated?.()
-    } catch (e: unknown) {
-      setSaveState('error')
-      setSaveError(e instanceof Error ? e.message : 'Failed to record decision')
-    } finally {
-      setDecidingSubtaskId(null)
-    }
-  }
-
   async function handleDelete() {
     if (!task) return
     setSaveState('saving')
@@ -306,39 +245,10 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
     }
   }
 
-  // Approve/dismiss a candidate. Inline field edits already persisted via
-  // savePatch, so this only flips review_status (and finalizes the note when it
-  // was the last candidate). Send the project explicitly only when one is set, so
-  // the backend's suggested-project fallback still applies to untouched candidates.
-  async function handleDecide(action: 'approve' | 'dismiss') {
-    if (!task || task.inbox_item_id === null) return
-    const inboxItemId = task.inbox_item_id
-    setDeciding(true)
-    setSaveError(null)
-    try {
-      const edits =
-        action === 'approve' && task.project_id !== null
-          ? { project_id: task.project_id }
-          : undefined
-      const res = await decideCandidate(inboxItemId, task.id, { action, edits })
-      onMutated?.()
-      navigate(res.finalized ? '/inbox' : `/inbox/${inboxItemId}`)
-    } catch (e: unknown) {
-      setSaveState('error')
-      setSaveError(e instanceof Error ? e.message : 'Failed to record decision')
-      setDeciding(false)
-    }
-  }
-
   if (loadedTaskId !== id) return <p>Loading…</p>
   if (error) return <p role="alert">{error}</p>
   if (!task) return null
 
-  const isCandidate = task.review_status === 'candidate' && task.inbox_item_id !== null
-  // Subtasks suggested by "break this down" stay review_status=candidate until the
-  // user approves/dismisses them; everything else is a real subtask.
-  const suggestedSubtasks = subtasks.filter((s) => s.review_status === 'candidate')
-  const reviewedSubtasks = subtasks.filter((s) => s.review_status !== 'candidate')
   const saveLabel = saveState === 'saving'
     ? 'Saving…'
     : saveState === 'saved'
@@ -350,11 +260,6 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
   return (
     <div className="task-detail">
       <div className="task-detail-header">
-        {isCandidate && (
-          <p className="breadcrumb">
-            <Link to={`/inbox/${task.inbox_item_id}`}>Open note review</Link>
-          </p>
-        )}
         <div className="task-detail-actions">
           {saveLabel && (
             <span
@@ -364,46 +269,37 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
               {saveLabel}
             </span>
           )}
-          {isCandidate ? (
-            <CandidateDecisionBar
-              deciding={deciding}
-              onDecide={(action) => void handleDecide(action)}
-            />
-          ) : (
-            <>
-              <button
-                type="button"
-                disabled={task.is_blocked && task.workflow_status !== 'done'}
-                title={
-                  task.is_blocked && task.workflow_status !== 'done'
-                    ? 'Blocked by an unfinished dependency'
-                    : undefined
-                }
-                onClick={() =>
-                  savePatch({
-                    workflow_status: task.workflow_status === 'done' ? 'open' : 'done',
-                  })
-                }
-              >
-                {task.workflow_status === 'done' ? (
-                  <Circle size={16} aria-hidden="true" />
-                ) : (
-                  <CheckCircle2 size={16} aria-hidden="true" />
-                )}
-                {task.workflow_status === 'done' ? 'Reopen' : 'Mark done'}
-              </button>
-              {task.repeat_interval && task.workflow_status !== 'done' && (
-                <button type="button" onClick={() => setConfirmingSkip(true)}>
-                  <SkipForward size={16} aria-hidden="true" />
-                  Skip this occurrence
-                </button>
-              )}
-              <button type="button" className="danger-action" onClick={() => void handleDelete()}>
-                <Trash2 size={16} aria-hidden="true" />
-                Delete
-              </button>
-            </>
+          <button
+            type="button"
+            disabled={task.is_blocked && task.workflow_status !== 'done'}
+            title={
+              task.is_blocked && task.workflow_status !== 'done'
+                ? 'Blocked by an unfinished dependency'
+                : undefined
+            }
+            onClick={() =>
+              savePatch({
+                workflow_status: task.workflow_status === 'done' ? 'open' : 'done',
+              })
+            }
+          >
+            {task.workflow_status === 'done' ? (
+              <Circle size={16} aria-hidden="true" />
+            ) : (
+              <CheckCircle2 size={16} aria-hidden="true" />
+            )}
+            {task.workflow_status === 'done' ? 'Reopen' : 'Mark done'}
+          </button>
+          {task.repeat_interval && task.workflow_status !== 'done' && (
+            <button type="button" onClick={() => setConfirmingSkip(true)}>
+              <SkipForward size={16} aria-hidden="true" />
+              Skip this occurrence
+            </button>
           )}
+          <button type="button" className="danger-action" onClick={() => void handleDelete()}>
+            <Trash2 size={16} aria-hidden="true" />
+            Delete
+          </button>
         </div>
       </div>
 
@@ -448,7 +344,7 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
             disabled={task.has_subtasks}
             disabledHint="Rolled up from subtasks"
             onSkipOccurrence={
-              !isCandidate && task.repeat_interval && task.workflow_status !== 'done'
+              task.repeat_interval && task.workflow_status !== 'done'
                 ? () => setConfirmingSkip(true)
                 : undefined
             }
@@ -519,41 +415,26 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
         />
       </section>
 
-      {!isCandidate && (
       <section className="task-detail-panel">
         <div className="task-section-heading">
           <h2>Subtasks</h2>
           <div className="task-section-actions">
-            <button
-              type="button"
-              onClick={() => void handleBreakDown()}
-              disabled={breakingDown}
-            >
-              <Sparkles size={16} aria-hidden="true" />
-              {breakingDown ? 'Breaking down…' : 'Break this down'}
-            </button>
             <button type="button" onClick={() => setAddingSubtask(true)}>
               <PlayCircle size={16} aria-hidden="true" />
               Add subtask
             </button>
           </div>
         </div>
-        <BreakdownReview
-          suggestions={suggestedSubtasks}
-          projects={projects}
-          decidingId={decidingSubtaskId}
-          onDecide={(subtaskId, action) => void handleSubtaskDecision(subtaskId, action)}
-        />
-        {reviewedSubtasks.length > 0 ? (
+        {subtasks.length > 0 ? (
           <ul className="task-detail-list">
-            {reviewedSubtasks.map((s) => (
+            {subtasks.map((s) => (
               <li key={s.id}>
                 <TaskCard task={s} projects={projects} />
               </li>
             ))}
           </ul>
         ) : (
-          suggestedSubtasks.length === 0 && <p>No subtasks yet.</p>
+          <p>No subtasks yet.</p>
         )}
         {addingSubtask && (
           <SubtaskComposer
@@ -563,9 +444,8 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
           />
         )}
       </section>
-      )}
 
-      {!isCandidate && task.recurrence_id && (
+      {task.recurrence_id && (
         <RecurrenceSeries
           task={task}
           onStopped={applyUpdated}
@@ -573,7 +453,7 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
         />
       )}
 
-      {!isCandidate && <TaskDependencies task={task} tasks={allTasks} />}
+      <TaskDependencies task={task} tasks={allTasks} />
     </div>
   )
 }

@@ -7,7 +7,6 @@ FRONTEND_DIR="$ROOT_DIR/frontend"
 BACKEND_VENV="$BACKEND_DIR/.venv"
 BACKEND_PYTHON="$BACKEND_VENV/bin/python"
 SYSTEM_PYTHON="${PYTHON:-python3}"
-INCLUDE_AI_EVALS=0
 FAILURES=0
 
 log() {
@@ -21,23 +20,19 @@ die() {
 
 usage() {
   cat <<'EOF'
-Usage: ./test.sh [--ai-evals]
+Usage: ./test.sh
 
-Runs the default local quality gate:
+Runs the local quality gate:
   backend pytest, ruff, mypy
   frontend Vitest, lint, build
 
 Options:
-  --ai-evals   Also run the Ollama-backed AI eval suites.
   -h, --help   Show this help.
 EOF
 }
 
 for arg in "$@"; do
   case "$arg" in
-    --ai-evals)
-      INCLUDE_AI_EVALS=1
-      ;;
     -h|--help)
       usage
       exit 0
@@ -107,25 +102,6 @@ ensure_frontend_deps() {
   fi
 }
 
-http_ok() {
-  local url="$1"
-
-  "$SYSTEM_PYTHON" - "$url" <<'PY'
-from __future__ import annotations
-
-import sys
-import urllib.request
-
-url = sys.argv[1]
-
-try:
-    with urllib.request.urlopen(url, timeout=1) as response:
-        raise SystemExit(0 if 200 <= response.status < 300 else 1)
-except Exception:
-    raise SystemExit(1)
-PY
-}
-
 run_check() {
   local label="$1"
   local workdir="$2"
@@ -154,29 +130,12 @@ run_quality_gate() {
   run_check "frontend build" "$FRONTEND_DIR" npm run build
 }
 
-run_ai_evals() {
-  if ! http_ok "http://localhost:11434/api/tags"; then
-    log "FAIL AI eval preflight: Ollama is not reachable at http://localhost:11434."
-    FAILURES=1
-    return 0
-  fi
-
-  run_check "AI eval task_extraction" "$BACKEND_DIR" "$BACKEND_PYTHON" -m app.ai.evals.run_evals
-  run_check "AI eval project_matching" "$BACKEND_DIR" "$BACKEND_PYTHON" -m app.ai.evals.run_match_evals
-  run_check "AI eval summary" "$BACKEND_DIR" "$BACKEND_PYTHON" -m app.ai.evals.run_summary_evals
-  run_check "AI eval break_down_task" "$BACKEND_DIR" "$BACKEND_PYTHON" -m app.ai.evals.run_breakdown_evals
-}
-
 main() {
   copy_env_if_missing "$BACKEND_DIR/.env" "$BACKEND_DIR/.env.example"
   copy_env_if_missing "$FRONTEND_DIR/.env" "$FRONTEND_DIR/.env.example"
   ensure_backend_deps
   ensure_frontend_deps
   run_quality_gate
-
-  if [ "$INCLUDE_AI_EVALS" -eq 1 ]; then
-    run_ai_evals
-  fi
 
   if [ "$FAILURES" -eq 0 ]; then
     log "All requested checks passed."

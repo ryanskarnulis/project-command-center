@@ -2,7 +2,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.db.models import TaskWorkflowStatus
-from app.services import inbox as inbox_service
 from app.services import projects as projects_service
 from app.services import search as search_service
 from app.services import tasks as tasks_service
@@ -15,7 +14,6 @@ def _seed(db: Session) -> None:
     tasks_service.create_task(
         db, project_id=project.id, title="Audit firewall rules"
     )
-    inbox_service.create_inbox_item(db, raw_text="remember to patch the firewall")
     db.commit()
 
 
@@ -26,7 +24,6 @@ def test_search_matches_each_kind(db_session: Session) -> None:
 
     assert [p.title for p in results.projects] == ["Firewall Upgrade"]
     assert [t.title for t in results.tasks] == ["Audit firewall rules"]
-    assert len(results.inbox_items) == 1
     # Task subtitle resolves to the owning project's name.
     assert results.tasks[0].subtitle == "Firewall Upgrade"
     assert results.tasks[0].project_id is not None
@@ -41,11 +38,9 @@ def test_search_tasks_carry_status_fields(db_session: Session) -> None:
     task = results.tasks[0]
     assert task.review_status == "accepted"
     assert task.workflow_status == "open"
-    # The status fields are task-only; projects and inbox items serialize as null.
+    # The status fields are task-only; projects serialize as null.
     assert results.projects[0].review_status is None
     assert results.projects[0].workflow_status is None
-    assert results.inbox_items[0].review_status is None
-    assert results.inbox_items[0].workflow_status is None
 
 
 def test_search_is_case_insensitive(db_session: Session) -> None:
@@ -64,7 +59,6 @@ def test_search_blank_query_returns_empty(db_session: Session) -> None:
 
     assert results.projects == []
     assert results.tasks == []
-    assert results.inbox_items == []
 
 
 def test_search_excludes_soft_deleted(db_session: Session) -> None:
@@ -180,23 +174,6 @@ def test_search_text_relevance_beats_task_state_bias(db_session: Session) -> Non
     assert [t.title for t in results.tasks] == ["firewall", "zzz top"]
 
 
-def test_search_inbox_prefers_summary_over_raw_text(db_session: Session) -> None:
-    """A summary hit (human-facing line) outranks a raw-text-only hit, even older."""
-    summary_item = inbox_service.create_inbox_item(
-        db_session, raw_text="unrelated body text"
-    )
-    summary_item.summary = "firewall in summary"
-    inbox_service.create_inbox_item(db_session, raw_text="firewall in raw text")
-    db_session.commit()
-
-    results = search_service.search(db_session, "firewall")
-
-    assert [i.title for i in results.inbox_items] == [
-        "firewall in summary",
-        "firewall in raw text",
-    ]
-
-
 def test_search_route_happy_path(client: TestClient, db_session: Session) -> None:
     _seed(db_session)
 
@@ -206,7 +183,6 @@ def test_search_route_happy_path(client: TestClient, db_session: Session) -> Non
     body = response.json()
     assert body["projects"][0]["kind"] == "project"
     assert body["tasks"][0]["kind"] == "task"
-    assert body["inbox_items"][0]["kind"] == "inbox"
 
 
 def test_search_route_blank_query(client: TestClient, db_session: Session) -> None:
@@ -215,4 +191,4 @@ def test_search_route_blank_query(client: TestClient, db_session: Session) -> No
     response = client.get("/api/search", params={"q": ""})
 
     assert response.status_code == 200
-    assert response.json() == {"projects": [], "tasks": [], "inbox_items": []}
+    assert response.json() == {"projects": [], "tasks": []}
