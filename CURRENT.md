@@ -1,108 +1,116 @@
 # Current focus
 
-**Epic: Post-deploy hardening & polish** (checked out 2026-07-03).
+**Epic: The strip — pivot to a simple project manager** (checked out 2026-07-09).
 
-Goal: act on the legitimate follow-ups surfaced by an external code review now that
-the deployable-app epic has shipped (archived in `DONE.md`). Scope is deliberately
-narrow — this is a hardening/polish pass, not new features.
+## Direction change
+
+PCC is changing direction. The AI-assisted-capture + training-data + custom-model
+track is dead; so are the calendar, the inbox, and the Discord bot. What remains
+is a **simple, boring, reliable local project management app**: projects, tasks
+(subtasks, dependencies, recurrence), Today, search, trash, dashboard.
+
+On top of that slimmed core, the next epic builds a **local agent** — llama.cpp
+runtime, tool calling, MCP, retrieval — that operates the app *through the same
+service layer the UI uses*. That work is in `TODO.md` ("Phase 2 — local agent")
+and starts only after this strip epic is done.
+
+Decisions already made (don't relitigate):
+
+- Inbox and the Discord bot are removed, not kept as manual shells. The agent
+  becomes the capture surface later.
+- All training data is disposable — drop `ai_training_examples` and `eval_runs`
+  without export.
+- The agent will run locally on llama.cpp (shared RTX 3060; GPU-sharing story
+  with the chess app's llama-server is tracked in `../future-plans/llama-swap.md`).
 
 **Status legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ---
 
-## Review triage (2026-07-03)
+## Ground rules for the strip
 
-An external (ChatGPT) review flagged five things. Two are **not** acting on:
+- One slice per PR, squash-merged on green CI (normal workflow). Each slice
+  deletes code **and** updates `README.md`/`CLAUDE.md` sections that described it
+  — no doc debt between slices.
+- Deletions are hard deletes from the tree; git history is the archive. Don't
+  leave commented-out code or `_legacy` files.
+- Every dropped table gets a reviewed Alembic migration. Data is disposable, but
+  the migration chain must stay clean.
+- After each slice: `./test.sh` green locally before push (the `--ai-evals` flag
+  disappears with Slice 1).
 
-- **Rate-limiter "most serious bug" — false alarm, no action.** The claim was that
-  `rate_limit.py` appends to an orphaned deque after `del _HITS[key]`. It doesn't:
-  `_HITS` is a `defaultdict(deque)`, so `del _HITS[key]` drops the empty deque and
-  the following `_HITS[key].append(now)` re-indexes the defaultdict — creating a
-  fresh deque, storing it, and appending to it. Accumulation is correct.
-  `backend/tests/test_rate_limit.py` already proves the N+1th request returns 429.
-- **Real auth / internet exposure — deliberate scope decision, stays out.** Trusted
-  home LAN is the target; multi-user auth and reverse-proxy-on-the-internet hardening
-  remain on the do-not-build list until the deployment target actually changes. See
-  "Out of scope" below.
+## Slice 1 — Strip the AI subsystem + training pipeline (BE + FE + migration)
 
-The three legitimate items are the slices below.
+The big one. Everything model-related goes.
 
----
+- [ ] Delete `backend/app/ai/` entirely (gateway, providers, prompts, profiles,
+      schemas, workflows, evals) and `routes_ai.py`.
+- [ ] Delete `services/breakdown.py`, `services/training_data.py`,
+      `services/eval_history.py`, and `routes_training.py`.
+- [ ] Settings: remove profile/prompt editing, eval runs, and Ollama health from
+      service, routes, and the frontend Settings page. What survives of Settings
+      is app-level config only; if nothing meaningful survives, remove the
+      feature and note it here.
+- [ ] Frontend: delete `features/training/`; remove training-meter surfaces and
+      nav entries.
+- [ ] Delete the repo-root `training/` directory.
+- [ ] Alembic migration: drop `ai_training_examples` and `eval_runs`.
+- [ ] Infra: remove Ollama from `main.sh`, `.env` examples, docker docs, and the
+      `OLLAMA_*` settings; remove `--ai-evals` from `test.sh` and CI notes;
+      remove the Ollama-route rate limits (keep the rate-limit module itself —
+      the agent endpoints will want it).
+- [ ] Docs: excise the AI subsystem / training-table / roadmap sections from
+      `README.md`; drop the legacy-AI rules from `CLAUDE.md`.
 
-## Slice 1 — Frontend data-consistency polish (FE-only)
+## Slice 2 — Strip inbox + Discord (BE + FE + migration)
 
-Net-new from the review; small. No backend, schema, or dependency change.
+- [ ] Delete `routes_inbox.py`, `routes_discord.py`, `services/inbox.py`, and
+      `backend/app/integrations/discord/`.
+- [ ] Frontend: delete `features/inbox/` (including `InboxCapturePanel` on the
+      dashboard — replace with a plain quick-add task form if the dashboard
+      needs a mutation surface, else remove and drop the `onTasksChanged`
+      plumbing).
+- [ ] Alembic migration: drop `inbox_items`.
+- [ ] Infra: remove the Discord compose profile, `DISCORD_*` env vars, and
+      `BACKEND_SHARED_SECRET` (nothing else uses it).
+- [ ] Decide: with no AI extraction and no inbox, nothing produces
+      `review_status="candidate"` tasks. Either collapse `review_status`
+      (schema + service simplification, index rework) in this slice or record
+      it as an explicit follow-up in `TODO.md` — don't leave it undecided.
+- [ ] Docs: remove Discord setup/network sections from `README.md`; trim the
+      Discord rules from `CLAUDE.md`.
 
-- [x] **`useDashboard` has no reload path** — now exposes `reload()` (refresh-key pattern)
-      and subscribes to `taskRefreshVersion` like `useTasks`. Wired via a new
-      `onTasksChanged` callback on `InboxCapturePanel` (the dashboard's only mutation
-      surface) → `DashboardPage` calls `reload()` after a capture is reviewed/decided.
-- [x] **`useTasks` doesn't reset `loading` on refresh** — resolved the "separate flag"
-      way: `loading` is now explicitly initial-load-only, and a new `refreshing` flag
-      carries in-flight state for reload/`taskRefreshVersion`-driven refetches (avoids a
-      full-page spinner flash). Applied identically to `useDashboard`; `DashboardPage`
-      exposes it via `aria-busy`.
-- [x] Vitest for the new reload / loading behaviour (`useDashboard.test.ts`,
-      `useTasks.test.ts`).
+## Slice 3 — Strip the calendar (BE + FE)
 
-## Slice 2 — Task indexes (BE + Alembic migration)
+- [ ] Delete `routes_calendar.py`, `services/calendar.py`, and
+      `frontend/src/features/calendar/` + nav entry.
+- [ ] Check first: does Today or the dashboard import any calendar date logic?
+      Relocate before deleting, don't reimplement.
+- [ ] No schema change expected (calendar reads the `tasks` table).
 
-Promoted from TODO's "deferred hardening" — the review independently flagged it as the
-next ceiling, and deploy widens the read paths. Add before the dataset grows.
+## Slice 4 — Post-strip sweep
 
-- [x] Single-column indexes on `tasks`: `project_id`, `parent_task_id`, `recurrence_id`.
-      Profiling trimmed the original list: `deleted_at` and `review_status` are always
-      queried together (via `active()`), so they're served by the compound below (its
-      leading `deleted_at` column also covers the trash `IS NOT NULL` scan) — a standalone
-      index on either would be redundant write-overhead. `workflow_status` is **not**
-      indexed: it is never a SQL filter (effective status rolls up in Python), so an index
-      would be pure write cost. Add one if a `WHERE workflow_status` ever lands.
-- [x] Compound `(deleted_at, review_status)` for the common active-task query — this is the
-      real shared shape across `list_tasks`, calendar, search, and candidate list.
-      `workflow_status` was excluded from the composite for the same reason as above (no SQL
-      filter), so the composite stayed non-speculative.
-- [x] `alembic revision --autogenerate`, reviewed (stripped autogen's spurious
-      `DROP TABLE _litestream_*` — replication sidecar tables, not app schema), applied.
-      Regression-guard test `test_read_path_indexes_present_and_hot_queries_correct` asserts
-      the index set is declared and the filtered read paths still return the right rows.
-
-## Slice 3 — Pagination / limits on unbounded list endpoints (BE)
-
-- [x] `GET /api/tasks` and `GET /api/inbox` now take `limit`/`offset` query params with a
-      sane server-side default cap (tasks 500/max 1000, inbox 200/max 500), mirroring the
-      trash/pending shape. Services grew optional `limit`/`offset` (default unbounded, so
-      internal callers are unchanged); the default cap lives at the route layer. Caveat
-      recorded in `list_tasks`: because effective workflow-status roll-up filtering happens
-      in Python *after* the SQL page, a status-filtered page can return fewer than `limit`
-      rows — fine as a bounding cap, not exact page-boundary pagination.
-- [x] Frontend list views (`listAllTasks`, `listCompletedTasks`, `listInbox`) request the
-      max cap explicitly, so growth past the default doesn't silently truncate them.
-- [x] pytest for limit/offset paging and out-of-range (422) validation on both endpoints.
-
-## Slice 4 (stretch) — Rollup engine subtree scoping
-
-- [x] **(low)** `_children_map` loaded the whole accepted task table on every call —
-      hit on every task list *and* every single-task read via `_read(s)_with_blocked`.
-      Replaced with `_children_map_for(db, roots)`, which descends level by level from the
-      requested root ids (each an indexed `parent_task_id.in_(...)` lookup, using the Slice 2
-      index) and stops at the subtree boundary. A leaf single-task read is now one zero-row
-      query instead of a full-table scan; the dashboard's full-set path
-      (`compute_rollups_for_full_set`) is unchanged. Guard test
-      `test_compute_rollups_scoped_to_subtree` covers a multi-level tree, an unrelated tree
-      that must not leak, and an ancestor+descendant root set (the descent's dedup path).
+- [ ] `README.md` full pass: intro, stack, architecture diagram, repo layout,
+      schema section, dev commands all describe only what exists.
+- [ ] `CLAUDE.md` pass: remove the strip-era transition rules; the constitution
+      describes the simple core + agent direction only.
+- [ ] Dead-config hunt: `.env.example`s, `docker-compose.yml`, `app.yaml`,
+      unused deps in `pyproject.toml`/`package.json` (regenerate
+      `requirements.lock` if backend deps change).
+- [ ] Grep for stragglers: `ollama`, `inbox`, `discord`, `training`, `calendar`,
+      `candidate` across backend, frontend, scripts, and docs.
 
 ---
 
-## Out of scope (stays in TODO.md / do-not-build)
+## Out of scope for this epic
 
-- Multi-user auth, reverse-proxy-on-the-internet hardening — deployment target is a
-  trusted home LAN.
-- Command-bar AI chat, Today AI reordering, calendar-aware scheduling.
-- Custom model training track (gated on 200+ examples).
+- Anything agent-related (llama.cpp, MCP, tools, RAG) — that's Phase 2 in
+  `TODO.md`, and it starts on a clean base, not in parallel.
+- Multi-user auth / internet exposure — unchanged decision, trusted home LAN.
 
 ## Definition of done for the epic
 
-Every slice meets the CLAUDE.md definition of done (manual vertical path, happy-path
-pytest, structured logs, README updates where relevant; Alembic migration for Slice 2).
-The epic is done when the three legitimate review items are addressed and the false-alarm
-/ out-of-scope decisions above are recorded.
+All four slices merged; `./test.sh` and CI green; no route, service, feature
+folder, table, env var, or doc section referring to AI, training, inbox,
+Discord, or calendar; the app runs end-to-end (`main.sh` and docker) as a plain
+project manager.

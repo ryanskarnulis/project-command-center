@@ -1,17 +1,25 @@
 # Project Command Center
 
-A local-first project and task management web app with AI-assisted task capture
-from messy text and Discord input. Designed to eventually run on custom
-Unsloth-trained models served via llama.cpp.
+A local-first project and task management web app: projects, tasks (subtasks,
+dependencies, recurrence), Today, search, trash, dashboard. A local agent
+(llama.cpp + tools + MCP + retrieval) that operates the app through its service
+layer is the next major direction.
+
+> **Direction change (2026-07-09).** The AI-assisted-capture / training-data /
+> custom-model track, the inbox, the Discord bot, and the calendar are being
+> **removed** — see the strip epic in `CURRENT.md`. Sections below that describe
+> those features document code that still exists but is scheduled for deletion;
+> each strip slice removes the code and its section together. The agent plan
+> lives in `TODO.md` ("Phase 2 — local agent").
 
 ## Core principle
 
-**The app owns the logic. AI only returns structured suggestions.**
+**The app owns the logic. The service layer is the only write path.**
 
-```
-Good:  Python workflow → AI extracts tasks → Python validates → Python saves
-Bad:   AI decides everything and directly edits the database
-```
+The UI, the API, and the future agent are all peers that mutate state through
+the same service layer — validation, soft deletes, activity events, and rollups
+apply identically no matter who is calling. An agent tool that bypasses the
+service layer is the same bug as a route handler that writes raw SQL.
 
 ## Stack
 
@@ -23,9 +31,9 @@ ORM:           SQLAlchemy 2.0 (typed syntax)
 Migrations:    Alembic
 Validation:    Pydantic v2
 Logging:       structlog (with request IDs)
-AI Runtime:    Ollama (v1) → llama.cpp (v2, custom models)
-Training:      Unsloth
-Discord:       discord.py (separate process, HTTP to the API)
+AI Runtime:    Ollama                 (being removed; Phase 2 agent: llama.cpp)
+Training:      Unsloth                (being removed)
+Discord:       discord.py             (being removed)
 Backups:       scripts/backup_db.sh (stdlib sqlite3 online backup) + cron;
                Litestream continuous WAL replication (docker sidecar)
 ```
@@ -165,28 +173,33 @@ runtime, runs evals per suite with pass-rate history, and shows Ollama health.
 
 ## Status & roadmap
 
-Sprints 0–25 shipped: full task/project/inbox core, Discord bot, recurrence,
-subtasks + dependencies, Today page, trash, training-data meter, Settings, and
-a UI/UX in-place-editing revamp. A Gantt/calendar planning epic (Sprints 17–24)
-was built and then **removed** — it didn't earn its complexity.
+Sprints 0–25 shipped the full core (tasks/projects, recurrence, subtasks +
+dependencies, Today, trash, dashboard, Settings, docker + litestream deploy),
+plus features now scheduled for removal (inbox capture, Discord bot, AI
+workflows, training meter). A Gantt/calendar planning epic was built and then
+**removed** — it didn't earn its complexity; the rest of the calendar follows it
+out in the strip.
 
-- `CURRENT.md` — the checked-out focus (currently: none)
-- `TODO.md` — the backlog, theme-grouped
-- `DONE.md` — sprint-by-sprint changelog
+- `CURRENT.md` — the checked-out focus (currently: the strip epic)
+- `TODO.md` — the backlog, including the Phase 2 agent plan
+- `DONE.md` — changelog
 
-Still on the roadmap:
+Roadmap in two phases:
 
 ```
-Sprint 10: Export ai_training_examples → Unsloth fine-tune → llama.cpp swap
-           (gated on 200+ training examples — the /training meter tracks this)
+Phase 1 (now):  strip AI, training, inbox, Discord, calendar → simple core
+Phase 2:        local agent — llama.cpp runtime, PCC MCP server (service layer
+                as tools), agent loop, FTS5-first retrieval, chat UI
 ```
 
 ## Do not build yet
 
 ```
-Custom models           (wait for ~200+ real training examples)
-Discord buttons · Calendar sync · Obsidian integration · Email ingestion
-Multi-user auth · Celery / Redis · Vector DB · Autonomous agents
+Multi-user auth · internet exposure   (trusted home LAN only)
+Celery / Redis                        (SQLite + in-process is fine)
+External vector DB                    (if embeddings: sqlite-vec, in-process)
+Cloud model providers                 (the agent runs locally on llama.cpp)
+Obsidian integration · Email ingestion
 ```
 
 ## Dev commands
@@ -351,7 +364,9 @@ This is not multi-user auth; revisit real auth before exposing beyond a home LAN
 
 ## North star
 
-A **boring, reliable local app** where AI is a helper, not the boss: React UI +
-FastAPI core + SQLite truth + small local model calls through a gateway +
-Pydantic validation + review queue + training-data collection + eventual custom
-llama.cpp models trained on your own corrections.
+A **boring, reliable local project manager with a capable local agent**: React
+UI + FastAPI core + SQLite truth, and an agent (llama.cpp, tool calling, MCP,
+local retrieval) that is a peer of the UI — every agent action goes through the
+service layer, is validated, logged to `activity_events`, and undoable via the
+trash. No cloud dependencies, no training pipeline, no review queue: undo is
+the safety net.
