@@ -8,7 +8,6 @@ import {
   ChevronRight,
   ChevronsRight,
   Clock3,
-  CornerDownRight,
   Inbox,
   Play,
   SkipForward,
@@ -254,13 +253,6 @@ function ScheduledRow({
           <WorkflowPill status={block.workflow_status} />
           <DueSignalPill signal={block.due_signal} />
         </div>
-        {block.parent_task_id !== null && block.parent_title !== null && (
-          <div className="focus-block-parent">
-            <CornerDownRight size={13} aria-hidden="true" />
-            part of{' '}
-            <Link to={taskLinkTo(block.parent_task_id)}>{block.parent_title}</Link>
-          </div>
-        )}
         <div className="focus-block-meta">
           <EstimateLabel minutes={block.estimated_minutes} assumed={block.estimate_assumed} />
           {block.due_date && (

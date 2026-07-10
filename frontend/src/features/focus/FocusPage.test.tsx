@@ -357,6 +357,7 @@ describe('FocusPage', () => {
             title: 'Write intro section',
             parent_task_id: 5,
             parent_title: 'Draft the whitepaper',
+            reason: 'part of Draft the whitepaper · high priority',
           }),
         ],
       }),
@@ -369,9 +370,12 @@ describe('FocusPage', () => {
     )
 
     await screen.findByRole('link', { name: 'Write intro section' })
-    expect(screen.getByText(/part of/)).toBeInTheDocument()
-    const parentLink = screen.getByRole('link', { name: 'Draft the whitepaper' })
-    expect(parentLink).toHaveAttribute('href', '/?task=5')
+    // The parent shows once, via the scheduler's reason string — not a second
+    // dedicated "part of" line.
+    expect(screen.getAllByText(/part of/)).toHaveLength(1)
+    expect(
+      screen.getByText('part of Draft the whitepaper · high priority'),
+    ).toBeInTheDocument()
   })
 
   it('notes partially scheduled overflow tasks', async () => {
