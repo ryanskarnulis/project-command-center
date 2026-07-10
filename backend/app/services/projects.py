@@ -1,20 +1,14 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from typing import Any, NamedTuple
+from typing import Any
 
-from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.db.models import ActivityEvent, Project, ProjectAlias, Task
+from app.db.models import ActivityEvent, Project, Task
 from app.services import activity
 from app.services.common import active, deleted, hard_delete, restore, soft_delete
-
-class DuplicateAliasError(ValueError):
-    """Raised when an alias whose normalized form already exists is added."""
-
 
 DEFAULT_PROJECT_NAME = "General"
 DEFAULT_PROJECT_DESCRIPTION = "Default project for unfiled tasks"
@@ -232,7 +226,7 @@ def purge_project(db: Session, project: Project) -> None:
     Protected (``General``) is never purgeable. A deleted project's tasks are
     cascade-soft-deleted with it (they keep ``project_id``), so every task still
     pointing here is purged (via ``purge_task`` so their dependency/subtree edges
-    go too). Aliases are hard-deleted. The nullable FKs that would otherwise
+    go too). The nullable FKs that would otherwise
     dangle — ``activity_events.project_id`` (the audit log, kept but with the ref
     cleared) and any ``tasks.deleted_with_project_id`` still pointing here — are
     nulled.
@@ -259,7 +253,6 @@ def purge_project(db: Session, project: Project) -> None:
         if task is not None:
             task_trash.purge_task(db, task)
 
-    db.execute(sql_delete(ProjectAlias).where(ProjectAlias.project_id == project.id))
     db.execute(
         update(ActivityEvent)
         .where(ActivityEvent.project_id == project.id)
@@ -272,134 +265,3 @@ def purge_project(db: Session, project: Project) -> None:
     )
 
     hard_delete(db, project)
-
-
-# --- Aliases & deterministic project matching (Sprint 4) -------------------
-
-
-def _normalize(text: str) -> str:
-    """Lowercase, trim, and collapse internal whitespace for matching."""
-    return " ".join(text.split()).lower()
-
-
-def list_aliases(db: Session, project_id: int) -> Sequence[ProjectAlias]:
-    return (
-        db.execute(
-            active(ProjectAlias)
-            .where(ProjectAlias.project_id == project_id)
-            .order_by(ProjectAlias.id)
-        )
-        .scalars()
-        .all()
-    )
-
-
-def get_alias(db: Session, alias_id: int) -> ProjectAlias | None:
-    return db.execute(
-        active(ProjectAlias).where(ProjectAlias.id == alias_id)
-    ).scalar_one_or_none()
-
-
-def find_active_alias_by_normalized(
-    db: Session, project_id: int, normalized: str
-) -> ProjectAlias | None:
-    return db.execute(
-        active(ProjectAlias).where(
-            ProjectAlias.project_id == project_id,
-            ProjectAlias.normalized_alias == normalized,
-        )
-    ).scalar_one_or_none()
-
-
-def create_alias(db: Session, *, project_id: int, alias: str) -> ProjectAlias:
-    normalized = _normalize(alias)
-    if find_active_alias_by_normalized(db, project_id, normalized) is not None:
-        raise DuplicateAliasError(f'Alias "{alias}" already exists for this project')
-    row = ProjectAlias(project_id=project_id, alias=alias, normalized_alias=normalized)
-    db.add(row)
-    db.flush()
-    db.refresh(row)
-    return row
-
-
-def soft_delete_alias(db: Session, alias: ProjectAlias) -> None:
-    soft_delete(alias)
-    db.flush()
-
-
-def list_projects_with_aliases(
-    db: Session,
-) -> Sequence[tuple[Project, list[str]]]:
-    """Active projects paired with their active alias strings.
-
-    Feeds the AI project-matching fallback its choice list. Lives here (not in a
-    workflow) so the service owns project data and stays free of any ``ai/``
-    import.
-    """
-    aliases_by_project: dict[int, list[str]] = defaultdict(list)
-    for row in db.execute(active(ProjectAlias).order_by(ProjectAlias.id)).scalars():
-        aliases_by_project[row.project_id].append(row.alias)
-    return [(project, aliases_by_project[project.id]) for project in list_projects(db)]
-
-
-class ProjectMatch(NamedTuple):
-    """A deterministic project match plus *how* it matched.
-
-    ``matched_alias`` is the raw alias string when the note matched one of the
-    project's aliases, and ``None`` when it matched the project's own name — so a
-    caller can honestly tell the user "matched alias 'firewall'" without claiming
-    an alias for a plain name hit.
-    """
-
-    project: Project
-    matched_alias: str | None
-
-
-def match_text_to_project_detailed(db: Session, text: str | None) -> ProjectMatch | None:
-    """Like :func:`match_text_to_project`, but also reports the matched alias.
-
-    A project matches when its normalized name, or any of its normalized aliases,
-    appears as a substring of the normalized ``text`` — which the caller builds
-    from everything the note offers (the model's ``project_hint``, the summary,
-    the raw text, and the task titles). Searching the raw text, not just the
-    hint, is the point: the extractor often won't surface an alias as the hint,
-    but the alias is right there in the note ("finish the *firewall* cleanup…").
-
-    A name match takes precedence over an alias match (``matched_alias`` is then
-    ``None``). Returns a match only when exactly one project matches — zero or an
-    ambiguous (multi-project) result returns ``None`` so the caller can fall back
-    to the AI matcher. Pure Python: no model is consulted here.
-    """
-    if text is None:
-        return None
-    norm = _normalize(text)
-    if not norm:
-        return None
-
-    matches: list[ProjectMatch] = []
-    for project, aliases in list_projects_with_aliases(db):
-        name_norm = _normalize(project.name)
-        if name_norm and name_norm in norm:
-            matches.append(ProjectMatch(project, None))
-            continue
-        matched_alias = next(
-            (
-                alias
-                for alias in aliases
-                if (alias_norm := _normalize(alias)) and alias_norm in norm
-            ),
-            None,
-        )
-        if matched_alias is not None:
-            matches.append(ProjectMatch(project, matched_alias))
-    return matches[0] if len(matches) == 1 else None
-
-
-def match_text_to_project(db: Session, text: str | None) -> Project | None:
-    """Deterministically resolve a project from a note's text.
-
-    Thin wrapper over :func:`match_text_to_project_detailed` for callers that only
-    need the project. See that function for the matching rules.
-    """
-    match = match_text_to_project_detailed(db, text)
-    return match.project if match is not None else None

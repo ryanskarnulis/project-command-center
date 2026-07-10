@@ -67,44 +67,10 @@ class Project(Base, TimestampMixin, SoftDeleteMixin):
     tasks: Mapped[list[Task]] = relationship(
         back_populates="project", foreign_keys="Task.project_id"
     )
-    aliases: Mapped[list[ProjectAlias]] = relationship(back_populates="project")
 
     @property
     def is_protected(self) -> bool:
         return self.system_key is not None
-
-
-class ProjectAlias(Base, TimestampMixin, SoftDeleteMixin):
-    """An alternate name a project is referred to by in raw notes.
-
-    The deterministic half of project matching: an extracted note's
-    ``project_hint`` is matched against project names and these aliases in
-    Python before any model is consulted.
-    """
-
-    __tablename__ = "project_aliases"
-    __table_args__ = (
-        # One active alias per (project, normalized form). Partial (active rows
-        # only) so a soft-deleted alias never blocks re-adding the same text
-        # later — mirrors the task-dependency active-edge index.
-        Index(
-            "uq_project_alias_normalized",
-            "project_id",
-            "normalized_alias",
-            unique=True,
-            sqlite_where=text("deleted_at IS NULL"),
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
-    alias: Mapped[str]
-    # Normalized form (services.projects._normalize: lowercased, trimmed,
-    # internal whitespace collapsed) — the dedupe key, kept in lockstep with the
-    # matcher so the guard and matching share semantics.
-    normalized_alias: Mapped[str]
-
-    project: Mapped[Project] = relationship(back_populates="aliases")
 
 
 class Task(Base, TimestampMixin, SoftDeleteMixin):

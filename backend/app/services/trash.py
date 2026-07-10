@@ -37,7 +37,7 @@ def empty_trash(db: Session) -> PurgeCounts:
 
     Ordered so each step's FK cleanup doesn't fight the next: soft-deleted tasks
     first, then projects (whose owned trashed tasks are already gone, so only
-    aliases and the nullable project FKs remain). The protected ``General``
+    the nullable project FKs remain). The protected ``General``
     project is never purged. Ids are snapshotted up front — every trashed row is
     removed exactly once (some as part of an ancestor's subtree), so the snapshot
     sizes are the true removed counts; each purge re-fetches and skips rows a

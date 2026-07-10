@@ -55,8 +55,7 @@ test.sh         full quality gate
 
 ## Database schema
 
-Tables: `projects`, `project_aliases`, `tasks`, `task_dependencies`,
-`activity_events`.
+Tables: `projects`, `tasks`, `task_dependencies`, `activity_events`.
 
 Key decisions:
 

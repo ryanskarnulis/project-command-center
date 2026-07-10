@@ -3,24 +3,18 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  createAlias,
-  deleteAlias,
   getProject,
   getProjectActivity,
-  listAliases,
   updateProject,
 } from '../../api/projects'
 import { getTask, listCompletedTasks, listTasks, updateTask } from '../../api/tasks'
-import type { Project, ProjectAlias } from '../../types/project'
+import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { ProjectDetailPage } from './ProjectDetailPage'
 
 vi.mock('../../api/projects', () => ({
   getProject: vi.fn(),
   updateProject: vi.fn(),
-  listAliases: vi.fn(),
-  createAlias: vi.fn(),
-  deleteAlias: vi.fn(),
   getProjectActivity: vi.fn(),
   listProjects: vi.fn(() => Promise.resolve([])),
 }))
@@ -82,22 +76,12 @@ const task: Task = {
   has_subtasks: false,
 }
 
-const alias: ProjectAlias = {
-  id: 11,
-  project_id: 7,
-  alias: 'fw',
-  created_at: '2026-06-01T00:00:00Z',
-}
-
 const mockGetProject = vi.mocked(getProject)
 const mockUpdateProject = vi.mocked(updateProject)
 const mockGetTask = vi.mocked(getTask)
 const mockUpdateTask = vi.mocked(updateTask)
 const mockListTasks = vi.mocked(listTasks)
 const mockListCompleted = vi.mocked(listCompletedTasks)
-const mockListAliases = vi.mocked(listAliases)
-const mockCreateAlias = vi.mocked(createAlias)
-const mockDeleteAlias = vi.mocked(deleteAlias)
 const mockGetProjectActivity = vi.mocked(getProjectActivity)
 
 function renderDetail() {
@@ -117,7 +101,6 @@ describe('ProjectDetailPage', () => {
     mockListTasks.mockResolvedValue([task])
     mockListCompleted.mockResolvedValue([])
     mockUpdateProject.mockImplementation(async (_id, patch) => ({ ...project, ...patch }))
-    mockListAliases.mockResolvedValue([])
     mockGetProjectActivity.mockResolvedValue([])
   })
 
@@ -183,33 +166,6 @@ describe('ProjectDetailPage', () => {
 
     cleanup()
     expect(removeSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function))
-  })
-
-  it('adds and removes aliases via the dedicated endpoints', async () => {
-    const user = userEvent.setup()
-    mockListAliases.mockResolvedValue([alias])
-    mockCreateAlias.mockResolvedValue({
-      id: 12,
-      project_id: 7,
-      alias: 'firewall',
-      created_at: '2026-06-01T00:05:00Z',
-    })
-    mockDeleteAlias.mockResolvedValue(undefined)
-    renderDetail()
-
-    // Existing alias loads.
-    expect(await screen.findByText('fw')).toBeInTheDocument()
-
-    // Add a new one.
-    await user.type(screen.getByLabelText('Add alias'), 'firewall')
-    await user.click(screen.getByRole('button', { name: 'Add' }))
-    expect(mockCreateAlias).toHaveBeenCalledWith(7, { alias: 'firewall' })
-    expect(await screen.findByText('firewall')).toBeInTheDocument()
-
-    // Remove the original.
-    await user.click(screen.getByRole('button', { name: 'Remove alias fw' }))
-    expect(mockDeleteAlias).toHaveBeenCalledWith(7, 11)
-    await waitFor(() => expect(screen.queryByText('fw')).not.toBeInTheDocument())
   })
 
   it('mounts the activity feed for the project', async () => {

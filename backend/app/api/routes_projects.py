@@ -7,12 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.guards import trashed_row_or_error
-from app.db.models import ActivityEvent, Project, ProjectAlias
+from app.db.models import ActivityEvent, Project
 from app.db.session import get_db
 from app.schemas.activity import ActivityEventRead
 from app.schemas.projects import (
-    ProjectAliasCreate,
-    ProjectAliasRead,
     ProjectCreate,
     ProjectRead,
     ProjectUpdate,
@@ -33,15 +31,6 @@ def _get_or_404(db: Session, project_id: int) -> Project:
             status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
         )
     return project
-
-
-def _get_alias_or_404(db: Session, project_id: int, alias_id: int) -> ProjectAlias:
-    alias = projects_service.get_alias(db, alias_id)
-    if alias is None or alias.project_id != project_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Alias not found"
-        )
-    return alias
 
 
 @router.get("", response_model=list[ProjectRead])
@@ -145,46 +134,3 @@ def list_activity(
 ) -> Sequence[ActivityEvent]:
     _get_or_404(db, project_id)
     return activity_service.list_events(db, project_id, limit=limit)
-
-
-@router.get("/{project_id}/aliases", response_model=list[ProjectAliasRead])
-def list_aliases(
-    project_id: int, db: Session = Depends(get_db)
-) -> Sequence[ProjectAlias]:
-    _get_or_404(db, project_id)
-    return projects_service.list_aliases(db, project_id)
-
-
-@router.post(
-    "/{project_id}/aliases",
-    response_model=ProjectAliasRead,
-    status_code=status.HTTP_201_CREATED,
-)
-def create_alias(
-    project_id: int, data: ProjectAliasCreate, db: Session = Depends(get_db)
-) -> ProjectAlias:
-    _get_or_404(db, project_id)
-    try:
-        alias = projects_service.create_alias(
-            db, project_id=project_id, alias=data.alias
-        )
-    except projects_service.DuplicateAliasError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
-    db.commit()
-    db.refresh(alias)
-    logger.info("project_alias_created", project_id=project_id, alias_id=alias.id)
-    return alias
-
-
-@router.delete(
-    "/{project_id}/aliases/{alias_id}", status_code=status.HTTP_204_NO_CONTENT
-)
-def delete_alias(
-    project_id: int, alias_id: int, db: Session = Depends(get_db)
-) -> None:
-    alias = _get_alias_or_404(db, project_id, alias_id)
-    projects_service.soft_delete_alias(db, alias)
-    db.commit()
-    logger.info("project_alias_deleted", project_id=project_id, alias_id=alias_id)

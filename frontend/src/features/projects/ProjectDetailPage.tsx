@@ -1,16 +1,10 @@
-import { type FormEvent, type KeyboardEvent, useEffect, useState } from 'react'
+import { type KeyboardEvent, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '../../api/client'
-import {
-  createAlias,
-  deleteAlias,
-  getProject,
-  listAliases,
-  updateProject,
-} from '../../api/projects'
+import { getProject, updateProject } from '../../api/projects'
 import { listCompletedTasks, listTasks, markTaskDone, updateTask } from '../../api/tasks'
 import { useToast } from '../../components/ToastContext'
-import type { Project, ProjectAlias, ProjectUpdate } from '../../types/project'
+import type { Project, ProjectUpdate } from '../../types/project'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { useBeforeUnload } from '../../hooks/useBeforeUnload'
 import { buildProjectStats } from '../../utils/projectStatus'
@@ -66,12 +60,6 @@ export function ProjectDetailPage() {
   // Sidebar drag-to-file changes tasks outside this page — refetch off it too.
   const { version: taskRefreshVersion } = useTaskRefresh()
 
-  // Aliases (managed in place via the dedicated alias endpoints).
-  const [aliases, setAliases] = useState<ProjectAlias[]>([])
-  const [newAlias, setNewAlias] = useState('')
-  const [aliasBusy, setAliasBusy] = useState(false)
-  const [aliasError, setAliasError] = useState<string | null>(null)
-
   useEffect(() => {
     let active = true
     getProject(id)
@@ -121,16 +109,6 @@ export function ProjectDetailPage() {
     return () => { active = false }
   }, [id, tasksReloadKey, taskRefreshVersion])
 
-  useEffect(() => {
-    let active = true
-    listAliases(id)
-      .then((data) => { if (active) setAliases(data) })
-      .catch((e: unknown) => {
-        if (active) setAliasError(e instanceof Error ? e.message : 'Failed to load aliases')
-      })
-    return () => { active = false }
-  }, [id])
-
   const loadedProjectDraft = project ? makeProjectDraft(project) : EMPTY_PROJECT_DRAFT
   const activeProjectDraft =
     projectDraft.source === loadedProjectDraft.source ? projectDraft : loadedProjectDraft
@@ -179,43 +157,6 @@ export function ProjectDetailPage() {
 
   function handleNameKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') e.currentTarget.blur()
-  }
-
-  // Mirror services.projects._normalize: lowercase, trim, collapse whitespace.
-  const normalizeAlias = (value: string) =>
-    value.trim().toLowerCase().replace(/\s+/g, ' ')
-  const aliasIsDuplicate =
-    newAlias.trim() !== '' &&
-    aliases.some((a) => normalizeAlias(a.alias) === normalizeAlias(newAlias))
-
-  async function handleAddAlias(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    const value = newAlias.trim()
-    if (!value || aliasBusy || aliasIsDuplicate) return
-    setAliasBusy(true)
-    setAliasError(null)
-    try {
-      const created = await createAlias(id, { alias: value })
-      setAliases((prev) => [...prev, created])
-      setNewAlias('')
-    } catch (e: unknown) {
-      setAliasError(e instanceof Error ? e.message : 'Failed to add alias')
-    } finally {
-      setAliasBusy(false)
-    }
-  }
-
-  async function handleRemoveAlias(aliasId: number) {
-    setAliasBusy(true)
-    setAliasError(null)
-    try {
-      await deleteAlias(id, aliasId)
-      setAliases((prev) => prev.filter((a) => a.id !== aliasId))
-    } catch (e: unknown) {
-      setAliasError(e instanceof Error ? e.message : 'Failed to remove alias')
-    } finally {
-      setAliasBusy(false)
-    }
   }
 
   async function handleCompleteTask(t: Task): Promise<void> {
@@ -358,49 +299,6 @@ export function ProjectDetailPage() {
         ) : (
           !tasksError && <p>No open tasks.</p>
         )}
-      </section>
-
-      <section className="task-detail-panel">
-        <div className="task-section-heading">
-          <h2>Aliases</h2>
-        </div>
-        <p>Alternate names for this project, used to match it elsewhere.</p>
-        {aliases.length > 0 ? (
-          <ul className="project-alias-list">
-            {aliases.map((alias) => (
-              <li key={alias.id}>
-                <span>{alias.alias}</span>
-                <button
-                  type="button"
-                  disabled={aliasBusy}
-                  aria-label={`Remove alias ${alias.alias}`}
-                  onClick={() => void handleRemoveAlias(alias.id)}
-                >
-                  ×
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>No aliases yet.</p>
-        )}
-        <form className="project-alias-form" onSubmit={(e) => void handleAddAlias(e)}>
-          <label htmlFor="pd-alias">Add alias</label>
-          <input
-            id="pd-alias"
-            value={newAlias}
-            onChange={(e) => setNewAlias(e.target.value)}
-            placeholder="e.g. fw, firewall"
-          />
-          <button
-            type="submit"
-            disabled={aliasBusy || !newAlias.trim() || aliasIsDuplicate}
-          >
-            Add
-          </button>
-        </form>
-        {aliasIsDuplicate && <p role="status">This alias is already added.</p>}
-        {aliasError && <p role="alert">{aliasError}</p>}
       </section>
 
       <ActivityFeed projectId={project.id} refreshKey={activityKey} />
