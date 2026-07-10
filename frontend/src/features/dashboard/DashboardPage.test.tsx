@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDashboard } from '../../api/dashboard'
+import { createProject } from '../../api/projects'
 import {
   listAllTasks,
   listCompletedTasks,
@@ -24,6 +25,11 @@ vi.mock('../../api/dashboard', () => ({
   getDashboard: vi.fn(),
 }))
 
+vi.mock('../../api/projects', () => ({
+  createProject: vi.fn(),
+  reorderProjects: vi.fn(),
+}))
+
 vi.mock('../../api/tasks', () => ({
   getTask: vi.fn(),
   listAllTasks: vi.fn(),
@@ -34,6 +40,7 @@ vi.mock('../../api/tasks', () => ({
 }))
 
 const mockGetDashboard = vi.mocked(getDashboard)
+const mockCreateProject = vi.mocked(createProject)
 const mockListAllTasks = vi.mocked(listAllTasks)
 const mockListCompletedTasks = vi.mocked(listCompletedTasks)
 const mockMarkTaskDone = vi.mocked(markTaskDone)
@@ -263,6 +270,41 @@ describe('DashboardPage', () => {
         project_id: 1,
         workflow_status: 'in_progress',
       }),
+    )
+  })
+
+  it('creates a project from the board heading and reloads the board', async () => {
+    mockCreateProject.mockResolvedValue({
+      id: 4,
+      name: 'New Initiative',
+      description: null,
+      system_key: null,
+      sort_order: 3,
+      is_protected: false,
+      created_at: '2026-07-01T00:00:00Z',
+      updated_at: '2026-07-01T00:00:00Z',
+    })
+    renderPage()
+    await screen.findByRole('heading', { name: 'Project board' })
+    expect(mockGetDashboard).toHaveBeenCalledTimes(1)
+
+    await userEvent.click(screen.getByRole('button', { name: 'New project' }))
+    const modal = await screen.findByRole('dialog', { name: 'New project' })
+    await userEvent.type(within(modal).getByLabelText('Name'), 'New Initiative')
+    await userEvent.click(within(modal).getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(mockCreateProject).toHaveBeenCalledWith({
+        name: 'New Initiative',
+        description: null,
+      }),
+    )
+    // The board refetches so the new lane appears.
+    await waitFor(() => expect(mockGetDashboard).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'New project' }),
+      ).not.toBeInTheDocument(),
     )
   })
 

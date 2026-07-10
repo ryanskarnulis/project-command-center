@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  deleteProject,
   getProject,
   getProjectActivity,
   updateProject,
@@ -13,6 +14,7 @@ import type { Task } from '../../types/task'
 import { ProjectDetailPage } from './ProjectDetailPage'
 
 vi.mock('../../api/projects', () => ({
+  deleteProject: vi.fn(),
   getProject: vi.fn(),
   updateProject: vi.fn(),
   getProjectActivity: vi.fn(),
@@ -77,6 +79,7 @@ const task: Task = {
   has_subtasks: false,
 }
 
+const mockDeleteProject = vi.mocked(deleteProject)
 const mockGetProject = vi.mocked(getProject)
 const mockUpdateProject = vi.mocked(updateProject)
 const mockGetTask = vi.mocked(getTask)
@@ -90,6 +93,7 @@ function renderDetail() {
     <MemoryRouter initialEntries={['/projects/7']}>
       <Routes>
         <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+        <Route path="/dashboard" element={<main>Dashboard page</main>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -167,6 +171,34 @@ describe('ProjectDetailPage', () => {
 
     cleanup()
     expect(removeSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function))
+  })
+
+  it('deletes the project after confirmation and navigates to the dashboard', async () => {
+    const user = userEvent.setup()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mockDeleteProject.mockResolvedValue(undefined)
+    renderDetail()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Delete project' }),
+    )
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      'Delete "Firewall"? Its active tasks move to General.',
+    )
+    await waitFor(() => expect(mockDeleteProject).toHaveBeenCalledWith(7))
+    expect(await screen.findByText('Dashboard page')).toBeInTheDocument()
+    confirmSpy.mockRestore()
+  })
+
+  it('hides the delete action on protected projects', async () => {
+    mockGetProject.mockResolvedValue({ ...project, is_protected: true })
+    renderDetail()
+
+    await screen.findByLabelText('Project name')
+    expect(
+      screen.queryByRole('button', { name: 'Delete project' }),
+    ).not.toBeInTheDocument()
   })
 
   it('mounts the activity feed for the project', async () => {

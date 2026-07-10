@@ -1,7 +1,7 @@
 import { type KeyboardEvent, useEffect, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '../../api/client'
-import { getProject, updateProject } from '../../api/projects'
+import { deleteProject, getProject, updateProject } from '../../api/projects'
 import { listCompletedTasks, listTasks, markTaskDone, updateTask } from '../../api/tasks'
 import { useToast } from '../../components/ToastContext'
 import type { Project, ProjectUpdate } from '../../types/project'
@@ -13,6 +13,7 @@ import { SubtaskGroup } from '../tasks/SubtaskGroup'
 import { TaskPanelProvider } from '../tasks/panel/TaskPanelProvider'
 import { useTaskRefresh } from '../tasks/taskRefreshContext'
 import { buildTaskTree } from '../tasks/taskTree'
+import { useTrashCount } from '../trash/trashCountContext'
 import { ActivityFeed } from './ActivityFeed'
 import { ProjectTabs } from './ProjectTabs'
 
@@ -37,11 +38,6 @@ export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const id = Number(projectId)
   const navigate = useNavigate()
-  // When the user reached this page from the dashboard, the breadcrumb points
-  // back there instead of the projects list. State is lost on refresh/direct
-  // navigation, which safely falls back to "← Projects".
-  const fromDashboard =
-    (useLocation().state as { from?: string } | null)?.from === 'dashboard'
 
   const [project, setProject] = useState<Project | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
@@ -57,7 +53,8 @@ export function ProjectDetailPage() {
   // Bumped after a peek-panel mutation so the task list refetches behind it.
   const [tasksReloadKey, setTasksReloadKey] = useState(0)
   const { withToast } = useToast()
-  // Sidebar drag-to-file changes tasks outside this page — refetch off it too.
+  const { refresh: refreshTrashCount } = useTrashCount()
+  // Board drags can change tasks outside this page — refetch off the bump too.
   const { version: taskRefreshVersion } = useTaskRefresh()
 
   useEffect(() => {
@@ -72,7 +69,7 @@ export function ProjectDetailPage() {
       .catch((e: unknown) => {
         if (!active) return
         if (e instanceof ApiError && e.status === 404) {
-          navigate('/projects', { replace: true })
+          navigate('/dashboard', { replace: true })
         } else {
           setError(e instanceof Error ? e.message : 'Failed to load project')
           setLoadedProjectId(id)
@@ -159,6 +156,16 @@ export function ProjectDetailPage() {
     if (e.key === 'Enter') e.currentTarget.blur()
   }
 
+  async function handleDeleteProject(): Promise<void> {
+    if (!project) return
+    if (!window.confirm(`Delete "${project.name}"? Its active tasks move to General.`)) {
+      return
+    }
+    await withToast(deleteProject(project.id), { success: 'Project moved to trash' })
+    void refreshTrashCount()
+    navigate('/dashboard')
+  }
+
   async function handleCompleteTask(t: Task): Promise<void> {
     await withToast(markTaskDone(t.id), { success: 'Task marked done' })
     setTasksReloadKey((k) => k + 1)
@@ -209,11 +216,7 @@ export function ProjectDetailPage() {
     <main className="task-detail">
       <div className="task-detail-header">
         <p className="breadcrumb">
-          {fromDashboard ? (
-            <Link to="/dashboard">← Dashboard</Link>
-          ) : (
-            <Link to="/projects">← Projects</Link>
-          )}
+          <Link to="/dashboard">← Dashboard</Link>
         </p>
         <div className="task-detail-actions">
           {saveLabel && (
@@ -223,6 +226,15 @@ export function ProjectDetailPage() {
             >
               {saveLabel}
             </span>
+          )}
+          {!project.is_protected && (
+            <button
+              type="button"
+              className="danger-action"
+              onClick={() => void handleDeleteProject()}
+            >
+              Delete project
+            </button>
           )}
         </div>
       </div>

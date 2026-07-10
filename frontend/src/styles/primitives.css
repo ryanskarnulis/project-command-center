@@ -367,6 +367,17 @@
   place-items: center;
 }
 
+/* Button that reads as an inline link (for actions inside prose). */
+.link-button {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--blue);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .tone-blue {
   background: var(--blue-soft);
   color: var(--blue);
