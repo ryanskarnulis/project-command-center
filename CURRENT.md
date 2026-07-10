@@ -43,13 +43,13 @@ Decisions already made (don't relitigate):
 
 ### Slice 1 — Remove project aliases
 
-- [ ] Alembic migration dropping the alias storage (review autogen; verify
+- [x] Alembic migration dropping the alias storage (review autogen; verify
       upgrade/downgrade round-trip).
-- [ ] Remove alias fields from `schemas/projects.py`, alias handling from
+- [x] Remove alias fields from `schemas/projects.py`, alias handling from
       `services/projects.py` / `services/trash.py` / `routes_projects.py`,
       and the model columns in `db/models.py`.
-- [ ] Remove any frontend alias display/edit surface and types.
-- [ ] Doc pass: `README.md` schema/section mentions.
+- [x] Remove any frontend alias display/edit surface and types.
+- [x] Doc pass: `README.md` schema/section mentions.
 
 ### Slice 2 — Today → Focus rename (+ project board default)
 
