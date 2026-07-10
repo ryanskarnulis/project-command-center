@@ -3,10 +3,10 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from app.db.models import TaskPriority, TaskWorkflowStatus
-from app.schemas.today import DueSignal
+from app.schemas.focus import DueSignal
 from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
-from app.services import today as today_service
+from app.services import focus as focus_service
 
 TARGET = date(2026, 6, 20)
 
@@ -39,7 +39,7 @@ def test_due_urgency_orders_overdue_first(db_session: Session) -> None:
     today = _task(db_session, "today", due_date=TARGET)
     overdue = _task(db_session, "overdue", due_date=TARGET - timedelta(days=1))
 
-    plan = today_service.get_today_plan(db_session, target_date=TARGET)
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
 
     assert [b.task_id for b in plan.scheduled] == [overdue, today, soon, no_due]
     assert [b.due_signal for b in plan.scheduled] == [
@@ -60,7 +60,7 @@ def test_subtasks_are_excluded_from_the_plan(db_session: Session) -> None:
     )
     db_session.commit()
 
-    plan = today_service.get_today_plan(db_session, target_date=TARGET)
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
 
     scheduled_ids = [b.task_id for b in plan.scheduled]
     assert parent in scheduled_ids
@@ -76,7 +76,7 @@ def test_in_progress_outranks_open_at_equal_due_and_priority(
         db_session, "wip", workflow_status=TaskWorkflowStatus.in_progress
     )
 
-    plan = today_service.get_today_plan(db_session, target_date=TARGET)
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
 
     assert [b.task_id for b in plan.scheduled] == [in_progress, open_task]
 
@@ -86,7 +86,7 @@ def test_priority_orders_after_due_signal(db_session: Session) -> None:
     urgent = _task(db_session, "urgent", priority=TaskPriority.urgent)
     high = _task(db_session, "high", priority=TaskPriority.high)
 
-    plan = today_service.get_today_plan(db_session, target_date=TARGET)
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
 
     assert [b.task_id for b in plan.scheduled] == [urgent, high, low]
 
@@ -97,7 +97,7 @@ def test_blocked_task_excluded_and_surfaced(db_session: Session) -> None:
     deps_service.add_dependency(db_session, dependent, blocker)
     db_session.commit()
 
-    plan = today_service.get_today_plan(db_session, target_date=TARGET)
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
 
     scheduled_ids = [b.task_id for b in plan.scheduled]
     assert dependent not in scheduled_ids
@@ -123,7 +123,7 @@ def test_done_dependency_unblocks_task(db_session: Session) -> None:
     )
     db_session.commit()
 
-    plan = today_service.get_today_plan(db_session, target_date=TARGET)
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
 
     assert plan.blocked == []
     assert dependent in [b.task_id for b in plan.scheduled]
@@ -133,12 +133,12 @@ def test_unsized_task_gets_assumed_estimate(db_session: Session) -> None:
     sized = _task(db_session, "sized", estimated_minutes=45)
     unsized = _task(db_session, "unsized")
 
-    plan = today_service.get_today_plan(db_session, target_date=TARGET)
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
     by_id = {b.task_id: b for b in plan.scheduled}
 
     assert by_id[sized].estimated_minutes == 45
     assert by_id[sized].estimate_assumed is False
-    assert by_id[unsized].estimated_minutes == today_service.DEFAULT_ESTIMATE_MINUTES
+    assert by_id[unsized].estimated_minutes == focus_service.DEFAULT_ESTIMATE_MINUTES
     assert by_id[unsized].estimate_assumed is True
 
 
@@ -147,7 +147,7 @@ def test_overflow_in_ranked_order_when_capacity_full(db_session: Session) -> Non
     second = _task(db_session, "second", priority=TaskPriority.high, estimated_minutes=60)
     third = _task(db_session, "third", priority=TaskPriority.low, estimated_minutes=60)
 
-    plan = today_service.get_today_plan(
+    plan = focus_service.get_focus_plan(
         db_session, target_date=TARGET, available_minutes=90
     )
 
@@ -168,7 +168,7 @@ def test_backfill_schedules_smaller_task_when_top_task_overflows(
         db_session, "small", priority=TaskPriority.low, estimated_minutes=30
     )
 
-    plan = today_service.get_today_plan(
+    plan = focus_service.get_focus_plan(
         db_session, target_date=TARGET, available_minutes=360
     )
 
@@ -200,7 +200,7 @@ def test_oversized_parent_falls_back_to_fitting_subtasks(
     )
     db_session.commit()
 
-    plan = today_service.get_today_plan(
+    plan = focus_service.get_focus_plan(
         db_session, target_date=TARGET, available_minutes=120
     )
 
@@ -227,12 +227,12 @@ def test_deferred_task_excluded_until_deferral_passes(db_session: Session) -> No
     )
     db_session.commit()
 
-    plan = today_service.get_today_plan(db_session, target_date=TARGET)
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
     assert [b.task_id for b in plan.scheduled] == [kept]
     assert deferred not in [o.task_id for o in plan.overflow]
 
     # Once the target date reaches deferred_until, the task is back in the plan.
-    later = today_service.get_today_plan(
+    later = focus_service.get_focus_plan(
         db_session, target_date=TARGET + timedelta(days=1)
     )
     assert deferred in [b.task_id for b in later.scheduled]
@@ -242,7 +242,7 @@ def test_block_times_are_sequential_from_start(db_session: Session) -> None:
     _task(db_session, "a", priority=TaskPriority.urgent, estimated_minutes=30)
     _task(db_session, "b", priority=TaskPriority.high, estimated_minutes=45)
 
-    plan = today_service.get_today_plan(
+    plan = focus_service.get_focus_plan(
         db_session, target_date=TARGET, start_time="09:00"
     )
 
@@ -264,13 +264,13 @@ def test_scheduled_and_overflow_flag_recurring(db_session: Session) -> None:
     db_session.commit()
 
     # Scheduled: the recurring block is flagged, the plain one isn't.
-    plan = today_service.get_today_plan(db_session, target_date=TARGET)
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
     scheduled = {b.task_id: b.is_recurring for b in plan.scheduled}
     assert scheduled[rec] is True
     assert scheduled[plain] is False
 
     # Overflow carries the flag too (tiny capacity forces both to overflow).
-    tight = today_service.get_today_plan(
+    tight = focus_service.get_focus_plan(
         db_session, target_date=TARGET, available_minutes=15
     )
     overflow = {o.task_id: o.is_recurring for o in tight.overflow}

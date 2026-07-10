@@ -11,11 +11,11 @@ from fastapi.routing import APIRouter
 
 from app.api import (
     routes_dashboard,
+    routes_focus,
     routes_projects,
     routes_search,
     routes_task_dependencies,
     routes_tasks,
-    routes_today,
     routes_trash,
 )
 from app.config import get_settings
@@ -30,7 +30,7 @@ api_router.include_router(routes_task_dependencies.router)
 api_router.include_router(routes_dashboard.router)
 api_router.include_router(routes_trash.router)
 api_router.include_router(routes_search.router)
-api_router.include_router(routes_today.router)
+api_router.include_router(routes_focus.router)
 
 
 @asynccontextmanager

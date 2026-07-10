@@ -7,7 +7,7 @@ acting.
 ## What this project is
 
 A local-first project and task management web app — a simple, boring, reliable
-core (projects, tasks, Today, search, trash, dashboard) that a local agent
+core (projects, tasks, Focus, search, trash, dashboard) that a local agent
 (llama.cpp + tools + MCP + retrieval) will be built on top of. See `README.md`
 for the architecture; `TODO.md` for the backlog (including the Phase 2 agent plan); `CURRENT.md` for
 the checked-out focus; `DONE.md` for the changelog. This file is rules of

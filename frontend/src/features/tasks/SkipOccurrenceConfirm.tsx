@@ -9,7 +9,7 @@ interface Props {
 
 /**
  * Shared "skip this occurrence" confirmation, reused by the task list card, the
- * Today page, and the series timeline so the copy stays consistent. Skipping
+ * Focus page, and the series timeline so the copy stays consistent. Skipping
  * soft-deletes the current occurrence and spawns the next one — the same wording
  * the task detail view uses inline.
  */

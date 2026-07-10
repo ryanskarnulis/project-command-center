@@ -53,13 +53,13 @@ Decisions already made (don't relitigate):
 
 ### Slice 2 — Today → Focus rename (+ project board default)
 
-- [ ] Backend: rename today service/endpoint/schemas to focus; tests follow.
-- [ ] Frontend: `features/today/` → `features/focus/`, nav label, `/focus`
+- [x] Backend: rename today service/endpoint/schemas to focus; tests follow.
+- [x] Frontend: `features/today/` → `features/focus/`, nav label, `/focus`
       route with `/today` redirect, `api/today.ts` → `api/focus.ts`,
       `types/today.ts` → `types/focus.ts`; session-framed copy.
-- [ ] Flip the project detail task view default to kanban (likely
+- [x] Flip the project detail task view default to kanban (likely
       `useTaskUrlState` / project detail view); list remains a toggle.
-- [ ] Doc pass: `README.md` / `CLAUDE.md` "Today" mentions become "Focus".
+- [x] Doc pass: `README.md` / `CLAUDE.md` "Today" mentions become "Focus".
 
 ### Slice 3 — Dashboard → swimlane board
 

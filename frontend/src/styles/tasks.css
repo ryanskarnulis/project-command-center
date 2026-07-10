@@ -958,7 +958,7 @@
 }
 
 /* --- Peek panel: right-side slide-over hosting the task detail surface
-       over the current list (Tasks, project tasks, Today). --- */
+       over the current list (Tasks, project tasks, Focus). --- */
 
 .peek-overlay {
   position: fixed;

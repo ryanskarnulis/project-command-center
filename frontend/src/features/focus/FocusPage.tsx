@@ -22,12 +22,12 @@ import type {
   DueSignal,
   OverflowTask,
   ScheduledBlock,
-} from '../../types/today'
+} from '../../types/focus'
 import { formatDuration } from '../../utils/duration'
 import { formatDueDate } from '../../utils/dates'
 import { TaskPanelProvider } from '../tasks/panel/TaskPanelProvider'
 import { useTaskLinkTo } from '../tasks/panel/taskPanelContext'
-import { DEFAULT_START_TIME, useTodayPlan } from './useTodayPlan'
+import { DEFAULT_START_TIME, useFocusPlan } from './useFocusPlan'
 
 // Capacity presets keep the control daily-scannable while staying inside the
 // backend's 15–1440 bound. The current value is added if it isn't a preset so a
@@ -111,11 +111,11 @@ function EstimateLabel({
   assumed: boolean
 }) {
   return (
-    <span className="today-estimate">
+    <span className="focus-estimate">
       <Clock3 size={13} aria-hidden="true" />
       {formatDuration(minutes)}
       {assumed && (
-        <span className="today-assumed" title="No estimate on the task; assumed default">
+        <span className="focus-assumed" title="No estimate on the task; assumed default">
           assumed
         </span>
       )}
@@ -129,7 +129,7 @@ function EstimateLabel({
 // endpoint so recurrence's next-occurrence creation still fires — never a raw
 // PATCH workflow_status=done. Defer snoozes the task to the day after the
 // plan's date via `deferred_until`; the scheduler skips it until then.
-function TodayRowActions({
+function FocusRowActions({
   taskId,
   title,
   workflowStatus,
@@ -166,7 +166,7 @@ function TodayRowActions({
   }
 
   return (
-    <div className="today-row-actions">
+    <div className="focus-row-actions">
       {workflowStatus !== 'in_progress' && (
         <button
           type="button"
@@ -240,14 +240,14 @@ function ScheduledRow({
 }) {
   const taskLinkTo = useTaskLinkTo()
   return (
-    <li className={past ? 'today-block today-block-past' : 'today-block'}>
-      <div className="today-block-time" aria-hidden="true">
+    <li className={past ? 'focus-block focus-block-past' : 'focus-block'}>
+      <div className="focus-block-time" aria-hidden="true">
         <strong>{block.start_time}</strong>
         <span>{block.end_time}</span>
       </div>
-      <div className="today-block-body">
-        <div className="today-block-head">
-          <Link to={taskLinkTo(block.task_id)} className="today-block-title">
+      <div className="focus-block-body">
+        <div className="focus-block-head">
+          <Link to={taskLinkTo(block.task_id)} className="focus-block-title">
             {block.title}
           </Link>
           <PriorityPill priority={block.priority} />
@@ -255,21 +255,21 @@ function ScheduledRow({
           <DueSignalPill signal={block.due_signal} />
         </div>
         {block.parent_task_id !== null && block.parent_title !== null && (
-          <div className="today-block-parent">
+          <div className="focus-block-parent">
             <CornerDownRight size={13} aria-hidden="true" />
             part of{' '}
             <Link to={taskLinkTo(block.parent_task_id)}>{block.parent_title}</Link>
           </div>
         )}
-        <div className="today-block-meta">
+        <div className="focus-block-meta">
           <EstimateLabel minutes={block.estimated_minutes} assumed={block.estimate_assumed} />
           {block.due_date && (
-            <span className="today-due-date">Due {formatDueDate(block.due_date)}</span>
+            <span className="focus-due-date">Due {formatDueDate(block.due_date)}</span>
           )}
-          <span className="today-reason">{block.reason}</span>
+          <span className="focus-reason">{block.reason}</span>
         </div>
       </div>
-      <TodayRowActions
+      <FocusRowActions
         taskId={block.task_id}
         title={block.title}
         workflowStatus={block.workflow_status}
@@ -295,20 +295,20 @@ function OverflowRow({
 }) {
   const taskLinkTo = useTaskLinkTo()
   return (
-    <li className="today-overflow-row">
-      <Link to={taskLinkTo(task.task_id)} className="today-block-title">
+    <li className="focus-overflow-row">
+      <Link to={taskLinkTo(task.task_id)} className="focus-block-title">
         {task.title}
       </Link>
       <PriorityPill priority={task.priority} />
       <DueSignalPill signal={task.due_signal} />
       <EstimateLabel minutes={task.estimated_minutes} assumed={task.estimate_assumed} />
       {task.scheduled_subtask_count > 0 && (
-        <span className="today-partial" title="Part of this task is on the timeline">
+        <span className="focus-partial" title="Part of this task is on the timeline">
           {task.scheduled_subtask_count}{' '}
           {task.scheduled_subtask_count === 1 ? 'subtask' : 'subtasks'} scheduled
         </span>
       )}
-      <TodayRowActions
+      <FocusRowActions
         taskId={task.task_id}
         title={task.title}
         workflowStatus={task.workflow_status}
@@ -325,21 +325,21 @@ function BlockedRow({ task }: { task: BlockedTask }) {
   const taskLinkTo = useTaskLinkTo()
   const count = task.blocking_tasks.length
   return (
-    <li className="today-blocked-row">
-      <div className="today-blocked-head">
-        <Link to={taskLinkTo(task.task_id)} className="today-block-title">
+    <li className="focus-blocked-row">
+      <div className="focus-blocked-head">
+        <Link to={taskLinkTo(task.task_id)} className="focus-block-title">
           {task.title}
         </Link>
         <PriorityPill priority={task.priority} />
       </div>
-      <span className="today-blocked-warning">
+      <span className="focus-blocked-warning">
         <AlertTriangle size={13} aria-hidden="true" />
         Waiting on {count} unfinished {count === 1 ? 'dependency' : 'dependencies'}:
       </span>
-      <ul className="today-blocker-list">
+      <ul className="focus-blocker-list">
         {task.blocking_tasks.map((blocker) => (
-          <li key={blocker.task_id} className="today-blocker">
-            <Link to={taskLinkTo(blocker.task_id)} className="today-blocker-title">
+          <li key={blocker.task_id} className="focus-blocker">
+            <Link to={taskLinkTo(blocker.task_id)} className="focus-blocker-title">
               {blocker.title}
             </Link>
             <WorkflowPill status={blocker.workflow_status} />
@@ -367,10 +367,10 @@ function CollapsibleSection({
 }) {
   const [open, setOpen] = useState(false)
   return (
-    <section className="panel today-section today-collapsible" aria-labelledby={id}>
+    <section className="panel focus-section focus-collapsible" aria-labelledby={id}>
       <button
         type="button"
-        className="today-collapse-toggle"
+        className="focus-collapse-toggle"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
@@ -385,7 +385,7 @@ function CollapsibleSection({
       </button>
       {open && (
         <>
-          <p className="today-section-hint">{hint}</p>
+          <p className="focus-section-hint">{hint}</p>
           {children}
         </>
       )}
@@ -393,7 +393,7 @@ function CollapsibleSection({
   )
 }
 
-export function TodayPage() {
+export function FocusPage() {
   const {
     plan,
     loading,
@@ -410,7 +410,7 @@ export function TodayPage() {
     setCapacityMode,
     setEndOfDay,
     refetch,
-  } = useTodayPlan()
+  } = useFocusPlan()
 
   const nowMinutes = useNowMinutes()
   const viewingToday = date === localToday()
@@ -445,20 +445,20 @@ export function TodayPage() {
 
   return (
     <TaskPanelProvider onMutated={refetch}>
-    <main className="today-page">
+    <main className="focus-page">
       <div className="section-heading">
         <div className="section-title">
           <span className="heading-icon tone-blue">
             <CalendarClock size={20} aria-hidden="true" />
           </span>
           <div>
-            <h1>Today</h1>
-            <p>A deterministic plan built from your accepted, open work.</p>
+            <h1>Focus</h1>
+            <p>Choose a session window and start with your highest-ranked work.</p>
           </div>
         </div>
       </div>
 
-      <div className="today-controls" role="group" aria-label="Plan controls">
+      <div className="focus-controls" role="group" aria-label="Plan controls">
         <label>
           <span>Day</span>
           <input
@@ -507,7 +507,7 @@ export function TodayPage() {
         )}
       </div>
 
-      {loading && <div className="page-loading">Loading today’s plan…</div>}
+      {loading && <div className="page-loading">Preparing your focus session…</div>}
       {error && (
         <p role="alert" className="error">
           {error}
@@ -516,7 +516,7 @@ export function TodayPage() {
 
       {!loading && !error && plan && (
         <>
-          <p className="today-summary">
+          <p className="focus-summary">
             <strong>{formatDuration(plan.used_minutes)}</strong> planned of{' '}
             {formatDuration(availableMinutes)} capacity ·{' '}
             {plan.scheduled.length} scheduled · {plan.overflow.length} overflow ·{' '}
@@ -524,13 +524,13 @@ export function TodayPage() {
           </p>
 
           {plan.scheduled.length > 0 ? (
-            <section className="panel today-section" aria-labelledby="today-timeline-heading">
-              <h2 id="today-timeline-heading">Timeline</h2>
-              <ol className="today-timeline">
+            <section className="panel focus-section" aria-labelledby="focus-timeline-heading">
+              <h2 id="focus-timeline-heading">Timeline</h2>
+              <ol className="focus-timeline">
                 {plan.scheduled.map((block, index) => (
                   <Fragment key={block.task_id}>
                     {index === nowIndex && (
-                      <li className="today-now-marker" aria-label={`Now, ${nowLabel}`}>
+                      <li className="focus-now-marker" aria-label={`Now, ${nowLabel}`}>
                         <span>Now · {nowLabel}</span>
                       </li>
                     )}
@@ -546,10 +546,10 @@ export function TodayPage() {
               </ol>
             </section>
           ) : (
-            <div className="empty-state today-empty">
+            <div className="empty-state focus-empty">
               <Inbox size={20} aria-hidden="true" />
               {plan.overflow.length > 0 ? (
-                <span>Nothing fit today’s capacity — see ranked work below.</span>
+                <span>Nothing fit this session’s capacity — see ranked work below.</span>
               ) : plan.blocked.length > 0 ? (
                 <span>
                   Nothing schedulable — every open task is blocked by an unfinished
@@ -563,12 +563,12 @@ export function TodayPage() {
 
           {plan.overflow.length > 0 && (
             <CollapsibleSection
-              id="today-overflow-heading"
+              id="focus-overflow-heading"
               title="Didn’t fit"
               count={plan.overflow.length}
               hint="Ranked unscheduled work — increase capacity or push these to another day."
             >
-              <ul className="today-overflow-list">
+              <ul className="focus-overflow-list">
                 {plan.overflow.map((task) => (
                   <OverflowRow
                     key={task.task_id}
@@ -584,12 +584,12 @@ export function TodayPage() {
 
           {plan.blocked.length > 0 && (
             <CollapsibleSection
-              id="today-blocked-heading"
+              id="focus-blocked-heading"
               title="Blocked"
               count={plan.blocked.length}
               hint="Kept out of the schedule until their dependencies are done."
             >
-              <ul className="today-blocked-list">
+              <ul className="focus-blocked-list">
                 {plan.blocked.map((task) => (
                   <BlockedRow key={task.task_id} task={task} />
                 ))}

@@ -116,7 +116,7 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     )
     priority: Mapped[TaskPriority] = mapped_column(default=TaskPriority.medium)
     due_date: Mapped[date | None] = mapped_column(default=None)
-    # Day-plan snooze (Today page "defer"). The scheduler skips this task while
+    # Day-plan snooze (Focus page "defer"). The scheduler skips this task while
     # deferred_until is after the plan's target date; nothing else reads it.
     # Null = not deferred.
     deferred_until: Mapped[date | None] = mapped_column(default=None)

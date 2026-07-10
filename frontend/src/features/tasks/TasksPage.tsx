@@ -38,7 +38,7 @@ export function TasksPage() {
     activeFilterCount,
     updateTaskQuery,
     selectView,
-  } = useTaskUrlState()
+  } = useTaskUrlState(isGlobal ? 'list' : 'board')
   const [projects, setProjects] = useState<Project[]>([])
 
   // "Done" swaps the list to the completed archive (lazily fetched); the board

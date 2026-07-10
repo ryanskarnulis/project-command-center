@@ -28,7 +28,7 @@ interface AppShellProps {
 
 const primaryNav = [
   { to: '/dashboard', label: 'Command Center', icon: LayoutDashboard },
-  { to: '/today', label: 'Today', icon: Sun },
+  { to: '/focus', label: 'Focus', icon: Sun },
   { to: '/projects', label: 'Projects', icon: FolderKanban },
   { to: '/tasks', label: 'Tasks', icon: CheckSquare },
 ]

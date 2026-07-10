@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getTodayPlan } from '../../api/today'
+import { getFocusPlan } from '../../api/focus'
 import { ApiError } from '../../api/client'
-import type { TodayPlan } from '../../types/today'
+import type { FocusPlan } from '../../types/focus'
 
 // Fallbacks when nothing is persisted. Start time is only a fallback for a
 // broken clock value — the real default is "now" (see roundedNow).
@@ -19,9 +19,9 @@ export type CapacityMode = 'minutes' | 'until_end'
 
 // Capacity settings persist across visits; start time deliberately does not —
 // it resets to "now" each visit.
-const CAPACITY_MODE_KEY = 'today.capacityMode'
-const CAPACITY_MINUTES_KEY = 'today.capacity'
-const END_OF_DAY_KEY = 'today.endOfDay'
+const CAPACITY_MODE_KEY = 'focus.capacityMode'
+const CAPACITY_MINUTES_KEY = 'focus.capacity'
+const END_OF_DAY_KEY = 'focus.endOfDay'
 
 /** Local (not UTC) calendar date as YYYY-MM-DD, matching the rest of the app. */
 function localToday(): string {
@@ -69,8 +69,8 @@ function readStoredEndOfDay(): string {
     : DEFAULT_END_OF_DAY
 }
 
-interface UseTodayPlan {
-  plan: TodayPlan | null
+interface UseFocusPlan {
+  plan: FocusPlan | null
   loading: boolean
   error: string | null
   date: string
@@ -88,14 +88,14 @@ interface UseTodayPlan {
   refetch: () => void
 }
 
-export function useTodayPlan(): UseTodayPlan {
+export function useFocusPlan(): UseFocusPlan {
   const [date, setDate] = useState<string>(localToday)
   const [startTime, setStartTime] = useState<string>(roundedNow)
   const [capacityMode, setCapacityModeState] = useState<CapacityMode>(readStoredMode)
   const [capacityMinutes, setCapacityMinutesState] =
     useState<number>(readStoredMinutes)
   const [endOfDay, setEndOfDayState] = useState<string>(readStoredEndOfDay)
-  const [plan, setPlan] = useState<TodayPlan | null>(null)
+  const [plan, setPlan] = useState<FocusPlan | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loadedKey, setLoadedKey] = useState<string | null>(null)
   // Bumped by refetch() to force a reload without changing the controls.
@@ -113,7 +113,7 @@ export function useTodayPlan(): UseTodayPlan {
 
   useEffect(() => {
     let active = true
-    getTodayPlan({ date, startTime, availableMinutes })
+    getFocusPlan({ date, startTime, availableMinutes })
       .then((result) => {
         if (!active) return
         setPlan(result)
@@ -127,7 +127,7 @@ export function useTodayPlan(): UseTodayPlan {
             ? (err.body as { detail?: string })?.detail ?? `Error ${err.status}`
             : err instanceof Error
               ? err.message
-              : 'Failed to load the day plan'
+              : 'Failed to prepare the focus session'
         setError(message)
         setLoadedKey(requestKey)
       })

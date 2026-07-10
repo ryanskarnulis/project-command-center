@@ -6,7 +6,7 @@ import { ProjectDetailPage } from '../features/projects/ProjectDetailPage'
 import { ProjectsPage } from '../features/projects/ProjectsPage'
 import { TaskDetailRedirect } from '../features/tasks/TaskDetailRedirect'
 import { TasksPage } from '../features/tasks/TasksPage'
-import { TodayPage } from '../features/today/TodayPage'
+import { FocusPage } from '../features/focus/FocusPage'
 import { TrashPage } from '../features/trash/TrashPage'
 import { AppLayout } from './AppLayout'
 
@@ -17,7 +17,8 @@ export const routes = [
     children: [
       { path: '/', element: <Navigate to="/dashboard" replace /> },
       { path: '/dashboard', element: <DashboardPage /> },
-      { path: '/today', element: <TodayPage /> },
+      { path: '/focus', element: <FocusPage /> },
+      { path: '/today', element: <Navigate to="/focus" replace /> },
       { path: '/tasks', element: <TasksPage /> },
       { path: '/tasks/:taskId', element: <TaskDetailRedirect /> },
       { path: '/projects', element: <ProjectsPage /> },

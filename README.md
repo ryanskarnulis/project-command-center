@@ -1,7 +1,7 @@
 # Project Command Center
 
 A local-first project and task management web app: projects, tasks (subtasks,
-dependencies, recurrence), Today, search, trash, dashboard. A local agent
+dependencies, recurrence), Focus, search, trash, dashboard. A local agent
 (llama.cpp + tools + MCP + retrieval) that operates the app through its service
 layer is the next major direction (`TODO.md`, "Phase 2 — local agent").
 
@@ -37,12 +37,12 @@ backend/app/
   db/           models.py, session.py
   schemas/      Pydantic v2 request/response schemas, one module per feature
   alembic/      migrations
-  services/     one responsibility per module (tasks, projects, trash, today,
+  services/     one responsibility per module (tasks, projects, trash, focus,
                 recurrence, dependencies, …)
 
 frontend/src/
   api/          all HTTP calls (components consume hooks; hooks call this layer)
-  features/     feature folders: dashboard, projects, tasks, today, search,
+  features/     feature folders: dashboard, projects, tasks, focus, search,
                 trash, errors
   components/   shared primitives (Button, Card, Badge, Modal, AppShell, …)
   routes/, types/
@@ -93,7 +93,7 @@ Key decisions:
 ## Status & roadmap
 
 The core is complete and stable: tasks/projects, recurrence, subtasks +
-dependencies, Today, search, trash, dashboard, docker + litestream deploy.
+dependencies, Focus, search, trash, dashboard, docker + litestream deploy.
 
 - `CURRENT.md` — the checked-out focus
 - `TODO.md` — the backlog, including the Phase 2 agent plan

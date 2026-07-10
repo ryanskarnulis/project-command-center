@@ -76,8 +76,13 @@ export function sortFromParams(params: URLSearchParams): SortMode {
   return SORT_VALUES.includes(sort as SortMode) ? (sort as SortMode) : 'smart'
 }
 
-export function viewFromParams(params: URLSearchParams): ViewMode {
-  return params.get('view') === 'board' ? 'board' : 'list'
+export function viewFromParams(
+  params: URLSearchParams,
+  defaultView: ViewMode = 'list',
+): ViewMode {
+  const view = params.get('view')
+  if (view === 'board' || view === 'list') return view
+  return defaultView
 }
 
 export function paramsFromState(
@@ -85,6 +90,7 @@ export function paramsFromState(
   sortMode: SortMode,
   view: ViewMode,
   addingTask: boolean,
+  defaultView: ViewMode = 'list',
 ): URLSearchParams {
   const params = new URLSearchParams()
   const search = filters.search.trim()
@@ -95,7 +101,7 @@ export function paramsFromState(
   if (filters.overdue) params.set('overdue', '1')
   if (filters.dueSoon) params.set('dueSoon', '1')
   if (sortMode !== 'smart') params.set('sort', sortMode)
-  if (view === 'board') params.set('view', 'board')
+  if (view !== defaultView) params.set('view', view)
   if (addingTask) params.set('new', '1')
   return params
 }
