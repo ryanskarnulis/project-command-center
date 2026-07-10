@@ -150,6 +150,11 @@
   color: var(--link);
 }
 
+.shell-nav-project.dragging {
+  opacity: 0.55;
+  border-color: var(--border-strong);
+}
+
 .shell-nav-project.drag-over {
   border-color: var(--blue);
   background: var(--blue-soft);

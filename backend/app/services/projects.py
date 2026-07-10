@@ -16,7 +16,9 @@ DEFAULT_PROJECT_SYSTEM_KEY = "general"
 
 
 def list_projects(db: Session) -> Sequence[Project]:
-    return db.execute(active(Project).order_by(Project.id)).scalars().all()
+    return db.execute(
+        active(Project).order_by(Project.sort_order, Project.id)
+    ).scalars().all()
 
 
 def get_project(db: Session, project_id: int) -> Project | None:
@@ -26,7 +28,11 @@ def get_project(db: Session, project_id: int) -> Project | None:
 
 
 def create_project(db: Session, *, name: str, description: str | None = None) -> Project:
-    project = Project(name=name, description=description)
+    # New projects land at the end of the manual order.
+    next_order = db.execute(
+        select(func.coalesce(func.max(Project.sort_order), 0) + 1)
+    ).scalar_one()
+    project = Project(name=name, description=description, sort_order=next_order)
     db.add(project)
     db.flush()
     db.refresh(project)
@@ -92,6 +98,33 @@ def update_project(db: Session, project: Project, fields: Mapping[str, Any]) -> 
         summary=f'Project "{project.name}" updated',
     )
     return project
+
+
+def reorder_projects(db: Session, ordered_ids: Sequence[int]) -> Sequence[Project]:
+    """Set the manual project order to ``ordered_ids`` (all active projects).
+
+    Requires the full active set so a stale client can't silently drop a
+    project to the front/back; raises ValueError on any mismatch.
+    """
+    projects = list_projects(db)
+    if sorted(ordered_ids) != sorted(project.id for project in projects):
+        raise ValueError("ordered_ids must be exactly the active project ids")
+
+    by_id = {project.id: project for project in projects}
+    for position, project_id in enumerate(ordered_ids, start=1):
+        by_id[project_id].sort_order = position
+    db.flush()
+    # One event for the whole reorder; entity_id 0 because no single project
+    # owns it and the log schema has no batch notion.
+    activity.record_event(
+        db,
+        project_id=None,
+        entity_type="project",
+        entity_id=0,
+        action="reordered",
+        summary="Projects reordered",
+    )
+    return list_projects(db)
 
 
 def _mark_subtree_deleted_with_project(

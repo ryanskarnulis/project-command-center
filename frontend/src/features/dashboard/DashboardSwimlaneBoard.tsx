@@ -1,7 +1,17 @@
-import { type DragEvent, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, FolderKanban } from 'lucide-react'
+import { type DragEvent, useMemo, useRef, useState } from 'react'
+import {
+  ChevronDown,
+  ChevronRight,
+  FolderKanban,
+  GripVertical,
+} from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../../components/ToastContext'
+import {
+  isProjectDrag,
+  moveBefore,
+  PROJECT_DRAG_TYPE,
+} from '../projects/projectDrag'
 import type { ProjectOpenTasksRow } from '../../types/dashboard'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { compareTasks } from '../../utils/dates'
@@ -20,6 +30,8 @@ interface BoardProps {
   signal: DashboardSignal | null
   onSetStatus: (task: Task, target: TaskWorkflowStatus) => Promise<void>
   onUpdate: (task: Task, patch: TaskUpdate) => Promise<void>
+  /** Persist a new full project order (display order of every project id). */
+  onReorder: (projectIds: number[]) => Promise<void>
 }
 
 interface LaneProps {
@@ -31,6 +43,12 @@ interface LaneProps {
   signal: DashboardSignal | null
   onSetStatus: BoardProps['onSetStatus']
   onUpdate: BoardProps['onUpdate']
+  /** True while this lane is the one being drag-reordered. */
+  laneDragging: boolean
+  onLaneDragStart: (event: DragEvent) => void
+  onLaneDragEnd: () => void
+  onLaneDragOver: (event: DragEvent) => void
+  onLaneDrop: (event: DragEvent) => void
 }
 
 const LANE_COLUMNS = [
@@ -45,6 +63,11 @@ function DashboardSwimlane({
   signal,
   onSetStatus,
   onUpdate,
+  laneDragging,
+  onLaneDragStart,
+  onLaneDragEnd,
+  onLaneDragOver,
+  onLaneDrop,
 }: LaneProps) {
   const { notify } = useToast()
   // null = no explicit choice; quiet lanes (and filtered-out lanes) start
@@ -144,10 +167,24 @@ function DashboardSwimlane({
 
   return (
     <section
-      className={`dashboard-swimlane${quiet ? ' quiet' : ''}`}
+      className={`dashboard-swimlane${quiet ? ' quiet' : ''}${
+        laneDragging ? ' dragging' : ''
+      }`}
       aria-labelledby={`dashboard-project-${project.project_id}`}
+      onDragOver={onLaneDragOver}
+      onDrop={onLaneDrop}
     >
       <header className="dashboard-swimlane-header">
+        <span
+          className="dashboard-lane-grip"
+          title="Drag to reorder projects"
+          aria-label={`Reorder ${project.project_name}`}
+          draggable
+          onDragStart={onLaneDragStart}
+          onDragEnd={onLaneDragEnd}
+        >
+          <GripVertical size={16} aria-hidden="true" />
+        </span>
         <button
           type="button"
           className="dashboard-lane-collapse"
@@ -204,6 +241,8 @@ function DashboardSwimlane({
                   }`}
                   aria-label={`${project.project_name} ${label}`}
                   onDragOver={(event) => {
+                    // Lane reorders bubble up to the section handler instead.
+                    if (isProjectDrag(event)) return
                     event.preventDefault()
                     setDragOverStatus(columnStatus)
                   }}
@@ -262,7 +301,52 @@ export function DashboardSwimlaneBoard({
   signal,
   onSetStatus,
   onUpdate,
+  onReorder,
 }: BoardProps) {
+  // Local copy so a lane drag can live-preview the new order; server data
+  // (refetched after the reorder call) re-seeds it.
+  const [lanes, setLanes] = useState(projects)
+  const [draggedId, setDraggedId] = useState<number | null>(null)
+  // Distinguishes a completed reorder drop from a cancelled drag in dragend.
+  const dropCommitted = useRef(false)
+  // Re-seed from server data during render (the sanctioned "derived state
+  // reset" pattern) instead of an effect.
+  const [seededFrom, setSeededFrom] = useState(projects)
+  if (seededFrom !== projects) {
+    setSeededFrom(projects)
+    setLanes(projects)
+  }
+
+  function laneDragStart(projectId: number, event: DragEvent): void {
+    event.dataTransfer.setData(PROJECT_DRAG_TYPE, String(projectId))
+    event.dataTransfer.effectAllowed = 'move'
+    dropCommitted.current = false
+    setDraggedId(projectId)
+  }
+
+  function laneDragOver(projectId: number, event: DragEvent): void {
+    if (draggedId === null) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    setLanes((cur) => moveBefore(cur, (l) => l.project_id, draggedId, projectId))
+  }
+
+  function laneDrop(event: DragEvent): void {
+    if (!isProjectDrag(event)) return
+    event.preventDefault()
+    dropCommitted.current = true
+    setDraggedId(null)
+    // `lanes` already holds the preview order; reset it if the save fails.
+    onReorder(lanes.map((lane) => lane.project_id)).catch(() =>
+      setLanes(projects),
+    )
+  }
+
+  function laneDragEnd(): void {
+    setDraggedId(null)
+    if (!dropCommitted.current) setLanes(projects)
+  }
+
   if (projects.length === 0) {
     return (
       <div className="empty-state">
@@ -274,7 +358,7 @@ export function DashboardSwimlaneBoard({
 
   return (
     <div className="dashboard-swimlane-board">
-      {projects.map((project) => {
+      {lanes.map((project) => {
         // The status tone weighs the full project tree (matching project
         // detail); cards stay root-only because lanes have no nesting UI.
         const activeTasks = tasks.filter(
@@ -292,6 +376,11 @@ export function DashboardSwimlaneBoard({
             signal={signal}
             onSetStatus={onSetStatus}
             onUpdate={onUpdate}
+            laneDragging={draggedId === project.project_id}
+            onLaneDragStart={(event) => laneDragStart(project.project_id, event)}
+            onLaneDragEnd={laneDragEnd}
+            onLaneDragOver={(event) => laneDragOver(project.project_id, event)}
+            onLaneDrop={laneDrop}
           />
         )
       })}

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react'
+import { createPortal } from 'react-dom'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 
 interface Props {
@@ -20,6 +28,10 @@ interface Props {
 /**
  * A metadata pill that opens an anchored editor on click. The popover body is
  * mounted only while open, so editors can hold draft state without staleness.
+ *
+ * The popover renders in a portal with fixed positioning so it always sits on
+ * the top layer — cards live inside overflow-clipped lanes/lists that would
+ * otherwise cut it off.
  */
 export function ChipPopover({
   chip,
@@ -31,24 +43,62 @@ export function ChipPopover({
   children,
 }: Props) {
   const [open, setOpen] = useState(false)
+  const [style, setStyle] = useState<CSSProperties>()
   const containerRef = useRef<HTMLSpanElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
 
-  // Close when a click lands outside the chip (same pattern as CommandSearch).
+  useLayoutEffect(() => {
+    if (!open) return
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    // Flip above the chip when there isn't room below (bottom-most cards).
+    const height = popoverRef.current?.offsetHeight ?? 0
+    const overflowsBelow = rect.bottom + 6 + height > window.innerHeight
+    const fitsAbove = rect.top - 6 - height >= 0
+    const vertical =
+      overflowsBelow && fitsAbove
+        ? { bottom: window.innerHeight - rect.top + 6 }
+        : { top: rect.bottom + 6 }
+    setStyle(
+      align === 'right'
+        ? { ...vertical, right: window.innerWidth - rect.right }
+        : { ...vertical, left: rect.left },
+    )
+  }, [open, align])
+
+  // Close when a click lands outside the chip or the portaled popover, and on
+  // outside scroll/resize (the fixed-position anchor would drift otherwise).
   useEffect(() => {
     if (!open) return
+    function isInside(target: EventTarget | null): boolean {
+      const node = target instanceof Node ? target : null
+      return Boolean(
+        (node && containerRef.current?.contains(node)) ||
+          (node && popoverRef.current?.contains(node)),
+      )
+    }
     function onPointerDown(e: MouseEvent) {
-      if (!containerRef.current?.contains(e.target as Node)) setOpen(false)
+      if (!isInside(e.target)) setOpen(false)
+    }
+    function onScroll(e: Event) {
+      if (!isInside(e.target)) setOpen(false)
     }
     document.addEventListener('mousedown', onPointerDown)
-    return () => document.removeEventListener('mousedown', onPointerDown)
+    document.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onScroll)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onScroll)
+    }
   }, [open])
 
   const close = useCallback(() => setOpen(false), [])
 
   // Esc closes only the popover — stopPropagation keeps an enclosing
   // Esc-to-close surface (peek panel, modal) from also closing.
-  function onKeyDown(e: ReactKeyboardEvent<HTMLSpanElement>) {
+  function onKeyDown(e: ReactKeyboardEvent<HTMLElement>) {
     if (e.key === 'Escape' && open) {
       e.stopPropagation()
       setOpen(false)
@@ -71,15 +121,20 @@ export function ChipPopover({
       >
         {chip}
       </button>
-      {open && (
-        <div
-          className={`chip-popover${align === 'right' ? ' chip-popover--right' : ''}`}
-          role="dialog"
-          aria-label={label}
-        >
-          {typeof children === 'function' ? children(close) : children}
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            className="chip-popover"
+            style={style}
+            role="dialog"
+            aria-label={label}
+            onKeyDown={onKeyDown}
+          >
+            {typeof children === 'function' ? children(close) : children}
+          </div>,
+          document.body,
+        )}
     </span>
   )
 }

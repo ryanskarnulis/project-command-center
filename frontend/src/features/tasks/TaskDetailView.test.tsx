@@ -60,6 +60,7 @@ const project: Project = {
   name: 'Infra',
   description: null,
   system_key: null,
+  sort_order: 0,
   is_protected: false,
   created_at: '2026-06-01T00:00:00Z',
   updated_at: '2026-06-01T00:00:00Z',

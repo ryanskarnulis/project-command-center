@@ -3,6 +3,7 @@ export interface Project {
   name: string
   description: string | null
   system_key: string | null
+  sort_order: number
   is_protected: boolean
   created_at: string
   updated_at: string

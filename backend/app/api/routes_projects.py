@@ -12,6 +12,7 @@ from app.db.session import get_db
 from app.schemas.activity import ActivityEventRead
 from app.schemas.projects import (
     ProjectCreate,
+    ProjectOrderUpdate,
     ProjectRead,
     ProjectUpdate,
 )
@@ -36,6 +37,22 @@ def _get_or_404(db: Session, project_id: int) -> Project:
 @router.get("", response_model=list[ProjectRead])
 def list_projects(db: Session = Depends(get_db)) -> Sequence[Project]:
     return projects_service.list_projects(db)
+
+
+# Declared before /{project_id} so "order" isn't parsed as a project id.
+@router.put("/order", response_model=list[ProjectRead])
+def reorder_projects(
+    data: ProjectOrderUpdate, db: Session = Depends(get_db)
+) -> Sequence[Project]:
+    try:
+        projects = projects_service.reorder_projects(db, data.project_ids)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    db.commit()
+    logger.info("projects_reordered", project_ids=data.project_ids)
+    return projects
 
 
 @router.get("/{project_id}", response_model=ProjectRead)
