@@ -51,6 +51,37 @@ function isTaskDrag(e: DragEvent): boolean {
   return e.dataTransfer.types.includes(TASK_DRAG_TYPE)
 }
 
+function SpiderIcon() {
+  return (
+    <svg
+      width="26"
+      height="26"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {/* legs */}
+      <path d="M9.5 12.5 5 9 3.5 4.5" />
+      <path d="M9 14 4 13l-2.5-3" />
+      <path d="M9 16l-5 1-2 3.5" />
+      <path d="M10 17.5 7 21" />
+      <path d="M14.5 12.5 19 9l1.5-4.5" />
+      <path d="M15 14l5-1 2.5-3" />
+      <path d="M15 16l5 1 2 3.5" />
+      <path d="M14 17.5 17 21" />
+      {/* head + body */}
+      <circle cx="12" cy="10.5" r="2" fill="currentColor" stroke="none" />
+      <ellipse cx="12" cy="15.5" rx="3" ry="3.6" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+const SIDEBAR_COLLAPSED_KEY = 'pcc.sidebarCollapsed'
+
 export function AppShell({ children }: AppShellProps) {
   const { count: trashCount } = useTrashCount()
   const { withToast } = useToast()
@@ -61,6 +92,16 @@ export function AppShell({ children }: AppShellProps) {
   const [draggedProjectId, setDraggedProjectId] = useState<number | null>(null)
   // Distinguishes a completed reorder drop from a cancelled drag in onDragEnd.
   const projectDropCommitted = useRef(false)
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1',
+  )
+
+  function toggleSidebar(): void {
+    setCollapsed((cur) => {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, cur ? '0' : '1')
+      return !cur
+    })
+  }
 
   // Refetch on navigation (newly created/renamed projects) and on cross-page
   // refresh bumps (e.g. the dashboard board reordering projects).
@@ -109,17 +150,25 @@ export function AppShell({ children }: AppShellProps) {
   })
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${collapsed ? ' sidebar-collapsed' : ''}`}>
       <aside className="app-sidebar" aria-label="Primary navigation">
         <div className="brand-mark">
-          <div className="brand-icon" aria-hidden="true">
-            <span />
-            <span />
-          </div>
-          <div>
-            <strong>Project</strong>
-            <span>Command Center</span>
-          </div>
+          <button
+            type="button"
+            className="brand-icon"
+            onClick={toggleSidebar}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!collapsed}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <SpiderIcon />
+          </button>
+          {!collapsed && (
+            <div>
+              <strong>Project</strong>
+              <span>Command Center</span>
+            </div>
+          )}
         </div>
 
         <nav className="shell-nav">

@@ -50,6 +50,21 @@
     padding: 16px;
   }
 
+  /* Stacked layout has no rail to collapse into — keep labels visible. */
+  .sidebar-collapsed .shell-nav-link > span {
+    display: inline;
+  }
+
+  .sidebar-collapsed .shell-nav-projects {
+    display: flex;
+  }
+
+  .sidebar-collapsed .shell-nav-link {
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 10px 12px;
+  }
+
   .shell-nav,
   .shell-nav-group,
   .shell-nav-bottom {

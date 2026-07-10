@@ -44,35 +44,50 @@
   line-height: 1.2;
 }
 
+/* Spider mark doubles as the sidebar collapse/expand toggle. */
 .brand-icon {
-  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 40px;
-  height: 42px;
+  min-width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--blue);
+  padding: 0;
+  box-shadow: none;
+  cursor: pointer;
 }
 
-.brand-icon::before,
-.brand-icon span {
-  position: absolute;
-  left: 4px;
-  width: 28px;
-  height: 10px;
-  content: '';
-  clip-path: polygon(50% 0, 100% 40%, 100% 100%, 50% 60%, 0 100%, 0 40%);
-  background: var(--blue);
+.brand-icon:hover {
+  background: var(--blue-soft);
 }
 
-.brand-icon::before {
-  top: 4px;
-  opacity: 0.78;
+/* Collapsed sidebar: icon rail only. */
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 76px minmax(0, 1fr);
 }
 
-.brand-icon span:first-child {
-  top: 17px;
+.sidebar-collapsed .app-sidebar {
+  padding: 28px 12px 22px;
 }
 
-.brand-icon span:last-child {
-  top: 30px;
-  opacity: 0.78;
+.sidebar-collapsed .brand-mark {
+  justify-content: center;
+  padding: 0 0 12px;
+}
+
+.sidebar-collapsed .shell-nav-link {
+  justify-content: center;
+  gap: 0;
+  padding: 10px;
+}
+
+.sidebar-collapsed .shell-nav-link > span,
+.sidebar-collapsed .shell-nav-projects {
+  display: none;
 }
 
 .shell-nav,
