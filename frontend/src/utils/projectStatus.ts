@@ -9,8 +9,8 @@ interface StatusTask {
 }
 
 /**
- * Derive a project's health label from its open tasks. Shared by project cards,
- * project detail, and dashboard swimlane headers so their tone stays in sync.
+ * Derive a project's health label from its open tasks. Mirrors the dashboard's
+ * Projects Overview logic so the projects page and the dashboard stay in sync.
  */
 export function projectStatus(
   tasks: StatusTask[],
