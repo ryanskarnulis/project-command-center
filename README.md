@@ -6,9 +6,9 @@ dependencies, recurrence), Today, search, trash, dashboard. A local agent
 layer is the next major direction.
 
 > **Direction change (2026-07-09), strip in progress.** The AI-assisted-capture
-> / training-data / custom-model track, the inbox, and the Discord bot have been
-> **removed**; the calendar is scheduled to follow — see the strip epic in
-> `CURRENT.md`. The agent plan lives in `TODO.md` ("Phase 2 — local agent").
+> / training-data / custom-model track, the inbox, the Discord bot, and the
+> calendar have been **removed** — see the strip epic in `CURRENT.md`. The agent
+> plan lives in `TODO.md` ("Phase 2 — local agent").
 
 ## Core principle
 
@@ -39,7 +39,7 @@ Backups:       scripts/backup_db.sh (stdlib sqlite3 online backup) + cron;
 React Web App
   ↓
 FastAPI Backend
-  └── Project / Task / Today / Calendar / Search / Trash APIs
+  └── Project / Task / Today / Search / Trash APIs
        ↓
 SQLite Database
 ```
@@ -57,8 +57,8 @@ backend/app/
 
 frontend/src/
   api/          all HTTP calls (components consume hooks; hooks call this layer)
-  features/     feature folders: dashboard, projects, tasks, today, calendar,
-                search, trash, errors
+  features/     feature folders: dashboard, projects, tasks, today, search,
+                trash, errors
   components/   shared primitives (Button, Card, Badge, Modal, AppShell, …)
   routes/, types/
 
@@ -99,7 +99,7 @@ Key decisions:
   back together. A protected `General` project is seeded (system key
   `general`).
 - **`tasks` read-path indexes** back the hot list/read queries: a compound
-  `(deleted_at, review_status)` (active-task list, calendar, search, and — via
+  `(deleted_at, review_status)` (active-task list, search, and — via
   its leading column — the trash `deleted_at IS NOT NULL` scan) plus single
   `project_id`, `parent_task_id`, `recurrence_id`. `workflow_status` is
   deliberately not indexed (effective status rolls up in Python; it is never a
@@ -110,8 +110,8 @@ Key decisions:
 Sprints 0–25 shipped the full core (tasks/projects, recurrence, subtasks +
 dependencies, Today, trash, dashboard, docker + litestream deploy). A
 Gantt/calendar planning epic was built and then **removed** — it didn't earn
-its complexity; the rest of the calendar follows it out in the strip. The
-AI-assisted capture flow, the inbox, the training pipeline, and the Discord
+its complexity, and the rest of the calendar has followed it out in the strip.
+The AI-assisted capture flow, the inbox, the training pipeline, and the Discord
 bot have been removed as part of the current strip.
 
 - `CURRENT.md` — the checked-out focus (currently: the strip epic)

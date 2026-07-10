@@ -1,21 +1,19 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, CalendarDays } from 'lucide-react'
-import { getCalendar } from '../../api/calendar'
+import { CalendarDays } from 'lucide-react'
+import { listAllTasks } from '../../api/tasks'
 import { AsyncState } from '../../components/AsyncState'
 import type { Task } from '../../types/task'
-import { compareByDue, formatDueDate } from '../../utils/dates'
-import { toLocalISO } from '../calendar/useCalendar'
+import { addDaysISO, compareByDue, formatDueDate, todayISO } from '../../utils/dates'
 
 // How far ahead the rail looks, and how many of the soonest tasks it lists.
 const LOOKAHEAD_DAYS = 30
 const MAX_EVENTS = 5
 
 /**
- * Dashboard rail tile: the next few accepted, not-done tasks with a due date,
- * soonest first. Reuses the read-only calendar feed (no extra endpoint) and
- * links through to the full calendar. Replaces the old "Calendar not connected"
- * placeholder — this is real local data, no external sync.
+ * Dashboard rail tile: the next few not-done tasks with a due date in the next
+ * month, soonest first. Reads the shared task list and filters client-side —
+ * real local data, no external sync.
  */
 export function UpcomingEvents() {
   const [tasks, setTasks] = useState<Task[]>([])
@@ -24,16 +22,16 @@ export function UpcomingEvents() {
 
   useEffect(() => {
     let active = true
-    const today = new Date()
-    const end = new Date(today)
-    end.setDate(end.getDate() + LOOKAHEAD_DAYS)
-    getCalendar({ start: toLocalISO(today), end: toLocalISO(end) })
+    const start = todayISO()
+    const end = addDaysISO(start, LOOKAHEAD_DAYS)
+    listAllTasks()
       .then((result) => {
         if (!active) return
         const upcoming = result
           .filter((task) => task.workflow_status !== 'done')
           // Subtasks surface only under their parent, not as their own events.
           .filter((task) => task.parent_task_id === null)
+          .filter((task) => task.due_date !== null && task.due_date >= start && task.due_date <= end)
           .sort(compareByDue)
           .slice(0, MAX_EVENTS)
         setTasks(upcoming)
@@ -73,10 +71,6 @@ export function UpcomingEvents() {
           ))}
         </ul>
       </AsyncState>
-      <Link to="/calendar" className="upcoming-view-calendar">
-        View calendar
-        <ArrowRight size={15} aria-hidden="true" />
-      </Link>
     </section>
   )
 }

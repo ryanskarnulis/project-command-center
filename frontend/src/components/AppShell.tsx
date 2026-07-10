@@ -15,7 +15,6 @@ import { useTaskRefresh } from '../features/tasks/taskRefreshContext'
 import { TASK_DRAG_TYPE } from '../features/tasks/TaskCard'
 import { CommandSearch } from '../features/search/CommandSearch'
 import {
-  CalendarDays,
   CheckSquare,
   ChevronDown,
   FolderKanban,
@@ -34,7 +33,6 @@ const primaryNav = [
   { to: '/today', label: 'Today', icon: Sun },
   { to: '/projects', label: 'Projects', icon: FolderKanban },
   { to: '/tasks', label: 'Tasks', icon: CheckSquare },
-  { to: '/calendar', label: 'Calendar', icon: CalendarDays },
 ]
 
 const utilityNav = [
