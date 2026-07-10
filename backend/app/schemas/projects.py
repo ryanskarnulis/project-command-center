@@ -33,4 +33,5 @@ class ProjectRead(BaseModel):
     is_protected: bool
     created_at: UTCDateTime
     updated_at: UTCDateTime
+    closed_at: UTCDateTime | None = None
     deleted_at: UTCDateTime | None = None

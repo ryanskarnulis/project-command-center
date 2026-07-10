@@ -123,7 +123,9 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
 
   useEffect(() => {
     let active = true
-    Promise.all([getTask(id), getSubtasks(id), listProjects(), listAllTasks()])
+    // include_closed so a task filed in a closed project still resolves its
+    // project in the picker instead of showing blank.
+    Promise.all([getTask(id), getSubtasks(id), listProjects(true), listAllTasks()])
       .then(([t, subs, projs, tasks]) => {
         if (!active) return
         setTask(t)

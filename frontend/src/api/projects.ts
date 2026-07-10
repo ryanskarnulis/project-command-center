@@ -6,9 +6,20 @@ import type {
   ProjectUpdate,
 } from '../types/project'
 
-export async function listProjects(): Promise<Project[]> {
-  const res = await apiClient('/api/projects')
+export async function listProjects(includeClosed = false): Promise<Project[]> {
+  const query = includeClosed ? '?include_closed=true' : ''
+  const res = await apiClient(`/api/projects${query}`)
   return (await res.json()) as Project[]
+}
+
+export async function closeProject(id: number): Promise<Project> {
+  const res = await apiClient(`/api/projects/${id}/close`, { method: 'POST' })
+  return (await res.json()) as Project
+}
+
+export async function reopenProject(id: number): Promise<Project> {
+  const res = await apiClient(`/api/projects/${id}/reopen`, { method: 'POST' })
+  return (await res.json()) as Project
 }
 
 export async function getProject(id: number): Promise<Project> {

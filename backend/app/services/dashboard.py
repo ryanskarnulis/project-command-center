@@ -47,7 +47,9 @@ def _per_project_open_counts(
             counts[task.project_id] += 1
 
     projects = db.execute(
-        active(Project).order_by(Project.sort_order, Project.id)
+        active(Project)
+        .where(Project.closed_at.is_(None))
+        .order_by(Project.sort_order, Project.id)
     ).scalars().all()
     return [(project, counts.get(project.id, 0)) for project in projects]
 

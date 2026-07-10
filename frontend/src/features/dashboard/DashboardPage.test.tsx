@@ -10,7 +10,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDashboard } from '../../api/dashboard'
-import { createProject } from '../../api/projects'
+import { createProject, listProjects } from '../../api/projects'
 import {
   listAllTasks,
   listCompletedTasks,
@@ -27,6 +27,8 @@ vi.mock('../../api/dashboard', () => ({
 
 vi.mock('../../api/projects', () => ({
   createProject: vi.fn(),
+  listProjects: vi.fn(),
+  reopenProject: vi.fn(),
   reorderProjects: vi.fn(),
 }))
 
@@ -41,6 +43,7 @@ vi.mock('../../api/tasks', () => ({
 
 const mockGetDashboard = vi.mocked(getDashboard)
 const mockCreateProject = vi.mocked(createProject)
+const mockListProjects = vi.mocked(listProjects)
 const mockListAllTasks = vi.mocked(listAllTasks)
 const mockListCompletedTasks = vi.mocked(listCompletedTasks)
 const mockMarkTaskDone = vi.mocked(markTaskDone)
@@ -141,6 +144,7 @@ describe('DashboardPage', () => {
     vi.clearAllMocks()
     mockGetDashboard.mockResolvedValue(overview)
     mockListAllTasks.mockResolvedValue(tasks)
+    mockListProjects.mockResolvedValue([])
     mockListCompletedTasks.mockResolvedValue([doneTask])
     mockMarkTaskDone.mockResolvedValue({ ...baseTask, workflow_status: 'done' })
     mockUpdateTask.mockResolvedValue(baseTask)
