@@ -1,26 +1,16 @@
-import { useState, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useTrashCount } from '../features/trash/trashCountContext'
 import { CommandSearch } from '../features/search/CommandSearch'
-import {
-  CheckSquare,
-  LayoutDashboard,
-  Sun,
-  Trash2,
-} from 'lucide-react'
+import { CheckSquare, Sun, Trash2 } from 'lucide-react'
 
 interface AppShellProps {
   children: ReactNode
 }
 
-const primaryNav = [
-  { to: '/dashboard', label: 'Command Center', icon: LayoutDashboard },
+const topbarNav = [
   { to: '/focus', label: 'Focus', icon: Sun },
   { to: '/tasks', label: 'Tasks', icon: CheckSquare },
-]
-
-const utilityNav = [
-  { to: '/trash', label: 'Trash', icon: Trash2 },
 ]
 
 function navClass({ isActive }: { isActive: boolean }) {
@@ -56,51 +46,24 @@ function SpiderIcon() {
   )
 }
 
-const SIDEBAR_COLLAPSED_KEY = 'pcc.sidebarCollapsed'
-
 export function AppShell({ children }: AppShellProps) {
   const { count: trashCount } = useTrashCount()
-  const [collapsed, setCollapsed] = useState(
-    () => localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1',
-  )
-
-  function toggleSidebar(): void {
-    setCollapsed((cur) => {
-      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, cur ? '0' : '1')
-      return !cur
-    })
-  }
-
-  const today = new Date().toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-  })
 
   return (
-    <div className={`app-shell${collapsed ? ' sidebar-collapsed' : ''}`}>
-      <aside className="app-sidebar" aria-label="Primary navigation">
-        <div className="brand-mark">
-          <button
-            type="button"
-            className="brand-icon"
-            onClick={toggleSidebar}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-expanded={!collapsed}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
+    <div className="app-shell">
+      <header className="topbar">
+        <NavLink to="/dashboard" className="brand-mark" aria-label="Command Center">
+          <span className="brand-icon">
             <SpiderIcon />
-          </button>
-          {!collapsed && (
-            <div>
-              <strong>Project</strong>
-              <span>Command Center</span>
-            </div>
-          )}
-        </div>
+          </span>
+          <span className="brand-text">
+            <strong>Project</strong>
+            <span>Command Center</span>
+          </span>
+        </NavLink>
 
-        <nav className="shell-nav">
-          {primaryNav.map(({ to, label, icon: Icon }) => (
+        <nav className="shell-nav" aria-label="Primary navigation">
+          {topbarNav.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} className={navClass}>
               <Icon size={19} aria-hidden="true" />
               <span>{label}</span>
@@ -108,41 +71,24 @@ export function AppShell({ children }: AppShellProps) {
           ))}
         </nav>
 
-        <nav className="shell-nav shell-nav-bottom">
-          {utilityNav.map(({ to, label, icon: Icon }) => {
-            const showCount = to === '/trash' && trashCount > 0
-            return (
-              <NavLink
-                key={to}
-                to={to}
-                className={navClass}
-                aria-label={showCount ? `${label} (${trashCount} items)` : undefined}
-              >
-                <Icon size={19} aria-hidden="true" />
-                <span>{label}</span>
-                {showCount && (
-                  <span className="nav-count-badge" aria-hidden="true">
-                    {trashCount}
-                  </span>
-                )}
-              </NavLink>
-            )
-          })}
-        </nav>
-      </aside>
+        <CommandSearch />
 
-      <div className="app-content">
-        <header className="topbar">
-          <div className="topbar-title">
-            <span>{today}</span>
-            <strong>Stay focused. Ship impact.</strong>
-          </div>
+        <NavLink
+          to="/trash"
+          className={navClass}
+          aria-label={trashCount > 0 ? `Trash (${trashCount} items)` : 'Trash'}
+          title="Trash"
+        >
+          <Trash2 size={19} aria-hidden="true" />
+          {trashCount > 0 && (
+            <span className="nav-count-badge" aria-hidden="true">
+              {trashCount}
+            </span>
+          )}
+        </NavLink>
+      </header>
 
-          <CommandSearch />
-        </header>
-
-        <div className="app-main">{children}</div>
-      </div>
+      <div className="app-main">{children}</div>
     </div>
   )
 }
