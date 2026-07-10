@@ -111,9 +111,9 @@ export function TasksPage() {
       }}
     >
     <main>
-      {!isGlobal && (
+      {!isGlobal && id !== undefined && (
         <p>
-          <Link to="/projects">← Projects</Link>
+          <Link to={`/projects/${id}`}>← Project</Link>
         </p>
       )}
       <h1>{isGlobal ? 'Open Tasks' : 'Tasks'}</h1>

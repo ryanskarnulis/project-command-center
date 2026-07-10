@@ -45,7 +45,14 @@
   font-weight: 650;
 }
 
+.dashboard-board-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .dashboard-add-task {
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 7px;

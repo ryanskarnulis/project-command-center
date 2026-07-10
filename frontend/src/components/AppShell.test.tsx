@@ -22,7 +22,8 @@ describe('AppShell', () => {
     expect(within(nav).getByRole('link', { name: 'Command Center' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Focus' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Tasks' })).toBeInTheDocument()
-    expect(within(nav).getByRole('link', { name: 'Projects' })).toBeInTheDocument()
+    // The Projects list page is gone; the dashboard board is the projects surface.
+    expect(within(nav).queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument()
   })
 
   it('shows the summed trash count beside the Trash link', async () => {

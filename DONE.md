@@ -1465,3 +1465,15 @@ shipped slices:
       `--ai-evals`; docker-compose lost the Ollama env/host-gateway and the
       Discord profile; `.env` examples cleaned.
 - [x] `README.md` and `CLAUDE.md` sections for the removed subsystems excised.
+
+## Remove the Projects list page (board is the projects surface)
+> The dashboard board superseded the `/projects` grid; its unique capabilities moved.
+
+- [x] "New project" re-homed to the dashboard board heading (opens `ProjectFormModal`);
+      board empty-state opens the same modal instead of deep-linking.
+- [x] "Delete project" re-homed to the project detail header (confirm + trash toast,
+      hidden for protected projects); detail breadcrumb/404 fallback now target `/dashboard`.
+- [x] Deleted `ProjectsPage`, its test, `useProjects`; removed the Projects nav tab and
+      the sidebar per-project sub-list (and its drag-reorder/drag-to-file — board lanes
+      cover both); `/projects` redirects to `/dashboard`; orphaned CSS removed.
+- [x] Vitest, lint, build green; route redirect + create/delete covered by tests.

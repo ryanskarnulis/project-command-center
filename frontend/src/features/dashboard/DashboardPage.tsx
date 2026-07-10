@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { reorderProjects } from '../../api/projects'
+import { createProject, reorderProjects } from '../../api/projects'
+import type { ProjectCreate } from '../../types/project'
+import { ProjectFormModal } from '../projects/ProjectFormModal'
 import { markTaskDone, reopenTask, updateTask } from '../../api/tasks'
 import { useToast } from '../../components/ToastContext'
 import { useTaskRefresh } from '../tasks/taskRefreshContext'
@@ -17,6 +19,7 @@ export function DashboardPage() {
   const { withToast } = useToast()
   const { bump: bumpTaskRefresh } = useTaskRefresh()
   const [signal, setSignal] = useState<DashboardSignal | null>(null)
+  const [creatingProject, setCreatingProject] = useState(false)
 
   // Signal counts cover exactly what the board can surface: root tasks filed
   // in a project. Unfiled tasks live on /tasks, not in any lane.
@@ -59,7 +62,12 @@ export function DashboardPage() {
     await withToast(reorderProjects(projectIds), {
       success: 'Projects reordered',
     })
-    // Bump so the sidebar list picks up the new order too.
+    bumpTaskRefresh()
+  }
+
+  async function handleCreateProject(data: ProjectCreate): Promise<void> {
+    await withToast(createProject(data), { success: 'Project created' })
+    reload()
     bumpTaskRefresh()
   }
 
@@ -89,10 +97,20 @@ export function DashboardPage() {
             <h1>Project board</h1>
             <p>{overview.total_open_tasks} open tasks across all projects</p>
           </div>
-          <Link to="/tasks?new=1" className="dashboard-add-task">
-            <Plus size={16} aria-hidden="true" />
-            Add task
-          </Link>
+          <div className="dashboard-board-actions">
+            <button
+              type="button"
+              className="dashboard-add-task"
+              onClick={() => setCreatingProject(true)}
+            >
+              <Plus size={16} aria-hidden="true" />
+              New project
+            </button>
+            <Link to="/tasks?new=1" className="dashboard-add-task">
+              <Plus size={16} aria-hidden="true" />
+              Add task
+            </Link>
+          </div>
         </div>
 
         <DashboardSignalStrip
@@ -108,7 +126,16 @@ export function DashboardPage() {
           onSetStatus={handleSetStatus}
           onUpdate={handleUpdate}
           onReorder={handleReorder}
+          onCreateProject={() => setCreatingProject(true)}
         />
+
+        {creatingProject && (
+          <ProjectFormModal
+            mode="create"
+            onClose={() => setCreatingProject(false)}
+            onSave={handleCreateProject}
+          />
+        )}
       </div>
     </TaskPanelProvider>
   )

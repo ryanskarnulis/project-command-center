@@ -3,7 +3,6 @@ import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { NotFoundPage } from '../features/errors/NotFoundPage'
 import { RouteErrorBoundary } from '../features/errors/RouteErrorBoundary'
 import { ProjectDetailPage } from '../features/projects/ProjectDetailPage'
-import { ProjectsPage } from '../features/projects/ProjectsPage'
 import { TaskDetailRedirect } from '../features/tasks/TaskDetailRedirect'
 import { TasksPage } from '../features/tasks/TasksPage'
 import { FocusPage } from '../features/focus/FocusPage'
@@ -21,7 +20,7 @@ export const routes = [
       { path: '/today', element: <Navigate to="/focus" replace /> },
       { path: '/tasks', element: <TasksPage /> },
       { path: '/tasks/:taskId', element: <TaskDetailRedirect /> },
-      { path: '/projects', element: <ProjectsPage /> },
+      { path: '/projects', element: <Navigate to="/dashboard" replace /> },
       { path: '/projects/:projectId', element: <ProjectDetailPage /> },
       { path: '/projects/:projectId/tasks', element: <TasksPage /> },
       { path: '/trash', element: <TrashPage /> },

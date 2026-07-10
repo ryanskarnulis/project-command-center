@@ -32,6 +32,7 @@ interface BoardProps {
   onUpdate: (task: Task, patch: TaskUpdate) => Promise<void>
   /** Persist a new full project order (display order of every project id). */
   onReorder: (projectIds: number[]) => Promise<void>
+  onCreateProject: () => void
 }
 
 interface LaneProps {
@@ -239,7 +240,6 @@ function DashboardSwimlane({
           <Link
             id={`dashboard-project-${project.project_id}`}
             to={`/projects/${project.project_id}`}
-            state={{ from: 'dashboard' }}
             draggable={false}
           >
             {project.project_name}
@@ -336,6 +336,7 @@ export function DashboardSwimlaneBoard({
   onSetStatus,
   onUpdate,
   onReorder,
+  onCreateProject,
 }: BoardProps) {
   // Local copy so a lane drag can live-preview the new order; server data
   // (refetched after the reorder call) re-seeds it.
@@ -393,8 +394,11 @@ export function DashboardSwimlaneBoard({
   if (projects.length === 0) {
     return (
       <div className="empty-state">
-        No projects yet. <Link to="/projects?new=1">Create one</Link> to start a
-        board.
+        No projects yet.{' '}
+        <button type="button" className="link-button" onClick={onCreateProject}>
+          Create one
+        </button>{' '}
+        to start a board.
       </div>
     )
   }

@@ -19,10 +19,6 @@ vi.mock('../features/projects/ProjectDetailPage', () => ({
   ProjectDetailPage: () => <main>Project detail page</main>,
 }))
 
-vi.mock('../features/projects/ProjectsPage', () => ({
-  ProjectsPage: () => <main>Projects page</main>,
-}))
-
 vi.mock('../features/focus/FocusPage', () => ({
   FocusPage: () => <main>Focus page</main>,
 }))
@@ -61,6 +57,14 @@ describe('AppRoutes', () => {
     renderRoute('/tasks')
     expect(await screen.findByText('Tasks page')).toBeInTheDocument()
     expect(screen.getByText('Command search')).toBeInTheDocument()
+  })
+
+  it('redirects the legacy /projects list route to /dashboard', async () => {
+    const router = createMemoryRouter(routes, { initialEntries: ['/projects'] })
+    render(<RouterProvider router={router} />)
+
+    expect(await screen.findByText('Dashboard page')).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/dashboard')
   })
 
   it('redirects the legacy /today route to /focus', async () => {
