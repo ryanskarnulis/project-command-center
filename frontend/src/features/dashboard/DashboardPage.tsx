@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { reorderProjects } from '../../api/projects'
 import { markTaskDone, reopenTask, updateTask } from '../../api/tasks'
 import { useToast } from '../../components/ToastContext'
+import { useTaskRefresh } from '../tasks/taskRefreshContext'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { TaskPanelProvider } from '../tasks/panel/TaskPanelProvider'
 import { DashboardSignalStrip } from './DashboardSignalStrip'
@@ -13,6 +15,7 @@ import { useDashboard } from './useDashboard'
 export function DashboardPage() {
   const { overview, tasks, loading, refreshing, error, reload } = useDashboard()
   const { withToast } = useToast()
+  const { bump: bumpTaskRefresh } = useTaskRefresh()
   const [signal, setSignal] = useState<DashboardSignal | null>(null)
 
   // Signal counts cover exactly what the board can surface: root tasks filed
@@ -50,6 +53,14 @@ export function DashboardPage() {
   async function handleUpdate(task: Task, patch: TaskUpdate): Promise<void> {
     await withToast(updateTask(task.id, patch), { success: 'Task saved' })
     reload()
+  }
+
+  async function handleReorder(projectIds: number[]): Promise<void> {
+    await withToast(reorderProjects(projectIds), {
+      success: 'Projects reordered',
+    })
+    // Bump so the sidebar list picks up the new order too.
+    bumpTaskRefresh()
   }
 
   if (loading) {
@@ -96,6 +107,7 @@ export function DashboardPage() {
           signal={signal}
           onSetStatus={handleSetStatus}
           onUpdate={handleUpdate}
+          onReorder={handleReorder}
         />
       </div>
     </TaskPanelProvider>

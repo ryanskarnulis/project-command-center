@@ -156,9 +156,28 @@
   box-shadow: none;
 }
 
+.dashboard-swimlane.dragging {
+  opacity: 0.55;
+  outline: 2px dashed var(--border-strong);
+}
+
+.dashboard-lane-grip {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  min-width: 20px;
+  height: 32px;
+  color: var(--text-muted);
+  cursor: grab;
+}
+
+.dashboard-lane-grip:active {
+  cursor: grabbing;
+}
+
 .dashboard-swimlane-header {
   display: grid;
-  grid-template-columns: auto auto minmax(160px, 1fr) auto auto;
+  grid-template-columns: auto auto auto minmax(160px, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   min-height: 62px;

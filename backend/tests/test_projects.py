@@ -185,3 +185,39 @@ def test_delete_general_route_returns_409(
 
     assert resp.status_code == 409
     assert projects_service.get_project(db_session, general.id) is not None
+
+
+def test_reorder_projects_route(client: TestClient) -> None:
+    ids = [
+        client.post("/api/projects", json={"name": name}).json()["id"]
+        for name in ("Alpha", "Beta", "Gamma")
+    ]
+    listed = client.get("/api/projects").json()
+    order = [p["id"] for p in listed]
+
+    reversed_order = list(reversed(order))
+    res = client.put("/api/projects/order", json={"project_ids": reversed_order})
+    assert res.status_code == 200
+    assert [p["id"] for p in res.json()] == reversed_order
+    assert [p["id"] for p in client.get("/api/projects").json()] == reversed_order
+    assert ids[0] in reversed_order
+
+    # Stale/partial id sets are rejected so a lagging client can't drop rows.
+    res = client.put("/api/projects/order", json={"project_ids": order[:-1]})
+    assert res.status_code == 409
+
+
+def test_new_project_appends_after_reorder(db_session: Session) -> None:
+    a = projects_service.create_project(db_session, name="A")
+    b = projects_service.create_project(db_session, name="B")
+    db_session.commit()
+    projects_service.reorder_projects(db_session, [b.id, a.id])
+    db_session.commit()
+
+    c = projects_service.create_project(db_session, name="C")
+    db_session.commit()
+    assert [p.id for p in projects_service.list_projects(db_session)] == [
+        b.id,
+        a.id,
+        c.id,
+    ]

@@ -37,6 +37,16 @@ export async function updateProject(
   return (await res.json()) as Project
 }
 
+/** Full manual order: every active project id, in display order. */
+export async function reorderProjects(projectIds: number[]): Promise<Project[]> {
+  const res = await apiClient('/api/projects/order', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_ids: projectIds }),
+  })
+  return (await res.json()) as Project[]
+}
+
 export async function deleteProject(id: number): Promise<void> {
   await apiClient(`/api/projects/${id}`, { method: 'DELETE' })
 }

@@ -16,10 +16,17 @@ class ProjectUpdate(BaseModel):
     description: OptionalStrippedStr = None
 
 
+class ProjectOrderUpdate(BaseModel):
+    """Full manual order: every active project id, in display order."""
+
+    project_ids: list[int]
+
+
 class ProjectRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    sort_order: int
     name: str
     description: str | None
     system_key: str | None

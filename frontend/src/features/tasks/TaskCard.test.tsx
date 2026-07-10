@@ -37,6 +37,7 @@ const homeNetworkProject: Project = {
   name: 'HomeNetwork',
   description: null,
   system_key: null,
+  sort_order: 0,
   is_protected: false,
   created_at: '',
   updated_at: '',

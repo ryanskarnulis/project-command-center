@@ -1,13 +1,19 @@
 import {
   Fragment,
   useEffect,
+  useRef,
   useState,
   type DragEvent,
   type ReactNode,
 } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { listProjects } from '../api/projects'
+import { listProjects, reorderProjects } from '../api/projects'
 import { updateTask } from '../api/tasks'
+import {
+  isProjectDrag,
+  moveBefore,
+  PROJECT_DRAG_TYPE,
+} from '../features/projects/projectDrag'
 import type { Project } from '../types/project'
 import { useToast } from './ToastContext'
 import { useTrashCount } from '../features/trash/trashCountContext'
@@ -48,20 +54,40 @@ function isTaskDrag(e: DragEvent): boolean {
 export function AppShell({ children }: AppShellProps) {
   const { count: trashCount } = useTrashCount()
   const { withToast } = useToast()
-  const { bump: bumpTaskRefresh } = useTaskRefresh()
+  const { bump: bumpTaskRefresh, version: taskRefreshVersion } = useTaskRefresh()
   const { pathname } = useLocation()
   const [projects, setProjects] = useState<Project[]>([])
   const [dropProjectId, setDropProjectId] = useState<number | null>(null)
+  const [draggedProjectId, setDraggedProjectId] = useState<number | null>(null)
+  // Distinguishes a completed reorder drop from a cancelled drag in onDragEnd.
+  const projectDropCommitted = useRef(false)
 
-  // Refetch on navigation so newly created/renamed projects show up without a
-  // reload — one lightweight local call per route change.
+  // Refetch on navigation (newly created/renamed projects) and on cross-page
+  // refresh bumps (e.g. the dashboard board reordering projects).
   useEffect(() => {
     let active = true
     listProjects()
       .then((data) => { if (active) setProjects(data) })
       .catch(() => { /* sidebar list is best-effort */ })
     return () => { active = false }
-  }, [pathname])
+  }, [pathname, taskRefreshVersion])
+
+  async function commitProjectOrder(): Promise<void> {
+    projectDropCommitted.current = true
+    setDraggedProjectId(null)
+    try {
+      // `projects` already holds the drag-preview order.
+      const saved = await withToast(
+        reorderProjects(projects.map((p) => p.id)),
+        { success: 'Projects reordered' },
+      )
+      setProjects(saved)
+      bumpTaskRefresh()
+    } catch {
+      // Conflict/network: fall back to the server's order.
+      listProjects().then(setProjects).catch(() => {})
+    }
+  }
 
   async function handleDropOnProject(
     project: Project,
@@ -112,19 +138,47 @@ export function AppShell({ children }: AppShellProps) {
                         className={({ isActive }) =>
                           `shell-nav-project${isActive ? ' active' : ''}${
                             dropProjectId === p.id ? ' drag-over' : ''
-                          }`
+                          }${draggedProjectId === p.id ? ' dragging' : ''}`
                         }
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData(PROJECT_DRAG_TYPE, String(p.id))
+                          e.dataTransfer.effectAllowed = 'move'
+                          projectDropCommitted.current = false
+                          setDraggedProjectId(p.id)
+                        }}
+                        onDragEnd={() => {
+                          setDraggedProjectId(null)
+                          // Cancelled drag: discard the preview order.
+                          if (!projectDropCommitted.current) {
+                            listProjects().then(setProjects).catch(() => {})
+                          }
+                        }}
                         onDragOver={(e) => {
                           if (isTaskDrag(e)) {
                             e.preventDefault()
                             e.dataTransfer.dropEffect = 'move'
                             setDropProjectId(p.id)
+                          } else if (draggedProjectId !== null) {
+                            // Live-preview the reorder while hovering.
+                            e.preventDefault()
+                            e.dataTransfer.dropEffect = 'move'
+                            setProjects((cur) =>
+                              moveBefore(cur, (x) => x.id, draggedProjectId, p.id),
+                            )
                           }
                         }}
                         onDragLeave={() =>
                           setDropProjectId((cur) => (cur === p.id ? null : cur))
                         }
-                        onDrop={(e) => void handleDropOnProject(p, e)}
+                        onDrop={(e) => {
+                          if (isProjectDrag(e)) {
+                            e.preventDefault()
+                            void commitProjectOrder()
+                          } else {
+                            void handleDropOnProject(p, e)
+                          }
+                        }}
                       >
                         <span>{p.name}</span>
                       </NavLink>
