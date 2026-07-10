@@ -63,6 +63,9 @@ Decisions already made (don't relitigate):
 
 ### Slice 3 — Dashboard → swimlane board
 
+> Reverted 2026-07-09 (PR #18 backed out — the merged implementation didn't
+> meet the bar). Back to the pre-swimlane dashboard; re-do from scratch.
+
 - [ ] New swimlane board component in `features/dashboard/` (new component,
       not a `KanbanBoard` retrofit — but reuse `TaskCard`, the status-change
       hooks, and the `is_blocked` move rule).
