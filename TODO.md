@@ -10,14 +10,15 @@ which lives in `CURRENT.md`. Completed work is archived in `DONE.md`.
 
 ## Current focus
 
-**Dashboard redo — board-first UI** (checked out 2026-07-09, tracked in
-`CURRENT.md`). The dashboard becomes a project-swimlane board, Today is renamed
-to Focus, project task views default to kanban, and the retired AI-era project
-aliases are removed before Phase 2 begins.
+**The strip — pivot to a simple project manager** (checked out 2026-07-09,
+tracked in `CURRENT.md`). Remove the AI subsystem, training pipeline, inbox,
+Discord bot, and calendar. The previous direction (AI-assisted capture feeding a
+fine-tuning corpus toward custom models) is retired; its backlog items were
+deleted from this file, not archived — they were never built.
 
 ---
 
-## Phase 2 — Local agent *(the new north star; starts after the dashboard epic)*
+## Phase 2 — Local agent *(the new north star; starts after the strip epic)*
 
 A full agent for the app: local llama.cpp runtime, tool calling, MCP, retrieval.
 The agent is a **peer of the UI, not a bypass** — every write goes through the

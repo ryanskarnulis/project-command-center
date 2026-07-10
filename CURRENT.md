@@ -63,18 +63,21 @@ Decisions already made (don't relitigate):
 
 ### Slice 3 — Dashboard → swimlane board
 
-- [x] New swimlane board component in `features/dashboard/` (new component,
+> Reverted 2026-07-09 (PR #18 backed out — the merged implementation didn't
+> meet the bar). Back to the pre-swimlane dashboard; re-do from scratch.
+
+- [ ] New swimlane board component in `features/dashboard/` (new component,
       not a `KanbanBoard` retrofit — but reuse `TaskCard`, the status-change
       hooks, and the `is_blocked` move rule).
-- [x] Lane header: project name (link), open count, status tone; collapsed
+- [ ] Lane header: project name (link), open count, status tone; collapsed
       state for empty/quiet projects. Per-lane Done toggle using the
       completed-tasks archive fetch.
-- [x] Signal strip: overdue / blocking / due-today counts, clickable filters.
-- [x] Delete the replaced dashboard surfaces: metric cards, workload bars,
+- [ ] Signal strip: overdue / blocking / due-today counts, clickable filters.
+- [ ] Delete the replaced dashboard surfaces: metric cards, workload bars,
       projects-overview table, hero copy (+ their CSS).
-- [x] Verify drag interactions with the `verifier-browser` skill (jsdom can't
+- [ ] Verify drag interactions with the `verifier-browser` skill (jsdom can't
       exercise pointer drags).
-- [x] Doc pass: `README.md` dashboard description.
+- [ ] Doc pass: `README.md` dashboard description.
 
 ---
 
