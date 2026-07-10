@@ -100,7 +100,7 @@ class BlockedTask(BaseModel):
     blocking_tasks: list[BlockingTask]
 
 
-class TodayPlan(BaseModel):
+class FocusPlan(BaseModel):
     """The full deterministic plan for a single day."""
 
     date: date

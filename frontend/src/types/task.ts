@@ -21,7 +21,7 @@ export interface Task {
   workflow_status: TaskWorkflowStatus
   priority: TaskPriority
   due_date: string | null
-  // Day-plan snooze (Today page defer): the scheduler skips the task while
+  // Day-plan snooze (Focus page defer): the scheduler skips the task while
   // this date is in the future. Null = not deferred.
   deferred_until: string | null
   estimated_minutes: number | null

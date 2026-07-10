@@ -6,13 +6,13 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 from app.db.models import Task, TaskPriority, TaskReviewStatus, TaskWorkflowStatus
-from app.schemas.today import (
+from app.schemas.focus import (
     BlockedTask,
     BlockingTask,
     DueSignal,
     OverflowTask,
     ScheduledBlock,
-    TodayPlan,
+    FocusPlan,
 )
 from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
@@ -202,13 +202,13 @@ def _pack(
     return blocks, overflow, used
 
 
-def get_today_plan(
+def get_focus_plan(
     db: Session,
     *,
     target_date: date,
     start_time: str = DEFAULT_START_TIME,
     available_minutes: int = DEFAULT_AVAILABLE_MINUTES,
-) -> TodayPlan:
+) -> FocusPlan:
     """Build the deterministic day plan. No model calls; all from existing tables.
 
     Source tasks are accepted, not-done top-level tasks (subtasks are excluded —
@@ -251,7 +251,7 @@ def get_today_plan(
         db, ranked, _parse_time(start_time), available_minutes, target_date
     )
 
-    return TodayPlan(
+    return FocusPlan(
         date=target_date,
         start_time=start_time,
         available_minutes=available_minutes,

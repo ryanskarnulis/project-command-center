@@ -116,7 +116,7 @@ describe('DashboardPage', () => {
     expect(await screen.findByRole('heading', { name: 'Focus Now' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open Tasks: View tasks' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Add task' })).toBeInTheDocument()
-    expect(screen.getByText("Today's Tasks / Due Soon")).toBeInTheDocument()
+    expect(screen.getByText('Focus / Due Soon')).toBeInTheDocument()
     expect(screen.queryByText('Training Progress')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Capture Tasks' })).not.toBeInTheDocument()
     expect(screen.getByText('Customer Portal')).toBeInTheDocument()

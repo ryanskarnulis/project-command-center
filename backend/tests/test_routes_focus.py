@@ -15,10 +15,10 @@ def _task(db: Session, title: str, **kwargs: Any) -> int:
     return task.id
 
 
-def test_today_route_happy_path(client: TestClient, db_session: Session) -> None:
+def test_focus_route_happy_path(client: TestClient, db_session: Session) -> None:
     task_id = _task(db_session, "ship it", priority=TaskPriority.urgent)
 
-    response = client.get("/api/today", params={"date": "2026-06-20"})
+    response = client.get("/api/focus", params={"date": "2026-06-20"})
 
     assert response.status_code == 200
     body = response.json()
@@ -26,25 +26,25 @@ def test_today_route_happy_path(client: TestClient, db_session: Session) -> None
     assert [b["task_id"] for b in body["scheduled"]] == [task_id]
 
 
-def test_today_route_defaults_to_server_today(
+def test_focus_route_defaults_to_server_today(
     client: TestClient, db_session: Session
 ) -> None:
     _task(db_session, "anything")
 
-    response = client.get("/api/today")
+    response = client.get("/api/focus")
 
     assert response.status_code == 200
     assert response.json()["date"] == date.today().isoformat()
 
 
-def test_today_route_passes_through_start_and_capacity(
+def test_focus_route_passes_through_start_and_capacity(
     client: TestClient, db_session: Session
 ) -> None:
     _task(db_session, "first", priority=TaskPriority.urgent, estimated_minutes=60)
     _task(db_session, "second", priority=TaskPriority.low, estimated_minutes=60)
 
     response = client.get(
-        "/api/today",
+        "/api/focus",
         params={"date": "2026-06-20", "start_time": "10:00", "available_minutes": 90},
     )
 
@@ -57,23 +57,23 @@ def test_today_route_passes_through_start_and_capacity(
     assert len(body["overflow"]) == 1
 
 
-def test_today_route_rejects_malformed_start_time(
+def test_focus_route_rejects_malformed_start_time(
     client: TestClient, db_session: Session
 ) -> None:
-    assert client.get("/api/today", params={"start_time": "25:00"}).status_code == 422
-    assert client.get("/api/today", params={"start_time": "9am"}).status_code == 422
+    assert client.get("/api/focus", params={"start_time": "25:00"}).status_code == 422
+    assert client.get("/api/focus", params={"start_time": "9am"}).status_code == 422
 
 
-def test_today_route_rejects_out_of_range_capacity(
+def test_focus_route_rejects_out_of_range_capacity(
     client: TestClient, db_session: Session
 ) -> None:
-    assert client.get("/api/today", params={"available_minutes": 0}).status_code == 422
+    assert client.get("/api/focus", params={"available_minutes": 0}).status_code == 422
     assert (
-        client.get("/api/today", params={"available_minutes": 5000}).status_code == 422
+        client.get("/api/focus", params={"available_minutes": 5000}).status_code == 422
     )
 
 
-def test_today_route_blocked_row_carries_dependency_detail(
+def test_focus_route_blocked_row_carries_dependency_detail(
     client: TestClient, db_session: Session
 ) -> None:
     blocker = _task(db_session, "finish the API")
@@ -81,7 +81,7 @@ def test_today_route_blocked_row_carries_dependency_detail(
     deps_service.add_dependency(db_session, dependent, blocker)
     db_session.commit()
 
-    response = client.get("/api/today", params={"date": "2026-06-20"})
+    response = client.get("/api/focus", params={"date": "2026-06-20"})
 
     assert response.status_code == 200
     blocked = response.json()["blocked"]
@@ -92,7 +92,7 @@ def test_today_route_blocked_row_carries_dependency_detail(
     ]
 
 
-def test_today_route_rejects_malformed_date(
+def test_focus_route_rejects_malformed_date(
     client: TestClient, db_session: Session
 ) -> None:
-    assert client.get("/api/today", params={"date": "not-a-date"}).status_code == 422
+    assert client.get("/api/focus", params={"date": "not-a-date"}).status_code == 422

@@ -1,14 +1,14 @@
-/* Today / daily schedule timeline.
+/* Focus session schedule timeline.
    Split from index.css. The barrel (../index.css) controls load order. */
 
-/* ── Today / daily schedule ───────────────────────────────────────────── */
-.today-page {
+/* ── Focus session schedule ───────────────────────────────────────────── */
+.focus-page {
   display: flex;
   flex-direction: column;
   gap: 18px;
 }
 
-.today-controls {
+.focus-controls {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
@@ -19,7 +19,7 @@
   box-shadow: var(--shadow-soft);
 }
 
-.today-controls label {
+.focus-controls label {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -28,8 +28,8 @@
   color: var(--text-muted);
 }
 
-.today-controls input,
-.today-controls select {
+.focus-controls input,
+.focus-controls select {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 9px;
@@ -38,34 +38,34 @@
   font-size: 0.9rem;
 }
 
-.today-summary {
+.focus-summary {
   margin: 0;
   color: var(--text-muted);
   font-size: 0.9rem;
 }
 
-.today-summary strong {
+.focus-summary strong {
   color: var(--text-h);
 }
 
-.today-section {
+.focus-section {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.today-section h2 {
+.focus-section h2 {
   margin: 0;
   font-size: 1.05rem;
 }
 
-.today-section-hint {
+.focus-section-hint {
   margin: -4px 0 0;
   color: var(--text-muted);
   font-size: 0.82rem;
 }
 
-.today-timeline {
+.focus-timeline {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -74,7 +74,7 @@
   gap: 10px;
 }
 
-.today-block {
+.focus-block {
   display: flex;
   gap: 16px;
   padding: 12px 14px;
@@ -84,7 +84,7 @@
   background: var(--surface-soft);
 }
 
-.today-block-time {
+.focus-block-time {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -92,17 +92,17 @@
   font-variant-numeric: tabular-nums;
 }
 
-.today-block-time strong {
+.focus-block-time strong {
   color: var(--text-h);
   font-size: 0.95rem;
 }
 
-.today-block-time span {
+.focus-block-time span {
   color: var(--text-muted);
   font-size: 0.8rem;
 }
 
-.today-block-body {
+.focus-block-body {
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -110,24 +110,24 @@
   min-width: 0;
 }
 
-.today-block-head {
+.focus-block-head {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.today-block-title {
+.focus-block-title {
   font-weight: 600;
   color: var(--text-h);
   text-decoration: none;
 }
 
-.today-block-title:hover {
+.focus-block-title:hover {
   text-decoration: underline;
 }
 
-.today-block-meta {
+.focus-block-meta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -136,7 +136,7 @@
   color: var(--text-muted);
 }
 
-.today-row-actions {
+.focus-row-actions {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -144,13 +144,13 @@
   margin-left: auto;
 }
 
-.today-estimate {
+.focus-estimate {
   display: inline-flex;
   align-items: center;
   gap: 5px;
 }
 
-.today-assumed {
+.focus-assumed {
   padding: 1px 6px;
   border-radius: 999px;
   background: var(--orange-soft);
@@ -161,12 +161,12 @@
   letter-spacing: 0.03em;
 }
 
-.today-reason {
+.focus-reason {
   font-style: italic;
 }
 
-.today-overflow-list,
-.today-blocked-list {
+.focus-overflow-list,
+.focus-blocked-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -175,7 +175,7 @@
   gap: 8px;
 }
 
-.today-overflow-row {
+.focus-overflow-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -186,7 +186,7 @@
   background: var(--surface-soft);
 }
 
-.today-blocked-row {
+.focus-blocked-row {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -197,14 +197,14 @@
   background: var(--surface-soft);
 }
 
-.today-blocked-head {
+.focus-blocked-head {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.today-blocked-warning {
+.focus-blocked-warning {
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
@@ -213,11 +213,11 @@
   font-size: 0.82rem;
 }
 
-.today-blocked-warning svg {
+.focus-blocked-warning svg {
   color: var(--red);
 }
 
-.today-blocker-list {
+.focus-blocker-list {
   list-style: none;
   margin: 0;
   padding: 0 0 0 18px;
@@ -226,7 +226,7 @@
   gap: 4px;
 }
 
-.today-blocker {
+.focus-blocker {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -234,35 +234,35 @@
   font-size: 0.85rem;
 }
 
-.today-blocker-title {
+.focus-blocker-title {
   color: var(--text-h);
   text-decoration: none;
   font-weight: 600;
 }
 
-.today-blocker-title:hover {
+.focus-blocker-title:hover {
   text-decoration: underline;
 }
 
-.today-empty {
+.focus-empty {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
 /* Elapsed blocks (before the "now" marker) fade back so the current slot pops. */
-.today-block-past {
+.focus-block-past {
   opacity: 0.55;
 }
 
-.today-now-marker {
+.focus-now-marker {
   display: flex;
   align-items: center;
   gap: 10px;
   list-style: none;
 }
 
-.today-now-marker span {
+.focus-now-marker span {
   flex-shrink: 0;
   padding: 1px 8px;
   border-radius: 999px;
@@ -274,7 +274,7 @@
   text-transform: uppercase;
 }
 
-.today-now-marker::after {
+.focus-now-marker::after {
   content: '';
   flex: 1;
   height: 2px;
@@ -284,7 +284,7 @@
 }
 
 /* "part of <parent>" label on a subtask standing in for its parent. */
-.today-block-parent {
+.focus-block-parent {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -292,18 +292,18 @@
   color: var(--text-muted);
 }
 
-.today-block-parent a {
+.focus-block-parent a {
   color: var(--text-h);
   font-weight: 600;
   text-decoration: none;
 }
 
-.today-block-parent a:hover {
+.focus-block-parent a:hover {
   text-decoration: underline;
 }
 
 /* Overflow "n subtasks scheduled" note. */
-.today-partial {
+.focus-partial {
   padding: 1px 8px;
   border-radius: 999px;
   background: var(--blue-soft);
@@ -313,7 +313,7 @@
 }
 
 /* Collapsed-by-default secondary sections (Didn't fit / Blocked). */
-.today-collapse-toggle {
+.focus-collapse-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -325,12 +325,12 @@
   text-align: left;
 }
 
-.today-collapse-toggle h2 {
+.focus-collapse-toggle h2 {
   margin: 0;
   font-size: 1.05rem;
 }
 
-.today-collapse-toggle svg {
+.focus-collapse-toggle svg {
   color: var(--text-muted);
   flex-shrink: 0;
 }

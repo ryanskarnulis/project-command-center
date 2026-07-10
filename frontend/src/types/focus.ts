@@ -1,6 +1,6 @@
 import type { TaskPriority, TaskWorkflowStatus } from './task'
 
-// Mirrors backend app/schemas/today.py. How a task's due date relates to the
+// Mirrors backend app/schemas/focus.py. How a task's due date relates to the
 // plan's target day; derived in the scheduler, no stored column.
 export type DueSignal = 'overdue' | 'due_today' | 'due_soon' | 'none'
 
@@ -61,7 +61,7 @@ export interface BlockedTask {
   blocking_tasks: BlockingTask[]
 }
 
-export interface TodayPlan {
+export interface FocusPlan {
   date: string // YYYY-MM-DD
   start_time: string // HH:MM
   available_minutes: number

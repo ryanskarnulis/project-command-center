@@ -60,7 +60,7 @@ class TaskUpdate(BaseModel):
     workflow_status: TaskWorkflowStatus | None = None
     priority: TaskPriority | None = None
     due_date: date | None = None
-    # Day-plan snooze (Today page "defer"): the scheduler skips the task while
+    # Day-plan snooze (Focus page "defer"): the scheduler skips the task while
     # this is after the plan's target date. Explicit null clears the deferral.
     deferred_until: date | None = None
     project_id: int | None = None

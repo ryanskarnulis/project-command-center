@@ -33,9 +33,9 @@ interface UseTaskUrlState {
 
 // Board/list, filters, sorting, and the create-modal deep link are URL-backed
 // so links, refreshes, and browser back/forward restore the same task view.
-export function useTaskUrlState(): UseTaskUrlState {
+export function useTaskUrlState(defaultView: ViewMode = 'list'): UseTaskUrlState {
   const [searchParams, setSearchParams] = useSearchParams()
-  const view = viewFromParams(searchParams)
+  const view = viewFromParams(searchParams, defaultView)
   const addingTask = isTruthyParam(searchParams.get('new'))
   const filters = useMemo(() => filtersFromParams(searchParams), [searchParams])
   const sortMode = sortFromParams(searchParams)
@@ -46,6 +46,7 @@ export function useTaskUrlState(): UseTaskUrlState {
       next.sortMode ?? sortMode,
       next.view ?? view,
       next.addingTask ?? addingTask,
+      defaultView,
     )
     // paramsFromState rebuilds the query from scratch; carry the peek-panel
     // param so changing a filter or view doesn't close an open panel.

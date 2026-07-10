@@ -89,15 +89,15 @@ function DueSoonFocusCard({
   overdueCount: number
 }) {
   return (
-    <Link to="/today" className="metric-card focus-due-card">
+    <Link to="/focus" className="metric-card focus-due-card">
       <div className="metric-icon tone-green">
         <ListChecks size={26} aria-hidden="true" />
       </div>
       <div className="metric-content">
-        <span>Today&apos;s Tasks / Due Soon</span>
+        <span>Focus / Due Soon</span>
         <strong>{tasks.length}</strong>
         <small>
-          {todayCount} today · {weekCount} this week · {overdueCount} overdue
+          {todayCount} due today · {weekCount} this week · {overdueCount} overdue
         </small>
         {tasks.length > 0 ? (
           <ul className="mini-task-list">

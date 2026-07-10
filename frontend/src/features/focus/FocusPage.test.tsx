@@ -1,14 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getTodayPlan } from '../../api/today'
+import { getFocusPlan } from '../../api/focus'
 import { getTask, markTaskDone, updateTask } from '../../api/tasks'
-import type { ScheduledBlock, TodayPlan } from '../../types/today'
+import type { ScheduledBlock, FocusPlan } from '../../types/focus'
 import type { Task } from '../../types/task'
-import { TodayPage } from './TodayPage'
+import { FocusPage } from './FocusPage'
 
-vi.mock('../../api/today', () => ({
-  getTodayPlan: vi.fn(),
+vi.mock('../../api/focus', () => ({
+  getFocusPlan: vi.fn(),
 }))
 
 vi.mock('../../api/tasks', () => ({
@@ -35,7 +35,7 @@ vi.mock('../../api/taskDependencies', () => ({
   removeDependency: vi.fn(),
 }))
 
-const mockGetTodayPlan = vi.mocked(getTodayPlan)
+const mockGetFocusPlan = vi.mocked(getFocusPlan)
 const mockMarkTaskDone = vi.mocked(markTaskDone)
 const mockUpdateTask = vi.mocked(updateTask)
 const mockGetTask = vi.mocked(getTask)
@@ -86,7 +86,7 @@ function scheduledBlock(overrides: Partial<ScheduledBlock> = {}): ScheduledBlock
   }
 }
 
-function makePlan(overrides: Partial<TodayPlan> = {}): TodayPlan {
+function makePlan(overrides: Partial<FocusPlan> = {}): FocusPlan {
   return {
     date: '2026-06-20',
     start_time: '09:00',
@@ -99,7 +99,7 @@ function makePlan(overrides: Partial<TodayPlan> = {}): TodayPlan {
   }
 }
 
-describe('TodayPage', () => {
+describe('FocusPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -109,7 +109,7 @@ describe('TodayPage', () => {
   })
 
   it('renders the scheduled timeline with task links and assumed estimates', async () => {
-    mockGetTodayPlan.mockResolvedValue(
+    mockGetFocusPlan.mockResolvedValue(
       makePlan({
         used_minutes: 60,
         scheduled: [
@@ -136,7 +136,7 @@ describe('TodayPage', () => {
 
     render(
       <MemoryRouter>
-        <TodayPage />
+        <FocusPage />
       </MemoryRouter>,
     )
 
@@ -149,12 +149,12 @@ describe('TodayPage', () => {
   })
 
   it('opens the peek panel over the plan when a row is clicked', async () => {
-    mockGetTodayPlan.mockResolvedValue(makePlan({ scheduled: [scheduledBlock()] }))
+    mockGetFocusPlan.mockResolvedValue(makePlan({ scheduled: [scheduledBlock()] }))
     mockGetTask.mockResolvedValue(panelTask)
 
     render(
       <MemoryRouter>
-        <TodayPage />
+        <FocusPage />
       </MemoryRouter>,
     )
 
@@ -167,7 +167,7 @@ describe('TodayPage', () => {
   })
 
   it('renders overflow and blocked sections with dependency warnings', async () => {
-    mockGetTodayPlan.mockResolvedValue(
+    mockGetFocusPlan.mockResolvedValue(
       makePlan({
         scheduled: [
           {
@@ -220,7 +220,7 @@ describe('TodayPage', () => {
 
     render(
       <MemoryRouter>
-        <TodayPage />
+        <FocusPage />
       </MemoryRouter>,
     )
 
@@ -249,14 +249,14 @@ describe('TodayPage', () => {
   })
 
   it('completes a scheduled task in-row and refetches the plan', async () => {
-    mockGetTodayPlan.mockResolvedValue(
+    mockGetFocusPlan.mockResolvedValue(
       makePlan({ scheduled: [scheduledBlock({ task_id: 7, workflow_status: 'open' })] }),
     )
     mockMarkTaskDone.mockResolvedValue({} as never)
 
     render(
       <MemoryRouter>
-        <TodayPage />
+        <FocusPage />
       </MemoryRouter>,
     )
 
@@ -274,18 +274,18 @@ describe('TodayPage', () => {
     await waitFor(() => expect(mockMarkTaskDone).toHaveBeenCalledWith(7))
     expect(mockUpdateTask).not.toHaveBeenCalled()
     // Initial load + post-mutation refetch.
-    await waitFor(() => expect(mockGetTodayPlan).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mockGetFocusPlan).toHaveBeenCalledTimes(2))
   })
 
   it('starts an open task via the in-row Start action', async () => {
-    mockGetTodayPlan.mockResolvedValue(
+    mockGetFocusPlan.mockResolvedValue(
       makePlan({ scheduled: [scheduledBlock({ task_id: 7, workflow_status: 'open' })] }),
     )
     mockUpdateTask.mockResolvedValue({} as never)
 
     render(
       <MemoryRouter>
-        <TodayPage />
+        <FocusPage />
       </MemoryRouter>,
     )
 
@@ -296,11 +296,11 @@ describe('TodayPage', () => {
     await waitFor(() =>
       expect(mockUpdateTask).toHaveBeenCalledWith(7, { workflow_status: 'in_progress' }),
     )
-    await waitFor(() => expect(mockGetTodayPlan).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mockGetFocusPlan).toHaveBeenCalledTimes(2))
   })
 
   it('hides Start on an in-progress row but still offers Mark done', async () => {
-    mockGetTodayPlan.mockResolvedValue(
+    mockGetFocusPlan.mockResolvedValue(
       makePlan({
         scheduled: [
           scheduledBlock({ task_id: 7, title: 'WIP task', workflow_status: 'in_progress' }),
@@ -310,7 +310,7 @@ describe('TodayPage', () => {
 
     render(
       <MemoryRouter>
-        <TodayPage />
+        <FocusPage />
       </MemoryRouter>,
     )
 
@@ -324,14 +324,14 @@ describe('TodayPage', () => {
   })
 
   it('defers a task to the day after the plan date', async () => {
-    mockGetTodayPlan.mockResolvedValue(
+    mockGetFocusPlan.mockResolvedValue(
       makePlan({ scheduled: [scheduledBlock({ task_id: 7, workflow_status: 'open' })] }),
     )
     mockUpdateTask.mockResolvedValue({} as never)
 
     render(
       <MemoryRouter>
-        <TodayPage />
+        <FocusPage />
       </MemoryRouter>,
     )
 
@@ -345,11 +345,11 @@ describe('TodayPage', () => {
     await waitFor(() =>
       expect(mockUpdateTask).toHaveBeenCalledWith(7, { deferred_until: '2026-06-21' }),
     )
-    await waitFor(() => expect(mockGetTodayPlan).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mockGetFocusPlan).toHaveBeenCalledTimes(2))
   })
 
   it('labels a scheduled subtask with its parent task', async () => {
-    mockGetTodayPlan.mockResolvedValue(
+    mockGetFocusPlan.mockResolvedValue(
       makePlan({
         scheduled: [
           scheduledBlock({
@@ -364,7 +364,7 @@ describe('TodayPage', () => {
 
     render(
       <MemoryRouter>
-        <TodayPage />
+        <FocusPage />
       </MemoryRouter>,
     )
 
@@ -375,7 +375,7 @@ describe('TodayPage', () => {
   })
 
   it('notes partially scheduled overflow tasks', async () => {
-    mockGetTodayPlan.mockResolvedValue(
+    mockGetFocusPlan.mockResolvedValue(
       makePlan({
         used_minutes: 0,
         overflow: [
@@ -398,7 +398,7 @@ describe('TodayPage', () => {
 
     render(
       <MemoryRouter>
-        <TodayPage />
+        <FocusPage />
       </MemoryRouter>,
     )
 
@@ -410,11 +410,11 @@ describe('TodayPage', () => {
   })
 
   it('shows an empty state when nothing is schedulable', async () => {
-    mockGetTodayPlan.mockResolvedValue(makePlan({ used_minutes: 0 }))
+    mockGetFocusPlan.mockResolvedValue(makePlan({ used_minutes: 0 }))
 
     render(
       <MemoryRouter>
-        <TodayPage />
+        <FocusPage />
       </MemoryRouter>,
     )
 
@@ -425,7 +425,7 @@ describe('TodayPage', () => {
   })
 
   it('points at the overflow list when nothing fit but work overflowed', async () => {
-    mockGetTodayPlan.mockResolvedValue(
+    mockGetFocusPlan.mockResolvedValue(
       makePlan({
         used_minutes: 0,
         overflow: [
@@ -448,12 +448,12 @@ describe('TodayPage', () => {
 
     render(
       <MemoryRouter>
-        <TodayPage />
+        <FocusPage />
       </MemoryRouter>,
     )
 
     expect(
-      await screen.findByText('Nothing fit today’s capacity — see ranked work below.'),
+      await screen.findByText('Nothing fit this session’s capacity — see ranked work below.'),
     ).toBeInTheDocument()
     expect(
       screen.queryByText('No open tasks to schedule for this day.'),
