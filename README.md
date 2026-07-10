@@ -90,6 +90,19 @@ Key decisions:
   deliberately not indexed (effective status rolls up in Python; it is never a
   SQL filter).
 
+## Dashboard workflow
+
+The dashboard is a project-swimlane board built for moving work. Each active
+project has an Open / In progress lane with its open count and derived status
+tone; projects with no active work stay collapsed until needed. Task cards use
+the same dependency guards and recurrence-safe done/reopen paths as the project
+boards. Completed tasks are fetched lazily behind each lane's **Show done**
+toggle instead of occupying a permanent column.
+
+A slim signal strip above the lanes counts overdue, blocking, and due-today
+root tasks. Selecting a signal filters every project lane; selecting it again
+returns to the full board.
+
 ## Status & roadmap
 
 The core is complete and stable: tasks/projects, recurrence, subtasks +

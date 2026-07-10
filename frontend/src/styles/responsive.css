@@ -30,10 +30,6 @@
     grid-template-columns: 220px minmax(0, 1fr);
   }
 
-  .metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .topbar {
     grid-template-columns: 1fr;
   }
@@ -74,46 +70,13 @@
     padding: 16px;
   }
 
-  .dashboard-hero {
-    align-items: flex-start;
-    flex-direction: column;
+  .dashboard-swimlane-header {
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
   }
 
-  .metric-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .project-table-row {
-    grid-template-columns: 1fr;
-    align-items: start;
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 12px;
-  }
-
-  .dashboard-list li {
-    grid-template-columns: 58px minmax(0, 1fr) auto;
-  }
-
-  .command-inbox-list {
-    grid-template-columns: 1fr;
-  }
-
-  .pending-review-panel li {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-list .status-dot {
-    display: none;
-  }
-
-  .task-preview-list li {
-    grid-template-columns: 18px minmax(0, 1fr);
-  }
-
-  .task-preview-list .due,
-  .task-preview-list svg {
-    justify-self: start;
-    margin-left: 28px;
+  .dashboard-done-toggle {
+    grid-column: 3 / 5;
+    justify-self: end;
   }
 }
 
@@ -132,21 +95,6 @@
     display: none;
   }
 
-  .metric-card {
-    grid-template-columns: 52px minmax(0, 1fr);
-    min-height: 150px;
-    padding: 14px;
-  }
-
-  .metric-icon {
-    width: 48px;
-    height: 48px;
-  }
-
-  .metric-content strong {
-    font-size: 30px;
-  }
-
   .settings-profile-header,
   .training-example-header,
   .review-row-controls {
@@ -159,5 +107,38 @@
   .kanban-board {
     grid-template-columns: 1fr;
   }
+
+  .dashboard-lane-columns,
+  .dashboard-done-archive > ul {
+    grid-template-columns: 1fr;
+  }
 }
 
+@media (max-width: 560px) {
+  .dashboard-signal-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-signal + .dashboard-signal {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .dashboard-swimlane-header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .dashboard-project-icon {
+    display: none;
+  }
+
+  .dashboard-swimlane-header > .status-pill {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .dashboard-done-toggle {
+    grid-column: 3;
+    grid-row: 2;
+  }
+}
