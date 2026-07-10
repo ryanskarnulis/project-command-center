@@ -277,8 +277,6 @@
 }
 
 .heading-icon,
-.metric-icon,
-.project-avatar,
 .insight-icon {
   display: grid;
   place-items: center;
@@ -344,8 +342,6 @@
   color: var(--text-muted);
 }
 
-.dashboard-list,
-.task-preview-list,
 .insight-list,
 .review-queue,
 .settings-list,

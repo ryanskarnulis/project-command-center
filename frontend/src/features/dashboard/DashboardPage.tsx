@@ -1,186 +1,56 @@
-import { useMemo } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import type { LucideIcon } from 'lucide-react'
-import {
-  AlertTriangle,
-  ArrowRight,
-  ClipboardList,
-  FolderKanban,
-  ListChecks,
-  Plus,
-  Target,
-} from 'lucide-react'
-import type { ProjectOpenTasksRow } from '../../types/dashboard'
-import type { Task } from '../../types/task'
-import { compareByDue, dueStatus, formatDueDate } from '../../utils/dates'
-import { projectStatus, type Tone } from '../../utils/projectStatus'
+import { useMemo, useState } from 'react'
+import { Plus } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { markTaskDone, reopenTask, updateTask } from '../../api/tasks'
+import { useToast } from '../../components/ToastContext'
+import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
+import { TaskPanelProvider } from '../tasks/panel/TaskPanelProvider'
+import { DashboardSignalStrip } from './DashboardSignalStrip'
+import { DashboardSwimlaneBoard } from './DashboardSwimlaneBoard'
+import type { DashboardSignal } from './dashboardSignals'
 import { useDashboard } from './useDashboard'
 
-interface MetricCardProps {
-  icon: LucideIcon
-  title: string
-  value: string | number
-  detail: string
-  tone: Tone
-  to: string
-  action: string
-  cornerIcon?: LucideIcon
-  cornerLabel?: string
-  cornerTo?: string
-  children?: React.ReactNode
-}
-
-function MetricCard({
-  icon: Icon,
-  title,
-  value,
-  detail,
-  tone,
-  to,
-  action,
-  cornerIcon: CornerIcon,
-  cornerLabel,
-  cornerTo,
-  children,
-}: MetricCardProps) {
-  const navigate = useNavigate()
-  return (
-    <Link to={to} className="metric-card" aria-label={`${title}: ${action}`}>
-      {CornerIcon && cornerTo && (
-        <button
-          type="button"
-          className="metric-corner-action"
-          aria-label={cornerLabel ?? action}
-          onClick={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            navigate(cornerTo)
-          }}
-        >
-          <CornerIcon size={17} aria-hidden="true" />
-        </button>
-      )}
-      <div className={`metric-icon tone-${tone}`}>
-        <Icon size={26} aria-hidden="true" />
-      </div>
-      <div className="metric-content">
-        <span>{title}</span>
-        <strong>{value}</strong>
-        <small>{detail}</small>
-        {children}
-      </div>
-      <div className="metric-footer">
-        <span>{action}</span>
-        <ArrowRight size={16} aria-hidden="true" />
-      </div>
-    </Link>
-  )
-}
-
-function DueSoonFocusCard({
-  tasks,
-  todayCount,
-  weekCount,
-  overdueCount,
-}: {
-  tasks: Task[]
-  todayCount: number
-  weekCount: number
-  overdueCount: number
-}) {
-  return (
-    <Link to="/focus" className="metric-card focus-due-card">
-      <div className="metric-icon tone-green">
-        <ListChecks size={26} aria-hidden="true" />
-      </div>
-      <div className="metric-content">
-        <span>Focus / Due Soon</span>
-        <strong>{tasks.length}</strong>
-        <small>
-          {todayCount} due today · {weekCount} this week · {overdueCount} overdue
-        </small>
-        {tasks.length > 0 ? (
-          <ul className="mini-task-list">
-            {tasks.slice(0, 2).map((task) => (
-              <li key={task.id}>
-                <span>{task.title}</span>
-                {task.due_date && (
-                  <small className={`due due-${dueStatus(task.due_date)}`}>
-                    {formatDueDate(task.due_date)}
-                  </small>
-                )}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <small>No due dates in the next week.</small>
-        )}
-      </div>
-      <div className="metric-footer">
-        <span>View due work</span>
-        <ArrowRight size={16} aria-hidden="true" />
-      </div>
-    </Link>
-  )
-}
-
-function tasksForProject(tasks: Task[], projectId: number): Task[] {
-  return tasks.filter((task) => task.project_id === projectId)
-}
-
-function pluralize(count: number, singular: string, plural = `${singular}s`): string {
-  return `${count} ${count === 1 ? singular : plural}`
-}
-
-function topBlockingTasks(tasks: Task[]): Task[] {
-  return tasks
-    .filter((task) => task.is_blocking && task.workflow_status !== 'done')
-    .sort(
-      (a, b) =>
-        b.blocked_task_count - a.blocked_task_count ||
-        a.title.localeCompare(b.title) ||
-        b.id - a.id,
-    )
-}
-
-function projectWorkloadWidth(row: ProjectOpenTasksRow, maxOpenTasks: number): string {
-  if (row.open_task_count === 0 || maxOpenTasks === 0) return '8%'
-  return `${Math.max(14, Math.round((row.open_task_count / maxOpenTasks) * 100))}%`
-}
-
 export function DashboardPage() {
-  const { overview, tasks, loading, refreshing, error } = useDashboard()
+  const { overview, tasks, loading, refreshing, error, reload } = useDashboard()
+  const { withToast } = useToast()
+  const [signal, setSignal] = useState<DashboardSignal | null>(null)
 
-  const dashboard = useMemo(() => {
-    const blockingTasks = topBlockingTasks(tasks)
-    const downstreamBlockedCount = blockingTasks.reduce(
-      (sum, task) => sum + task.blocked_task_count,
-      0,
-    )
-    const dueTasks = [...tasks]
-      .filter((task) => dueStatus(task.due_date, 7) !== 'none')
-      // Subtasks appear only nested under their parent, not in the due list.
-      .filter((task) => task.parent_task_id === null)
-      .sort(compareByDue)
-    const todayCount = tasks.filter(
-      (task) => dueStatus(task.due_date) === 'today',
-    ).length
-    const overdueCount = tasks.filter(
-      (task) => dueStatus(task.due_date) === 'overdue',
-    ).length
-    const weekCount = tasks.filter((task) => {
-      const status = dueStatus(task.due_date, 7)
-      return status === 'today' || status === 'soon'
-    }).length
-    return {
-      blockingTasks,
-      downstreamBlockedCount,
-      dueTasks,
-      todayCount,
-      overdueCount,
-      weekCount,
+  // Signal counts cover exactly what the board can surface: root tasks filed
+  // in a project. Unfiled tasks live on /tasks, not in any lane.
+  const boardTasks = useMemo(
+    () =>
+      tasks.filter(
+        (task) => task.parent_task_id === null && task.project_id !== null,
+      ),
+    [tasks],
+  )
+
+  // Route a lane move to the right endpoint: Done uses the recurrence-safe
+  // done endpoint, leaving Done reopens (→ open), everything else is a PATCH.
+  async function handleSetStatus(
+    task: Task,
+    target: TaskWorkflowStatus,
+  ): Promise<void> {
+    const mutation = async () => {
+      if (target === 'done') {
+        await markTaskDone(task.id)
+      } else if (task.workflow_status === 'done') {
+        await reopenTask(task.id)
+        if (target === 'in_progress') {
+          await updateTask(task.id, { workflow_status: 'in_progress' })
+        }
+      } else {
+        await updateTask(task.id, { workflow_status: target })
+      }
     }
-  }, [tasks])
+    await withToast(mutation(), { success: 'Task status updated' })
+    reload()
+  }
+
+  async function handleUpdate(task: Task, patch: TaskUpdate): Promise<void> {
+    await withToast(updateTask(task.id, patch), { success: 'Task saved' })
+    reload()
+  }
 
   if (loading) {
     return (
@@ -192,140 +62,42 @@ export function DashboardPage() {
   if (error) {
     return (
       <div className="dashboard">
-        <p className="error">Error: {error}</p>
+        <p role="alert" className="error">
+          Error: {error}
+        </p>
       </div>
     )
   }
   if (!overview) return null
 
-  const maxOpenTasks = Math.max(
-    0,
-    ...overview.projects.map((project) => project.open_task_count),
-  )
-  const hour = new Date().getHours()
-  const greeting =
-    hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
   return (
-    <div className="dashboard" aria-busy={refreshing}>
-      <section className="dashboard-hero">
-        <div>
-          <h1>{greeting}</h1>
-          <p>Mission-critical work and due dates in one place.</p>
-        </div>
-      </section>
-
-      <section className="focus-panel" aria-labelledby="focus-now-heading">
-        <div className="section-heading">
-          <div className="section-title">
-            <span className="heading-icon tone-blue">
-              <Target size={20} aria-hidden="true" />
-            </span>
-            <div>
-              <h2 id="focus-now-heading">Focus Now</h2>
-              <p>Your mission-critical overview</p>
-            </div>
+    <TaskPanelProvider onMutated={reload}>
+      <div className="dashboard" aria-busy={refreshing}>
+        <div className="dashboard-board-heading">
+          <div>
+            <h1>Project board</h1>
+            <p>{overview.total_open_tasks} open tasks across all projects</p>
           </div>
+          <Link to="/tasks?new=1" className="dashboard-add-task">
+            <Plus size={16} aria-hidden="true" />
+            Add task
+          </Link>
         </div>
 
-        <div className="metric-grid">
-          <MetricCard
-            icon={ClipboardList}
-            title="Open Tasks"
-            value={overview.total_open_tasks}
-            detail="Accepted work not done"
-            tone="blue"
-            to="/tasks"
-            action="View tasks"
-            cornerIcon={Plus}
-            cornerLabel="Add task"
-            cornerTo="/tasks?new=1"
-          />
-          <MetricCard
-            icon={AlertTriangle}
-            title="Blocking Work"
-            value={dashboard.blockingTasks.length}
-            detail={`${pluralize(dashboard.downstreamBlockedCount, 'downstream task')} waiting`}
-            tone="red"
-            to="/tasks?status=blocking"
-            action="View blockers"
-          >
-            {dashboard.blockingTasks.length > 0 ? (
-              <ul className="mini-task-list">
-                {dashboard.blockingTasks.slice(0, 2).map((task) => (
-                  <li key={task.id}>
-                    <span>{task.title}</span>
-                    <small>{pluralize(task.blocked_task_count, 'task')}</small>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <small>No root blockers active.</small>
-            )}
-          </MetricCard>
-          <DueSoonFocusCard
-            tasks={dashboard.dueTasks}
-            todayCount={dashboard.todayCount}
-            weekCount={dashboard.weekCount}
-            overdueCount={dashboard.overdueCount}
-          />
-        </div>
-      </section>
+        <DashboardSignalStrip
+          tasks={boardTasks}
+          activeSignal={signal}
+          onChange={setSignal}
+        />
 
-      <section className="panel projects-overview">
-        <div className="section-heading compact">
-          <div className="section-title">
-            <FolderKanban size={19} aria-hidden="true" />
-            <h2>Projects Overview</h2>
-          </div>
-          <div className="section-heading-actions">
-            <Link to="/projects">View all projects</Link>
-            <Link to="/projects?new=1" className="icon-link" aria-label="Create project">
-              <Plus size={16} aria-hidden="true" />
-            </Link>
-          </div>
-        </div>
-        {overview.projects.length === 0 ? (
-          <div className="empty-state">No projects yet.</div>
-        ) : (
-          <div className="project-table">
-            {overview.projects.slice(0, 6).map((row) => {
-              const projectTasks = tasksForProject(tasks, row.project_id)
-              const status = projectStatus(projectTasks, row.open_task_count)
-              return (
-                <div className="project-table-row" key={row.project_id}>
-                  <div className="project-name-cell">
-                    <span className={`project-avatar tone-${status.tone}`}>
-                      <FolderKanban size={18} aria-hidden="true" />
-                    </span>
-                    <div>
-                      <Link
-                        to={`/projects/${row.project_id}`}
-                        state={{ from: 'dashboard' }}
-                      >
-                        {row.project_name}
-                      </Link>
-                      <small>{row.open_task_count} open tasks</small>
-                    </div>
-                  </div>
-                  <div className="workload-cell">
-                    <span>Workload</span>
-                    <div className="workload-bar" aria-hidden="true">
-                      <span
-                        style={{
-                          width: projectWorkloadWidth(row, maxOpenTasks),
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <span className={`status-pill tone-${status.tone}`}>
-                    {status.label}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </section>
-    </div>
+        <DashboardSwimlaneBoard
+          projects={overview.projects}
+          tasks={tasks}
+          signal={signal}
+          onSetStatus={handleSetStatus}
+          onUpdate={handleUpdate}
+        />
+      </div>
+    </TaskPanelProvider>
   )
 }
