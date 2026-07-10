@@ -144,6 +144,12 @@ function DashboardSwimlane({
     task: Task,
     target: TaskWorkflowStatus,
   ): Promise<void> {
+    // Parents aren't draggable, but guard anyway (mirrors move()) so a stray
+    // drop can't send a derived-status PATCH the server would 409.
+    if (task.has_subtasks) {
+      notify('error', 'Status is rolled up from subtasks')
+      return
+    }
     if (task.workflow_status !== target && isMoveBlocked(task, target)) {
       notify('error', 'Blocked by an unfinished dependency')
       return
