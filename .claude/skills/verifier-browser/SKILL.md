@@ -5,6 +5,11 @@ description: Drive the running web app in a real browser (Playwright/chromium) t
 
 # Browser verifier
 
+**Always run this skill via a subagent using the `sonnet` model** (`Agent` tool,
+`model: "sonnet"`), never inline in the main conversation. Give the subagent the
+change being verified, the relevant URL/route, and what "pass" looks like; have
+it report back screenshots/DB-truth evidence and a pass/fail verdict.
+
 The planning features are pointer-drag gestures. jsdom (the Vitest env) has no
 layout engine and no native drag, so unit tests pass while a real drag is dead.
 This skill drives the app in headless chromium to observe the real interaction.
