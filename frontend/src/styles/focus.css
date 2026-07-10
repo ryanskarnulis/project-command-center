@@ -283,25 +283,6 @@
   opacity: 0.5;
 }
 
-/* "part of <parent>" label on a subtask standing in for its parent. */
-.focus-block-parent {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
-.focus-block-parent a {
-  color: var(--text-h);
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.focus-block-parent a:hover {
-  text-decoration: underline;
-}
-
 /* Overflow "n subtasks scheduled" note. */
 .focus-partial {
   padding: 1px 8px;
@@ -333,5 +314,26 @@
 .focus-collapse-toggle svg {
   color: var(--text-muted);
   flex-shrink: 0;
+}
+
+/* Narrow screens: the time | body | actions row doesn't fit, so the card wraps —
+   body takes the full width next to the time column and the action buttons drop
+   to their own full-width row instead of overlapping the text. */
+@media (max-width: 640px) {
+  .focus-block {
+    flex-wrap: wrap;
+    gap: 10px 16px;
+  }
+
+  .focus-block-body {
+    flex: 1 1 0;
+  }
+
+  .focus-block .focus-row-actions,
+  .focus-overflow-row .focus-row-actions {
+    flex-basis: 100%;
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
 }
 
