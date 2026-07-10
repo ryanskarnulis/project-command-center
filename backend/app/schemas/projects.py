@@ -27,16 +27,3 @@ class ProjectRead(BaseModel):
     created_at: UTCDateTime
     updated_at: UTCDateTime
     deleted_at: UTCDateTime | None = None
-
-
-class ProjectAliasCreate(BaseModel):
-    alias: NonBlankStr
-
-
-class ProjectAliasRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    project_id: int
-    alias: str
-    created_at: UTCDateTime

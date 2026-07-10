@@ -19,17 +19,6 @@ export interface ProjectUpdate {
   description?: string | null
 }
 
-export interface ProjectAlias {
-  id: number
-  project_id: number
-  alias: string
-  created_at: string
-}
-
-export interface ProjectAliasCreate {
-  alias: string
-}
-
 export interface ActivityEvent {
   id: number
   project_id: number | null

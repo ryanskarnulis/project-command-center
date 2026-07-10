@@ -9,7 +9,6 @@ from app.main import app
 from app.db.models import (
     ActivityEvent,
     Project,
-    ProjectAlias,
     Task,
     TaskDependency,
 )
@@ -180,9 +179,6 @@ def test_purge_project_cleans_all_fk_edges(
     client: TestClient, db_session: Session
 ) -> None:
     pid = client.post("/api/projects", json={"name": "Firewall"}).json()["id"]
-    aid = client.post(
-        f"/api/projects/{pid}/aliases", json={"alias": "fw"}
-    ).json()["id"]
     tid = client.post(
         f"/api/projects/{pid}/tasks", json={"title": "Patch it"}
     ).json()["id"]
@@ -207,7 +203,6 @@ def test_purge_project_cleans_all_fk_edges(
     assert client.delete(f"/api/projects/{pid}/purge").status_code == 204
 
     assert db_session.get(Project, pid) is None
-    assert db_session.get(ProjectAlias, aid) is None
     assert db_session.get(Task, tid) is None  # soft-deleted owned task purged
     # Nullable FKs cleared, not dangling; the audit row itself survives.
     assert (

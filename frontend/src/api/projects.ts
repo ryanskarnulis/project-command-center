@@ -2,8 +2,6 @@ import { apiClient } from './client'
 import type {
   ActivityEvent,
   Project,
-  ProjectAlias,
-  ProjectAliasCreate,
   ProjectCreate,
   ProjectUpdate,
 } from '../types/project'
@@ -59,32 +57,6 @@ export async function restoreProject(
 
 export async function purgeProject(id: number): Promise<void> {
   await apiClient(`/api/projects/${id}/purge`, { method: 'DELETE' })
-}
-
-export async function listAliases(projectId: number): Promise<ProjectAlias[]> {
-  const res = await apiClient(`/api/projects/${projectId}/aliases`)
-  return (await res.json()) as ProjectAlias[]
-}
-
-export async function createAlias(
-  projectId: number,
-  data: ProjectAliasCreate,
-): Promise<ProjectAlias> {
-  const res = await apiClient(`/api/projects/${projectId}/aliases`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-  return (await res.json()) as ProjectAlias
-}
-
-export async function deleteAlias(
-  projectId: number,
-  aliasId: number,
-): Promise<void> {
-  await apiClient(`/api/projects/${projectId}/aliases/${aliasId}`, {
-    method: 'DELETE',
-  })
 }
 
 export async function getProjectActivity(
