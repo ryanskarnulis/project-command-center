@@ -4,6 +4,7 @@ import type { Project } from '../../types/project'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { compareTasks } from '../../utils/dates'
 import { TaskCard } from './TaskCard'
+import { isMoveBlocked } from './taskStatusRules'
 
 interface Column {
   status: TaskWorkflowStatus
@@ -29,13 +30,6 @@ interface Props {
   onSetStatus: (task: Task, target: TaskWorkflowStatus) => Promise<void>
   // Inline chip edits (priority, due date, estimate) on a card.
   onUpdate: (task: Task, patch: TaskUpdate) => Promise<void>
-}
-
-// A move into In progress or Done requires every dependency finished. "Blocked"
-// is derived server-side (is_blocked); the board mirrors the same rule the list
-// and Focus views enforce rather than letting an illegal transition reach the API.
-function isMoveBlocked(task: Task, target: TaskWorkflowStatus): boolean {
-  return task.is_blocked && task.workflow_status !== 'done' && target !== 'open'
 }
 
 export function KanbanBoard({
