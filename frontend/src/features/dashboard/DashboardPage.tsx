@@ -4,10 +4,7 @@ import type { LucideIcon } from 'lucide-react'
 import {
   AlertTriangle,
   ArrowRight,
-  Bot,
-  CheckCircle2,
   ClipboardList,
-  Clock3,
   FolderKanban,
   ListChecks,
   Plus,
@@ -17,7 +14,6 @@ import type { ProjectOpenTasksRow } from '../../types/dashboard'
 import type { Task } from '../../types/task'
 import { compareByDue, dueStatus, formatDueDate } from '../../utils/dates'
 import { projectStatus, type Tone } from '../../utils/projectStatus'
-import { UpcomingEvents } from './UpcomingEvents'
 import { useDashboard } from './useDashboard'
 
 interface MetricCardProps {
@@ -32,14 +28,6 @@ interface MetricCardProps {
   cornerLabel?: string
   cornerTo?: string
   children?: React.ReactNode
-}
-
-interface Insight {
-  icon: LucideIcon
-  title: string
-  detail: string
-  tone: Tone
-  to: string
 }
 
 function MetricCard({
@@ -155,71 +143,6 @@ function topBlockingTasks(tasks: Task[]): Task[] {
     )
 }
 
-function buildInsights(tasks: Task[]): Insight[] {
-  const blocking = topBlockingTasks(tasks)
-  const blocked = tasks.filter(
-    (task) =>
-      task.is_blocked && !task.is_blocking && task.workflow_status !== 'done',
-  )
-  const overdue = tasks.filter((task) => dueStatus(task.due_date) === 'overdue')
-  const dueSoon = tasks.filter((task) => {
-    const status = dueStatus(task.due_date, 7)
-    return status === 'today' || status === 'soon'
-  })
-  const insights: Insight[] = []
-
-  if (blocking.length > 0) {
-    const downstream = blocking.reduce(
-      (sum, task) => sum + task.blocked_task_count,
-      0,
-    )
-    insights.push({
-      icon: AlertTriangle,
-      title: pluralize(blocking.length, 'root blocker'),
-      detail: `${pluralize(downstream, 'downstream task')} waiting on them.`,
-      tone: 'red',
-      to: '/tasks?status=blocking',
-    })
-  }
-  if (blocked.length > 0) {
-    insights.push({
-      icon: AlertTriangle,
-      title: pluralize(blocked.length, 'waiting task'),
-      detail: 'These are blocked by unfinished dependencies.',
-      tone: 'neutral',
-      to: '/tasks?status=blocked',
-    })
-  }
-  if (overdue.length > 0) {
-    insights.push({
-      icon: Clock3,
-      title: `${overdue.length} overdue ${overdue.length === 1 ? 'task' : 'tasks'}`,
-      detail: 'Review due dates or clear the oldest work first.',
-      tone: 'orange',
-      to: '/tasks',
-    })
-  }
-  if (dueSoon.length > 0) {
-    insights.push({
-      icon: Target,
-      title: 'Focus opportunity',
-      detail: `You have ${dueSoon.length} task${dueSoon.length === 1 ? '' : 's'} due soon.`,
-      tone: 'green',
-      to: '/tasks',
-    })
-  }
-  if (insights.length === 0) {
-    insights.push({
-      icon: CheckCircle2,
-      title: 'Command center is clear',
-      detail: 'No blocking or overdue work right now.',
-      tone: 'green',
-      to: '/tasks',
-    })
-  }
-  return insights.slice(0, 4)
-}
-
 function projectWorkloadWidth(row: ProjectOpenTasksRow, maxOpenTasks: number): string {
   if (row.open_task_count === 0 || maxOpenTasks === 0) return '8%'
   return `${Math.max(14, Math.round((row.open_task_count / maxOpenTasks) * 100))}%`
@@ -256,7 +179,6 @@ export function DashboardPage() {
       todayCount,
       overdueCount,
       weekCount,
-      insights: buildInsights(tasks),
     }
   }, [tasks])
 
@@ -349,92 +271,61 @@ export function DashboardPage() {
         </div>
       </section>
 
-      <div className="dashboard-layout">
-        <div className="dashboard-main-grid">
-          <section className="panel projects-overview">
-            <div className="section-heading compact">
-              <div className="section-title">
-                <FolderKanban size={19} aria-hidden="true" />
-                <h2>Projects Overview</h2>
-              </div>
-              <div className="section-heading-actions">
-                <Link to="/projects">View all projects</Link>
-                <Link to="/projects?new=1" className="icon-link" aria-label="Create project">
-                  <Plus size={16} aria-hidden="true" />
-                </Link>
-              </div>
-            </div>
-            {overview.projects.length === 0 ? (
-              <div className="empty-state">No projects yet.</div>
-            ) : (
-              <div className="project-table">
-                {overview.projects.slice(0, 6).map((row) => {
-                  const projectTasks = tasksForProject(tasks, row.project_id)
-                  const status = projectStatus(projectTasks, row.open_task_count)
-                  return (
-                    <div className="project-table-row" key={row.project_id}>
-                      <div className="project-name-cell">
-                        <span className={`project-avatar tone-${status.tone}`}>
-                          <FolderKanban size={18} aria-hidden="true" />
-                        </span>
-                        <div>
-                          <Link
-                            to={`/projects/${row.project_id}`}
-                            state={{ from: 'dashboard' }}
-                          >
-                            {row.project_name}
-                          </Link>
-                          <small>{row.open_task_count} open tasks</small>
-                        </div>
-                      </div>
-                      <div className="workload-cell">
-                        <span>Workload</span>
-                        <div className="workload-bar" aria-hidden="true">
-                          <span
-                            style={{
-                              width: projectWorkloadWidth(row, maxOpenTasks),
-                            }}
-                          />
-                        </div>
-                      </div>
-                      <span className={`status-pill tone-${status.tone}`}>
-                        {status.label}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </section>
-
-          <section className="panel insights-panel">
-            <div className="section-heading compact">
-              <div className="section-title">
-                <Bot size={19} aria-hidden="true" />
-                <h2>AI Insights</h2>
-              </div>
-            </div>
-            <ul className="insight-list">
-              {dashboard.insights.map(({ icon: Icon, title, detail, tone, to }) => (
-                <li key={title}>
-                  <span className={`insight-icon tone-${tone}`}>
-                    <Icon size={20} aria-hidden="true" />
-                  </span>
-                  <div>
-                    <Link to={to}>{title}</Link>
-                    <small>{detail}</small>
-                  </div>
-                  <ArrowRight size={16} aria-hidden="true" />
-                </li>
-              ))}
-            </ul>
-          </section>
+      <section className="panel projects-overview">
+        <div className="section-heading compact">
+          <div className="section-title">
+            <FolderKanban size={19} aria-hidden="true" />
+            <h2>Projects Overview</h2>
+          </div>
+          <div className="section-heading-actions">
+            <Link to="/projects">View all projects</Link>
+            <Link to="/projects?new=1" className="icon-link" aria-label="Create project">
+              <Plus size={16} aria-hidden="true" />
+            </Link>
+          </div>
         </div>
-
-        <aside className="dashboard-rail" aria-label="Dashboard side rail">
-          <UpcomingEvents />
-        </aside>
-      </div>
+        {overview.projects.length === 0 ? (
+          <div className="empty-state">No projects yet.</div>
+        ) : (
+          <div className="project-table">
+            {overview.projects.slice(0, 6).map((row) => {
+              const projectTasks = tasksForProject(tasks, row.project_id)
+              const status = projectStatus(projectTasks, row.open_task_count)
+              return (
+                <div className="project-table-row" key={row.project_id}>
+                  <div className="project-name-cell">
+                    <span className={`project-avatar tone-${status.tone}`}>
+                      <FolderKanban size={18} aria-hidden="true" />
+                    </span>
+                    <div>
+                      <Link
+                        to={`/projects/${row.project_id}`}
+                        state={{ from: 'dashboard' }}
+                      >
+                        {row.project_name}
+                      </Link>
+                      <small>{row.open_task_count} open tasks</small>
+                    </div>
+                  </div>
+                  <div className="workload-cell">
+                    <span>Workload</span>
+                    <div className="workload-bar" aria-hidden="true">
+                      <span
+                        style={{
+                          width: projectWorkloadWidth(row, maxOpenTasks),
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <span className={`status-pill tone-${status.tone}`}>
+                    {status.label}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
     </div>
   )
 }
