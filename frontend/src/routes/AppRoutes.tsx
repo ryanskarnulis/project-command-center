@@ -1,5 +1,4 @@
 import { Navigate, createBrowserRouter } from 'react-router-dom'
-import { CalendarPage } from '../features/calendar/CalendarPage'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { NotFoundPage } from '../features/errors/NotFoundPage'
 import { RouteErrorBoundary } from '../features/errors/RouteErrorBoundary'
@@ -19,7 +18,6 @@ export const routes = [
       { path: '/', element: <Navigate to="/dashboard" replace /> },
       { path: '/dashboard', element: <DashboardPage /> },
       { path: '/today', element: <TodayPage /> },
-      { path: '/calendar', element: <CalendarPage /> },
       { path: '/tasks', element: <TasksPage /> },
       { path: '/tasks/:taskId', element: <TaskDetailRedirect /> },
       { path: '/projects', element: <ProjectsPage /> },

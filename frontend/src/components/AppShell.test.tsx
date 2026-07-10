@@ -21,7 +21,6 @@ describe('AppShell', () => {
     const nav = screen.getByLabelText('Primary navigation')
     expect(within(nav).getByRole('link', { name: 'Command Center' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Today' })).toBeInTheDocument()
-    expect(within(nav).getByRole('link', { name: 'Calendar' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Tasks' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Projects' })).toBeInTheDocument()
   })

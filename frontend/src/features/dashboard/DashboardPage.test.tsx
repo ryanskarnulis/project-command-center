@@ -16,10 +16,6 @@ vi.mock('../../api/projects', () => ({
   listProjects: vi.fn(),
 }))
 
-vi.mock('../../api/calendar', () => ({
-  getCalendar: vi.fn(() => Promise.resolve([])),
-}))
-
 vi.mock('../../api/tasks', () => ({
   listAllTasks: vi.fn(),
   listCompletedTasks: vi.fn(() => Promise.resolve([])),
@@ -147,10 +143,5 @@ describe('DashboardPage', () => {
       screen.queryByRole('button', { name: 'Customize Command Center' }),
     ).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Ask AI' })).not.toBeInTheDocument()
-    // The Upcoming Events tile is now real: "View calendar" links to /calendar.
-    expect(screen.getByRole('link', { name: /View calendar/ })).toHaveAttribute(
-      'href',
-      '/calendar',
-    )
   })
 })

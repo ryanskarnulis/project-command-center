@@ -111,7 +111,7 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "tasks"
     # Read-path indexes (Sprint 29 hardening). Profiled against the real service
     # queries, not the raw column list, to avoid dead write-overhead:
-    #   * The active-task list, calendar feed, and search all filter
+    #   * The active-task list and search both filter
     #     ``deleted_at IS NULL`` together with ``review_status`` — one compound
     #     index serves them, and its leading ``deleted_at`` column also covers
     #     the trash queries' ``deleted_at IS NOT NULL`` scan, so no standalone

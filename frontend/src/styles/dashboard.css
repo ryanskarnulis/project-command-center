@@ -507,24 +507,3 @@
   font-size: 12px;
 }
 
-.upcoming-view-calendar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
-  min-height: 42px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text-h);
-  font-size: 13px;
-  font-weight: 720;
-  padding: 9px 11px;
-  text-decoration: none;
-}
-
-.upcoming-view-calendar:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-soft);
-}
-

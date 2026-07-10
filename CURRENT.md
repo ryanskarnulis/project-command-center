@@ -87,13 +87,16 @@ filtering), `confidence` (extraction-only, read-only in `TaskRead`), and
 `assignee_hint` (settable via the task API). Collapsing/removing them is one
 follow-up.
 
-## Slice 3 — Strip the calendar (BE + FE)
+## Slice 3 — Strip the calendar (BE + FE) ✅
 
-- [ ] Delete `routes_calendar.py`, `services/calendar.py`, and
-      `frontend/src/features/calendar/` + nav entry.
-- [ ] Check first: does Today or the dashboard import any calendar date logic?
-      Relocate before deleting, don't reimplement.
-- [ ] No schema change expected (calendar reads the `tasks` table).
+- [x] Deleted `routes_calendar.py`, `services/calendar.py`,
+      `tests/test_calendar.py`, `frontend/src/api/calendar.ts`, and
+      `frontend/src/features/calendar/` + nav entry, route, and router include.
+- [x] Dashboard `UpcomingEvents` reused the calendar feed — rewired it onto
+      `listAllTasks` + `utils/dates` (client-side range filter) and dropped the
+      "View calendar" link/CSS. No date logic reimplemented; Today untouched.
+- [x] No schema change (calendar read the `tasks` table).
+- [x] `README.md` + `CLAUDE.md` calendar references removed.
 
 ## Slice 4 — Post-strip sweep
 
