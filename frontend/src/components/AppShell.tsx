@@ -16,10 +16,8 @@ import { TASK_DRAG_TYPE } from '../features/tasks/TaskCard'
 import { CommandSearch } from '../features/search/CommandSearch'
 import {
   CheckSquare,
-  ChevronDown,
   FolderKanban,
   LayoutDashboard,
-  ShieldCheck,
   Sun,
   Trash2,
 } from 'lucide-react'
@@ -159,16 +157,6 @@ export function AppShell({ children }: AppShellProps) {
             )
           })}
         </nav>
-
-        <section className="focus-session" aria-label="Workspace status">
-          <div className="focus-session-icon">
-            <ShieldCheck size={19} aria-hidden="true" />
-          </div>
-          <div>
-            <strong>Local workspace</strong>
-            <span>Saved on this device</span>
-          </div>
-        </section>
       </aside>
 
       <div className="app-content">
@@ -179,22 +167,9 @@ export function AppShell({ children }: AppShellProps) {
           </div>
 
           <CommandSearch />
-
-          <div className="topbar-actions">
-            <div className="local-profile" aria-label="Local workspace">
-              <ShieldCheck size={18} aria-hidden="true" />
-              <span>Local</span>
-              <ChevronDown size={15} aria-hidden="true" />
-            </div>
-          </div>
         </header>
 
         <div className="app-main">{children}</div>
-
-        <footer className="sync-footer">
-          <ShieldCheck size={15} aria-hidden="true" />
-          <span>Local-first workspace. No cloud sync configured.</span>
-        </footer>
       </div>
     </div>
   )
