@@ -1,4 +1,11 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -229,6 +236,34 @@ describe('DashboardPage', () => {
     expect(
       within(portal).getByRole('button', { name: 'Hide done (1)' }),
     ).toBeInTheDocument()
+  })
+
+  it('refiles a card dropped on another project lane', async () => {
+    renderPage()
+    await screen.findByRole('heading', { name: 'Project board' })
+
+    // Task 3 lives in Training Rollout (open); drop it on Customer Portal.
+    const dataTransfer = { getData: () => '3', types: ['text/plain'] }
+    const openColumn = within(lane('Customer Portal')).getByRole('region', {
+      name: 'Customer Portal Open',
+    })
+    fireEvent.drop(openColumn, { dataTransfer })
+    // Same column status, so only the project changes.
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(3, { project_id: 1 }),
+    )
+
+    const progressColumn = within(lane('Customer Portal')).getByRole('region', {
+      name: 'Customer Portal In progress',
+    })
+    fireEvent.drop(progressColumn, { dataTransfer })
+    // Different column: the card adopts the column status in the same PATCH.
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(3, {
+        project_id: 1,
+        workflow_status: 'in_progress',
+      }),
+    )
   })
 
   it('routes the complete circle through the recurrence-safe done endpoint', async () => {

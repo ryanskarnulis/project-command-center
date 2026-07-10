@@ -40,6 +40,8 @@ interface LaneProps {
   activeTasks: Task[]
   /** Root tasks after the signal filter — what the columns render. */
   visibleTasks: Task[]
+  /** Board-wide lookup so a card dragged from another lane can be resolved. */
+  boardTasksById: Map<number, Task>
   signal: DashboardSignal | null
   onSetStatus: BoardProps['onSetStatus']
   onUpdate: BoardProps['onUpdate']
@@ -60,6 +62,7 @@ function DashboardSwimlane({
   project,
   activeTasks,
   visibleTasks,
+  boardTasksById,
   signal,
   onSetStatus,
   onUpdate,
@@ -135,12 +138,43 @@ function DashboardSwimlane({
     }
   }
 
+  // A drop from another lane refiles the task into this project (and adopts
+  // the column's status). One PATCH so the move is atomic and singly audited.
+  async function moveAcross(
+    task: Task,
+    target: TaskWorkflowStatus,
+  ): Promise<void> {
+    // Parents aren't draggable, but guard anyway (mirrors move()) so a stray
+    // drop can't send a derived-status PATCH the server would 409.
+    if (task.has_subtasks) {
+      notify('error', 'Status is rolled up from subtasks')
+      return
+    }
+    if (task.workflow_status !== target && isMoveBlocked(task, target)) {
+      notify('error', 'Blocked by an unfinished dependency')
+      return
+    }
+    const patch: TaskUpdate = { project_id: project.project_id }
+    if (task.workflow_status !== target) patch.workflow_status = target
+    await onUpdate(task, patch)
+  }
+
   function onDrop(target: TaskWorkflowStatus, event: DragEvent): void {
     event.preventDefault()
     setDragOverStatus(null)
     const raw = event.dataTransfer.getData('text/plain')
-    const task = raw ? byId.get(Number(raw)) : undefined
-    if (task) void move(task, target)
+    if (!raw) return
+    const id = Number(raw)
+    const local = byId.get(id)
+    if (local) {
+      void move(local, target)
+      return
+    }
+    // Not one of ours: a card dragged over from another project's lane.
+    // (Done-archive cards resolve only within their own lane, so a done task
+    // can't be refiled from here — reopen or use the task panel instead.)
+    const foreign = boardTasksById.get(id)
+    if (foreign) void moveAcross(foreign, target)
   }
 
   function renderCard(task: Task) {
@@ -306,6 +340,15 @@ export function DashboardSwimlaneBoard({
   // Local copy so a lane drag can live-preview the new order; server data
   // (refetched after the reorder call) re-seeds it.
   const [lanes, setLanes] = useState(projects)
+  // Cross-lane drops carry only a task id; resolve it against every card the
+  // board can render (active roots — done-archive cards stay lane-local).
+  const boardTasksById = useMemo(() => {
+    const map = new Map<number, Task>()
+    for (const task of tasks) {
+      if (task.parent_task_id === null) map.set(task.id, task)
+    }
+    return map
+  }, [tasks])
   const [draggedId, setDraggedId] = useState<number | null>(null)
   // Distinguishes a completed reorder drop from a cancelled drag in dragend.
   const dropCommitted = useRef(false)
@@ -373,6 +416,7 @@ export function DashboardSwimlaneBoard({
             project={project}
             activeTasks={activeTasks}
             visibleTasks={visibleTasks}
+            boardTasksById={boardTasksById}
             signal={signal}
             onSetStatus={onSetStatus}
             onUpdate={onUpdate}
