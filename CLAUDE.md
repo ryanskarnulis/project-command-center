@@ -49,10 +49,9 @@ pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
    `activity_events`. Never let anything — route handler, agent tool, script —
    write around it.
 
-2. **The remaining legacy subsystem is being removed; do not extend it.** The
-   calendar is scheduled for deletion (see the strip epic in `CURRENT.md`).
-   Touch that code only to delete it. If a request would grow it, raise the
-   conflict.
+2. **The legacy subsystems have been removed; do not resurrect them.** The AI
+   subsystem, training pipeline, inbox, Discord bot, and calendar are gone (git
+   history has the old code). If a request would rebuild one, raise the conflict.
 
 3. **Agent work (Phase 2) starts only after the strip is done**, and inherits
    rule 1: the agent acts exclusively through tools backed by the service
@@ -103,12 +102,10 @@ pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
 - **No state library.** React state + context. If you think there's a real
   reason for one, raise it first.
 
-## Legacy subsystems (removal in progress)
+## Legacy subsystems (removed)
 
-The AI subsystem, training pipeline, inbox, and Discord bot have been removed
-— git history has the old rules and code. The calendar is the one remaining
-legacy subsystem scheduled for deletion (Slice 3): frozen until then — no
-fixes, no extensions, deletion only.
+The AI subsystem, training pipeline, inbox, Discord bot, and calendar have all
+been removed — git history has the old rules and code. Don't resurrect them.
 
 ## Network rules
 

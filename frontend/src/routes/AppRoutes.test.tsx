@@ -15,10 +15,6 @@ vi.mock('../features/tasks/TasksPage', () => ({
   TasksPage: () => <main>Tasks page</main>,
 }))
 
-vi.mock('../features/calendar/CalendarPage', () => ({
-  CalendarPage: () => <main>Calendar page</main>,
-}))
-
 vi.mock('../features/projects/ProjectDetailPage', () => ({
   ProjectDetailPage: () => <main>Project detail page</main>,
 }))
