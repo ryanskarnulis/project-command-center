@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { createProject, reorderProjects } from '../../api/projects'
+import { createProject, reopenProject, reorderProjects } from '../../api/projects'
 import type { ProjectCreate } from '../../types/project'
 import { ProjectFormModal } from '../projects/ProjectFormModal'
 import { markTaskDone, reopenTask, updateTask } from '../../api/tasks'
@@ -15,7 +15,8 @@ import type { DashboardSignal } from './dashboardSignals'
 import { useDashboard } from './useDashboard'
 
 export function DashboardPage() {
-  const { overview, tasks, loading, refreshing, error, reload } = useDashboard()
+  const { overview, tasks, closedProjects, loading, refreshing, error, reload } =
+    useDashboard()
   const { withToast } = useToast()
   const { bump: bumpTaskRefresh } = useTaskRefresh()
   const [signal, setSignal] = useState<DashboardSignal | null>(null)
@@ -62,6 +63,12 @@ export function DashboardPage() {
     await withToast(reorderProjects(projectIds), {
       success: 'Projects reordered',
     })
+    bumpTaskRefresh()
+  }
+
+  async function handleReopenProject(projectId: number): Promise<void> {
+    await withToast(reopenProject(projectId), { success: 'Project reopened' })
+    reload()
     bumpTaskRefresh()
   }
 
@@ -128,6 +135,25 @@ export function DashboardPage() {
           onReorder={handleReorder}
           onCreateProject={() => setCreatingProject(true)}
         />
+
+        {closedProjects.length > 0 && (
+          <details className="dashboard-closed-projects">
+            <summary>Closed projects ({closedProjects.length})</summary>
+            <ul>
+              {closedProjects.map((project) => (
+                <li key={project.id}>
+                  <Link to={`/projects/${project.id}`}>{project.name}</Link>
+                  <button
+                    type="button"
+                    onClick={() => void handleReopenProject(project.id)}
+                  >
+                    Reopen
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
 
         {creatingProject && (
           <ProjectFormModal

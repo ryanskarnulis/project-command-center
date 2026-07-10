@@ -35,8 +35,10 @@ def _get_or_404(db: Session, project_id: int) -> Project:
 
 
 @router.get("", response_model=list[ProjectRead])
-def list_projects(db: Session = Depends(get_db)) -> Sequence[Project]:
-    return projects_service.list_projects(db)
+def list_projects(
+    include_closed: bool = False, db: Session = Depends(get_db)
+) -> Sequence[Project]:
+    return projects_service.list_projects(db, include_closed=include_closed)
 
 
 # Declared before /{project_id} so "order" isn't parsed as a project id.
@@ -83,6 +85,29 @@ def update_project(
     db.refresh(updated)
     logger.info("project_updated", project_id=updated.id)
     return updated
+
+
+@router.post("/{project_id}/close", response_model=ProjectRead)
+def close_project(project_id: int, db: Session = Depends(get_db)) -> Project:
+    project = _get_or_404(db, project_id)
+    try:
+        closed = projects_service.close_project(db, project)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(closed)
+    logger.info("project_closed", project_id=closed.id)
+    return closed
+
+
+@router.post("/{project_id}/reopen", response_model=ProjectRead)
+def reopen_project(project_id: int, db: Session = Depends(get_db)) -> Project:
+    project = _get_or_404(db, project_id)
+    reopened = projects_service.reopen_project(db, project)
+    db.commit()
+    db.refresh(reopened)
+    logger.info("project_reopened", project_id=reopened.id)
+    return reopened
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)

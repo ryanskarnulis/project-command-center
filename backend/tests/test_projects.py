@@ -221,3 +221,53 @@ def test_new_project_appends_after_reorder(db_session: Session) -> None:
         a.id,
         c.id,
     ]
+
+
+def test_close_and_reopen_project(db_session: Session) -> None:
+    project = projects_service.create_project(db_session, name="Old initiative")
+    task = tasks_service.create_task(
+        db_session, project_id=project.id, title="lingering task"
+    )
+    db_session.commit()
+
+    projects_service.close_project(db_session, project)
+    db_session.commit()
+    assert project.closed_at is not None
+    # Hidden from the default list, still fetchable directly, tasks untouched.
+    assert project.id not in [p.id for p in projects_service.list_projects(db_session)]
+    assert project.id in [
+        p.id for p in projects_service.list_projects(db_session, include_closed=True)
+    ]
+    assert projects_service.get_project(db_session, project.id) is not None
+    fetched_task = tasks_service.get_task(db_session, task.id)
+    assert fetched_task is not None and fetched_task.deleted_at is None
+
+    projects_service.reopen_project(db_session, project)
+    db_session.commit()
+    assert project.closed_at is None
+    assert project.id in [p.id for p in projects_service.list_projects(db_session)]
+
+
+def test_close_project_refuses_general(db_session: Session) -> None:
+    general = projects_service.ensure_default_project(db_session)
+    db_session.commit()
+    with pytest.raises(ValueError, match="protected"):
+        projects_service.close_project(db_session, general)
+
+
+def test_close_and_reopen_routes(client: TestClient) -> None:
+    created = client.post("/api/projects", json={"name": "Route close"}).json()
+    project_id = created["id"]
+
+    closed = client.post(f"/api/projects/{project_id}/close")
+    assert closed.status_code == 200
+    assert closed.json()["closed_at"] is not None
+
+    default_list = client.get("/api/projects").json()
+    assert project_id not in [p["id"] for p in default_list]
+    full_list = client.get("/api/projects?include_closed=true").json()
+    assert project_id in [p["id"] for p in full_list]
+
+    reopened = client.post(f"/api/projects/{project_id}/reopen")
+    assert reopened.status_code == 200
+    assert reopened.json()["closed_at"] is None

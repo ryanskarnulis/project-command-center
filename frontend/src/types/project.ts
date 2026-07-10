@@ -7,6 +7,7 @@ export interface Project {
   is_protected: boolean
   created_at: string
   updated_at: string
+  closed_at?: string | null
   deleted_at?: string | null
 }
 

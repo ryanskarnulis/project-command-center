@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getDashboard } from '../../api/dashboard'
+import { listProjects } from '../../api/projects'
 import { listAllTasks } from '../../api/tasks'
 import type { DashboardOverview } from '../../types/dashboard'
+import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { useTaskRefresh } from '../tasks/taskRefreshContext'
 
 interface UseDashboard {
   overview: DashboardOverview | null
   tasks: Task[]
+  /** Closed (hidden) projects, so the board can offer a way back to them. */
+  closedProjects: Project[]
   /** True only during the initial load; a background refetch uses `refreshing`. */
   loading: boolean
   /** True while a reload/cross-page refetch is in flight after the first load. */
@@ -19,6 +23,7 @@ interface UseDashboard {
 export function useDashboard(): UseDashboard {
   const [overview, setOverview] = useState<DashboardOverview | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
+  const [closedProjects, setClosedProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -34,11 +39,12 @@ export function useDashboard(): UseDashboard {
   useEffect(() => {
     let active = true
     if (hasLoaded.current) setRefreshing(true)
-    Promise.all([getDashboard(), listAllTasks()])
-      .then(([overview, tasks]) => {
+    Promise.all([getDashboard(), listAllTasks(), listProjects(true)])
+      .then(([overview, tasks, projects]) => {
         if (!active) return
         setOverview(overview)
         setTasks(tasks)
+        setClosedProjects(projects.filter((p) => p.closed_at != null))
         setError(null)
       })
       .catch((err: unknown) => {
@@ -60,6 +66,7 @@ export function useDashboard(): UseDashboard {
   return {
     overview,
     tasks,
+    closedProjects,
     loading,
     refreshing,
     error,

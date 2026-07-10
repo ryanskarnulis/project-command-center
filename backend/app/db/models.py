@@ -63,6 +63,9 @@ class Project(Base, TimestampMixin, SoftDeleteMixin):
     name: Mapped[str]
     description: Mapped[str | None] = mapped_column(default=None)
     system_key: Mapped[str | None] = mapped_column(default=None, unique=True)
+    # Closed = archived-but-visible-on-request: hidden from the board and
+    # pickers, tasks untouched, reversible anytime (unlike the trash).
+    closed_at: Mapped[datetime | None] = mapped_column(default=None)
     # Manual board/sidebar position; ties broken by id so new projects
     # (sort_order 0 until first reorder) keep creation order.
     sort_order: Mapped[int] = mapped_column(default=0, server_default="0")

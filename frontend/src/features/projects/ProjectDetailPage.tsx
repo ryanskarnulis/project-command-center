@@ -1,7 +1,13 @@
 import { type KeyboardEvent, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '../../api/client'
-import { deleteProject, getProject, updateProject } from '../../api/projects'
+import {
+  closeProject,
+  deleteProject,
+  getProject,
+  reopenProject,
+  updateProject,
+} from '../../api/projects'
 import { listCompletedTasks, listTasks, markTaskDone, updateTask } from '../../api/tasks'
 import { useToast } from '../../components/ToastContext'
 import type { Project, ProjectUpdate } from '../../types/project'
@@ -166,6 +172,24 @@ export function ProjectDetailPage() {
     navigate('/dashboard')
   }
 
+  async function handleCloseProject(): Promise<void> {
+    if (!project) return
+    const updated = await withToast(closeProject(project.id), {
+      success: 'Project closed',
+    })
+    setProject(updated)
+    setActivityKey((k) => k + 1)
+  }
+
+  async function handleReopenProject(): Promise<void> {
+    if (!project) return
+    const updated = await withToast(reopenProject(project.id), {
+      success: 'Project reopened',
+    })
+    setProject(updated)
+    setActivityKey((k) => k + 1)
+  }
+
   async function handleCompleteTask(t: Task): Promise<void> {
     await withToast(markTaskDone(t.id), { success: 'Task marked done' })
     setTasksReloadKey((k) => k + 1)
@@ -228,13 +252,23 @@ export function ProjectDetailPage() {
             </span>
           )}
           {!project.is_protected && (
-            <button
-              type="button"
-              className="danger-action"
-              onClick={() => void handleDeleteProject()}
-            >
-              Delete project
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  void (project.closed_at ? handleReopenProject() : handleCloseProject())
+                }
+              >
+                {project.closed_at ? 'Reopen project' : 'Close project'}
+              </button>
+              <button
+                type="button"
+                className="danger-action"
+                onClick={() => void handleDeleteProject()}
+              >
+                Delete project
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -254,6 +288,7 @@ export function ProjectDetailPage() {
           <span className={`status-pill tone-${stats.status.tone}`}>{stats.status.label}</span>
           <span className="estimate">{stats.open} open · {stats.done} done</span>
           {project.is_protected && <span className="source-pill">Protected</span>}
+          {project.closed_at && <span className="source-pill">Closed</span>}
         </div>
         {stats.open + stats.done > 0 && (
           <div className="project-progress" aria-hidden="true">

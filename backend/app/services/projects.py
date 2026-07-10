@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.db.models import ActivityEvent, Project, Task
+from app.db.models import ActivityEvent, Project, Task, utcnow
 from app.services import activity
 from app.services.common import active, deleted, hard_delete, restore, soft_delete
 
@@ -15,10 +15,11 @@ DEFAULT_PROJECT_DESCRIPTION = "Default project for unfiled tasks"
 DEFAULT_PROJECT_SYSTEM_KEY = "general"
 
 
-def list_projects(db: Session) -> Sequence[Project]:
-    return db.execute(
-        active(Project).order_by(Project.sort_order, Project.id)
-    ).scalars().all()
+def list_projects(db: Session, *, include_closed: bool = False) -> Sequence[Project]:
+    stmt = active(Project)
+    if not include_closed:
+        stmt = stmt.where(Project.closed_at.is_(None))
+    return db.execute(stmt.order_by(Project.sort_order, Project.id)).scalars().all()
 
 
 def get_project(db: Session, project_id: int) -> Project | None:
@@ -100,15 +101,57 @@ def update_project(db: Session, project: Project, fields: Mapping[str, Any]) -> 
     return project
 
 
+def close_project(db: Session, project: Project) -> Project:
+    """Close (archive) a project: hidden from the default list, tasks untouched.
+
+    Unlike a soft delete this is instantly reversible via ``reopen_project`` and
+    never cascades to tasks. Protected projects (General) can't be closed — they
+    are the landing spot for unfiled tasks.
+    """
+    if project.is_protected:
+        raise ValueError(f'Project "{project.name}" is protected and cannot be closed')
+    if project.closed_at is None:
+        project.closed_at = utcnow()
+        db.flush()
+        activity.record_event(
+            db,
+            project_id=project.id,
+            entity_type="project",
+            entity_id=project.id,
+            action="closed",
+            summary=f'Project "{project.name}" closed',
+        )
+    return project
+
+
+def reopen_project(db: Session, project: Project) -> Project:
+    if project.closed_at is not None:
+        project.closed_at = None
+        # A reopened project rejoins the manual order at the end, like a new one.
+        project.sort_order = db.execute(
+            select(func.coalesce(func.max(Project.sort_order), 0) + 1)
+        ).scalar_one()
+        db.flush()
+        activity.record_event(
+            db,
+            project_id=project.id,
+            entity_type="project",
+            entity_id=project.id,
+            action="reopened",
+            summary=f'Project "{project.name}" reopened',
+        )
+    return project
+
+
 def reorder_projects(db: Session, ordered_ids: Sequence[int]) -> Sequence[Project]:
-    """Set the manual project order to ``ordered_ids`` (all active projects).
+    """Set the manual project order to ``ordered_ids`` (all open active projects).
 
     Requires the full active set so a stale client can't silently drop a
     project to the front/back; raises ValueError on any mismatch.
     """
     projects = list_projects(db)
     if sorted(ordered_ids) != sorted(project.id for project in projects):
-        raise ValueError("ordered_ids must be exactly the active project ids")
+        raise ValueError("ordered_ids must be exactly the open project ids")
 
     by_id = {project.id: project for project in projects}
     for position, project_id in enumerate(ordered_ids, start=1):
