@@ -100,15 +100,21 @@ follow-up.
 
 ## Slice 4 — Post-strip sweep
 
-- [ ] `README.md` full pass: intro, stack, architecture diagram, repo layout,
-      schema section, dev commands all describe only what exists.
-- [ ] `CLAUDE.md` pass: remove the strip-era transition rules; the constitution
-      describes the simple core + agent direction only.
-- [ ] Dead-config hunt: `.env.example`s, `docker-compose.yml`, `app.yaml`,
-      unused deps in `pyproject.toml`/`package.json` (regenerate
-      `requirements.lock` if backend deps change).
-- [ ] Grep for stragglers: `ollama`, `inbox`, `discord`, `training`, `calendar`,
-      `candidate` across backend, frontend, scripts, and docs.
+- [x] `README.md` full pass: dropped the strip-in-progress note and removal
+      narrative (history lives in git/`DONE.md`); roadmap now shows only
+      Phase 2; repo layout gained `schemas/` + `refresh_design_kit.sh`;
+      `review_status` bullet reworded as vestigial with the `TODO.md` pointer.
+- [x] `CLAUDE.md` pass: strip-era framing removed; the "don't resurrect"
+      directive and duplicate "Legacy subsystems" section dropped entirely
+      (decision 2026-07-09 — scope discipline + "Do not build yet" cover it).
+- [x] Dead-config hunt: removed `discord.py`, `pyyaml`, `types-PyYAML` from
+      `pyproject.toml` (moved `httpx` to dev extras — test-client only),
+      regenerated `requirements.lock`; rewrote the stale Settings-write-guard
+      comment in root `.env.example` and the `require_local_write` docstring;
+      deleted the untracked leftover `backend/app/ai/profiles.local.yaml`.
+- [x] Grep for stragglers: remaining hits are intentional — alembic history,
+      the deferred `review_status`/`candidate` code (`TODO.md` cleanup), and
+      changelogs.
 
 ---
 

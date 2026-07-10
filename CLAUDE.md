@@ -6,10 +6,10 @@ acting.
 
 ## What this project is
 
-A local-first project and task management web app, being stripped to a simple
-core ahead of building a local agent (llama.cpp + tools + MCP + retrieval) on
-top of it. See `README.md` for the architecture and the direction-change note;
-`TODO.md` for the backlog (including the Phase 2 agent plan); `CURRENT.md` for
+A local-first project and task management web app — a simple, boring, reliable
+core (projects, tasks, Today, search, trash, dashboard) that a local agent
+(llama.cpp + tools + MCP + retrieval) will be built on top of. See `README.md`
+for the architecture; `TODO.md` for the backlog (including the Phase 2 agent plan); `CURRENT.md` for
 the checked-out focus; `DONE.md` for the changelog. This file is rules of
 engagement, not the plan.
 
@@ -23,7 +23,9 @@ engagement, not the plan.
 
 After intentionally bumping a backend dependency, regenerate the lock:
 `cd backend && .venv/bin/python -m pip freeze --exclude-editable > requirements.lock`.
-Docker deployment details are in `README.md`.
+
+The deployed instance runs via `docker compose` (see `README.md`); `./main.sh`
+is dev-only. Don't run both against the same `data/` directory at once.
 
 For frontend changes whose surface is the rendered page — especially
 pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
@@ -49,17 +51,13 @@ pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
    `activity_events`. Never let anything — route handler, agent tool, script —
    write around it.
 
-2. **The legacy subsystems have been removed; do not resurrect them.** The AI
-   subsystem, training pipeline, inbox, Discord bot, and calendar are gone (git
-   history has the old code). If a request would rebuild one, raise the conflict.
+2. **The agent (Phase 2) inherits rule 1**: it acts exclusively through tools
+   backed by the service layer, every action auditable in `activity_events`
+   and undoable via the trash. No hard deletes from the agent, ever. Model
+   outputs are validated with Pydantic at the boundary — no best-effort
+   parsing of bad JSON.
 
-3. **Agent work (Phase 2) starts only after the strip is done**, and inherits
-   rule 1: the agent acts exclusively through tools backed by the service
-   layer, every action auditable in `activity_events` and undoable via the
-   trash. No hard deletes from the agent, ever. Model outputs are validated
-   with Pydantic at the boundary — no best-effort parsing of bad JSON.
-
-4. **Local-first stays load-bearing.** The agent runs on llama.cpp on this
+3. **Local-first stays load-bearing.** The agent runs on llama.cpp on this
    machine; retrieval stays in-process (FTS5 first, `sqlite-vec` only if
    needed). No cloud model providers, no external vector DB.
 
@@ -102,11 +100,6 @@ pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
 - **No state library.** React state + context. If you think there's a real
   reason for one, raise it first.
 
-## Legacy subsystems (removed)
-
-The AI subsystem, training pipeline, inbox, Discord bot, and calendar have all
-been removed — git history has the old rules and code. Don't resurrect them.
-
 ## Network rules
 
 - Default bind is `127.0.0.1`, but **LAN exposure via `API_HOST=0.0.0.0` is an
@@ -121,9 +114,6 @@ been removed — git history has the old rules and code. Don't resurrect them.
 
 ## Working with the user
 
-- **Plan mode first for non-trivial work** (more than ~2 files or a new concept).
-- **Small, reviewable diffs.** If you're about to produce 500+ lines across many
-  files in one go, stop and break it up.
 - **State assumptions inline**: "Assumed X because Y — change if wrong."
 - **Push back when something seems wrong.** Code-review-level honesty, not
   yes-manning. Don't apologize reflexively — acknowledge, fix, move on.
@@ -134,9 +124,9 @@ been removed — git history has the old rules and code. Don't resurrect them.
 2. At least one happy-path backend test (pytest); the user handles frontend
    tests later.
 3. Structured logs with request IDs.
-4. If it deletes a feature (strip slices): its `README.md`/`CLAUDE.md`
-   sections, routes, services, frontend feature folder, env vars, and tables
-   (migration) all go in the same PR.
+4. If it deletes a feature: its `README.md`/`CLAUDE.md` sections, routes,
+   services, frontend feature folder, env vars, and tables (migration) all go
+   in the same PR.
 5. If it touches the schema: Alembic migration committed.
 6. `README.md` updated if setup steps, dev commands, schema, or status changed.
 

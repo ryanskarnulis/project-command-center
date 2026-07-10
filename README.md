@@ -3,12 +3,7 @@
 A local-first project and task management web app: projects, tasks (subtasks,
 dependencies, recurrence), Today, search, trash, dashboard. A local agent
 (llama.cpp + tools + MCP + retrieval) that operates the app through its service
-layer is the next major direction.
-
-> **Direction change (2026-07-09), strip in progress.** The AI-assisted-capture
-> / training-data / custom-model track, the inbox, the Discord bot, and the
-> calendar have been **removed** — see the strip epic in `CURRENT.md`. The agent
-> plan lives in `TODO.md` ("Phase 2 — local agent").
+layer is the next major direction (`TODO.md`, "Phase 2 — local agent").
 
 ## Core principle
 
@@ -33,17 +28,6 @@ Backups:       scripts/backup_db.sh (stdlib sqlite3 online backup) + cron;
                Litestream continuous WAL replication (docker sidecar)
 ```
 
-## Architecture
-
-```
-React Web App
-  ↓
-FastAPI Backend
-  └── Project / Task / Today / Search / Trash APIs
-       ↓
-SQLite Database
-```
-
 ## Repo layout
 
 ```
@@ -51,6 +35,7 @@ backend/app/
   main.py, config.py, logging_config.py
   api/          route modules (routes_*.py), guards, rate limiting
   db/           models.py, session.py
+  schemas/      Pydantic v2 request/response schemas, one module per feature
   alembic/      migrations
   services/     one responsibility per module (tasks, projects, trash, today,
                 recurrence, dependencies, …)
@@ -63,7 +48,7 @@ frontend/src/
   routes/, types/
 
 data/           app.db + backups/
-scripts/        backup_db.sh
+scripts/        backup_db.sh, refresh_design_kit.sh
 main.sh         dev bootstrap + run
 test.sh         full quality gate
 ```
@@ -79,10 +64,11 @@ Key decisions:
   through a service-layer helper. The only true delete is user-triggered purge
   from `/trash`, and only of already-soft-deleted rows. Exception:
   `activity_events` is an append-only log with no `deleted_at`.
-- Tasks carry a `review_status` (`candidate | accepted | rejected`) alongside
-  user-facing progress in `workflow_status` (`open | in_progress | done`); a
-  follow-up will collapse `review_status` now that the capture flow that
-  produced candidates is gone.
+- Tasks carry a vestigial `review_status` (`candidate | accepted | rejected`)
+  alongside user-facing progress in `workflow_status`
+  (`open | in_progress | done`). Nothing creates `candidate` tasks anymore; a
+  scheduled follow-up (`TODO.md`) collapses `review_status` and its compound
+  index.
 - **Subtasks** nest via nullable `parent_task_id` (a tree — cycles refused with
   `409`). Deleting a parent cascade-soft-deletes the subtree; restore is
   per-task. A parent's estimate and status **roll up from accepted subtasks**
@@ -107,23 +93,18 @@ Key decisions:
 
 ## Status & roadmap
 
-Sprints 0–25 shipped the full core (tasks/projects, recurrence, subtasks +
-dependencies, Today, trash, dashboard, docker + litestream deploy). A
-Gantt/calendar planning epic was built and then **removed** — it didn't earn
-its complexity, and the rest of the calendar has followed it out in the strip.
-The AI-assisted capture flow, the inbox, the training pipeline, and the Discord
-bot have been removed as part of the current strip.
+The core is complete and stable: tasks/projects, recurrence, subtasks +
+dependencies, Today, search, trash, dashboard, docker + litestream deploy.
 
-- `CURRENT.md` — the checked-out focus (currently: the strip epic)
+- `CURRENT.md` — the checked-out focus
 - `TODO.md` — the backlog, including the Phase 2 agent plan
 - `DONE.md` — changelog
 
-Roadmap in two phases:
+Next up:
 
 ```
-Phase 1 (in progress): strip AI, training, inbox, Discord, calendar → simple core
-Phase 2:        local agent — llama.cpp runtime, PCC MCP server (service layer
-                as tools), agent loop, FTS5-first retrieval, chat UI
+Phase 2: local agent — llama.cpp runtime, PCC MCP server (service layer
+         as tools), agent loop, FTS5-first retrieval, chat UI
 ```
 
 ## Do not build yet
@@ -181,40 +162,11 @@ snapshot path — run it on the host against `data/app.db`, or from inside the
 container.
 
 **Continuous replication (Litestream).** The `litestream` compose service streams
-`data/app.db`'s write-ahead log to a replica as writes land, giving point-in-time
-recovery *between* the coarse snapshots `backup_db.sh` takes. The two **complement
-each other — keep running both**; Litestream is not a snapshot archive. By default
-it writes a local file replica to `data/replica/` (zero config, no credentials).
-That protects against app-level corruption, a bad migration, or a mistaken delete,
-but **not disk loss** (the replica shares the mount). For off-host durability,
-repoint the replica `path` in `litestream.yml` at an NFS / second-disk mount, or
-uncomment the S3 block there and set `LITESTREAM_S3_*` in `.env` — no cloud
-dependency is pulled in by default.
-
-Restore runs against the same config. It reconstructs the DB from the replica's
-snapshot + WAL into a scratch file you can inspect before going live:
-
-```
-docker compose run --rm --no-deps litestream \
-  restore -config /etc/litestream.yml -o /data/restored.db /data/app.db
-# Go live: stop the app, replace data/app.db with the restored copy, restart.
-```
-
-*Restore drill verified 2026-07-03:* with the stack up, a project created through
-the API **after** the initial snapshot was present in a `litestream restore` of the
-file replica, and every table's row count matched the live DB — confirming the WAL
-stream (not just the startup snapshot) round-trips.
-
-**Non-docker (`main.sh`) setup.** Litestream also runs as a plain host binary
-against the same `litestream.yml` (point `path` at your real `data/app.db`). Run it
-under systemd so it restarts with the box:
-
-```
-# /etc/systemd/system/litestream.service — then: systemctl enable --now litestream
-[Service]
-ExecStart=/usr/local/bin/litestream replicate -config /path/to/litestream.yml
-Restart=always
-```
+`data/app.db`'s WAL to a replica as writes land, giving point-in-time recovery
+between the coarse snapshots `backup_db.sh` takes — the two complement each
+other; keep running both. Replica targets, restore procedure, the verified
+restore drill, and the non-docker systemd setup are in
+[`docs/backups.md`](docs/backups.md).
 
 ## Network & security posture
 
@@ -226,12 +178,3 @@ setting `API_HOST=0.0.0.0` is intentional and supported:
   there are no rate-limited routes right now.
 
 This is not multi-user auth; revisit real auth before exposing beyond a home LAN.
-
-## North star
-
-A **boring, reliable local project manager with a capable local agent**: React
-UI + FastAPI core + SQLite truth, and an agent (llama.cpp, tool calling, MCP,
-local retrieval) that is a peer of the UI — every agent action goes through the
-service layer, is validated, logged to `activity_events`, and undoable via the
-trash. No cloud dependencies, no training pipeline, no review queue: undo is
-the safety net.
