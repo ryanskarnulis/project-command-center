@@ -79,6 +79,12 @@ the items below are scope, not order.
 
 *(Non-agent feature work — unprioritized.)*
 
+- [ ] **Decide the fate of the Tasks page.** The sidebar is gone (2026-07-10);
+      Focus/Tasks/Trash live in the topbar. Usage so far is board + Focus only.
+      If the cross-project filter/list view stays unused, delete `TasksPage`
+      and its filter machinery wholesale (rule 4 of definition-of-done) — but
+      keep `/tasks/:id` detail routes alive for search and deep links, as
+      project detail survived the Projects-page removal.
 - [ ] Task due-date reminders
 - [ ] Export tasks to markdown
 - [ ] **Tasks-table post-strip cleanup** (deferred from the merged Slice 1+2 —

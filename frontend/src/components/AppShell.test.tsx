@@ -9,7 +9,7 @@ vi.mock('../api/trash', () => ({ getTrashCount: vi.fn() }))
 const mockGetTrashCount = vi.mocked(getTrashCount)
 
 describe('AppShell', () => {
-  it('exposes the primary routes in the left navigation', () => {
+  it('exposes the primary routes in the topbar', () => {
     render(
       <MemoryRouter>
         <AppShell>
@@ -18,12 +18,13 @@ describe('AppShell', () => {
       </MemoryRouter>,
     )
 
+    // The brand mark is the home link; there is no sidebar.
+    expect(screen.getByRole('link', { name: 'Command Center' })).toBeInTheDocument()
     const nav = screen.getByLabelText('Primary navigation')
-    expect(within(nav).getByRole('link', { name: 'Command Center' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Focus' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Tasks' })).toBeInTheDocument()
-    // The Projects list page is gone; the dashboard board is the projects surface.
     expect(within(nav).queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument()
+    expect(document.querySelector('.app-sidebar')).not.toBeInTheDocument()
   })
 
   it('shows the summed trash count beside the Trash link', async () => {
@@ -39,9 +40,8 @@ describe('AppShell', () => {
       </MemoryRouter>,
     )
 
-    const nav = screen.getByLabelText('Primary navigation')
     expect(
-      await within(nav).findByRole('link', { name: 'Trash (3 items)' }),
+      await screen.findByRole('link', { name: 'Trash (3 items)' }),
     ).toBeInTheDocument()
   })
 
@@ -58,10 +58,9 @@ describe('AppShell', () => {
       </MemoryRouter>,
     )
 
-    const nav = screen.getByLabelText('Primary navigation')
     await waitFor(() => expect(mockGetTrashCount).toHaveBeenCalled())
-    expect(within(nav).getByRole('link', { name: 'Trash' })).toBeInTheDocument()
-    expect(within(nav).queryByRole('link', { name: /Trash \(/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Trash' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Trash \(/ })).not.toBeInTheDocument()
   })
 
   it('renders no workspace-status chrome or fake sync/focus controls', async () => {

@@ -6,7 +6,7 @@ export interface TrashCounts {
 }
 
 export interface TrashCount {
-  // Sum across kinds, for the sidebar badge.
+  // Sum across kinds, for the topbar badge.
   count: number
   // Exact per-kind totals (unbounded by the /trash list page), for the section
   // headings on the trash page.
