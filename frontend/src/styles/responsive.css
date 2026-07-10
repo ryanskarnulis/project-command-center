@@ -50,19 +50,15 @@
     padding: 16px;
   }
 
-  /* Stacked layout has no rail to collapse into — keep labels visible. */
-  .sidebar-collapsed .shell-nav-link > span {
-    display: inline;
+  /* Stacked layout has no rail to collapse into — the spider hides the
+     whole menu instead, hamburger-style. */
+  .sidebar-collapsed .shell-nav,
+  .sidebar-collapsed .shell-nav-bottom {
+    display: none;
   }
 
-  .sidebar-collapsed .shell-nav-projects {
-    display: flex;
-  }
-
-  .sidebar-collapsed .shell-nav-link {
-    justify-content: flex-start;
-    gap: 12px;
-    padding: 10px 12px;
+  .sidebar-collapsed .brand-mark {
+    padding-bottom: 0;
   }
 
   .shell-nav,
