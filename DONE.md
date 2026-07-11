@@ -1572,3 +1572,43 @@ shipped slices:
       PCC's provider completes a validated tool-call round trip
 - Deferred: llama-swap phase 3 — retire host Ollama after a quiet week of
   `journalctl -u ollama` (counted from 2026-07-10)
+
+---
+
+## Phase 2 — agent loop, conversation persistence, chat panel, eval harness (epic, 2026-07-11)
+> Assembled the shipped pieces (MCP tool surface, shared runtime, provider
+> layer) into the actual agent: loop → persisted conversations → chat panel →
+> eval baseline. Every mutation audited as `agent:loop`, undoable via trash.
+
+- [x] Slice 1 — transport-agnostic tool registry (`app/tools/`): MCP server's
+      tool bodies factored out and shared with the loop, schemas byte-identical
+      to the MCP `inputSchema`s (parity-tested); agent loop core
+      (`app/ai/loop.py`): bounded iterations, bounded self-correction on
+      schema-invalid calls, terminate on text turn, actor `agent:loop`,
+      request ID spans a run; scripted-provider tests, no GPU (#41)
+- [x] Slice 2 — conversation persistence (`conversations` +
+      `conversation_messages`, migration `7efad5645027`; tool calls/results
+      stored as JSON on the assistant turn — the audit log can't reconstruct
+      the trajectory) + agent REST API (`/api/agent/...`): CRUD + the one
+      model-calling endpoint, user turn committed before the loop runs,
+      rate-limited (`agent_messages_per_min`); text-only history round-trip;
+      live-smoked on gemma-4-12b including a real self-correction (#42)
+- [x] Slice 3 — chat panel (`features/agent/`, Agent nav → `/agent/:id`):
+      conversation sidebar, thread with the full tool trajectory rendered
+      (failed attempts included) and per-mutation undo through the same REST
+      endpoints (audited, soft-delete-safe); non-streaming v1 with working
+      indicator (decision recorded); browser-verified with verifier-browser
+      against the live model — caught and fixed a CSS-specificity layout bug
+      and a broken autoscroll sentinel (#43)
+- [x] Slice 4 — eval harness (`tests/test_agent_evals.py`, opt-in
+      `PCC_AGENT_EVALS=1`): six scenarios asserting trajectory shape + DB
+      end-state + audit invariants against the real model; baseline 24/24
+      over 4 runs recorded in `docs/agent-design.md` — FTS5 retrieval found
+      the described task every run (no embeddings case); self-correction
+      recovered live in 3 of 4 runs (#44)
+- [x] Epic DoD held: panel → loop → correct tool calls, every mutation
+      audited + undoable, conversations survive reload, evals green with
+      baseline recorded, `./test.sh`/CI green throughout
+- Decisions: registry `app/tools/`, loop `app/ai/loop.py`, actor
+  `agent:loop`; trajectory persisted on the message; text-only model
+  context; non-streaming v1 (SSE only if usage demands)
