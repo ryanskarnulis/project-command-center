@@ -230,11 +230,36 @@ PCC_LLM_INTEGRATION=1 .venv/bin/pytest tests/test_ai_llamacpp_integration.py -v
 which exercises a real tool-call round trip and a structured extraction
 against the shared server (passed 2026-07-11, ~6 s warm-cache).
 
+## Tool registry + agent loop core (landed 2026-07-11 — slice 1 of the loop epic)
+
+The MCP server's tool bodies moved verbatim into a transport-agnostic
+registry, `app/tools/registry.py` (per-call session/actor/request-ID plumbing
+in `app/tools/runtime.py`, absorbing the old `app/mcp/runtime.py`).
+`app/mcp/server.py` is now pure wiring: a FastMCP instance that registers
+every registry tool. Argument models and JSON Schemas come from the same
+`func_metadata` machinery FastMCP uses, so the `ToolSpec`s the registry emits
+for the provider are byte-identical to the MCP `inputSchema`s — a parity test
+asserts it. `registry.call_tool(name, arguments, actor=…)` is the loop-facing
+dispatch: validate against the tool's argument model, stamp the actor, run.
+
+`app/ai/loop.py` is the in-app loop (`AgentLoop.run(user_message)`): system
+prompt with today's date, at most `max_iterations` (default 10) provider
+turns, terminate on a text turn. Self-correction is bounded separately
+(default 3): schema-level failures — unparseable tool-call arguments from the
+provider, argument-model rejections, unknown tool names — are fed back to the
+model and billed against the correction budget, while service-layer domain
+rejections ("blocked", "not found", cycles) are ordinary tool-result feedback
+under the iteration budget, exactly as the MCP server surfaces them. Writes
+are stamped **`agent:loop`** in `activity_events`; the loop binds one request
+ID per run (unless the caller already bound one) so every tool call and the
+provider's `llm_call_id`-tagged lines correlate. Tests drive the whole thing
+with a scripted provider (`tests/test_agent_loop.py`) — no GPU.
+
 ## Explicitly deferred (later Phase 2 checkouts)
 
-- **Agent loop + conversation persistence** — consumes the tool surface and
-  the provider layer above; nothing here blocks on it.
-- **Chat panel UI** — needs the loop first.
+- **Conversation persistence + agent API** — slice 2; the loop returns a full
+  transcript (`AgentRunResult.messages`) for exactly this.
+- **Chat panel UI** — needs slice 2 first.
 - **RAG / retrieval infra** — the `search` tool *is* the retrieval story for
   now (agentic FTS5 per `TODO.md`); `sqlite-vec` only if that proves
   insufficient.

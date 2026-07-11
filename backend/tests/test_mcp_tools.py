@@ -17,9 +17,9 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.mcp import runtime
 from app.mcp.server import mcp
 from app.services import activity
+from app.tools import runtime
 
 
 @pytest.fixture

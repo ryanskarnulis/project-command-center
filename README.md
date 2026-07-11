@@ -39,8 +39,9 @@ backend/app/
   alembic/      migrations
   services/     one responsibility per module (tasks, projects, trash, focus,
                 recurrence, dependencies, …)
-  mcp/          PCC MCP server (stdio): the service layer as agent tools
-  ai/           provider layer for the local llama.cpp runtime (llama-swap)
+  tools/        transport-agnostic agent tool registry + per-call runtime
+  mcp/          PCC MCP server (stdio): the tool registry over MCP
+  ai/           llama.cpp provider layer (llama-swap runtime) + agent loop
 
 frontend/src/
   api/          all HTTP calls (components consume hooks; hooks call this layer)
@@ -66,7 +67,8 @@ Key decisions:
   from `/trash`, and only of already-soft-deleted rows. Exception:
   `activity_events` is an append-only log with no `deleted_at`. Its nullable
   `actor` column attributes each event: `NULL` is the user; agents stamp an
-  identifier (the MCP server writes `agent:mcp`).
+  identifier (the MCP server writes `agent:mcp`, the in-app agent loop
+  `agent:loop`).
 - Task progress lives in `workflow_status` (`open | in_progress | done`). The
   AI-era `review_status`/`confidence`/`assignee_hint` columns are dropped;
   every task is user-facing and always filed in a project (no project on
@@ -107,9 +109,11 @@ returns to the full board.
 
 ## MCP server (agent access)
 
-The service layer is exposed to MCP clients as ~25 tools (task CRUD +
-complete, project CRUD, search, focus plan, trash/restore, activity log,
-dependencies, recurrence skip/stop) by a
+The service layer is exposed as ~25 agent tools (task CRUD + complete,
+project CRUD, search, focus plan, trash/restore, activity log, dependencies,
+recurrence skip/stop). The tools live in a transport-agnostic registry
+(`app/tools/registry.py`) consumed by two peers: the in-app agent loop
+(below) and a
 stdio server: `python -m app.mcp.server`, run from `backend/`. Design and
 guardrails: [`docs/agent-design.md`](docs/agent-design.md). In short: writes
 go through the same service layer as the UI, arguments are Pydantic-validated
@@ -143,6 +147,14 @@ calling plus `json_schema` structured outputs, every response
 Pydantic-validated at the boundary. Configure with `LLAMACPP_BASE_URL` /
 `LLAMACPP_MODEL` / `LLAMACPP_TIMEOUT_SECONDS` (defaults in `app/config.py`;
 the docker deployment reaches the host proxy via `host.docker.internal`).
+On top of the provider sits the agent loop (`app/ai/loop.py`): a bounded
+plan → tool-call → observe cycle over the shared tool registry, with Pydantic
+argument validation on every dispatch and bounded self-correction turns when
+the model emits an invalid call. Its writes are stamped `agent:loop` in
+`activity_events` and every delete is a restorable soft delete. The loop is
+not yet wired to an API — conversation persistence and the chat panel are the
+next slices (`CURRENT.md`).
+
 Live smoke, opt-in (the default test run never touches the GPU):
 
 ```bash
