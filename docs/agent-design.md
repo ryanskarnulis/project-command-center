@@ -131,7 +131,7 @@ the tool functions in-process; LAN MCP clients would be the trigger). The
 tool layer is written transport-agnostic so switching is a server-wiring
 change, not a rewrite.
 
-## Dependency to add (needs sign-off before slice 3)
+## Dependency to add (signed off 2026-07-10; pinned in `requirements.lock`)
 
 **`mcp` — the official Anthropic Python SDK** (`pip install mcp`), pinned in
 `backend/pyproject.toml` and `requirements.lock`. Its FastMCP API gives

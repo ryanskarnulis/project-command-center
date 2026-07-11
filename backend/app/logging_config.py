@@ -4,6 +4,7 @@ import logging
 import sys
 import uuid
 from collections.abc import Awaitable, Callable
+from typing import TextIO
 
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -15,7 +16,13 @@ from app.config import get_settings
 __all__ = ["configure_logging", "RequestIDMiddleware"]
 
 
-def configure_logging() -> None:
+def configure_logging(stream: TextIO | None = None) -> None:
+    """Configure structlog + stdlib logging.
+
+    ``stream`` defaults to stdout (the HTTP server). The MCP server passes
+    ``sys.stderr``: its stdout carries the JSON-RPC protocol, so a single log
+    line on stdout would corrupt the transport.
+    """
     settings = get_settings()
 
     shared_processors: list[structlog.types.Processor] = [
@@ -50,7 +57,7 @@ def configure_logging() -> None:
             renderer,
         ],
     )
-    handler = logging.StreamHandler(sys.stdout)
+    handler = logging.StreamHandler(stream if stream is not None else sys.stdout)
     handler.setFormatter(formatter)
     root = logging.getLogger()
     root.handlers = [handler]

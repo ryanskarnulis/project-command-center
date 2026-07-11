@@ -190,3 +190,6 @@ class ActivityEvent(Base, TimestampMixin):
     entity_id: Mapped[int]
     action: Mapped[str]  # "created" | "updated" | "completed" | "deleted"
     summary: Mapped[str]  # human-readable, e.g. 'Task "Fix VPN" created'
+    # Who caused the event: NULL = the user (all pre-agent rows stay correct
+    # without a backfill); agents stamp an identifier, e.g. "agent:mcp".
+    actor: Mapped[str | None] = mapped_column(default=None)

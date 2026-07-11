@@ -28,5 +28,7 @@ export interface ActivityEvent {
   entity_id: number
   action: string
   summary: string
+  /** null = the user; agents stamp an identifier such as "agent:mcp". */
+  actor: string | null
   created_at: string
 }

@@ -17,6 +17,7 @@ const events: ActivityEvent[] = [
     entity_id: 42,
     action: 'created',
     summary: 'Task "Fix VPN" created',
+    actor: null,
     created_at: '2026-06-30T12:00:00Z',
   },
   {
@@ -26,6 +27,7 @@ const events: ActivityEvent[] = [
     entity_id: 42,
     action: 'completed',
     summary: 'Task "Fix VPN" completed',
+    actor: 'agent:mcp',
     created_at: '2026-06-30T13:00:00Z',
   },
 ]
