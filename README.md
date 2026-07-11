@@ -40,6 +40,7 @@ backend/app/
   services/     one responsibility per module (tasks, projects, trash, focus,
                 recurrence, dependencies, …)
   mcp/          PCC MCP server (stdio): the service layer as agent tools
+  ai/           provider layer for the local llama.cpp runtime (llama-swap)
 
 frontend/src/
   api/          all HTTP calls (components consume hooks; hooks call this layer)
@@ -132,6 +133,25 @@ connects with the same command:
 The server opens `data/app.db` directly (WAL mode), so it can run alongside
 the dev or docker backend.
 
+## Model runtime & provider (agent)
+
+The model (gemma-4-12b on llama.cpp) is served by the workspace-level
+`../llama-swap/` stack on port 8200 — one proxy owning the GPU, shared with
+the chess app; server flags live in that repo's `config.yaml`, not here. PCC's
+side is `app/ai/providers/llamacpp.py`: OpenAI wire format over `httpx`, tool
+calling plus `json_schema` structured outputs, every response
+Pydantic-validated at the boundary. Configure with `LLAMACPP_BASE_URL` /
+`LLAMACPP_MODEL` / `LLAMACPP_TIMEOUT_SECONDS` (defaults in `app/config.py`;
+the docker deployment reaches the host proxy via `host.docker.internal`).
+Live smoke, opt-in (the default test run never touches the GPU):
+
+```bash
+cd backend && PCC_LLM_INTEGRATION=1 .venv/bin/pytest tests/test_ai_llamacpp_integration.py -v
+```
+
+The agent loop that consumes it is the next checkout; design and runtime
+decisions: [`docs/agent-design.md`](docs/agent-design.md).
+
 ## Status & roadmap
 
 The core is complete and stable: tasks/projects, recurrence, subtasks +
@@ -146,8 +166,9 @@ dependencies, Focus, search, trash, dashboard, docker + litestream deploy.
 Next up:
 
 ```
-Phase 2: local agent — llama.cpp runtime, agent loop, FTS5-first
-         retrieval, chat UI (the PCC MCP server is shipped, above)
+Phase 2: local agent — agent loop, chat UI, eval harness, FTS5-first
+         retrieval (the PCC MCP server and the llama.cpp runtime +
+         provider layer are shipped, above)
 ```
 
 ## Do not build yet

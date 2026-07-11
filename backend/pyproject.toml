@@ -11,11 +11,14 @@ dependencies = [
     "pydantic-settings>=2.14.1",
     "structlog>=25.5.0",
     "mcp>=1.20.0",
+    # Promoted from dev: the AI provider layer speaks to llama-server over
+    # httpx. Already pinned in requirements.lock (mcp depends on it) — this
+    # declares the direct runtime use, it does not add a package.
+    "httpx>=0.28.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "httpx>=0.28.1",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.4.0",
     "mypy>=2.1.0",

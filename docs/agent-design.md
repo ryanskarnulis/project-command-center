@@ -190,12 +190,50 @@ stanza. Cold load after the 10-minute `ttl` unload is ~100 s worst case (~5 s
 with the GGUF in page cache); the provider needs a first-request timeout that
 tolerates it. Decision history: `../future-plans/llama-swap.md`.
 
+## Provider layer (landed 2026-07-11)
+
+`backend/app/ai/providers/llamacpp.py` — PCC's client for the runtime above,
+built on `httpx` (no SDK; already a pinned transitive of `mcp`, promoted to a
+declared dependency). What it guarantees:
+
+- **OpenAI wire format, validated at the boundary.** Responses parse into
+  Pydantic wire models; tool-call `arguments` must be a JSON object and
+  structured outputs must satisfy their schema, or a typed error is raised
+  (`ProviderRequestError` / `ProviderResponseError` /
+  `ToolCallArgumentsError`) — no best-effort parsing. Self-correction retries
+  on bad tool calls belong to the agent loop (next checkout); the errors
+  carry the tool name for exactly that.
+- **`chat(messages, tools=…)`** for tool calling (`tool_choice: auto`), with
+  `ChatResult.to_message()` + `tool_result_message()` covering the follow-up
+  turn; **`chat_structured(messages, schema=…)`** for grammar-constrained
+  output via `response_format: json_schema`, validated into the schema.
+- **Gemma quirks handled** (imported from chess's production experience):
+  `reasoning_content` is never answer text and never round-trips into
+  history; thinking toggles per request via `chat_template_kwargs` and
+  defaults off. Sampling (`temp 1.0 / top-p 0.95 / top-k 64`) is set per
+  request, so server-default drift can't change PCC's behavior.
+- **Config:** `LLAMACPP_BASE_URL` (dev default `http://127.0.0.1:8200/v1`;
+  compose overrides to `host.docker.internal`), `LLAMACPP_MODEL`
+  (`gemma-4-12b`), `LLAMACPP_TIMEOUT_SECONDS` (300 — tolerates the cold
+  load). `provider_from_settings()` builds the configured instance.
+- **Structured logs** (`llm_request` / `llm_response` with a per-call
+  `llm_call_id`, duration, token usage) join whatever request ID is bound.
+
+Verification until the loop exists: unit tests fake the wire
+(`tests/test_ai_llamacpp.py`); the live smoke is opt-in —
+
+```bash
+cd backend
+PCC_LLM_INTEGRATION=1 .venv/bin/pytest tests/test_ai_llamacpp_integration.py -v
+```
+
+which exercises a real tool-call round trip and a structured extraction
+against the shared server (passed 2026-07-11, ~6 s warm-cache).
+
 ## Explicitly deferred (later Phase 2 checkouts)
 
-- **Provider layer** (`ai/providers/llamacpp.py`) — slice 3 of the current
-  epic, against the runtime above.
-- **Agent loop + conversation persistence** — consumes this tool surface
-  later; nothing here blocks on it.
+- **Agent loop + conversation persistence** — consumes the tool surface and
+  the provider layer above; nothing here blocks on it.
 - **Chat panel UI** — needs the loop first.
 - **RAG / retrieval infra** — the `search` tool *is* the retrieval story for
   now (agentic FTS5 per `TODO.md`); `sqlite-vec` only if that proves

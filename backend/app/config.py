@@ -38,6 +38,17 @@ class Settings(BaseSettings):
     # Settings writes to loopback/exec clients only. See api/request_ip.py.
     frontend_bind: str = "127.0.0.1"
 
+    # OpenAI-compatible base URL of the shared llama-swap runtime
+    # (../llama-swap/, the workspace-level owner of the GPU — see
+    # docs/agent-design.md "Runtime"). Dev default reaches it on the host
+    # loopback; the docker deployment overrides this with host.docker.internal
+    # (see docker-compose.yml's extra_hosts stanza).
+    llamacpp_base_url: str = "http://127.0.0.1:8200/v1"
+    llamacpp_model: str = "gemma-4-12b"
+    # Per-request read timeout. Generous because a cold model load through
+    # llama-swap is ~100 s before the first byte; warm calls never get near it.
+    llamacpp_timeout_seconds: float = 300.0
+
     # Explicit CORS allow-list (the local Vite dev server).
     cors_origins: list[str] = [
         "http://localhost:5173",

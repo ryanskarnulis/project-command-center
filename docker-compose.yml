@@ -20,6 +20,13 @@ services:
       # frontend port binding.
       TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-172.28.0.0/16}
       FRONTEND_BIND: ${FRONTEND_BIND:-127.0.0.1}
+      # Shared llama-swap runtime on the host (../llama-swap/, port 8200),
+      # reached via the host-gateway alias below — same mechanism the old
+      # Ollama path used. The host proxy binds docker0 (172.17.0.1) as well
+      # as loopback; a plain 127.0.0.1 URL would be unreachable from here.
+      LLAMACPP_BASE_URL: ${LLAMACPP_BASE_URL:-http://host.docker.internal:8200/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/data              # SQLite file + WAL sidecars + backups persist here
     # No `ports:` — the backend is reachable only over the compose network
