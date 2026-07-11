@@ -49,7 +49,7 @@ Decisions already made (don't relitigate):
 
 ### Slice 2 — Agent design doc
 
-- [ ] Short in-repo design doc covering: the MCP tool surface (task CRUD +
+- [x] Short in-repo design doc (`docs/agent-design.md`) covering: the MCP tool surface (task CRUD +
       complete, project CRUD, search, focus, trash/restore, dependencies,
       recurrence); guardrails (no hard deletes, argument validation at the
       boundary, per-tool `activity_events` attribution); server transport and
