@@ -35,7 +35,8 @@ Decisions already made (don't relitigate):
   already scoped in `docs/agent-design.md`, completes the tool surface the
   agent loop will consume next checkout.
 
-Open decision (slice 2 resolves it — don't pre-commit):
+Open decision (resolved by slice 2, 2026-07-10 — see the slice for the
+outcome; kept for the framing):
 
 - **The sharing shape.** Candidates: (a) a shared workspace-level
   llama-server (`llama-swap/`-style dir or plain compose) that chess and PCC
@@ -74,17 +75,24 @@ Open decision (slice 2 resolves it — don't pre-commit):
 > Mostly workspace-level work outside this repo; the PCC deliverable is the
 > decision record and any compose/env plumbing.
 
-- [ ] Decide the sharing shape (options above); record the decision and the
-      agreed server flags in `docs/agent-design.md` (runtime section) and
-      update/supersede `../future-plans/llama-swap.md` so the doc trail
-      doesn't lie.
-- [ ] Stand up the shared server serving gemma-4-12B; verify with
-      `nvidia-smi` + a curl'd tool-call completion.
-- [ ] Point chess at it and remove/retire its private `llama` service (chess
-      repo rules: branch → PR → CI green → squash merge). Play a game;
-      tool calling and graceful-degradation-when-down must survive.
-- [ ] Confirm the Ollama interim fixes' fate (keep_alive / idle-unload timers)
-      and note what phase-3-style cleanup is deferred.
+- [x] Decide the sharing shape: **option (b), llama-swap with a single
+      `gemma-4-12b` entry** — the "one GPU owner" property is the durable
+      part; (c) rejected for lifecycle/flag-ownership coupling. Recorded in
+      `docs/agent-design.md` (runtime section); `../future-plans/llama-swap.md`
+      updated (phases 0–1 done, phase 2 obsolete as written).
+- [x] Stood up `../llama-swap/` (pinned `v236-cuda-b9935`, port 8200):
+      `-c 16384` + q8 KV + MTP measured at **7.9 GB** on the 3060 (was
+      10.2 GB at 8k/f16); tool-call completion valid first try, ~112 tok/s.
+- [x] Chess cutover: PR #87 (CI green — **merge pending human review**),
+      deployed from branch and verified: NL command → `make_move` through
+      llama-swap, engine-only gameplay survives the brain being stopped
+      (500 on `/api/command`, pre-existing for configured-but-down).
+- [x] Interim fixes' fate: chess's `--sleep-idle-seconds` retired with its
+      `llama` service (replaced by `ttl: 600`); PCC's `keep_alive` already
+      died with the old `ai/` package. Deferred phase-3 cleanup: host Ollama
+      still active (last real traffic 2026-07-07; odysseus's
+      `OLLAMA_BASE_URL` is optional/unset) — retire per llama-swap.md
+      phase 3 after a quiet week of `journalctl -u ollama`.
 
 ### Slice 3 — PCC provider layer
 
