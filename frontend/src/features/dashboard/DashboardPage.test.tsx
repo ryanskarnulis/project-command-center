@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDashboard } from '../../api/dashboard'
 import { createProject, listProjects } from '../../api/projects'
 import {
+  createUnscopedTask,
   listAllTasks,
   listCompletedTasks,
   markTaskDone,
@@ -33,6 +34,7 @@ vi.mock('../../api/projects', () => ({
 }))
 
 vi.mock('../../api/tasks', () => ({
+  createUnscopedTask: vi.fn(),
   getTask: vi.fn(),
   listAllTasks: vi.fn(),
   listCompletedTasks: vi.fn(),
@@ -43,6 +45,7 @@ vi.mock('../../api/tasks', () => ({
 
 const mockGetDashboard = vi.mocked(getDashboard)
 const mockCreateProject = vi.mocked(createProject)
+const mockCreateUnscopedTask = vi.mocked(createUnscopedTask)
 const mockListProjects = vi.mocked(listProjects)
 const mockListAllTasks = vi.mocked(listAllTasks)
 const mockListCompletedTasks = vi.mocked(listCompletedTasks)
@@ -307,6 +310,93 @@ describe('DashboardPage', () => {
         screen.queryByRole('dialog', { name: 'New project' }),
       ).not.toBeInTheDocument(),
     )
+  })
+
+  it('adds a task from the board without leaving it', async () => {
+    mockListProjects.mockResolvedValue([
+      {
+        id: 7,
+        name: 'General',
+        description: null,
+        system_key: 'general',
+        sort_order: 0,
+        is_protected: true,
+        created_at: '2026-06-01T00:00:00Z',
+        updated_at: '2026-06-01T00:00:00Z',
+      },
+    ])
+    mockCreateUnscopedTask.mockResolvedValue({
+      ...baseTask,
+      id: 10,
+      title: 'Refill toner',
+      project_id: 7,
+    })
+    renderPage()
+    await screen.findByRole('heading', { name: 'Project board' })
+    expect(mockGetDashboard).toHaveBeenCalledTimes(1)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add task' }))
+    const modal = await screen.findByRole('dialog', { name: 'Add task' })
+    await userEvent.type(within(modal).getByLabelText('Title'), 'Refill toner')
+    await userEvent.click(within(modal).getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(mockCreateUnscopedTask).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Refill toner', project_id: 7 }),
+      ),
+    )
+    // The modal closes, the board refetches, and we never left the dashboard.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Add task' }),
+      ).not.toBeInTheDocument(),
+    )
+    await waitFor(() => expect(mockGetDashboard).toHaveBeenCalledTimes(2))
+    expect(
+      screen.getByRole('heading', { name: 'Project board' }),
+    ).toBeInTheDocument()
+  })
+
+  it('counts only rendered roots in lane headers and splits unfiled tasks out of the headline', async () => {
+    mockListAllTasks.mockResolvedValue([
+      baseTask,
+      {
+        ...baseTask,
+        id: 4,
+        parent_task_id: 1,
+        title: 'Draft the copy',
+        is_blocking: false,
+        blocked_task_count: 0,
+      },
+      {
+        ...baseTask,
+        id: 5,
+        project_id: null,
+        title: 'Unfiled chore',
+        due_date: null,
+        is_blocking: false,
+        blocked_task_count: 0,
+      },
+    ])
+    renderPage()
+    await screen.findByRole('heading', { name: 'Project board' })
+
+    // Two filed tasks (root + subtask); the unfiled one is linked separately
+    // instead of inflating the "across all projects" number.
+    expect(
+      screen.getByText(
+        (_, el) =>
+          el?.tagName === 'P' &&
+          el.textContent === '2 open tasks across all projects · 1 unfiled',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '1 unfiled' })).toBeInTheDocument()
+
+    // The lane header matches its cards: one root, with the subtask called out.
+    const portal = lane('Customer Portal')
+    expect(
+      within(portal).getByText('1 open task · 1 subtask'),
+    ).toBeInTheDocument()
   })
 
   it('routes the complete circle through the recurrence-safe done endpoint', async () => {

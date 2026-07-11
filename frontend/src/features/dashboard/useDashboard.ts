@@ -10,6 +10,8 @@ import { useTaskRefresh } from '../tasks/taskRefreshContext'
 interface UseDashboard {
   overview: DashboardOverview | null
   tasks: Task[]
+  /** Open projects, for the board's in-place task modal. */
+  projects: Project[]
   /** Closed (hidden) projects, so the board can offer a way back to them. */
   closedProjects: Project[]
   /** True only during the initial load; a background refetch uses `refreshing`. */
@@ -23,6 +25,7 @@ interface UseDashboard {
 export function useDashboard(): UseDashboard {
   const [overview, setOverview] = useState<DashboardOverview | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
   const [closedProjects, setClosedProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -44,6 +47,7 @@ export function useDashboard(): UseDashboard {
         if (!active) return
         setOverview(overview)
         setTasks(tasks)
+        setProjects(projects.filter((p) => p.closed_at == null))
         setClosedProjects(projects.filter((p) => p.closed_at != null))
         setError(null)
       })
@@ -66,6 +70,7 @@ export function useDashboard(): UseDashboard {
   return {
     overview,
     tasks,
+    projects,
     closedProjects,
     loading,
     refreshing,

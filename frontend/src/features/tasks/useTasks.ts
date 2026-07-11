@@ -73,8 +73,11 @@ export function useTasks(projectId?: number): UseTasks {
 
   const create = useCallback(
     async (data: TaskCreate) => {
+      // A payload carrying an explicit project (the task modal's selector) must
+      // use the unscoped endpoint — the project-scoped route takes the project
+      // from its path and ignores `data.project_id`.
       await withToast(
-        projectId === undefined
+        projectId === undefined || data.project_id !== undefined
           ? createUnscopedTask(data)
           : createTask(projectId, data),
         { success: 'Task created' },
