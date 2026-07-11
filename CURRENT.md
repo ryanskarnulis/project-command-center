@@ -32,14 +32,21 @@ Decisions already made (don't relitigate):
 
 Open decisions (resolve in the slices, record the outcome here):
 
-- **Persistence shape.** Conversations/messages as new tables (Alembic
-  migration); how tool calls/results are stored on a message vs. recomputed
-  from `activity_events`; soft-delete semantics for conversations.
-- **Streaming.** The provider is request/response today; the chat panel
-  wants progressive output. Either add SSE streaming to the provider
-  (llama-server supports it) or ship v1 non-streaming with visible per-step
-  tool-call progress and stream later. Decide when the panel UX is concrete —
-  don't pre-build streaming the loop can't use yet.
+- **Persistence shape — resolved in slice 2.** Two tables (`conversations`,
+  `conversation_messages`); tool calls/results are stored as JSON on the
+  assistant message (`ToolCallRecord` shape), NOT recomputed from
+  `activity_events` — the audit log records only mutations (reads never land
+  there) and carries neither arguments nor results; it stays the audit source
+  of truth. Soft delete is conversation-level only (messages are immutable
+  children); restore/trash-page integration deferred until the panel wants
+  it. Loop context is rebuilt from prior user/assistant *text* turns only —
+  tool transcripts are never round-tripped (keeps the 12B's window lean; the
+  model re-reads live state through tools).
+- **Streaming.** Slice 2 shipped the API non-streaming: `POST
+  /agent/conversations/{id}/messages` runs the loop synchronously and
+  returns the full exchange, with the per-step tool trajectory in the
+  response for the panel to render. Whether slice 3 needs SSE on top is
+  still open — decide when the panel UX is concrete.
 
 **Status legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
@@ -76,12 +83,20 @@ behavior.
 
 ### Slice 2 — Conversation persistence + agent API
 
-- [ ] Schema + Alembic migration: conversations and messages (tool
+- [x] Schema + Alembic migration: conversations and messages (tool
       calls/results included per the persistence-shape decision).
-- [ ] Service module (the only write path, as ever) + REST endpoints:
+- [x] Service module (the only write path, as ever) + REST endpoints:
       create/list conversations, post a user message (runs the loop), fetch
       history. Rate-limited; request-ID logs.
-- [ ] Happy-path pytest for service + routes.
+- [x] Happy-path pytest for service + routes.
+
+Slice 2 notes: service `app/services/conversations.py`, routes
+`app/api/routes_agent.py` (`/api/agent/...`), migration `7efad5645027`. The
+message route commits the user turn *before* running the loop (SQLite write
+lock + a provider failure, surfaced as 502, must not swallow the user's
+message). Rate limit: `agent_messages_per_min` (default 10) on the one
+model-calling endpoint. Smoke-verified live on gemma-4-12b 2026-07-11 —
+including a real self-correction trajectory persisted on the assistant turn.
 
 ### Slice 3 — Chat panel UI (`features/agent/`)
 

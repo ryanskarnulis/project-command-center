@@ -255,11 +255,39 @@ ID per run (unless the caller already bound one) so every tool call and the
 provider's `llm_call_id`-tagged lines correlate. Tests drive the whole thing
 with a scripted provider (`tests/test_agent_loop.py`) — no GPU.
 
+## Conversation persistence + agent API (landed 2026-07-11 — slice 2 of the loop epic)
+
+Two tables (migration `7efad5645027`): soft-deletable `conversations`
+(auto-titled from the first user message) and immutable
+`conversation_messages`. The assistant turn persists the loop outcome
+denormalized — `tool_calls` JSON (the `ToolCallRecord` list: arguments +
+result/error per dispatched call) and `stop_reason` — because
+`activity_events` records only mutations and carries neither arguments nor
+results; the audit log stays the source of truth for what *changed*, the
+message row for what the *conversation saw*. Writes go through
+`app/services/conversations.py` only.
+
+The API (`app/api/routes_agent.py`, `/api/agent/...`): create/list/fetch/
+delete conversations, plus `POST /conversations/{id}/messages` — the one
+model-calling endpoint. It commits the user turn *before* running the loop
+(the loop's tool calls open their own sessions, so holding the request
+transaction would contend on SQLite's write lock; and a provider failure,
+surfaced as 502, must not swallow the user's message), runs the loop
+synchronously (v1 is non-streaming; the response carries the full tool
+trajectory for the panel), then persists the assistant turn. Rate-limited
+per client IP via the retained limiter (`agent_messages_per_min`, default
+10). Loop context on follow-ups is rebuilt from prior user/assistant *text*
+turns only — tool transcripts never round-trip (they'd bloat the 12B's
+window; the model re-reads live state through tools).
+
+Verified end-to-end on the live runtime (2026-07-11): a three-step ask
+(create project → create high-priority task → complete it) ran in ~9 s warm,
+including two genuine self-corrections the loop fed back and the model fixed;
+the follow-up message answered from persisted history without tool calls.
+
 ## Explicitly deferred (later Phase 2 checkouts)
 
-- **Conversation persistence + agent API** — slice 2; the loop returns a full
-  transcript (`AgentRunResult.messages`) for exactly this.
-- **Chat panel UI** — needs slice 2 first.
+- **Chat panel UI** — slice 3, next: consumes the exchange payload above.
 - **RAG / retrieval infra** — the `search` tool *is* the retrieval story for
   now (agentic FTS5 per `TODO.md`); `sqlite-vec` only if that proves
   insufficient.

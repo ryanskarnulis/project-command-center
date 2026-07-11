@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     # llama-swap is ~100 s before the first byte; warm calls never get near it.
     llamacpp_timeout_seconds: float = 300.0
 
+    # Per-IP cap on POST /agent/conversations/{id}/messages — the one endpoint
+    # that runs the model. A loop run takes seconds-to-minutes on the local
+    # GPU, so 10/min is generous for a person and a brake on runaway clients.
+    agent_messages_per_min: int = 10
+
     # Explicit CORS allow-list (the local Vite dev server).
     cors_origins: list[str] = [
         "http://localhost:5173",

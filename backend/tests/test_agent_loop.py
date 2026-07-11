@@ -10,8 +10,7 @@ not here.
 
 from __future__ import annotations
 
-from collections.abc import Generator, Sequence
-from typing import Any
+from collections.abc import Generator
 
 import pytest
 import structlog
@@ -19,15 +18,13 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai.loop import LOOP_ACTOR, AgentLoop
-from app.ai.providers.llamacpp import (
-    ChatResult,
-    ToolCall,
-    ToolCallArgumentsError,
-    ToolSpec,
-)
+from app.ai.providers.llamacpp import ToolCallArgumentsError
 from app.db.models import ActivityEvent, Task, TaskWorkflowStatus
 from app.mcp.server import mcp
 from app.tools import registry, runtime
+from tests.scripted_provider import ScriptedProvider
+from tests.scripted_provider import text_turn as _text
+from tests.scripted_provider import tool_calls_turn as _calls
 
 
 @pytest.fixture
@@ -40,45 +37,6 @@ def tool_db(
     )
     monkeypatch.setattr(runtime, "session_factory", factory)
     yield factory
-
-
-def _text(content: str) -> ChatResult:
-    return ChatResult(content=content, tool_calls=[], finish_reason="stop", usage=None)
-
-
-def _calls(*calls: tuple[str, dict[str, Any]]) -> ChatResult:
-    return ChatResult(
-        content=None,
-        tool_calls=[
-            ToolCall(id=f"call_{index}", name=name, arguments=arguments)
-            for index, (name, arguments) in enumerate(calls)
-        ],
-        finish_reason="tool_calls",
-        usage=None,
-    )
-
-
-class ScriptedProvider:
-    """Pops one scripted turn per ``chat()`` call; records every request."""
-
-    def __init__(self, turns: Sequence[ChatResult | Exception]) -> None:
-        self._turns = list(turns)
-        self.requests: list[dict[str, Any]] = []
-
-    def chat(
-        self,
-        messages: Sequence[dict[str, Any]],
-        *,
-        tools: Sequence[ToolSpec] | None = None,
-        enable_thinking: bool = False,
-        max_tokens: int | None = None,
-    ) -> ChatResult:
-        self.requests.append({"messages": list(messages), "tools": list(tools or [])})
-        assert self._turns, "provider called more times than scripted"
-        turn = self._turns.pop(0)
-        if isinstance(turn, Exception):
-            raise turn
-        return turn
 
 
 def test_create_complete_flow_end_to_end(tool_db: sessionmaker[Session]) -> None:
