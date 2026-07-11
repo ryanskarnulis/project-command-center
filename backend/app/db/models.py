@@ -171,6 +171,60 @@ class TaskDependency(Base, TimestampMixin, SoftDeleteMixin):
     depends_on_task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"))
 
 
+class ConversationRole(enum.StrEnum):
+    user = "user"
+    assistant = "assistant"
+
+
+class Conversation(Base, TimestampMixin, SoftDeleteMixin):
+    """One chat thread with the in-app agent (Phase 2 loop epic, slice 2).
+
+    Soft delete is conversation-level only: messages are immutable children
+    that ride along with their conversation (no per-message delete).
+    ``updated_at`` is touched on every appended message so the conversation
+    list can order by recency.
+    """
+
+    __tablename__ = "conversations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Auto-derived from the first user message when not provided explicitly.
+    title: Mapped[str | None] = mapped_column(default=None)
+
+    messages: Mapped[list[ConversationMessage]] = relationship(
+        back_populates="conversation", order_by="ConversationMessage.id"
+    )
+
+
+class ConversationMessage(Base, TimestampMixin):
+    """One user or assistant turn in a conversation.
+
+    The assistant turn persists the loop's outcome denormalized: ``content``
+    is the reply text (null when the run stopped without one), ``tool_calls``
+    is the list of dispatched tool calls with arguments and result/error
+    (shape: ``app/ai/loop.py::ToolCallRecord``), ``stop_reason`` is the loop's
+    termination cause. Stored here rather than recomputed from
+    ``activity_events`` because the audit log records only mutations — reads
+    (search, list_tasks) never land there — and carries neither arguments nor
+    results; ``activity_events`` remains the audit source of truth for what
+    changed. No ``deleted_at``: messages are immutable once written and share
+    their conversation's soft-delete fate.
+    """
+
+    __tablename__ = "conversation_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("conversations.id"), index=True
+    )
+    role: Mapped[ConversationRole]
+    content: Mapped[str | None] = mapped_column(default=None)
+    tool_calls: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, default=None)
+    stop_reason: Mapped[str | None] = mapped_column(default=None)
+
+    conversation: Mapped[Conversation] = relationship(back_populates="messages")
+
+
 class ActivityEvent(Base, TimestampMixin):
     """Append-only audit log of project/task lifecycle changes (Sprint 6).
 

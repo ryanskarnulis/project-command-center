@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
 
 from app.api import (
+    routes_agent,
     routes_dashboard,
     routes_focus,
     routes_projects,
@@ -31,6 +32,7 @@ api_router.include_router(routes_dashboard.router)
 api_router.include_router(routes_trash.router)
 api_router.include_router(routes_search.router)
 api_router.include_router(routes_focus.router)
+api_router.include_router(routes_agent.router)
 
 
 @asynccontextmanager

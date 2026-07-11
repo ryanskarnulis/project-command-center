@@ -58,7 +58,8 @@ test.sh         full quality gate
 
 ## Database schema
 
-Tables: `projects`, `tasks`, `task_dependencies`, `activity_events`.
+Tables: `projects`, `tasks`, `task_dependencies`, `activity_events`,
+`conversations`, `conversation_messages`.
 
 Key decisions:
 
@@ -88,6 +89,12 @@ Key decisions:
   stamped with `deleted_with_project_id` so restore can offer to bring them
   back together. A protected `General` project is seeded (system key
   `general`).
+- **Agent conversations** persist as `conversations` (soft-deletable,
+  auto-titled from the first user message) and immutable
+  `conversation_messages`. The assistant turn stores the loop's tool
+  calls/results as JSON plus a `stop_reason` — the chat trajectory lives
+  here (the audit log records only mutations and can't reconstruct it), while
+  `activity_events` remains the audit source of truth for what changed.
 - **`tasks` read-path indexes** back the hot list/read queries: `deleted_at`
   (active-task list, search, and the trash `deleted_at IS NOT NULL` scan) plus
   single `project_id`, `parent_task_id`, `recurrence_id`. `workflow_status` is
@@ -151,9 +158,15 @@ On top of the provider sits the agent loop (`app/ai/loop.py`): a bounded
 plan → tool-call → observe cycle over the shared tool registry, with Pydantic
 argument validation on every dispatch and bounded self-correction turns when
 the model emits an invalid call. Its writes are stamped `agent:loop` in
-`activity_events` and every delete is a restorable soft delete. The loop is
-not yet wired to an API — conversation persistence and the chat panel are the
-next slices (`CURRENT.md`).
+`activity_events` and every delete is a restorable soft delete.
+
+The loop is driven over REST (`app/api/routes_agent.py`): create/list/fetch/
+delete conversations under `/api/agent/conversations`, and
+`POST /api/agent/conversations/{id}/messages` — the one model-calling
+endpoint — which stores the user turn, runs the loop synchronously, and
+returns the exchange with the full tool-call trajectory. It is rate-limited
+per client IP (`AGENT_MESSAGES_PER_MIN`, default 10). The chat panel on top
+is the next slice (`CURRENT.md`).
 
 Live smoke, opt-in (the default test run never touches the GPU):
 
