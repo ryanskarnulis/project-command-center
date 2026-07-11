@@ -1539,3 +1539,36 @@ shipped slices:
       `.mcp.json` auto-connects sessions in this repo (#32)
 - [x] Deferred by design: dependencies/recurrence tools (follow-up in the
       next checkout), llama.cpp runtime (GPU-contention story)
+
+---
+
+## Phase 2 — local runtime + provider layer (epic, 2026-07-10 → 2026-07-11)
+> One shared GPU server for chess + PCC, and PCC's provider speaking to it.
+> Completed the MCP tool surface on the way in.
+
+- [x] Slice 1 — MCP follow-up tools: add/remove dependency, skip/stop
+      recurrence, same guardrails as the first pass; dependency add/remove
+      now writes `activity_events` from every caller, UI included — a
+      pre-existing audit gap (#34)
+- [x] Slice 2 — sharing shape decided and stood up: llama-swap with a single
+      `gemma-4-12b` entry owns the RTX 3060 (`../llama-swap/`, port 8200,
+      pinned v236-cuda-b9935); ctx raised to the model's full 128k
+      (`-c 131072` + q8 KV + MTP — 9.5 GB loaded / 10.5 GB peak, 125k-token
+      needle retrieved); chess cut over (chess #87) and its private `llama`
+      container retired; decision + measurements recorded in
+      `docs/agent-design.md` (#36, #37)
+- [x] Slice 3 — provider layer `backend/app/ai/providers/llamacpp.py`:
+      OpenAI wire format over httpx (no SDK; httpx promoted dev → runtime
+      dep, no new package), tool calling + `json_schema` structured outputs,
+      Pydantic-validated at the boundary with typed errors — no best-effort
+      parsing; gemma `reasoning_content` isolated from answer text and
+      history; sampling set per request; `LLAMACPP_*` config + compose
+      plumbing via `host.docker.internal`; unit tests over faked wire + an
+      opt-in live integration (`PCC_LLM_INTEGRATION=1`) that verified a real
+      tool-call round trip and structured extraction against the shared
+      runtime (#38)
+- [x] Epic DoD held: one GPU server serves gemma-4-12b for both apps;
+      dependencies/recurrence callable from Claude Code with audit entries;
+      PCC's provider completes a validated tool-call round trip
+- Deferred: llama-swap phase 3 — retire host Ollama after a quiet week of
+  `journalctl -u ollama` (counted from 2026-07-10)

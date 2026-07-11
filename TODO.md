@@ -10,14 +10,14 @@ which lives in `CURRENT.md`. Completed work is archived in `DONE.md`.
 
 ## Current focus
 
-**Phase 2 — local runtime + provider layer (and MCP tool-surface completion)**
-(checked out 2026-07-10, tracked in `CURRENT.md`). The Phase 2 kickoff epic is
-done (archived in `DONE.md`). This checkout finishes the MCP tool surface
-(dependencies + recurrence), decides the GPU/model-sharing shape with the
-chess app (`../chess` already runs gemma-4-12B on llama.cpp with strong tool
-calling, fully GPU-resident — one shared server, not a swap, is the working
-assumption; partially supersedes `../future-plans/llama-swap.md`), and builds
-PCC's llama.cpp provider layer.
+**Phase 2 — agent loop, conversation persistence, chat panel, eval harness**
+(checked out 2026-07-11, tracked in `CURRENT.md`). The runtime + provider
+epic is done (archived in `DONE.md`): one shared llama-swap server
+(`../llama-swap/`, port 8200) serves gemma-4-12b for chess and PCC, and PCC's
+provider (`app/ai/providers/llamacpp.py`) completes validated tool-call round
+trips against it. This checkout assembles the agent itself: backend loop over
+the provider + tool surface, persisted conversations, chat panel, eval
+harness.
 
 ---
 
@@ -31,13 +31,17 @@ the items below are scope, not order.
 
 ### Runtime
 
-- [ ] llama.cpp (`llama-server`) integration: model choice needs solid native
-      tool-calling support; document VRAM footprint on the shared RTX 3060
-      (coordination with the chess app's server — see
-      `../future-plans/llama-swap.md`).
-- [ ] Provider layer for chat-completions-with-tools against llama-server
-      (structured outputs where useful; the old Pydantic-validate-everything
-      discipline still applies at the boundary).
+- [x] llama.cpp (`llama-server`) integration — shipped 2026-07-10/11 as the
+      workspace `../llama-swap/` stack: one proxy owning the RTX 3060, a
+      single shared `gemma-4-12b` entry for chess + PCC (proven native tool
+      calling), full 128k ctx at 9.5 GB loaded / 10.5 GB peak. Decision +
+      measurements in `docs/agent-design.md` ("Runtime").
+- [x] Provider layer for chat-completions-with-tools against llama-server —
+      shipped 2026-07-11 (#38): `backend/app/ai/providers/llamacpp.py`,
+      OpenAI wire format over httpx, `json_schema` structured outputs,
+      Pydantic-validated at the boundary with typed errors; live tool-call
+      round trip verified via the opt-in integration test
+      (`PCC_LLM_INTEGRATION=1`).
 
 ### Tool surface (MCP-first)
 
