@@ -48,8 +48,7 @@ export function ChipPopover({
   const popoverRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
 
-  useLayoutEffect(() => {
-    if (!open) return
+  const updatePosition = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect()
     if (!rect) return
     // Flip above the chip when there isn't room below (bottom-most cards).
@@ -65,10 +64,17 @@ export function ChipPopover({
         ? { ...vertical, right: window.innerWidth - rect.right }
         : { ...vertical, left: rect.left },
     )
-  }, [open, align])
+  }, [align])
 
-  // Close when a click lands outside the chip or the portaled popover, and on
-  // outside scroll/resize (the fixed-position anchor would drift otherwise).
+  useLayoutEffect(() => {
+    if (open) updatePosition()
+  }, [open, updatePosition])
+
+  // Close when a press lands outside the chip or the portaled popover. Scroll
+  // and resize re-anchor instead of closing: on mobile, opening the popover
+  // itself scrolls/resizes the viewport (the soft keyboard shows for an
+  // autofocused editor input, or hides once the tap blurs a text field), and
+  // closing on those events dismissed the popover the instant it opened.
   useEffect(() => {
     if (!open) return
     function isInside(target: EventTarget | null): boolean {
@@ -81,18 +87,23 @@ export function ChipPopover({
     function onPointerDown(e: MouseEvent) {
       if (!isInside(e.target)) setOpen(false)
     }
-    function onScroll(e: Event) {
-      if (!isInside(e.target)) setOpen(false)
+    function onReanchor(e: Event) {
+      // Scrolling the popover's own lists doesn't move the anchor.
+      if (isInside(e.target)) return
+      updatePosition()
     }
-    document.addEventListener('mousedown', onPointerDown)
-    document.addEventListener('scroll', onScroll, true)
-    window.addEventListener('resize', onScroll)
+    // Capture phase: enclosing surfaces (the peek panel) stopPropagation on
+    // mousedown in the bubble phase, which would swallow outside presses
+    // landing inside them and leave the popover stuck open.
+    document.addEventListener('mousedown', onPointerDown, true)
+    document.addEventListener('scroll', onReanchor, true)
+    window.addEventListener('resize', onReanchor)
     return () => {
-      document.removeEventListener('mousedown', onPointerDown)
-      document.removeEventListener('scroll', onScroll, true)
-      window.removeEventListener('resize', onScroll)
+      document.removeEventListener('mousedown', onPointerDown, true)
+      document.removeEventListener('scroll', onReanchor, true)
+      window.removeEventListener('resize', onReanchor)
     }
-  }, [open])
+  }, [open, updatePosition])
 
   const close = useCallback(() => setOpen(false), [])
 
