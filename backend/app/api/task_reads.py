@@ -14,7 +14,7 @@ from app.services import tasks as tasks_service
 def _rollup_update(rollup: tasks_service.Rollup) -> dict[str, object]:
     """The ``model_copy`` overrides a roll-up implies.
 
-    Only a task with accepted subtasks overrides its estimate/status; a leaf keeps
+    Only a task with subtasks overrides its estimate/status; a leaf keeps
     its stored values, so we touch nothing but the ``has_subtasks`` flag for it.
     """
     update: dict[str, object] = {"has_subtasks": rollup.has_subtasks}

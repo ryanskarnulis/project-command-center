@@ -1,7 +1,6 @@
 import { type FormEvent, useMemo, useState } from 'react'
 import type { Project } from '../../../types/project'
 import type { TaskCreate, TaskPriority } from '../../../types/task'
-import { AssigneeChip } from '../chips/AssigneeChip'
 import { DueDateChip } from '../chips/DueDateChip'
 import { EstimateChip } from '../chips/EstimateChip'
 import { PriorityChip } from '../chips/PriorityChip'
@@ -14,7 +13,6 @@ interface Overrides {
   dueDate?: string | null
   projectId?: number | null
   estimatedMinutes?: number | null
-  assignee?: string | null
 }
 
 interface Props {
@@ -49,7 +47,6 @@ export function QuickAddBar({ projects, scopeProjectId, onCreate, onMoreOptions 
     overrides.estimatedMinutes !== undefined
       ? overrides.estimatedMinutes
       : parsed.estimatedMinutes
-  const assignee = overrides.assignee !== undefined ? overrides.assignee : parsed.assignee
 
   function buildDraft(): TaskCreate {
     return {
@@ -57,7 +54,6 @@ export function QuickAddBar({ projects, scopeProjectId, onCreate, onMoreOptions 
       priority,
       due_date: dueDate,
       estimated_minutes: estimatedMinutes,
-      assignee_hint: assignee,
       // Omitted (not null) when unset so the backend files it in General.
       ...(projectId !== null ? { project_id: projectId } : {}),
     }
@@ -87,7 +83,6 @@ export function QuickAddBar({ projects, scopeProjectId, onCreate, onMoreOptions 
       priority,
       due_date: dueDate,
       estimated_minutes: estimatedMinutes,
-      assignee_hint: assignee,
     })
     reset()
   }
@@ -103,7 +98,7 @@ export function QuickAddBar({ projects, scopeProjectId, onCreate, onMoreOptions 
             // A cleared input is a fresh draft; stale chip edits shouldn't linger.
             if (e.target.value.trim() === '') setOverrides({})
           }}
-          placeholder='Add a task — try "Renew TLS cert fri !high #ops ~20m @ryan"'
+          placeholder='Add a task — try "Renew TLS cert fri !high #ops ~20m"'
         />
         <button type="submit" disabled={saving || parsed.title === ''}>
           Add
@@ -130,10 +125,6 @@ export function QuickAddBar({ projects, scopeProjectId, onCreate, onMoreOptions 
           <EstimateChip
             value={estimatedMinutes}
             onChange={(next) => setOverrides((o) => ({ ...o, estimatedMinutes: next }))}
-          />
-          <AssigneeChip
-            value={assignee}
-            onChange={(next) => setOverrides((o) => ({ ...o, assignee: next }))}
           />
         </div>
       )}

@@ -1,4 +1,4 @@
-import type { TaskReviewStatus, TaskWorkflowStatus } from './task'
+import type { TaskWorkflowStatus } from './task'
 
 export type SearchKind = 'project' | 'task'
 
@@ -9,8 +9,7 @@ export interface SearchResultItem {
   subtitle: string | null
   project_id: number | null
   // Populated only for the `task` kind (null for projects). Lets the command
-  // bar's `/done` action offer only accepted, not-yet-done tasks.
-  review_status: TaskReviewStatus | null
+  // bar's `/done` action offer only not-yet-done tasks.
   workflow_status: TaskWorkflowStatus | null
 }
 

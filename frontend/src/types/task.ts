@@ -1,4 +1,3 @@
-export type TaskReviewStatus = 'candidate' | 'accepted' | 'rejected'
 export type TaskWorkflowStatus = 'open' | 'in_progress' | 'done'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 export type RepeatUnit = 'day' | 'week' | 'month'
@@ -17,7 +16,6 @@ export interface Task {
   parent_task_id: number | null
   title: string
   description: string | null
-  review_status: TaskReviewStatus
   workflow_status: TaskWorkflowStatus
   priority: TaskPriority
   due_date: string | null
@@ -31,8 +29,6 @@ export interface Task {
   // task, shown as "next <date>" beside the repeat badge. Null when the task is
   // not recurring or already done.
   next_occurrence_date: string | null
-  confidence: number | null
-  assignee_hint: string | null
   created_at: string
   updated_at: string
   deleted_at?: string | null
@@ -40,9 +36,9 @@ export interface Task {
   is_blocked: boolean
   // Derived server-side: true when this is the top active blocker for downstream work.
   is_blocking: boolean
-  // Derived server-side: transitive count of unfinished accepted tasks waiting on it.
+  // Derived server-side: transitive count of unfinished tasks waiting on it.
   blocked_task_count: number
-  // Derived server-side: true when the task has accepted subtasks. When true,
+  // Derived server-side: true when the task has subtasks. When true,
   // `estimated_minutes` and `workflow_status` carry rolled-up values and are
   // read-only (set them by editing the subtasks instead).
   has_subtasks: boolean
@@ -77,7 +73,6 @@ export interface TaskDependent {
 export interface TaskCreate {
   title: string
   description?: string | null
-  review_status?: TaskReviewStatus
   workflow_status?: TaskWorkflowStatus
   priority?: TaskPriority
   due_date?: string | null
@@ -86,13 +81,11 @@ export interface TaskCreate {
   project_id?: number | null
   parent_task_id?: number | null
   estimated_minutes?: number | null
-  assignee_hint?: string | null
 }
 
 export interface TaskUpdate {
   title?: string
   description?: string | null
-  review_status?: TaskReviewStatus
   workflow_status?: TaskWorkflowStatus
   priority?: TaskPriority
   due_date?: string | null
@@ -101,7 +94,6 @@ export interface TaskUpdate {
   project_id?: number | null
   parent_task_id?: number | null
   estimated_minutes?: number | null
-  assignee_hint?: string | null
   repeat_interval?: RepeatInterval | null
   // Recurrence edit-scope control flag consumed by the backend, never a column.
   edit_scope?: EditScope

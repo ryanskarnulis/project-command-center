@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session, aliased
 from app.db.models import (
     Task,
     TaskDependency,
-    TaskReviewStatus,
     TaskWorkflowStatus,
 )
 from app.services.common import active, soft_delete
@@ -159,7 +158,7 @@ def edges_among_tasks(db: Session, task_ids: Sequence[int]) -> list[TaskDependen
 
     Scoped to the supplied task set so the planning payload only draws links
     between tasks it actually renders (a dependency pointing outside the project's
-    accepted/not-done set has no bar to attach to). Ordered by id for stability.
+    not-done set has no bar to attach to). Ordered by id for stability.
     """
     ids = set(task_ids)
     if not ids:
@@ -179,10 +178,10 @@ def edges_among_tasks(db: Session, task_ids: Sequence[int]) -> list[TaskDependen
 def top_level_blocker_counts(db: Session, task_ids: Sequence[int]) -> dict[int, int]:
     """Top-level blockers in ``task_ids`` mapped to downstream blocked counts.
 
-    A top-level blocker is active, accepted, unfinished, has unfinished accepted
-    downstream work waiting on it, and is not itself waiting on another unfinished
-    dependency. Counts are transitive: in ``A depends on B depends on C``, only
-    ``C`` is returned, with a count of 2.
+    A top-level blocker is active, unfinished, has unfinished downstream work
+    waiting on it, and is not itself waiting on another unfinished dependency.
+    Counts are transitive: in ``A depends on B depends on C``, only ``C`` is
+    returned, with a count of 2.
     """
     requested = set(task_ids)
     if not requested:
@@ -197,10 +196,8 @@ def top_level_blocker_counts(db: Session, task_ids: Sequence[int]) -> dict[int, 
         .where(
             TaskDependency.deleted_at.is_(None),
             dependent.deleted_at.is_(None),
-            dependent.review_status == TaskReviewStatus.accepted,
             dependent.workflow_status != TaskWorkflowStatus.done,
             blocker.deleted_at.is_(None),
-            blocker.review_status == TaskReviewStatus.accepted,
             blocker.workflow_status != TaskWorkflowStatus.done,
         )
     ).all()

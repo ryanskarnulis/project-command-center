@@ -17,7 +17,6 @@ import { TaskDependencies } from './TaskDependencies'
 import { useTaskPanel } from './panel/taskPanelContext'
 import { useScopedTaskUpdate } from './useScopedTaskUpdate'
 import { useTrashCount } from '../trash/trashCountContext'
-import { AssigneeChip } from './chips/AssigneeChip'
 import { DueDateChip } from './chips/DueDateChip'
 import { EstimateChip } from './chips/EstimateChip'
 import { ParentTaskChip } from './chips/ParentTaskChip'
@@ -386,11 +385,6 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
             value={task.project_id}
             projects={projects}
             onChange={(project_id) => savePatch({ project_id })}
-            allowUnassigned={task.review_status === 'candidate'}
-          />
-          <AssigneeChip
-            value={task.assignee_hint}
-            onChange={(assignee_hint) => savePatch({ assignee_hint })}
           />
           <ParentTaskChip
             value={task.parent_task_id}

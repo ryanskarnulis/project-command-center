@@ -10,7 +10,6 @@ import { parseDurationInput } from '../../../utils/duration'
 //   !urgent !high !medium !low            → priority
 //   #ops                                  → project, by unique name prefix
 //   ~20m ~2h ~1day                        → estimate (parseDurationInput grammar)
-//   @ryan                                 → assignee hint
 //   fri · friday · today · tomorrow ·
 //   next week · 2026-07-15                → due date
 //
@@ -24,7 +23,6 @@ export interface QuickAddDraft {
   dueDate: string | null
   projectId: number | null
   estimatedMinutes: number | null
-  assignee: string | null
 }
 
 const PRIORITY_WORDS: Record<string, TaskPriority> = {
@@ -81,7 +79,6 @@ export function parseQuickAdd(
     dueDate: null,
     projectId: null,
     estimatedMinutes: null,
-    assignee: null,
   }
   const today = toISODate(now)
 
@@ -111,11 +108,6 @@ export function parseQuickAdd(
         draft.estimatedMinutes = minutes
         continue
       }
-    }
-
-    if (token.startsWith('@') && draft.assignee === null && rest !== '') {
-      draft.assignee = rest
-      continue
     }
 
     if (draft.dueDate === null) {

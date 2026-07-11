@@ -30,16 +30,14 @@ def test_search_matches_each_kind(db_session: Session) -> None:
 
 
 def test_search_tasks_carry_status_fields(db_session: Session) -> None:
-    """Tasks expose review/workflow status (for /done); other kinds leave them None."""
+    """Tasks expose workflow status (for /done); other kinds leave it None."""
     _seed(db_session)
 
     results = search_service.search(db_session, "firewall")
 
     task = results.tasks[0]
-    assert task.review_status == "accepted"
     assert task.workflow_status == "open"
-    # The status fields are task-only; projects serialize as null.
-    assert results.projects[0].review_status is None
+    # The status field is task-only; projects serialize as null.
     assert results.projects[0].workflow_status is None
 
 

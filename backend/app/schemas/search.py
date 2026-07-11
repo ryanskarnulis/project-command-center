@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.db.models import TaskReviewStatus, TaskWorkflowStatus
+from app.db.models import TaskWorkflowStatus
 
 SearchKind = Literal["project", "task"]
 
@@ -16,9 +16,9 @@ class SearchResultItem(BaseModel):
     line (e.g. a task's project name). ``project_id`` is populated for tasks so
     the UI can route to the owning project when needed.
 
-    ``review_status``/``workflow_status`` are populated only for the ``task`` kind
-    (``None`` for projects). They let the command bar's ``/done`` action offer
-    only acceptable, not-yet-done tasks; plain search ignores them.
+    ``workflow_status`` is populated only for the ``task`` kind (``None`` for
+    projects). It lets the command bar's ``/done`` action offer only
+    not-yet-done tasks; plain search ignores it.
     """
 
     kind: SearchKind
@@ -26,7 +26,6 @@ class SearchResultItem(BaseModel):
     title: str
     subtitle: str | None = None
     project_id: int | None = None
-    review_status: TaskReviewStatus | None = None
     workflow_status: TaskWorkflowStatus | None = None
 
 

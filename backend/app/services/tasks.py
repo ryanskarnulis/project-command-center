@@ -11,15 +11,12 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     Task,
     TaskPriority,
-    TaskReviewStatus,
     TaskWorkflowStatus,
 )
 from app.services import activity
 from app.services import projects as projects_service
 from app.services.common import active, soft_delete
 
-
-_FILED_REVIEW_STATUSES = {TaskReviewStatus.accepted}
 
 # Fields never propagated to future occurrences by an ``edit_scope="future"``
 # patch. Two kinds:
@@ -28,11 +25,11 @@ _FILED_REVIEW_STATUSES = {TaskReviewStatus.accepted}
 #   - structural fields whose per-row invariants the blind bulk UPDATE would
 #     bypass: ``parent_task_id`` (occurrences are always top-level, and forwarding
 #     it skips ``_assert_no_parent_cycle`` — a crafted patch could self-parent a
-#     row), plus ``project_id`` and ``review_status`` (coupled by
-#     ``_default_project_id_for_status`` and gated by the derived-status guard,
-#     neither of which the bulk UPDATE re-runs). The acted-on row still takes these
-#     edits through the guarded setattr loop; only forward propagation is skipped,
-#     and the UI never scopes a parent/project/review edit to "future" anyway.
+#     row), plus ``project_id`` (coupled by ``_default_project_id`` and gated by
+#     the derived-status guard, neither of which the bulk UPDATE re-runs). The
+#     acted-on row still takes these edits through the guarded setattr loop; only
+#     forward propagation is skipped, and the UI never scopes a parent/project
+#     edit to "future" anyway.
 # (``edit_scope`` is a control flag, not a column, and is popped before the patch.)
 _FORWARD_PATCH_EXCLUDE = {
     "due_date",
@@ -40,7 +37,6 @@ _FORWARD_PATCH_EXCLUDE = {
     "workflow_status",
     "parent_task_id",
     "project_id",
-    "review_status",
 }
 
 
@@ -54,7 +50,7 @@ class TaskCycleError(ValueError):
 class DerivedStatusError(ValueError):
     """A status-changing write was attempted on a task whose status is derived.
 
-    A task with accepted subtasks rolls its progress up from them, so it can't be
+    A task with subtasks rolls its progress up from them, so it can't be
     marked open/in-progress/done directly. The caller surfaces a 409.
     """
 
@@ -73,10 +69,9 @@ class RecurrenceError(ValueError):
     """
 
 
-def _default_project_id_for_status(
-    db: Session, project_id: int | None, review_status: TaskReviewStatus
-) -> int | None:
-    if project_id is None and review_status in _FILED_REVIEW_STATUSES:
+def _default_project_id(db: Session, project_id: int | None) -> int | None:
+    """Tasks are always filed: no project means the General default project."""
+    if project_id is None:
         return projects_service.ensure_default_project_id(db)
     return project_id
 
@@ -142,16 +137,14 @@ def list_subtasks(db: Session, parent_task_id: int) -> Sequence[Task]:
 # --- Parent <- child roll-ups (Sprint VVV) ---------------------------------
 #
 # Derived, never stored (mirrors the ``is_blocked`` precedent): a parent's
-# estimate and progress summarize its accepted subtasks. Only accepted children
-# count — a non-accepted (candidate/rejected) child must not flip a parent to
-# read-only or pad its estimate.
+# estimate and progress summarize its subtasks.
 
 
 class Rollup:
     """Derived parent values: estimate is the subtree sum, status is rolled up.
 
-    ``has_subtasks`` is true only when the task has at least one active, accepted
-    child; the route uses it both to override the read model and to gate writes.
+    ``has_subtasks`` is true only when the task has at least one active child;
+    the route uses it both to override the read model and to gate writes.
     """
 
     __slots__ = ("estimated_minutes", "workflow_status", "has_subtasks")
@@ -179,8 +172,7 @@ def _rollup_status(child_statuses: Sequence[TaskWorkflowStatus]) -> TaskWorkflow
 def _children_map_for(
     db: Session, roots: Sequence[Task]
 ) -> dict[int | None, list[Task]]:
-    """``parent_id -> children`` over ``roots`` and all their active, accepted
-    descendants.
+    """``parent_id -> children`` over ``roots`` and all their active descendants.
 
     Only the requested subtree is loaded, not the whole task table: we descend
     level by level from the root ids, each query an indexed lookup on
@@ -194,10 +186,7 @@ def _children_map_for(
     while frontier:
         rows = (
             db.execute(
-                active(Task).where(
-                    Task.review_status == TaskReviewStatus.accepted,
-                    Task.parent_task_id.in_(frontier),
-                )
+                active(Task).where(Task.parent_task_id.in_(frontier))
             )
             .scalars()
             .all()
@@ -246,15 +235,15 @@ def compute_rollups(db: Session, tasks: Sequence[Task]) -> dict[int, Rollup]:
     """Derived roll-up per task id, resolved without an N+1 over children.
 
     ``tasks`` may be any subset, so the child map is read fresh — but scoped to
-    the requested subtree (``roots`` + descendants), not the whole accepted
-    table. A caller that already holds the entire accepted set (the dashboard's
-    open-task scan) should use ``compute_rollups_for_full_set`` to skip the reread.
+    the requested subtree (``roots`` + descendants), not the whole task table. A
+    caller that already holds the entire active set (the dashboard's open-task
+    scan) should use ``compute_rollups_for_full_set`` to skip the reread.
     """
     return _rollups_over(tasks, _children_map_for(db, tasks))
 
 
 def compute_rollups_for_full_set(tasks: Sequence[Task]) -> dict[int, Rollup]:
-    """Roll-ups for ``tasks`` when it is already the complete active, accepted set.
+    """Roll-ups for ``tasks`` when it is already the complete active set.
 
     Builds the ``parent_id -> children`` map from the passed rows instead of
     re-reading it (``compute_rollups`` re-queries because it accepts subsets), so
@@ -272,19 +261,14 @@ def get_rollup(db: Session, task: Task) -> Rollup:
 
 
 def has_active_children(db: Session, task_id: int) -> bool:
-    """True if the task has at least one active, accepted subtask.
+    """True if the task has at least one active subtask.
 
     Such a task's status/estimate are derived and read-only, so status-changing
     writes against it are rejected.
     """
     return (
         db.execute(
-            active(Task)
-            .where(
-                Task.parent_task_id == task_id,
-                Task.review_status == TaskReviewStatus.accepted,
-            )
-            .limit(1)
+            active(Task).where(Task.parent_task_id == task_id).limit(1)
         ).first()
         is not None
     )
@@ -307,7 +291,6 @@ def _assert_not_blocked(db: Session, task_id: int) -> None:
 def list_tasks(
     db: Session,
     project_id: int | None = None,
-    review_status: TaskReviewStatus | None = None,
     workflow_status: TaskWorkflowStatus | None = None,
     exclude_done: bool = False,
     top_level_only: bool = False,
@@ -324,8 +307,6 @@ def list_tasks(
     query = active(Task).order_by(Task.id)
     if project_id is not None:
         query = query.where(Task.project_id == project_id)
-    if review_status is not None:
-        query = query.where(Task.review_status == review_status)
     if top_level_only:
         query = query.where(Task.parent_task_id.is_(None))
     if offset:
@@ -373,12 +354,9 @@ def create_task(
     project_id: int | None,
     title: str,
     description: str | None = None,
-    review_status: TaskReviewStatus = TaskReviewStatus.accepted,
     workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open,
     priority: TaskPriority | None = None,
     due_date: date | None = None,
-    confidence: float | None = None,
-    assignee_hint: str | None = None,
     parent_task_id: int | None = None,
     estimated_minutes: int | None = None,
 ) -> Task:
@@ -398,19 +376,16 @@ def create_task(
                 due_date = parent.due_date
     if priority is None:
         priority = TaskPriority.medium
-    project_id = _default_project_id_for_status(db, project_id, review_status)
+    project_id = _default_project_id(db, project_id)
     if parent_task_id is not None:
         _assert_no_parent_cycle(db, None, parent_task_id)
     task = Task(
         project_id=project_id,
         title=title,
         description=description,
-        review_status=review_status,
         workflow_status=workflow_status,
         priority=priority,
         due_date=due_date,
-        confidence=confidence,
-        assignee_hint=assignee_hint,
         parent_task_id=parent_task_id,
         estimated_minutes=estimated_minutes,
     )
@@ -465,9 +440,7 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     prev_workflow = task.workflow_status
     for key, value in control.items():
         setattr(task, key, value)
-    task.project_id = _default_project_id_for_status(
-        db, task.project_id, task.review_status
-    )
+    task.project_id = _default_project_id(db, task.project_id)
 
     # First time recurrence is set, mint the series id; copied to every occurrence.
     # Clearing repeat_interval leaves recurrence_id intact so the chain stays readable.
@@ -545,9 +518,7 @@ def mark_done(db: Session, task: Task) -> Task:
     if becoming_done:
         _assert_not_blocked(db, task.id)
     task.workflow_status = TaskWorkflowStatus.done
-    task.project_id = _default_project_id_for_status(
-        db, task.project_id, task.review_status
-    )
+    task.project_id = _default_project_id(db, task.project_id)
     if (
         becoming_done
         and task.repeat_interval is not None

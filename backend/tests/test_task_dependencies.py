@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db.models import TaskReviewStatus, TaskWorkflowStatus
+from app.db.models import TaskWorkflowStatus
 from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
 
@@ -11,14 +11,12 @@ def _task(
     db: Session,
     title: str,
     *,
-    review_status: TaskReviewStatus = TaskReviewStatus.accepted,
     workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open,
 ) -> int:
     task = tasks_service.create_task(
         db,
         project_id=None,
         title=title,
-        review_status=review_status,
         workflow_status=workflow_status,
     )
     db.commit()
@@ -237,15 +235,12 @@ def test_top_level_blocker_count_includes_branching_downstream(
     assert rows[c]["blocked_task_count"] == 2
 
 
-def test_top_level_blocker_counts_ignore_done_rejected_and_deleted_tasks(
+def test_top_level_blocker_counts_ignore_done_and_deleted_tasks(
     db_session: Session,
 ) -> None:
     blocker = _task(db_session, "active blocker")
     active = _task(db_session, "active downstream")
     done = _task(db_session, "done downstream")
-    rejected = _task(
-        db_session, "rejected downstream", review_status=TaskReviewStatus.rejected
-    )
     deleted = _task(db_session, "deleted downstream")
     done_blocker = _task(
         db_session, "done blocker", workflow_status=TaskWorkflowStatus.done
@@ -253,7 +248,6 @@ def test_top_level_blocker_counts_ignore_done_rejected_and_deleted_tasks(
     downstream_of_done = _task(db_session, "downstream of done blocker")
 
     deps_service.add_dependency(db_session, active, blocker)
-    deps_service.add_dependency(db_session, rejected, blocker)
     deps_service.add_dependency(db_session, deleted, blocker)
     deps_service.add_dependency(db_session, downstream_of_done, done_blocker)
 
@@ -271,7 +265,7 @@ def test_top_level_blocker_counts_ignore_done_rejected_and_deleted_tasks(
 
     counts = deps_service.top_level_blocker_counts(
         db_session,
-        [blocker, active, done, rejected, deleted, done_blocker, downstream_of_done],
+        [blocker, active, done, deleted, done_blocker, downstream_of_done],
     )
 
     assert counts == {blocker: 1}

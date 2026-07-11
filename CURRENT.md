@@ -33,19 +33,19 @@ Decisions already made (don't relitigate):
 
 ### Slice 1 — Tasks-table cleanup (drop the dead AI-era columns)
 
-- [ ] Alembic migration dropping `review_status`, `confidence`, and
+- [x] Alembic migration dropping `review_status`, `confidence`, and
       `assignee_hint`, plus the `(deleted_at, review_status)` compound index —
       replace it with a plain `deleted_at` index so the trash scan keeps its
       coverage. Review autogen; verify upgrade/downgrade round-trip.
-- [ ] Backend: remove the fields from `db/models.py`, `schemas/tasks.py`,
+- [x] Backend: remove the fields from `db/models.py`, `schemas/tasks.py`,
       `schemas/search.py`, and `routes_tasks.py`; strip the `review_status`
       filtering from services (`tasks`, `search`, `focus`, `dashboard`,
       `task_dependencies`, `task_recurrence`); tests follow.
-- [ ] Frontend: drop the fields from `types/task.ts` / `types/search.ts` and
+- [x] Frontend: drop the fields from `types/task.ts` / `types/search.ts` and
       their display/edit surfaces (`TaskCard`, `TaskDetailView`,
       `TaskFormModal`, `QuickAddBar`, `CommandSearch` + related CSS); tests
       follow.
-- [ ] Doc pass: `README.md` schema/API mentions.
+- [x] Doc pass: `README.md` schema/API mentions.
 
 ### Slice 2 — Agent design doc
 

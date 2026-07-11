@@ -63,14 +63,13 @@ Key decisions:
   through a service-layer helper. The only true delete is user-triggered purge
   from `/trash`, and only of already-soft-deleted rows. Exception:
   `activity_events` is an append-only log with no `deleted_at`.
-- Tasks carry a vestigial `review_status` (`candidate | accepted | rejected`)
-  alongside user-facing progress in `workflow_status`
-  (`open | in_progress | done`). Nothing creates `candidate` tasks anymore; a
-  scheduled follow-up (`TODO.md`) collapses `review_status` and its compound
-  index.
+- Task progress lives in `workflow_status` (`open | in_progress | done`). The
+  AI-era `review_status`/`confidence`/`assignee_hint` columns are dropped;
+  every task is user-facing and always filed in a project (no project on
+  create/update means General).
 - **Subtasks** nest via nullable `parent_task_id` (a tree — cycles refused with
   `409`). Deleting a parent cascade-soft-deletes the subtree; restore is
-  per-task. A parent's estimate and status **roll up from accepted subtasks**
+  per-task. A parent's estimate and status **roll up from its subtasks**
   (derived in `services/tasks.compute_rollups`, never stored); direct status
   writes on such a parent return `409`.
 - **Dependencies** are `A depends_on B` edges in `task_dependencies` (B must be
@@ -83,10 +82,9 @@ Key decisions:
   stamped with `deleted_with_project_id` so restore can offer to bring them
   back together. A protected `General` project is seeded (system key
   `general`).
-- **`tasks` read-path indexes** back the hot list/read queries: a compound
-  `(deleted_at, review_status)` (active-task list, search, and — via
-  its leading column — the trash `deleted_at IS NOT NULL` scan) plus single
-  `project_id`, `parent_task_id`, `recurrence_id`. `workflow_status` is
+- **`tasks` read-path indexes** back the hot list/read queries: `deleted_at`
+  (active-task list, search, and the trash `deleted_at IS NOT NULL` scan) plus
+  single `project_id`, `parent_task_id`, `recurrence_id`. `workflow_status` is
   deliberately not indexed (effective status rolls up in Python; it is never a
   SQL filter).
 

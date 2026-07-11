@@ -22,14 +22,13 @@ const now = new Date(2026, 6, 1)
 
 describe('parseQuickAdd', () => {
   it('parses the full token grammar in one line', () => {
-    const draft = parseQuickAdd('Renew TLS cert fri !high #ops ~20m @ryan', projects, now)
+    const draft = parseQuickAdd('Renew TLS cert fri !high #ops ~20m', projects, now)
     expect(draft).toEqual({
       title: 'Renew TLS cert',
       priority: 'high',
       dueDate: '2026-07-03',
       projectId: 1,
       estimatedMinutes: 20,
-      assignee: 'ryan',
     })
   })
 
@@ -40,7 +39,6 @@ describe('parseQuickAdd', () => {
     expect(draft.dueDate).toBeNull()
     expect(draft.projectId).toBeNull()
     expect(draft.estimatedMinutes).toBeNull()
-    expect(draft.assignee).toBeNull()
   })
 
   it('resolves a weekday to the next future occurrence, never today', () => {
@@ -88,11 +86,5 @@ describe('parseQuickAdd', () => {
     expect(draft.priority).toBe('high')
     expect(draft.dueDate).toBe('2026-07-06')
     expect(draft.title).toBe('ship !low tue')
-  })
-
-  it('ignores a bare @ sigil', () => {
-    const draft = parseQuickAdd('ping @ later', projects, now)
-    expect(draft.assignee).toBeNull()
-    expect(draft.title).toBe('ping @ later')
   })
 })

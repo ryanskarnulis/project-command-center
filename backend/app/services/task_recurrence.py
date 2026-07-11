@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Task, TaskReviewStatus, TaskWorkflowStatus
+from app.db.models import Task, TaskWorkflowStatus
 from app.services.common import soft_delete
 from app.services.tasks import (
     RecurrenceError,
@@ -61,18 +61,15 @@ def next_occurrence_date(task: Task) -> date | None:
 def _clone_subtask_tree(
     db: Session, source: Task, new_parent_id: int, due_date: date | None
 ) -> None:
-    """Recursively clone ``source``'s accepted subtree under ``new_parent_id``.
+    """Recursively clone ``source``'s active subtree under ``new_parent_id``.
 
     Each clone resets to open and carries no recurrence (only the series head is a
     series member); title/description/priority/estimate are copied. Every clone
     inherits ``due_date`` (the new occurrence's date) so the reset checklist is due
     with its occurrence rather than carrying the previous cadence's stale dates.
-    Grandchildren recurse. Only active, accepted children are cloned — a
-    non-accepted child isn't part of the routine.
+    Grandchildren recurse.
     """
     for child in list_subtasks(db, source.id):
-        if child.review_status != TaskReviewStatus.accepted:
-            continue
         clone = Task(
             project_id=child.project_id,
             title=child.title,
@@ -82,7 +79,6 @@ def _clone_subtask_tree(
             repeat_interval=None,
             recurrence_id=None,
             due_date=due_date,
-            review_status=TaskReviewStatus.accepted,
             workflow_status=TaskWorkflowStatus.open,
             parent_task_id=new_parent_id,
         )
@@ -98,11 +94,11 @@ def create_next_occurrence(db: Session, task: Task) -> Task:
 
     Copies title/description/priority/estimate/project and the shared
     ``recurrence_id``, advances the due date by one interval, and files the clone
-    as an accepted, open, top-level task (occurrences are never subtasks — see the
-    sprint's out-of-scope note). The caller guarantees ``repeat_interval`` and
-    ``due_date`` are set.
+    as an open, top-level task (occurrences are never subtasks — see the sprint's
+    out-of-scope note). The caller guarantees ``repeat_interval`` and ``due_date``
+    are set.
 
-    If the recurring task is a checklist parent, its whole accepted subtree is
+    If the recurring task is a checklist parent, its whole active subtree is
     cloned fresh under the new occurrence so a multi-step routine ("weekly release
     checklist") resets for the next cadence. A recurring leaf clones a single row.
     """
@@ -117,7 +113,6 @@ def create_next_occurrence(db: Session, task: Task) -> Task:
         repeat_interval=task.repeat_interval,
         recurrence_id=task.recurrence_id,
         due_date=_next_due_date(task.due_date, task.repeat_interval),
-        review_status=TaskReviewStatus.accepted,
         workflow_status=TaskWorkflowStatus.open,
         parent_task_id=None,
     )
