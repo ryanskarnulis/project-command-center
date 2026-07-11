@@ -101,21 +101,6 @@
   background: var(--surface-soft);
 }
 
-.command-search-result:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
-/* Non-interactive discoverability rows shown for a bare "/" or empty-arg verb. */
-.command-search-hint {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px;
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
 .command-search-result-text {
   display: flex;
   flex-direction: column;
@@ -142,6 +127,67 @@
 .command-search-dropdown .async-empty,
 .command-search-dropdown .async-error {
   margin: 8px;
+}
+
+/* "Ask the agent" footer: always the last row of the dropdown, deliberately
+   outside the arrow-key flow through search results. */
+.command-search-ask-footer {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.command-search-ask {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 8px;
+  padding: 8px 8px;
+  min-height: 0;
+  color: var(--blue);
+}
+
+.command-search-ask:hover {
+  background: var(--surface-soft);
+}
+
+.command-search-ask kbd {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Inline agent exchange under the bar — the agent thread's own message
+   styles (agent.css) render inside the dropdown card. */
+.command-search-exchange .agent-messages {
+  padding: 6px 4px;
+  overflow-y: visible;
+}
+
+.command-search-exchange-error {
+  margin: 0;
+}
+
+.command-search-exchange-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.command-search-continue {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  font-weight: 600;
 }
 
 /* Shared async-state lines (src/components/AsyncState). */

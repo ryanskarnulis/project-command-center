@@ -92,15 +92,20 @@ Open decisions (resolve in the slices, record the outcome here):
 
 ### Slice 4 — Ambient agent entry from the search bar (#292)
 
-- [ ] `CommandSearch`: live results keep rendering under the bar as today;
-      Enter posts the text to the agent (new conversation via the existing
-      API + rate limit) and renders the exchange inline under the bar with
-      the same message/tool-call components as the panel.
-- [ ] "Continue in Agent" opens `/agent/:id` with that conversation.
-- [ ] Remove slash commands from the search bar completely (parser, its
-      tests, any docs/hints) — deletion done to the constitution's standard.
-- [ ] In-progress state matches the panel (working indicator, disabled
-      input); errors surface inline. `verifier-browser` for the whole flow.
+- [x] `CommandSearch`: live results keep rendering under the bar as today;
+      plain Enter (no highlighted row) or the "Ask the agent" footer posts
+      to a new conversation and renders the exchange inline, reusing the
+      panel's `MessageBubble`/`PendingExchange` (one rendering surface).
+      Each bar ask starts a fresh conversation; typing again resumes live
+      search.
+- [x] "Continue in Agent" opens `/agent/:id` with that conversation.
+- [x] Slash commands removed completely: `parseCommand.ts` + tests deleted,
+      `/done` path, hints, placeholder/aria text, and dead CSS gone;
+      straggler grep clean (docs had no references).
+- [x] In-progress state matches the panel (shared `PendingExchange` spider
+      working indicator, disabled input); errors surface inline with the
+      input re-enabled and text kept for retry. `verifier-browser` pass
+      over the whole flow.
 
 ---
 
