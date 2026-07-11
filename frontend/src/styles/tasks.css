@@ -765,6 +765,11 @@
   border-radius: 8px;
   background: var(--surface);
   box-shadow: var(--shadow-modal);
+  /* Never taller than the viewport (short mobile screens): scroll the body
+     instead, so the anchored-position clamp in ChipPopover can always fit it
+     on-screen. */
+  max-height: calc(100dvh - 12px);
+  overflow-y: auto;
 }
 
 .chip-menu {
@@ -852,15 +857,25 @@
 }
 
 .chip-search-item {
+  /* flex: none — the list is a flex column with a max-height; without it the
+     flex algorithm shrinks every row (min-height 0) to fit, collapsing rows to
+     their padding and overlapping the labels. */
+  flex: none;
   min-height: 0;
   padding: 6px 8px;
   border: none;
   box-shadow: none;
   background: none;
-  justify-content: flex-start;
   text-align: left;
   font-size: 13px;
   color: var(--text-h);
+  /* Long task titles truncate like command-search results (block display:
+     text-overflow doesn't apply to the button's default flex layout). */
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chip-search-item:hover {

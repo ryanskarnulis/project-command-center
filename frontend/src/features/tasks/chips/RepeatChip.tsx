@@ -3,6 +3,7 @@ import { Repeat } from 'lucide-react'
 import type { RepeatInterval } from '../../../types/task'
 import { formatRepeatInterval, parseRepeatInterval } from '../../../utils/recurrence'
 import { ChipPopover } from './ChipPopover'
+import { focusOnMount } from './focusOnMount'
 
 interface Props {
   value: RepeatInterval | null
@@ -54,7 +55,7 @@ function RepeatEditor({ value, onCommit, close }: EditorProps) {
     >
       <input
         aria-label="Repeat"
-        autoFocus
+        ref={focusOnMount}
         value={draft}
         onChange={(e) => {
           setDraft(e.target.value)

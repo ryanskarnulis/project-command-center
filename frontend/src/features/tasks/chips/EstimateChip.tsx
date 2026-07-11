@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { formatDuration, formatDurationInput, parseDurationInput } from '../../../utils/duration'
 import { ChipPopover } from './ChipPopover'
+import { focusOnMount } from './focusOnMount'
 
 interface Props {
   value: number | null
@@ -46,7 +47,7 @@ function EstimateEditor({ value, onCommit, close }: EditorProps) {
     >
       <input
         aria-label="Estimate"
-        autoFocus
+        ref={focusOnMount}
         value={draft}
         onChange={(e) => {
           setDraft(e.target.value)
