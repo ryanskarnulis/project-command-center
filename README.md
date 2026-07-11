@@ -46,7 +46,7 @@ backend/app/
 frontend/src/
   api/          all HTTP calls (components consume hooks; hooks call this layer)
   features/     feature folders: dashboard, projects, tasks, focus, search,
-                trash, errors
+                trash, agent, errors
   components/   shared primitives (Button, Card, Badge, Modal, AppShell, …)
   routes/, types/
 
@@ -165,8 +165,15 @@ delete conversations under `/api/agent/conversations`, and
 `POST /api/agent/conversations/{id}/messages` — the one model-calling
 endpoint — which stores the user turn, runs the loop synchronously, and
 returns the exchange with the full tool-call trajectory. It is rate-limited
-per client IP (`AGENT_MESSAGES_PER_MIN`, default 10). The chat panel on top
-is the next slice (`CURRENT.md`).
+per client IP (`AGENT_MESSAGES_PER_MIN`, default 10).
+
+The chat panel (`frontend/src/features/agent/`, the **Agent** nav entry)
+drives that API: conversations in a sidebar, the thread with every tool call
+the agent made rendered on the assistant turn — failed calls included — and
+an undo affordance on each mutation (create → trash, trash → restore,
+complete → reopen), routed through the same REST endpoints as the rest of
+the UI so undo is audited too. v1 is non-streaming: a working indicator
+shows while the loop runs.
 
 Live smoke, opt-in (the default test run never touches the GPU):
 

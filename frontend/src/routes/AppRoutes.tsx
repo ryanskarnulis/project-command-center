@@ -1,4 +1,5 @@
 import { Navigate, createBrowserRouter } from 'react-router-dom'
+import { AgentPage } from '../features/agent/AgentPage'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { NotFoundPage } from '../features/errors/NotFoundPage'
 import { RouteErrorBoundary } from '../features/errors/RouteErrorBoundary'
@@ -23,6 +24,8 @@ export const routes = [
       { path: '/projects', element: <Navigate to="/dashboard" replace /> },
       { path: '/projects/:projectId', element: <ProjectDetailPage /> },
       { path: '/projects/:projectId/tasks', element: <TasksPage /> },
+      { path: '/agent', element: <AgentPage /> },
+      { path: '/agent/:conversationId', element: <AgentPage /> },
       { path: '/trash', element: <TrashPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],

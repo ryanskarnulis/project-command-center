@@ -42,11 +42,12 @@ Open decisions (resolve in the slices, record the outcome here):
   it. Loop context is rebuilt from prior user/assistant *text* turns only —
   tool transcripts are never round-tripped (keeps the 12B's window lean; the
   model re-reads live state through tools).
-- **Streaming.** Slice 2 shipped the API non-streaming: `POST
-  /agent/conversations/{id}/messages` runs the loop synchronously and
-  returns the full exchange, with the per-step tool trajectory in the
-  response for the panel to render. Whether slice 3 needs SSE on top is
-  still open — decide when the panel UX is concrete.
+- **Streaming — resolved in slice 3: v1 ships non-streaming.** The panel
+  posts, shows the user bubble + an animated "working" indicator while the
+  loop runs server-side, then renders the reply with its full tool
+  trajectory. On the local model a run is seconds-warm, so progressive
+  output buys little; SSE goes to the backlog and only gets built if real
+  usage makes the wait feel bad.
 
 **Status legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
@@ -100,12 +101,21 @@ including a real self-correction trajectory persisted on the assistant turn.
 
 ### Slice 3 — Chat panel UI (`features/agent/`)
 
-- [ ] Panel: conversation list/history, composer, visible tool calls with
+- [x] Panel: conversation list/history, composer, visible tool calls with
       undo affordance ("agent created task X — undo" → trash restore),
       sensible in-progress states. API layer in `src/api/`, hooks per
       frontend rules; no state library.
-- [ ] Verify with the `verifier-browser` skill (rendered-surface change),
+- [x] Verify with the `verifier-browser` skill (rendered-surface change),
       not just Vitest.
+
+Slice 3 notes: `/agent` page (topbar nav entry) — sidebar conversation list +
+thread pane, `src/api/agent.ts` (5-minute timeout on the message post; a cold
+model load is ~100 s), hooks `useConversations`/`useConversation`. Undo maps
+each successful mutating tool call to its inverse through the same REST
+endpoints the UI uses (create→trash, trash→restore, complete→reopen), so
+undo is itself audited; calls needing prior state (update_*) get none.
+Failed calls stay visible in the trajectory — self-corrections are part of
+the record.
 
 ### Slice 4 — Eval harness
 

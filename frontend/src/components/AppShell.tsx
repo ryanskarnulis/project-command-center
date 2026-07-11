@@ -2,7 +2,7 @@ import { type ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useTrashCount } from '../features/trash/trashCountContext'
 import { CommandSearch } from '../features/search/CommandSearch'
-import { CheckSquare, Sun, Trash2 } from 'lucide-react'
+import { Bot, CheckSquare, Sun, Trash2 } from 'lucide-react'
 
 interface AppShellProps {
   children: ReactNode
@@ -11,6 +11,7 @@ interface AppShellProps {
 const topbarNav = [
   { to: '/focus', label: 'Focus', icon: Sun },
   { to: '/tasks', label: 'Tasks', icon: CheckSquare },
+  { to: '/agent', label: 'Agent', icon: Bot },
 ]
 
 function navClass({ isActive }: { isActive: boolean }) {
