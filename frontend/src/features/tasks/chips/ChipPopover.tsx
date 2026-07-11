@@ -51,14 +51,27 @@ export function ChipPopover({
   const updatePosition = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect()
     if (!rect) return
-    // Flip above the chip when there isn't room below (bottom-most cards).
     const height = popoverRef.current?.offsetHeight ?? 0
-    const overflowsBelow = rect.bottom + 6 + height > window.innerHeight
-    const fitsAbove = rect.top - 6 - height >= 0
-    const vertical =
-      overflowsBelow && fitsAbove
-        ? { bottom: window.innerHeight - rect.top + 6 }
-        : { top: rect.bottom + 6 }
+    // Measure against the visual viewport: window.innerHeight includes the
+    // area under the mobile soft keyboard, which an autofocused editor input
+    // pops open.
+    const viewportTop = window.visualViewport?.offsetTop ?? 0
+    const viewportBottom =
+      viewportTop + (window.visualViewport?.height ?? window.innerHeight)
+    const overflowsBelow = rect.bottom + 6 + height > viewportBottom
+    const fitsAbove = rect.top - 6 - height >= viewportTop
+    let vertical: CSSProperties
+    if (overflowsBelow && fitsAbove) {
+      // Flip above the chip when there isn't room below (bottom-most cards).
+      vertical = { bottom: window.innerHeight - rect.top + 6 }
+    } else if (overflowsBelow) {
+      // Fits neither side: pin to the viewport's bottom edge (clamped to the
+      // top) so it never extends past the visible area — a popover below the
+      // fold makes mobile browsers scroll the page chasing the focused input.
+      vertical = { top: Math.max(viewportTop + 6, viewportBottom - height - 6) }
+    } else {
+      vertical = { top: rect.bottom + 6 }
+    }
     setStyle(
       align === 'right'
         ? { ...vertical, right: window.innerWidth - rect.right }
@@ -98,10 +111,16 @@ export function ChipPopover({
     document.addEventListener('mousedown', onPointerDown, true)
     document.addEventListener('scroll', onReanchor, true)
     window.addEventListener('resize', onReanchor)
+    // The soft keyboard resizes the visual viewport without firing a window
+    // resize on all mobile browsers.
+    window.visualViewport?.addEventListener('resize', onReanchor)
+    window.visualViewport?.addEventListener('scroll', onReanchor)
     return () => {
       document.removeEventListener('mousedown', onPointerDown, true)
       document.removeEventListener('scroll', onReanchor, true)
       window.removeEventListener('resize', onReanchor)
+      window.visualViewport?.removeEventListener('resize', onReanchor)
+      window.visualViewport?.removeEventListener('scroll', onReanchor)
     }
   }, [open, updatePosition])
 

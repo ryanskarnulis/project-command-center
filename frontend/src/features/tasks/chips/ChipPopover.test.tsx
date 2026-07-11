@@ -82,6 +82,41 @@ describe('ChipPopover', () => {
     expect(screen.getByText('Popover body')).toBeInTheDocument()
   })
 
+  it('clamps to the viewport bottom when the popover fits neither below nor above', () => {
+    // Short mobile viewport: a 300px popover under a chip at y=200 overflows
+    // below and cannot flip above. It must pin inside the viewport instead of
+    // extending past the bottom (which makes mobile browsers scroll the page
+    // chasing the autofocused input).
+    const originalInnerHeight = window.innerHeight
+    Object.defineProperty(window, 'innerHeight', { value: 400, configurable: true })
+    const offsetHeight = vi
+      .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+      .mockReturnValue(300)
+    renderChip()
+    const trigger = screen.getByRole('button', { name: 'Priority: high' })
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({
+      top: 200,
+      bottom: 220,
+      left: 40,
+      right: 140,
+      width: 100,
+      height: 20,
+      x: 40,
+      y: 200,
+      toJSON: () => ({}),
+    } as DOMRect)
+    fireEvent.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: 'Priority: high' })
+    expect(dialog.style.top).toBe('94px') // 400 - 300 - 6, not 220 + 6
+    expect(dialog.style.bottom).toBe('')
+    offsetHeight.mockRestore()
+    Object.defineProperty(window, 'innerHeight', {
+      value: originalInnerHeight,
+      configurable: true,
+      writable: true,
+    })
+  })
+
   it('closes on Escape and refocuses the trigger without letting the event bubble', () => {
     const outerKeyDown = vi.fn()
     render(

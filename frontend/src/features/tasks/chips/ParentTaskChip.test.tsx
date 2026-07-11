@@ -31,6 +31,18 @@ describe('ParentTaskChip', () => {
     expect(onChange).toHaveBeenCalledExactlyOnceWith(12)
   })
 
+  it('focuses the search input on open without scrolling it into view', () => {
+    // preventScroll matters: the input is focused before ChipPopover anchors
+    // the portaled popover, and a plain focus() makes mobile browsers scroll
+    // the page to the bottom chasing it.
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus')
+    render(<ParentTaskChip value={null} options={OPTIONS} onChange={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Set parent task' }))
+    expect(screen.getByLabelText('Search tasks')).toHaveFocus()
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true })
+    focusSpy.mockRestore()
+  })
+
   it('clears the parent via None', () => {
     const onChange = vi.fn()
     render(<ParentTaskChip value={11} options={OPTIONS} onChange={onChange} />)

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { focusOnMount } from './focusOnMount'
 
 export interface ChipSearchOption {
   id: number
@@ -33,7 +34,7 @@ export function ChipSearchList({
     <div className="chip-search">
       <input
         aria-label={searchLabel}
-        autoFocus
+        ref={focusOnMount}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder={searchLabel}

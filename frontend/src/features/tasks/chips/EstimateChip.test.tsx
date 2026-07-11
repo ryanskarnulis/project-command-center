@@ -16,6 +16,14 @@ describe('EstimateChip', () => {
     expect(screen.getByRole('button', { name: 'Set estimate' })).toHaveTextContent('Estimate…')
   })
 
+  it('focuses the editor input on open without scrolling it into view', () => {
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus')
+    openEditor(null)
+    expect(screen.getByLabelText('Estimate')).toHaveFocus()
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true })
+    focusSpy.mockRestore()
+  })
+
   it('commits a parsed duration on submit', () => {
     const onChange = openEditor(null)
     fireEvent.change(screen.getByLabelText('Estimate'), { target: { value: '2h' } })

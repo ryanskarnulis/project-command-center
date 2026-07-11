@@ -10,6 +10,15 @@ describe('RepeatChip', () => {
     expect(screen.getByRole('button', { name: 'Set repeat' })).toHaveTextContent('Repeat…')
   })
 
+  it('focuses the editor input on open without scrolling it into view', () => {
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus')
+    render(<RepeatChip value={null} onChange={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Set repeat' }))
+    expect(screen.getByLabelText('Repeat')).toHaveFocus()
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true })
+    focusSpy.mockRestore()
+  })
+
   it('commits a parsed interval on submit', () => {
     const onChange = vi.fn()
     render(<RepeatChip value={null} onChange={onChange} />)
