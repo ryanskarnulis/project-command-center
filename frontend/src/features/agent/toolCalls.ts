@@ -135,6 +135,54 @@ export function isMutation(record: ToolCallRecord): boolean {
   return !/^(list_|get_|search$)/.test(record.tool)
 }
 
+const taskPath = (id: number | null) => (id === null ? null : `/tasks/${id}`)
+const projectPath = (id: number | null) => (id === null ? null : `/projects/${id}`)
+
+/**
+ * Where a successful tool call's row should link — the entity it touched, or
+ * null when there's nothing sensible to open (reads over collections,
+ * unparseable results, failed calls). `undone` reroutes rows whose undo moved
+ * the entity: an undone create now lives in the trash; an undone trash is
+ * back at its detail page.
+ */
+export function linkFor(
+  record: ToolCallRecord,
+  opts: { undone?: boolean } = {},
+): string | null {
+  if (record.error !== null) return null
+  const undone = opts.undone === true
+  switch (record.tool) {
+    case 'create_task':
+      // Undo of a create is a soft delete — point at the trash, not a 404.
+      return undone ? '/trash' : taskPath(resultId(record))
+    case 'update_task':
+    case 'complete_task':
+    case 'reopen_task':
+    case 'restore_task':
+      return taskPath(resultId(record))
+    case 'skip_occurrence':
+    case 'stop_recurrence':
+    case 'get_task':
+      return taskPath(resultId(record) ?? argNumber(record, 'task_id'))
+    case 'create_project':
+      return undone ? '/trash' : projectPath(resultId(record))
+    case 'update_project':
+    case 'close_project':
+    case 'reopen_project':
+    case 'restore_project':
+      return projectPath(resultId(record))
+    case 'get_project':
+      return projectPath(resultId(record) ?? argNumber(record, 'project_id'))
+    case 'trash_task':
+      // Undo of a trash is a restore — back to the task's detail page.
+      return undone ? taskPath(argNumber(record, 'task_id')) : '/trash'
+    case 'trash_project':
+      return undone ? projectPath(argNumber(record, 'project_id')) : '/trash'
+    default:
+      return null
+  }
+}
+
 /**
  * The inverse of a successful mutating call, when one exists. Everything here
  * routes through the same REST endpoints the rest of the UI uses (service

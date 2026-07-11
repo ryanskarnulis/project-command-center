@@ -1,7 +1,17 @@
 import { Bot } from 'lucide-react'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import type { AgentMessage, AgentStopReason } from '../../types/agent'
 import { formatRelative } from '../../utils/dates'
 import { ToolCallList } from './ToolCallList'
+
+// react-markdown is safe by default (raw HTML never rendered). Links open in
+// a new tab so a stray absolute URL in a reply can't navigate the SPA away.
+const MARKDOWN_COMPONENTS: Components = {
+  a: ({ node, ...props }) => {
+    void node // hast node isn't a DOM prop; strip it before spreading.
+    return <a {...props} target="_blank" rel="noopener noreferrer" />
+  },
+}
 
 const STOP_FALLBACK: Record<Exclude<AgentStopReason, 'completed'>, string> = {
   max_iterations:
@@ -31,7 +41,11 @@ export function MessageBubble({ message }: { message: AgentMessage }) {
           <ToolCallList messageId={message.id} records={message.tool_calls} />
         )}
         {message.content !== null && (
-          <div className="agent-bubble">{message.content}</div>
+          <div className="agent-bubble">
+            <ReactMarkdown components={MARKDOWN_COMPONENTS}>
+              {message.content}
+            </ReactMarkdown>
+          </div>
         )}
         {stopReason !== null && stopReason !== 'completed' && (
           <p className="agent-stop-note" role="status">

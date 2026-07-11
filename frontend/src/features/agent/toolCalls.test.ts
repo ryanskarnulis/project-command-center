@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ToolCallRecord } from '../../types/agent'
-import { describeToolCall, isMutation, undoFor } from './toolCalls'
+import { describeToolCall, isMutation, linkFor, undoFor } from './toolCalls'
 
 vi.mock('../../api/tasks', () => ({
   deleteTask: vi.fn(),
@@ -56,6 +56,89 @@ describe('isMutation', () => {
   it('treats writes as mutations', () => {
     expect(isMutation(record({ tool: 'create_task' }))).toBe(true)
     expect(isMutation(record({ tool: 'trash_project' }))).toBe(true)
+  })
+})
+
+describe('linkFor', () => {
+  it('links task mutations to the task from the result id', () => {
+    const result = JSON.stringify({ id: 7, title: 'X' })
+    for (const tool of [
+      'create_task',
+      'update_task',
+      'complete_task',
+      'reopen_task',
+      'restore_task',
+    ]) {
+      expect(linkFor(record({ tool, result }))).toBe('/tasks/7')
+    }
+  })
+
+  it('links recurrence calls via the result id, falling back to the argument', () => {
+    expect(
+      linkFor(record({ tool: 'skip_occurrence', result: JSON.stringify({ id: 12 }) })),
+    ).toBe('/tasks/12')
+    expect(
+      linkFor(
+        record({ tool: 'stop_recurrence', arguments: { task_id: 5 }, result: 'ok' }),
+      ),
+    ).toBe('/tasks/5')
+  })
+
+  it('links project mutations to the project', () => {
+    const result = JSON.stringify({ id: 3, name: 'P' })
+    for (const tool of [
+      'create_project',
+      'update_project',
+      'close_project',
+      'reopen_project',
+      'restore_project',
+    ]) {
+      expect(linkFor(record({ tool, result }))).toBe('/projects/3')
+    }
+  })
+
+  it('links single-entity reads when an id is recoverable', () => {
+    expect(
+      linkFor(record({ tool: 'get_task', arguments: { task_id: 4 }, result: null })),
+    ).toBe('/tasks/4')
+    expect(
+      linkFor(record({ tool: 'get_project', result: JSON.stringify({ id: 9 }) })),
+    ).toBe('/projects/9')
+  })
+
+  it('links trash calls to the trash page, never the trashed entity', () => {
+    expect(linkFor(record({ tool: 'trash_task', arguments: { task_id: 9 } }))).toBe(
+      '/trash',
+    )
+    expect(
+      linkFor(record({ tool: 'trash_project', arguments: { project_id: 2 } })),
+    ).toBe('/trash')
+  })
+
+  it('returns null for collection reads, failures, and unrecoverable ids', () => {
+    expect(linkFor(record({ tool: 'search', arguments: { query: 'x' } }))).toBeNull()
+    expect(linkFor(record({ tool: 'list_tasks', result: '[]' }))).toBeNull()
+    expect(linkFor(record({ tool: 'get_focus_plan', result: '{}' }))).toBeNull()
+    expect(linkFor(record({ tool: 'create_task', error: 'boom' }))).toBeNull()
+    expect(linkFor(record({ tool: 'create_task', result: 'not json' }))).toBeNull()
+    expect(linkFor(record({ tool: 'update_task', result: '{"id": "7"}' }))).toBeNull()
+  })
+
+  it('reroutes undone rows to where the entity now lives', () => {
+    const created = record({
+      tool: 'create_task',
+      result: JSON.stringify({ id: 7 }),
+    })
+    expect(linkFor(created, { undone: true })).toBe('/trash')
+
+    const trashed = record({ tool: 'trash_task', arguments: { task_id: 9 } })
+    expect(linkFor(trashed, { undone: true })).toBe('/tasks/9')
+
+    const trashedProject = record({
+      tool: 'trash_project',
+      arguments: { project_id: 2 },
+    })
+    expect(linkFor(trashedProject, { undone: true })).toBe('/projects/2')
   })
 })
 
