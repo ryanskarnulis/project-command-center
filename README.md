@@ -175,10 +175,14 @@ complete → reopen), routed through the same REST endpoints as the rest of
 the UI so undo is audited too. v1 is non-streaming: a working indicator
 shows while the loop runs.
 
-Live smoke, opt-in (the default test run never touches the GPU):
+Two opt-in live suites (the default test run never touches the GPU): the
+provider smoke, and the agent eval harness — six scripted scenarios through
+the real loop asserting trajectories and DB end-state, with the gemma-4-12b
+baseline recorded in [`docs/agent-design.md`](docs/agent-design.md):
 
 ```bash
 cd backend && PCC_LLM_INTEGRATION=1 .venv/bin/pytest tests/test_ai_llamacpp_integration.py -v
+cd backend && PCC_AGENT_EVALS=1 .venv/bin/pytest tests/test_agent_evals.py -v -s
 ```
 
 The agent loop that consumes it is the next checkout; design and runtime
