@@ -4,6 +4,7 @@ import { useTrashCount } from '../features/trash/trashCountContext'
 import { CommandSearch } from '../features/search/CommandSearch'
 import { CheckSquare, Sun, Trash2 } from 'lucide-react'
 import { SpiderMark } from './SpiderMark'
+import { WebMark } from './WebMark'
 
 interface AppShellProps {
   children: ReactNode
@@ -27,7 +28,7 @@ export function AppShell({ children }: AppShellProps) {
       <header className="topbar">
         <NavLink to="/dashboard" className="brand-mark" aria-label="Command Center">
           <span className="brand-icon">
-            <SpiderMark size={26} />
+            <WebMark size={26} />
           </span>
           <span className="brand-text">
             <strong>Project</strong>
