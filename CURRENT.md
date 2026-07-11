@@ -18,9 +18,9 @@ Decisions already made (don't relitigate):
   calls the same tool functions the MCP server exposes, in-process — no stdio
   hop; the tool layer was scoped transport-agnostic for exactly this
   (`docs/agent-design.md`). No hard deletes, Pydantic at every boundary,
-  every mutation in `activity_events` with the loop's own actor value
-  (design doc: the in-app loop stamps its own; pick the string in slice 1
-  and record it here).
+  every mutation in `activity_events` with the loop's own actor value —
+  **`agent:loop`** (decided in slice 1; `agent:mcp` stays the external MCP
+  clients' value, `NULL` the user).
 - **Self-correction lives in the loop, not the provider** (established in
   the provider slice): on `ToolCallArgumentsError` / argument-validation
   failure, feed the error back for a bounded number of correction turns,
@@ -49,18 +49,30 @@ Open decisions (resolve in the slices, record the outcome here):
 
 ### Slice 1 — Tool registry + agent loop core
 
-- [ ] Factor the MCP server's tool bodies into a transport-agnostic registry
+- [x] Factor the MCP server's tool bodies into a transport-agnostic registry
       both the MCP server and the loop consume (names, descriptions,
       argument schemas, dispatch) — MCP behavior identical, its tests stay
       green; the registry emits the provider's `ToolSpec`s.
-- [ ] The loop (`app/ai/` or `app/agent/` — pick and record): system prompt,
+- [x] The loop (`app/ai/` or `app/agent/` — pick and record): system prompt,
       bounded iterations, dispatch through the registry with Pydantic
       argument validation, bounded self-correction turns on invalid calls,
       terminate on a text turn. Mutations stamped with the loop's actor
       value; structlog carries request ID + the provider's `llm_call_id`.
-- [ ] Tests: scripted fake provider (no GPU) driving a create/complete flow
+- [x] Tests: scripted fake provider (no GPU) driving a create/complete flow
       end-to-end — asserts tool dispatch, DB end-state, audit rows, and the
       self-correction path.
+
+Slice 1 decisions (recorded): the registry is `app/tools/registry.py` with
+shared per-call plumbing in `app/tools/runtime.py` (absorbed the old
+`app/mcp/runtime.py`); `app/mcp/server.py` is now pure transport wiring.
+Schemas/validation come from the same `func_metadata` machinery FastMCP
+uses, so `ToolSpec`s are byte-identical to the MCP `inputSchema`s (parity is
+tested). The loop is `app/ai/loop.py` (`AgentLoop`), actor **`agent:loop`**,
+defaults 10 iterations / 3 correction turns. Correction budget covers
+schema-level failures only (unparseable arguments, argument-model rejections,
+unknown tool); service-layer domain rejections ("blocked", "not found") are
+ordinary tool-result feedback under the iteration budget, matching MCP
+behavior.
 
 ### Slice 2 — Conversation persistence + agent API
 
