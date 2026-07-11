@@ -81,8 +81,10 @@ outcome; kept for the framing):
       `docs/agent-design.md` (runtime section); `../future-plans/llama-swap.md`
       updated (phases 0–1 done, phase 2 obsolete as written).
 - [x] Stood up `../llama-swap/` (pinned `v236-cuda-b9935`, port 8200):
-      `-c 16384` + q8 KV + MTP measured at **7.9 GB** on the 3060 (was
-      10.2 GB at 8k/f16); tool-call completion valid first try, ~112 tok/s.
+      ctx pushed to the model's full **128k** (`-c 131072` + q8 KV + MTP) —
+      SWA keeps the KV small, so it's 9.5 GB loaded / 10.5 GB peak on the
+      3060 (was 10.2 GB at 8k/f16); 125k-token needle test retrieved
+      correctly; tool-call completion valid first try, ~112 tok/s shallow.
 - [x] Chess cutover: PR #87 (CI green — **merge pending human review**),
       deployed from branch and verified: NL command → `make_move` through
       llama-swap, engine-only gameplay survives the brain being stopped
