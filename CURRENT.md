@@ -1,39 +1,29 @@
 # Current focus
 
-**Epic: Dashboard redo — board-first UI** (checked out 2026-07-09).
+**Epic: Phase 2 kickoff — tasks-table cleanup, agent design, PCC MCP server**
+(checked out 2026-07-10).
 
-The strip epic is done (see `DONE.md` / git history). Before Phase 2 (local
-agent) starts, the UI gets reshaped around doing work instead of summarizing
-it: the dashboard becomes a project-swimlane kanban, "Today" becomes "Focus",
-project task views default to the board, and project aliases (an AI-extraction
-leftover) are removed.
+The dashboard-redo epic is done and archived in `DONE.md`. Phase 2 (the local
+agent) starts here, sequenced so the highest-leverage, lowest-risk pieces land
+first: clean the dead AI-era columns out of the service layer the agent's
+tools will wrap, write the agent design doc, then build the PCC MCP server.
+The llama.cpp runtime comes in a later checkout.
 
 Decisions already made (don't relitigate):
 
-- **Dashboard layout: project swimlanes**, not a flat global board. Rows =
-  projects, columns = Open / In progress. The lane header carries the
-  per-project overview (open count, status tone) that the old metric
-  cards/workload bars provided. Done tasks are not a grid column; they live
-  behind a per-lane toggle (fed from the completed archive, as `KanbanBoard`
-  does today). Drag between columns works per-lane and routes through the same
-  status-change paths as the existing board (recurrence-safe done/reopen,
-  `is_blocked` move guard).
-- **Signal strip stays**: one slim line above the board — overdue · blocking ·
-  due today counts, each clickable to filter the board. This is the only old
-  dashboard signal the board can't show at a glance; everything else
-  (metric cards, workload bars, greeting hero copy) goes.
-- **Today → Focus, full rename**: nav label, `/focus` route (keep a `/today`
-  redirect), `features/today/` → `features/focus/`, and the backend today
-  service/endpoint/schemas renamed too. No external consumers; vocabulary
-  stays consistent. Copy reframed around focus sessions ("Start a focus
-  session"), not calendar days.
-- **Project aliases are removed** (backend + any frontend editing UI + Alembic
-  migration dropping the alias table/columns). Their only consumer was the
-  stripped inbox/AI matching.
-- **Project task views default to kanban** — hard default, no sticky
-  per-project persistence; list stays one toggle away.
-- **`/tasks` page stays as-is** (flat list/board with full filters). The
-  dashboard swimlanes serve a different purpose; no duplication concern.
+- **MCP server before llama.cpp runtime.** The MCP server needs no GPU and no
+  provider layer — it wraps the existing service layer, and Claude Code
+  becomes PCC's first agent client the day it merges. The runtime slice is
+  entangled with the GPU-contention story (`../future-plans/llama-swap.md` —
+  phase-0 triggers already observed); deferring it doesn't block agent
+  progress.
+- **`assignee_hint` is dropped, not promoted** (decided 2026-07-10).
+  Single-user app; nothing sets it deliberately anymore.
+- **`review_status` and `confidence` are dropped.** Nothing produces
+  `candidate` or a confidence since the strip; the pervasive
+  `review_status == accepted` service filtering goes with them.
+- **The Tasks page stays as-is for now** (decided 2026-07-10). Its fate
+  remains a backlog item in `TODO.md`; nothing in this epic touches it.
 
 **Status legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
@@ -41,55 +31,57 @@ Decisions already made (don't relitigate):
 
 ## Slices (one PR each, squash-merged on green CI)
 
-### Slice 1 — Remove project aliases
+### Slice 1 — Tasks-table cleanup (drop the dead AI-era columns)
 
-- [x] Alembic migration dropping the alias storage (review autogen; verify
-      upgrade/downgrade round-trip).
-- [x] Remove alias fields from `schemas/projects.py`, alias handling from
-      `services/projects.py` / `services/trash.py` / `routes_projects.py`,
-      and the model columns in `db/models.py`.
-- [x] Remove any frontend alias display/edit surface and types.
-- [x] Doc pass: `README.md` schema/section mentions.
+- [ ] Alembic migration dropping `review_status`, `confidence`, and
+      `assignee_hint`, plus the `(deleted_at, review_status)` compound index —
+      replace it with a plain `deleted_at` index so the trash scan keeps its
+      coverage. Review autogen; verify upgrade/downgrade round-trip.
+- [ ] Backend: remove the fields from `db/models.py`, `schemas/tasks.py`,
+      `schemas/search.py`, and `routes_tasks.py`; strip the `review_status`
+      filtering from services (`tasks`, `search`, `focus`, `dashboard`,
+      `task_dependencies`, `task_recurrence`); tests follow.
+- [ ] Frontend: drop the fields from `types/task.ts` / `types/search.ts` and
+      their display/edit surfaces (`TaskCard`, `TaskDetailView`,
+      `TaskFormModal`, `QuickAddBar`, `CommandSearch` + related CSS); tests
+      follow.
+- [ ] Doc pass: `README.md` schema/API mentions.
 
-### Slice 2 — Today → Focus rename (+ project board default)
+### Slice 2 — Agent design doc
 
-- [x] Backend: rename today service/endpoint/schemas to focus; tests follow.
-- [x] Frontend: `features/today/` → `features/focus/`, nav label, `/focus`
-      route with `/today` redirect, `api/today.ts` → `api/focus.ts`,
-      `types/today.ts` → `types/focus.ts`; session-framed copy.
-- [x] Flip the project detail task view default to kanban (likely
-      `useTaskUrlState` / project detail view); list remains a toggle.
-- [x] Doc pass: `README.md` / `CLAUDE.md` "Today" mentions become "Focus".
+- [ ] Short in-repo design doc covering: the MCP tool surface (task CRUD +
+      complete, project CRUD, search, focus, trash/restore, dependencies,
+      recurrence); guardrails (no hard deletes, argument validation at the
+      boundary, per-tool `activity_events` attribution); server transport and
+      how Claude Code connects; the MCP server dependency to add (needs
+      sign-off per `CLAUDE.md` before slice 3); and what's explicitly deferred
+      (runtime, chat UI, RAG).
 
-### Slice 3 — Dashboard → swimlane board
+### Slice 3 — PCC MCP server (first pass)
 
-> Reverted 2026-07-09 (PR #18 backed out — the merged implementation didn't
-> meet the bar). Redone from scratch below.
+> Checklist refined by slice 2's design doc; the scope below is the working
+> assumption.
 
-- [x] New swimlane board component in `features/dashboard/` (new component,
-      not a `KanbanBoard` retrofit — but reuse `TaskCard`, the status-change
-      hooks, and the `is_blocked` move rule).
-- [x] Lane header: project name (link), open count, status tone; collapsed
-      state for empty/quiet projects. Per-lane Done toggle using the
-      completed-tasks archive fetch.
-- [x] Signal strip: overdue / blocking / due-today counts, clickable filters.
-- [x] Delete the replaced dashboard surfaces: metric cards, workload bars,
-      projects-overview table, hero copy (+ their CSS).
-- [x] Verify drag interactions with the `verifier-browser` skill (jsdom can't
-      exercise pointer drags).
-- [x] Doc pass: `README.md` dashboard description.
+- [ ] MCP server exposing the service layer as tools: task CRUD + complete,
+      project CRUD, search, focus, trash/restore.
+- [ ] Tool-level guardrails: no hard deletes, argument validation, audit
+      entries in `activity_events` attributed to the agent.
+- [ ] Verified end-to-end from Claude Code: create → list → complete → trash →
+      restore a task through the tools, each action visible in
+      `activity_events`.
+- [ ] Doc pass: `README.md` setup/usage for connecting an MCP client.
 
 ---
 
 ## Out of scope for this epic
 
-- Anything agent-related (llama.cpp, MCP, tools, RAG) — Phase 2 in `TODO.md`.
-- Restyling `/tasks` or the Focus algorithm itself — rename/reframe only.
-- The deferred tasks-table cleanup (`review_status` / `confidence` /
-  `assignee_hint`) — separate item in `TODO.md`.
+- llama.cpp runtime, provider layer, agent loop, chat panel UI, RAG — later
+  Phase 2 checkouts (`TODO.md`).
+- The Tasks-page decision, due-date reminders, markdown export — backlog.
 
 ## Definition of done for the epic
 
-All three slices merged; `./test.sh` and CI green; opening the app lands on
-the swimlane board; `/today` redirects to `/focus`; no alias code, routes,
-columns, or doc mentions remain; project task views open on the kanban.
+All three slices merged; `./test.sh` and CI green; the three columns are gone
+from schema and code with a reviewed migration; the design doc is merged; and
+a task can be created, completed, trashed, and restored from Claude Code via
+the MCP server with every action recorded in `activity_events`.

@@ -1466,6 +1466,34 @@ shipped slices:
       Discord profile; `.env` examples cleaned.
 - [x] `README.md` and `CLAUDE.md` sections for the removed subsystems excised.
 
+## Dashboard redo — board-first UI (epic)
+> Goal: before Phase 2 (local agent), reshape the UI around doing work instead
+> of summarizing it — the dashboard becomes a project-swimlane kanban, "Today"
+> becomes "Focus", project task views default to the board, and the AI-era
+> project aliases are removed.
+
+- [x] **Slice 1 — project aliases removed** (#15) — Alembic migration dropping
+      alias storage (upgrade/downgrade round-trip verified); alias fields and
+      handling removed from schemas, services, routes, models, and the frontend
+      edit surface; `README.md` schema pass.
+- [x] **Slice 2 — Today → Focus rename** (#17) — backend today
+      service/endpoint/schemas renamed to focus (tests followed);
+      `features/today/` → `features/focus/`, nav label, `/focus` route with a
+      `/today` redirect, `api/today.ts` → `api/focus.ts`; copy reframed around
+      focus sessions. Project detail task views now default to kanban (hard
+      default, list one toggle away).
+- [x] **Slice 3 — dashboard → swimlane board** (#20; first attempt #18 reverted
+      in #19 and redone from scratch) — new swimlane board component in
+      `features/dashboard/` (rows = projects, Open / In progress columns,
+      per-lane Done toggle fed from the completed archive; reuses `TaskCard`,
+      the status-change hooks, and the `is_blocked` move rule). Lane headers
+      carry project link, open count, and status tone, with a collapsed state
+      for quiet projects. Signal strip above the board: overdue / blocking /
+      due-today counts, clickable filters. Metric cards, workload bars,
+      projects-overview table, and hero copy deleted with their CSS. Drag
+      interactions verified with `verifier-browser`; `README.md` dashboard
+      description updated.
+
 ## Remove the Projects list page (board is the projects surface)
 > The dashboard board superseded the `/projects` grid; its unique capabilities moved.
 
@@ -1477,3 +1505,16 @@ shipped slices:
       the sidebar per-project sub-list (and its drag-reorder/drag-to-file — board lanes
       cover both); `/projects` redirects to `/dashboard`; orphaned CSS removed.
 - [x] Vitest, lint, build green; route redirect + create/delete covered by tests.
+
+## Board-first follow-ons (post-epic polish)
+> Shipped on top of the swimlane board after the dashboard-redo epic closed.
+
+- [x] Manual project reorder (board + sidebar) and top-layer chip popovers (#21)
+- [x] Spider brand icon toggles sidebar collapse (#22); mobile fix so collapse
+      doesn't hide the whole nav (#23) — both superseded by the sidebar
+      removal in #28
+- [x] Focus timeline duplicate "part of" label + mobile card overflow fixed (#24)
+- [x] Drag tasks across project lanes on the dashboard board (#25)
+- [x] Close/reopen projects to hide them without deleting (#27)
+- [x] Sidebar removed; navigation (Focus / Tasks / Trash) moved into the
+      topbar (#28)

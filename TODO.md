@@ -10,14 +10,16 @@ which lives in `CURRENT.md`. Completed work is archived in `DONE.md`.
 
 ## Current focus
 
-**Dashboard redo — board-first UI** (checked out 2026-07-09, tracked in
-`CURRENT.md`). The dashboard becomes a project-swimlane board, Today is renamed
-to Focus, project task views default to kanban, and the retired AI-era project
-aliases are removed before Phase 2 begins.
+**Phase 2 kickoff — tasks-table cleanup, agent design, PCC MCP server**
+(checked out 2026-07-10, tracked in `CURRENT.md`). The dashboard-redo epic is
+done (archived in `DONE.md`). This kickoff drops the dead AI-era task columns,
+writes the agent design doc, and builds the PCC MCP server; the llama.cpp
+runtime is deliberately deferred to a later checkout (GPU contention — see
+`../future-plans/llama-swap.md`).
 
 ---
 
-## Phase 2 — Local agent *(the new north star; starts after the dashboard epic)*
+## Phase 2 — Local agent *(the north star; kickoff checked out 2026-07-10)*
 
 A full agent for the app: local llama.cpp runtime, tool calling, MCP, retrieval.
 The agent is a **peer of the UI, not a bypass** — every write goes through the
@@ -85,16 +87,11 @@ the items below are scope, not order.
       and its filter machinery wholesale (rule 4 of definition-of-done) — but
       keep `/tasks/:id` detail routes alive for search and deep links, as
       project detail survived the Projects-page removal.
+      *Decision 2026-07-10: keep as-is for now; re-evaluate once the Phase 2
+      agent surfaces settle real usage.*
 - [ ] Task due-date reminders
 - [ ] Export tasks to markdown
-- [ ] **Tasks-table post-strip cleanup** (deferred from the merged Slice 1+2 —
-      see `CURRENT.md`). With AI extraction and the inbox gone, three `tasks`
-      columns are now dead weight but were left in place to keep the strip PR
-      bounded:
-      - `review_status`: nothing produces `candidate` anymore — collapse the
-        column, the pervasive `review_status == accepted` service filtering, and
-        the `(deleted_at, review_status)` compound index.
-      - `confidence`: AI-extraction output, always `None` now, still surfaced in
-        `TaskRead` — drop it.
-      - `assignee_hint`: AI-extraction hint, still settable via the task API —
-        decide whether it becomes a real "assignee" field or is dropped.
+
+*(The tasks-table post-strip cleanup — dropping `review_status`, `confidence`,
+`assignee_hint` — moved into the Phase 2 kickoff epic in `CURRENT.md`,
+2026-07-10; `assignee_hint` is dropped, not promoted.)*
