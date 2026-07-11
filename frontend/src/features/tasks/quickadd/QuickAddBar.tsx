@@ -83,6 +83,7 @@ export function QuickAddBar({ projects, scopeProjectId, onCreate, onMoreOptions 
       priority,
       due_date: dueDate,
       estimated_minutes: estimatedMinutes,
+      ...(projectId !== null ? { project_id: projectId } : {}),
     })
     reset()
   }

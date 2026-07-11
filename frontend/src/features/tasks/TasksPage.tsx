@@ -220,6 +220,7 @@ export function TasksPage() {
       {addingTask && (
         <TaskFormModal
           mode="create"
+          defaults={isGlobal ? undefined : { project_id: id }}
           tasks={tasks}
           projects={projects}
           onClose={() => updateTaskQuery({ addingTask: false })}
@@ -233,7 +234,13 @@ export function TasksPage() {
       {draftModalDefaults && (
         <TaskFormModal
           mode="create"
-          defaults={draftModalDefaults}
+          defaults={
+            // A draft without its own project (no #project token) pre-selects
+            // the page's project, matching where quick-add would file it.
+            draftModalDefaults.project_id === undefined && !isGlobal
+              ? { ...draftModalDefaults, project_id: id }
+              : draftModalDefaults
+          }
           tasks={tasks}
           projects={projects}
           onClose={() => setDraftModalDefaults(null)}

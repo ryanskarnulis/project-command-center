@@ -462,6 +462,29 @@ describe('TasksPage', () => {
     expect(screen.getByLabelText('Quick add task')).toHaveValue('')
   })
 
+  it('files a modal-created task in the selected project', async () => {
+    const user = userEvent.setup()
+    mockCreateUnscopedTask.mockResolvedValue({
+      ...baseTask,
+      id: 4,
+      title: 'File me right',
+      project_id: 42,
+    })
+    renderGlobal(['/tasks?new=1'])
+
+    const modal = await screen.findByRole('dialog', { name: 'Add task' })
+    await user.type(within(modal).getByLabelText('Title'), 'File me right')
+    await user.selectOptions(within(modal).getByLabelText('Project'), '42')
+    await user.click(within(modal).getByRole('button', { name: 'Save' }))
+
+    // The unscoped endpoint is the one that honors the payload's project.
+    await waitFor(() =>
+      expect(mockCreateUnscopedTask).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'File me right', project_id: 42 }),
+      ),
+    )
+  })
+
   it('deep-links ?task= to the peek panel over the list', async () => {
     renderGlobal(['/tasks?task=1'])
 

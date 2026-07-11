@@ -4,10 +4,16 @@ import { Link } from 'react-router-dom'
 import { createProject, reopenProject, reorderProjects } from '../../api/projects'
 import type { ProjectCreate } from '../../types/project'
 import { ProjectFormModal } from '../projects/ProjectFormModal'
-import { markTaskDone, reopenTask, updateTask } from '../../api/tasks'
+import {
+  createUnscopedTask,
+  markTaskDone,
+  reopenTask,
+  updateTask,
+} from '../../api/tasks'
 import { useToast } from '../../components/ToastContext'
 import { useTaskRefresh } from '../tasks/taskRefreshContext'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
+import { TaskFormModal } from '../tasks/TaskFormModal'
 import { TaskPanelProvider } from '../tasks/panel/TaskPanelProvider'
 import { DashboardSignalStrip } from './DashboardSignalStrip'
 import { DashboardSwimlaneBoard } from './DashboardSwimlaneBoard'
@@ -15,12 +21,21 @@ import type { DashboardSignal } from './dashboardSignals'
 import { useDashboard } from './useDashboard'
 
 export function DashboardPage() {
-  const { overview, tasks, closedProjects, loading, refreshing, error, reload } =
-    useDashboard()
+  const {
+    overview,
+    tasks,
+    projects,
+    closedProjects,
+    loading,
+    refreshing,
+    error,
+    reload,
+  } = useDashboard()
   const { withToast } = useToast()
   const { bump: bumpTaskRefresh } = useTaskRefresh()
   const [signal, setSignal] = useState<DashboardSignal | null>(null)
   const [creatingProject, setCreatingProject] = useState(false)
+  const [addingTask, setAddingTask] = useState(false)
 
   // Signal counts cover exactly what the board can surface: root tasks filed
   // in a project. Unfiled tasks live on /tasks, not in any lane.
@@ -31,6 +46,12 @@ export function DashboardPage() {
       ),
     [tasks],
   )
+
+  // The headline describes what the lanes hold: unfiled tasks appear in no
+  // lane, so lumping them into one total reads as a wrong count. Both slices
+  // come from the same fetch the board renders, so they can't drift from it.
+  const filedOpenCount = tasks.filter((t) => t.project_id !== null).length
+  const unfiledOpenCount = tasks.length - filedOpenCount
 
   // Route a lane move to the right endpoint: Done uses the recurrence-safe
   // done endpoint, leaving Done reopens (→ open), everything else is a PATCH.
@@ -102,7 +123,16 @@ export function DashboardPage() {
         <div className="dashboard-board-heading">
           <div>
             <h1>Project board</h1>
-            <p>{overview.total_open_tasks} open tasks across all projects</p>
+            <p>
+              {filedOpenCount} open{' '}
+              {filedOpenCount === 1 ? 'task' : 'tasks'} across all projects
+              {unfiledOpenCount > 0 && (
+                <>
+                  {' · '}
+                  <Link to="/tasks">{unfiledOpenCount} unfiled</Link>
+                </>
+              )}
+            </p>
           </div>
           <div className="dashboard-board-actions">
             <button
@@ -113,10 +143,14 @@ export function DashboardPage() {
               <Plus size={16} aria-hidden="true" />
               New project
             </button>
-            <Link to="/tasks?new=1" className="dashboard-add-task">
+            <button
+              type="button"
+              className="dashboard-add-task"
+              onClick={() => setAddingTask(true)}
+            >
               <Plus size={16} aria-hidden="true" />
               Add task
-            </Link>
+            </button>
           </div>
         </div>
 
@@ -160,6 +194,21 @@ export function DashboardPage() {
             mode="create"
             onClose={() => setCreatingProject(false)}
             onSave={handleCreateProject}
+          />
+        )}
+
+        {addingTask && (
+          <TaskFormModal
+            mode="create"
+            tasks={tasks}
+            projects={projects}
+            onClose={() => setAddingTask(false)}
+            onSave={async (data) => {
+              await withToast(createUnscopedTask(data), {
+                success: 'Task created',
+              })
+              reload()
+            }}
           />
         )}
       </div>

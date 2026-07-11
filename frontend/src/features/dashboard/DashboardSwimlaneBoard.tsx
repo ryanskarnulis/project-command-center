@@ -82,11 +82,17 @@ function DashboardSwimlane({
   const [dragOverStatus, setDragOverStatus] =
     useState<TaskWorkflowStatus | null>(null)
   const completed = useCompletedTasks(project.project_id, doneOpen)
-  const status = projectStatus(activeTasks, project.open_task_count)
+  const status = projectStatus(activeTasks, activeTasks.length)
 
-  const quiet = signal
-    ? visibleTasks.length === 0
-    : project.open_task_count === 0
+  // The header count describes what the columns render: root tasks. Subtasks
+  // are called out separately rather than folded into "open tasks" — a header
+  // larger than the visible cards reads as a wrong count.
+  const openRootCount = activeTasks.filter(
+    (task) => task.parent_task_id === null,
+  ).length
+  const subtaskCount = activeTasks.length - openRootCount
+
+  const quiet = signal ? visibleTasks.length === 0 : openRootCount === 0
   const collapsed = (userCollapsed ?? quiet) && !doneOpen
 
   const columns = useMemo(
@@ -245,8 +251,9 @@ function DashboardSwimlane({
             {project.project_name}
           </Link>
           <span>
-            {project.open_task_count} open{' '}
-            {project.open_task_count === 1 ? 'task' : 'tasks'}
+            {openRootCount} open {openRootCount === 1 ? 'task' : 'tasks'}
+            {subtaskCount > 0 &&
+              ` · ${subtaskCount} ${subtaskCount === 1 ? 'subtask' : 'subtasks'}`}
           </span>
         </div>
         <span className={`status-pill tone-${status.tone}`}>{status.label}</span>

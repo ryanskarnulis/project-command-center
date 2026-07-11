@@ -71,12 +71,14 @@ export function TaskFormModal(props: Props) {
   )
   // The empty ("no project") option means "inherit the parent's project" when
   // creating a subtask (create_task copies the parent's project when project_id
-  // is null). A top-level task is always filed, so default it to General rather
-  // than offering a misleading "unassigned".
+  // is null). A top-level task is always filed, so default it to the caller's
+  // project (a project-scoped page passes its own) and fall back to General
+  // rather than offering a misleading "unassigned".
   const generalProject = projects.find((p) => p.system_key === 'general')
   const isSubtaskCreate = !isEdit && defaults?.parent_task_id != null
   const [projectId, setProjectId] = useState(
     existingTask?.project_id != null ? String(existingTask.project_id)
+    : defaults?.project_id != null ? String(defaults.project_id)
     : isSubtaskCreate ? ''
     : String(generalProject?.id ?? '')
   )
@@ -85,6 +87,15 @@ export function TaskFormModal(props: Props) {
     : defaults?.parent_task_id != null ? String(defaults.parent_task_id)
     : ''
   )
+  // A deep-linked create modal (?new=1) can mount before the projects fetch
+  // resolves, leaving projectId '' — the select then *displays* the first
+  // option while submit would file to General. Adopt General during render
+  // once it's known (the sanctioned derived-state reset pattern) so the
+  // visible selection always matches where the task will land. Never applies
+  // in edit mode ('' = unfiled) or subtask create ('' = same as parent).
+  if (!isEdit && !isSubtaskCreate && projectId === '' && generalProject) {
+    setProjectId(String(generalProject.id))
+  }
   const [estimateDraft, setEstimateDraft] = useState(
     formatDurationInput(existingTask?.estimated_minutes ?? defaults?.estimated_minutes ?? null)
   )
@@ -126,6 +137,9 @@ export function TaskFormModal(props: Props) {
           workflow_status: workflowStatus,
           priority,
           due_date: dueDate || null,
+          // Null means "inherit the parent's project" for a subtask; the
+          // backend files a top-level null into General.
+          project_id: projectId === '' ? null : Number(projectId),
           parent_task_id: parentId === '' ? null : Number(parentId),
           estimated_minutes: estimatedMinutes,
         })
