@@ -46,9 +46,10 @@ the items below are scope, not order.
       (`backend/app/mcp/`, design in `docs/agent-design.md`); any MCP client
       (Claude Code included) gets full PCC access, and the in-app agent will
       consume the same tools. One tool surface, two consumers.
-  - [ ] Follow-up: dependencies and recurrence tools (add/remove dependency,
-        skip/stop recurrence) — scoped in `docs/agent-design.md`, deferred
-        from the first pass to keep the diff reviewable.
+  - [x] Follow-up: dependencies and recurrence tools (add/remove dependency,
+        skip/stop recurrence) — shipped 2026-07-11 (#34), completing the tool
+        surface; dependency writes now audited in `activity_events` from
+        every caller.
 - [x] Tool-level guardrails: no hard deletes, argument validation, per-tool
       audit entries in `activity_events` attributed to the agent
       (`actor = "agent:mcp"`; shipped with the server, 2026-07-10).
