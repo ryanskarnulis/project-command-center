@@ -4,13 +4,13 @@ import { Sparkles } from 'lucide-react'
 import { Badge, type BadgeTone } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { AsyncState } from '../../components/AsyncState'
-import { useToast } from '../../components/ToastContext'
-import { markTaskDone } from '../../api/tasks'
+import { SpiderMark } from '../../components/SpiderMark'
 import type { SearchKind, SearchResultItem } from '../../types/search'
-import { parseCommand, type HintVerb } from './parseCommand'
+import { InlineAgentExchange } from './InlineAgentExchange'
+import { useInlineAgentAsk } from './useInlineAgentAsk'
 import { useSearch } from './useSearch'
 
-// Per-kind display metadata for plain search results. The bar is intentionally
+// Per-kind display metadata for search results. The bar is intentionally
 // generic so routing/labels live in data, not branching JSX.
 const KIND_META: Record<
   SearchKind,
@@ -20,15 +20,14 @@ const KIND_META: Record<
   task: { label: 'Task', tone: 'purple', path: (i) => `/tasks/${i.id}` },
 }
 
-// One dropdown row, whatever produced it (search hit, /done match).
-// Keyboard nav iterates these uniformly; each carries its own `onSelect`.
+// One dropdown row. Keyboard nav iterates these uniformly; each carries its
+// own `onSelect`.
 interface ActionRow {
   key: string
   badge: { label: string; tone: BadgeTone }
   title: string
   subtitle?: string | null
   onSelect: () => void
-  disabled?: boolean
 }
 
 interface ActionGroup {
@@ -36,26 +35,16 @@ interface ActionGroup {
   rows: ActionRow[]
 }
 
-const HINT_TEXT: Record<HintVerb, string> = {
-  root: 'Type after the slash to run a command.',
-  done: 'Type a task to find, e.g. /done audit firewall rules',
-}
-
 export function CommandSearch() {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
-  const { notify } = useToast()
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const command = useMemo(() => parseCommand(query), [query])
-
-  // Only search/done hit the backend; hint states pass a blank query so
-  // `useSearch` short-circuits without an API call.
-  const searchQuery =
-    command.kind === 'search' || command.kind === 'done' ? command.query : ''
-  const { results, loading, error } = useSearch(searchQuery)
+  const { results, loading, error } = useSearch(query)
+  const { state: askState, ask, dismiss } = useInlineAgentAsk()
+  const asking = askState.phase === 'pending'
 
   const reset = useCallback(() => {
     setOpen(false)
@@ -70,41 +59,9 @@ export function CommandSearch() {
     [navigate, reset],
   )
 
-  // /done: complete the chosen task via the dedicated endpoint (preserves recurrence).
-  const runDone = useCallback(
-    async (item: SearchResultItem) => {
-      try {
-        await markTaskDone(item.id)
-        notify('success', `Completed “${item.title}”.`)
-        reset()
-      } catch (e: unknown) {
-        notify(
-          'error',
-          e instanceof Error ? e.message : `Couldn't complete “${item.title}”.`,
-        )
-      }
-    },
-    [notify, reset],
-  )
-
-  const groups: ActionGroup[] = useMemo(() => {
-    if (command.kind === 'done') {
-      // Only not-yet-done tasks are valid completion targets; already-done
-      // tasks are filtered out (the status field comes from search).
-      const rows = results.tasks
-        .filter((t) => t.workflow_status !== 'done')
-        .map<ActionRow>((t) => ({
-          key: `done-${t.id}`,
-          badge: { label: 'Task', tone: 'purple' },
-          title: t.title,
-          subtitle: t.subtitle,
-          onSelect: () => void runDone(t),
-        }))
-      return [{ label: 'Complete a task', rows }]
-    }
-
-    if (command.kind === 'search') {
-      return (
+  const groups: ActionGroup[] = useMemo(
+    () =>
+      (
         [
           { label: 'Projects', items: results.projects },
           { label: 'Tasks', items: results.tasks },
@@ -123,11 +80,9 @@ export function CommandSearch() {
             subtitle: item.subtitle,
             onSelect: () => goto(KIND_META[item.kind].path(item)),
           })),
-        }))
-    }
-
-    return [] // hint: rendered separately, nothing selectable
-  }, [command, results, runDone, goto])
+        })),
+    [results, goto],
+  )
 
   const flat = useMemo(() => groups.flatMap((g) => g.rows), [groups])
   const activeKey = useMemo(
@@ -149,14 +104,32 @@ export function CommandSearch() {
     [activeKey],
   )
 
-  // Close the dropdown when focus/click leaves the bar.
+  const trimmed = query.trim()
+
+  // Plain Enter / footer click: post the bar's text as a fresh agent
+  // conversation and render the exchange inline. On success the bar clears
+  // and re-enables so typing resumes live search; on error the text stays
+  // for a retry.
+  const submitAsk = useCallback(async () => {
+    if (trimmed === '' || asking) return
+    const ok = await ask(trimmed)
+    if (ok) setQuery('')
+  }, [trimmed, asking, ask])
+
+  const dismissExchange = useCallback(() => dismiss(), [dismiss])
+
+  // Close the dropdown (and any shown exchange) when focus/click leaves the
+  // bar. A pending run stays visible — `dismiss` no-ops while in flight.
   useEffect(() => {
     function onPointerDown(e: MouseEvent) {
-      if (!containerRef.current?.contains(e.target as Node)) setOpen(false)
+      if (!containerRef.current?.contains(e.target as Node)) {
+        setOpen(false)
+        dismissExchange()
+      }
     }
     document.addEventListener('mousedown', onPointerDown)
     return () => document.removeEventListener('mousedown', onPointerDown)
-  }, [])
+  }, [dismissExchange])
 
   // Global Cmd/Ctrl+K focuses the bar from anywhere (matches the `Cmd K` hint).
   // preventDefault stops the browser binding Ctrl+K to its own search/URL bar.
@@ -173,14 +146,10 @@ export function CommandSearch() {
     return () => window.removeEventListener('keydown', onKeydown)
   }, [])
 
-  const trimmed = query.trim()
-  const showDropdown = open && trimmed !== ''
-  const isHint = command.kind === 'hint'
-  const showAsyncState = command.kind === 'search' || command.kind === 'done'
-  const emptyLabel =
-    command.kind === 'done'
-      ? `No open tasks match “${command.query}”.`
-      : `No matches for “${trimmed}”.`
+  // The exchange panel replaces the results dropdown while an ask is
+  // pending/shown; typing again dismisses it and resumes live search.
+  const exchangeVisible = askState.phase !== 'idle'
+  const showDropdown = open && trimmed !== '' && !exchangeVisible
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'ArrowDown') {
@@ -192,12 +161,16 @@ export function CommandSearch() {
       setCurrentActiveIndex((i) => Math.max(i - 1, 0))
     } else if (e.key === 'Enter') {
       const row = flat[activeIndex]
-      if (row && !row.disabled) {
+      if (showDropdown && row) {
         e.preventDefault()
         row.onSelect()
+      } else if (trimmed !== '' && !asking) {
+        e.preventDefault()
+        void submitAsk()
       }
     } else if (e.key === 'Escape') {
       setOpen(false)
+      dismissExchange()
       e.currentTarget.blur()
     }
   }
@@ -212,19 +185,32 @@ export function CommandSearch() {
           ref={inputRef}
           value={query}
           onChange={(e) => {
+            dismissExchange()
             setQuery(e.target.value)
             setOpen(true)
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          placeholder="Search, or type / for commands…"
-          aria-label="Search projects and tasks, or run a slash command"
+          placeholder={asking ? 'The agent is working…' : 'Search, or ask the agent…'}
+          aria-label="Search projects and tasks, or ask the agent"
           role="combobox"
           aria-expanded={showDropdown}
           aria-controls="command-search-results"
+          disabled={asking}
         />
         <kbd>Cmd K</kbd>
       </div>
+
+      {exchangeVisible && (
+        <InlineAgentExchange
+          state={askState}
+          onContinue={(conversationId) => {
+            dismissExchange()
+            reset()
+            navigate(`/agent/${conversationId}`)
+          }}
+        />
+      )}
 
       {showDropdown && (
         <Card
@@ -233,77 +219,74 @@ export function CommandSearch() {
           id="command-search-results"
           role="listbox"
         >
-          {isHint ? (
-            <div className="command-search-group">
-              <p className="command-search-group-label">Commands</p>
-              <ul>
-                <li className="command-search-hint">
-                  <Badge tone="purple">/done</Badge>
-                  <span>complete a task</span>
-                </li>
-              </ul>
-              {command.kind === 'hint' && command.verb !== 'root' && (
-                <p className="async-empty">{HINT_TEXT[command.verb]}</p>
-              )}
-            </div>
-          ) : (
-            <AsyncState
-              loading={showAsyncState && loading}
-              error={showAsyncState ? error : null}
-              isEmpty={showAsyncState && flat.length === 0}
-              loadingLabel="Searching…"
-              emptyLabel={emptyLabel}
-            >
-              {groups.map((group) => (
-                <div
-                  key={group.label ?? '_'}
-                  className="command-search-group"
-                >
-                  {group.label && (
-                    <p className="command-search-group-label">{group.label}</p>
-                  )}
-                  <ul>
-                    {group.rows.map((row) => {
-                      globalIndex += 1
-                      const index = globalIndex
-                      return (
-                        <li key={row.key}>
-                          <button
-                            type="button"
-                            role="option"
-                            aria-selected={index === activeIndex}
-                            disabled={row.disabled}
-                            className={
-                              index === activeIndex
-                                ? 'command-search-result active'
-                                : 'command-search-result'
-                            }
-                            // Pointer enter keeps mouse + keyboard highlight in sync.
-                            onMouseEnter={() => setCurrentActiveIndex(index)}
-                            onClick={row.onSelect}
-                          >
-                            <Badge tone={row.badge.tone}>
-                              {row.badge.label}
-                            </Badge>
-                            <span className="command-search-result-text">
-                              <span className="command-search-result-title">
-                                {row.title}
-                              </span>
-                              {row.subtitle && (
-                                <span className="command-search-result-subtitle">
-                                  {row.subtitle}
-                                </span>
-                              )}
+          <AsyncState
+            loading={loading}
+            error={error}
+            isEmpty={flat.length === 0}
+            loadingLabel="Searching…"
+            emptyLabel={`No matches for “${trimmed}”.`}
+          >
+            {groups.map((group) => (
+              <div key={group.label ?? '_'} className="command-search-group">
+                {group.label && (
+                  <p className="command-search-group-label">{group.label}</p>
+                )}
+                <ul>
+                  {group.rows.map((row) => {
+                    globalIndex += 1
+                    const index = globalIndex
+                    return (
+                      <li key={row.key}>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={index === activeIndex}
+                          className={
+                            index === activeIndex
+                              ? 'command-search-result active'
+                              : 'command-search-result'
+                          }
+                          // Pointer enter keeps mouse + keyboard highlight in sync.
+                          onMouseEnter={() => setCurrentActiveIndex(index)}
+                          onClick={row.onSelect}
+                        >
+                          <Badge tone={row.badge.tone}>{row.badge.label}</Badge>
+                          <span className="command-search-result-text">
+                            <span className="command-search-result-title">
+                              {row.title}
                             </span>
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                </div>
-              ))}
-            </AsyncState>
-          )}
+                            {row.subtitle && (
+                              <span className="command-search-result-subtitle">
+                                {row.subtitle}
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            ))}
+          </AsyncState>
+          {/* Discoverability footer for the plain-Enter ask. Deliberately
+              outside the arrow-key row flow — Enter only asks when no result
+              row is highlighted. */}
+          <div className="command-search-ask-footer">
+            <button
+              type="button"
+              className="command-search-ask"
+              onClick={() => void submitAsk()}
+            >
+              <SpiderMark size={16} />
+              <span className="command-search-result-text">
+                <span className="command-search-result-title">
+                  Ask the agent: “{trimmed}”
+                </span>
+              </span>
+              <kbd>Enter</kbd>
+            </button>
+          </div>
         </Card>
       )}
     </div>

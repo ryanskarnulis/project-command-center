@@ -12,7 +12,9 @@ interface UseConversation {
   send: (content: string) => Promise<boolean>
 }
 
-function sendErrorMessage(e: unknown): string {
+/** Human-readable failure line for a `postMessage` run (shared with the
+ * command bar's inline ask). */
+export function sendErrorMessage(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.status === 429) {
       return 'Rate limited — give the agent a moment before sending more.'

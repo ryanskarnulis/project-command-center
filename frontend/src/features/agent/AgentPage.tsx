@@ -11,35 +11,9 @@ import { MessageSquarePlus, SendHorizontal, Trash2 } from 'lucide-react'
 import { SpiderMark } from '../../components/SpiderMark'
 import { formatRelative } from '../../utils/dates'
 import { MessageBubble } from './MessageBubble'
+import { PendingExchange } from './PendingExchange'
 import { useConversation } from './useConversation'
 import { useConversations } from './useConversations'
-
-/** The optimistic tail while a run is in flight: the user's bubble plus a
- * progress note (v1 is non-streaming — tool calls appear when the run lands). */
-function PendingExchange({ text }: { text: string }) {
-  return (
-    <>
-      <li className="agent-message agent-message--user">
-        <div className="agent-bubble">{text}</div>
-      </li>
-      <li className="agent-message agent-message--assistant">
-        <span className="agent-avatar" aria-hidden="true">
-          <SpiderMark size={16} className="agent-spider-working" />
-        </span>
-        <div className="agent-message-body">
-          <div className="agent-bubble agent-bubble--working" role="status">
-            <span className="agent-working-dots" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </span>
-            Working — reading your projects and calling tools…
-          </div>
-        </div>
-      </li>
-    </>
-  )
-}
 
 export function AgentPage() {
   const params = useParams<{ conversationId?: string }>()

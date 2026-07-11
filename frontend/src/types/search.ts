@@ -8,8 +8,8 @@ export interface SearchResultItem {
   title: string
   subtitle: string | null
   project_id: number | null
-  // Populated only for the `task` kind (null for projects). Lets the command
-  // bar's `/done` action offer only not-yet-done tasks.
+  // Populated only for the `task` kind (null for projects) so consumers can
+  // distinguish open from completed tasks.
   workflow_status: TaskWorkflowStatus | null
 }
 
