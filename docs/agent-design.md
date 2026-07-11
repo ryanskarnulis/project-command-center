@@ -285,9 +285,65 @@ Verified end-to-end on the live runtime (2026-07-11): a three-step ask
 including two genuine self-corrections the loop fed back and the model fixed;
 the follow-up message answered from persisted history without tool calls.
 
-## Explicitly deferred (later Phase 2 checkouts)
+## Chat panel (landed 2026-07-11 — slice 3 of the loop epic)
 
-- **Chat panel UI** — slice 3, next: consumes the exchange payload above.
+`frontend/src/features/agent/` behind the **Agent** nav entry: conversation
+sidebar + thread at `/agent/:id` (reload-safe), the assistant turn rendering
+its full persisted tool trajectory — failed self-correction attempts
+included — with an undo affordance per successful mutation (create → trash,
+trash → restore, complete → reopen; through the same REST endpoints as the
+rest of the UI, so undo is audited). v1 is non-streaming (recorded decision):
+optimistic bubble + working indicator while the loop runs; SSE only if real
+usage makes the wait feel bad. Browser-verified with `verifier-browser`
+against the live model.
+
+## Eval harness + gemma-4-12b baseline (landed 2026-07-11 — slice 4 of the loop epic)
+
+`tests/test_agent_evals.py` — scripted scenarios through the full loop +
+registry against the **real** runtime; opt-in like the provider smoke:
+
+```bash
+cd backend
+PCC_AGENT_EVALS=1 .venv/bin/pytest tests/test_agent_evals.py -v -s
+```
+
+Each scenario seeds a fresh DB via the service layer and asserts trajectory
+*shape* (reads precede writes; read-only asks mutate nothing) plus DB
+end-state and audit invariants — never exact call sequences (the model is
+sampled at temp 1.0). `-s` prints per-run `[eval]` stats lines.
+
+**Baseline (gemma-4-12b UD-Q4_K_XL, 2026-07-11, 4 consecutive suite runs —
+24/24 pass, warm model):**
+
+| Scenario | Asserts | Iterations | Warm time |
+| --- | --- | --- | --- |
+| `create_task_with_fields` | project routing, priority, "tomorrow" date math, `agent:loop` audit | 3–5 | 3.0–5.9 s |
+| `find_and_complete` | retrieval tripwire: described (not named) task found via read, then completed | 3 | 1.2–1.8 s |
+| `reschedule` | targeted due-date update; nothing else touched | 3 | 1.5–4.5 s |
+| `delete_is_soft` | delete lands in the trash, restorable, audited | 3 | 1.0–3.2 s |
+| `read_only_count` | correct count in the reply; zero mutations, zero events | 3 | 1.4–2.0 s |
+| `honest_about_missing` | missing target: nothing invented or acted on | 4–10 | 2.2–4.1 s |
+
+Baseline observations worth keeping:
+
+- **Self-correction pays for itself**: in 3 of 4 runs `create_task_with_fields`
+  needed 1–2 corrected attempts (recurring gemma miss: `name` instead of
+  `title`, numeric priority) and always fixed itself on the validation
+  feedback — end state correct every time.
+- **FTS5 retrieval is sufficient**: the `search` tool located the described
+  task on the first read in every run. Nothing in this baseline justifies
+  embeddings or `sqlite-vec` — this table is the tripwire; revisit only if a
+  regression here says otherwise.
+- `honest_about_missing` over-searches before conceding (search → per-project
+  lists → trash, up to ~10 turns); the scenario runs with `max_iterations=14`
+  headroom since the honesty asserts, not search frugality, are its point.
+
+## Explicitly deferred (later checkouts)
+
+- **RAG beyond the `search` tool / `sqlite-vec`** — only if the eval baseline
+  regresses on retrieval.
+- **Streaming (SSE)** — only if real chat-panel usage makes the synchronous
+  wait feel bad.
 - **RAG / retrieval infra** — the `search` tool *is* the retrieval story for
   now (agentic FTS5 per `TODO.md`); `sqlite-vec` only if that proves
   insufficient.

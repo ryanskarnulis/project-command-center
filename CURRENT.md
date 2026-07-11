@@ -119,12 +119,26 @@ the record.
 
 ### Slice 4 — Eval harness
 
-- [ ] Scripted scenarios asserting tool-call trajectories and end-state DB
+- [x] Scripted scenarios asserting tool-call trajectories and end-state DB
       assertions against the real model — opt-in like the provider's live
       test (GPU); documented run command.
-- [ ] Baseline results on gemma-4-12b recorded in `docs/agent-design.md`
+- [x] Baseline results on gemma-4-12b recorded in `docs/agent-design.md`
       (this is the tripwire that would ever justify revisiting the model
       choice or adding embeddings).
+
+Slice 4 notes: `tests/test_agent_evals.py`, run with
+`PCC_AGENT_EVALS=1 .venv/bin/pytest tests/test_agent_evals.py -v -s`. Six
+scenarios (create-with-fields, find-and-complete, reschedule, soft-delete,
+read-only count, honest-about-missing); baseline 24/24 over 4 consecutive
+runs, warm scenarios 1–6 s — table + observations in `docs/agent-design.md`.
+FTS5 retrieval found the described task every run (no embeddings case);
+self-correction fired and recovered live in 3 of 4 runs.
+
+**Epic definition of done: met** — chat panel drives correct tool calls
+through the loop, every mutation audited as `agent:loop` and undoable from
+the trash, conversations survive reload, evals pass on gemma-4-12b with the
+baseline recorded, `./test.sh`/CI green throughout. Ready to archive into
+`DONE.md` at the next checkout.
 
 ---
 
