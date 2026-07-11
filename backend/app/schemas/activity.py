@@ -15,4 +15,6 @@ class ActivityEventRead(BaseModel):
     entity_id: int
     action: str
     summary: str
+    # None = the user; agents stamp an identifier such as "agent:mcp".
+    actor: str | None = None
     created_at: UTCDateTime

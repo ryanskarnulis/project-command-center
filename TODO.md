@@ -39,13 +39,17 @@ the items below are scope, not order.
 
 ### Tool surface (MCP-first)
 
-- [ ] **PCC MCP server** exposing the service layer as tools: task CRUD +
-      complete, project CRUD, search, Today, trash/restore, dependencies,
-      recurrence. This is the highest-leverage piece — any MCP client (Claude
-      Code included) gets full PCC access, and the in-app agent consumes the
-      same tools. One tool surface, two consumers.
-- [ ] Tool-level guardrails: no hard deletes, argument validation, per-tool
-      audit entries in `activity_events` attributed to the agent.
+- [x] **PCC MCP server** exposing the service layer as tools: task CRUD +
+      complete, project CRUD, search, focus, trash/restore. Shipped 2026-07-10
+      (`backend/app/mcp/`, design in `docs/agent-design.md`); any MCP client
+      (Claude Code included) gets full PCC access, and the in-app agent will
+      consume the same tools. One tool surface, two consumers.
+  - [ ] Follow-up: dependencies and recurrence tools (add/remove dependency,
+        skip/stop recurrence) — scoped in `docs/agent-design.md`, deferred
+        from the first pass to keep the diff reviewable.
+- [x] Tool-level guardrails: no hard deletes, argument validation, per-tool
+      audit entries in `activity_events` attributed to the agent
+      (`actor = "agent:mcp"`; shipped with the server, 2026-07-10).
 
 ### Agent loop
 

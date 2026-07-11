@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextvars import ContextVar
 
 import structlog
 from sqlalchemy import select
@@ -9,6 +10,12 @@ from sqlalchemy.orm import Session
 from app.db.models import ActivityEvent
 
 logger = structlog.get_logger(__name__)
+
+# Who is driving the current write path. None means the user (the UI/API
+# default); agent entrypoints bind their identifier (e.g. "agent:mcp") per
+# tool call instead of threading an ``actor`` argument through every service
+# signature — same pattern as the request-ID logging binding.
+current_actor: ContextVar[str | None] = ContextVar("current_actor", default=None)
 
 
 def record_event(
@@ -31,6 +38,7 @@ def record_event(
         entity_id=entity_id,
         action=action,
         summary=summary,
+        actor=current_actor.get(),
     )
     db.add(event)
     db.flush()
@@ -42,6 +50,7 @@ def record_event(
         entity_type=entity_type,
         entity_id=entity_id,
         action=action,
+        actor=event.actor,
     )
     return event
 

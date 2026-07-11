@@ -39,6 +39,7 @@ backend/app/
   alembic/      migrations
   services/     one responsibility per module (tasks, projects, trash, focus,
                 recurrence, dependencies, …)
+  mcp/          PCC MCP server (stdio): the service layer as agent tools
 
 frontend/src/
   api/          all HTTP calls (components consume hooks; hooks call this layer)
@@ -62,7 +63,9 @@ Key decisions:
 - **Soft deletes everywhere** via `deleted_at`; queries filter it by default
   through a service-layer helper. The only true delete is user-triggered purge
   from `/trash`, and only of already-soft-deleted rows. Exception:
-  `activity_events` is an append-only log with no `deleted_at`.
+  `activity_events` is an append-only log with no `deleted_at`. Its nullable
+  `actor` column attributes each event: `NULL` is the user; agents stamp an
+  identifier (the MCP server writes `agent:mcp`).
 - Task progress lives in `workflow_status` (`open | in_progress | done`). The
   AI-era `review_status`/`confidence`/`assignee_hint` columns are dropped;
   every task is user-facing and always filed in a project (no project on
@@ -101,6 +104,33 @@ A slim signal strip above the lanes counts overdue, blocking, and due-today
 root tasks. Selecting a signal filters every project lane; selecting it again
 returns to the full board.
 
+## MCP server (agent access)
+
+The service layer is exposed to MCP clients as ~20 tools (task CRUD +
+complete, project CRUD, search, focus plan, trash/restore, activity log) by a
+stdio server: `python -m app.mcp.server`, run from `backend/`. Design and
+guardrails: [`docs/agent-design.md`](docs/agent-design.md). In short: writes
+go through the same service layer as the UI, arguments are Pydantic-validated
+at the boundary, every mutation lands in `activity_events` as `agent:mcp`,
+and no hard-delete tool exists — agent deletes are always restorable from the
+trash.
+
+The repo ships a project-scoped [`.mcp.json`](.mcp.json), so Claude Code
+started in this directory picks the `pcc` server up automatically (after the
+backend venv exists — run `./main.sh` once first). Any other MCP client
+connects with the same command:
+
+```json
+{
+  "mcpServers": {
+    "pcc": { "command": "bash", "args": ["-c", "cd backend && exec .venv/bin/python -m app.mcp.server"] }
+  }
+}
+```
+
+The server opens `data/app.db` directly (WAL mode), so it can run alongside
+the dev or docker backend.
+
 ## Status & roadmap
 
 The core is complete and stable: tasks/projects, recurrence, subtasks +
@@ -115,8 +145,8 @@ dependencies, Focus, search, trash, dashboard, docker + litestream deploy.
 Next up:
 
 ```
-Phase 2: local agent — llama.cpp runtime, PCC MCP server (service layer
-         as tools), agent loop, FTS5-first retrieval, chat UI
+Phase 2: local agent — llama.cpp runtime, agent loop, FTS5-first
+         retrieval, chat UI (the PCC MCP server is shipped, above)
 ```
 
 ## Do not build yet

@@ -62,14 +62,17 @@ Decisions already made (don't relitigate):
 > Checklist refined by slice 2's design doc; the scope below is the working
 > assumption.
 
-- [ ] MCP server exposing the service layer as tools: task CRUD + complete,
+- [x] MCP server exposing the service layer as tools: task CRUD + complete,
       project CRUD, search, focus, trash/restore.
-- [ ] Tool-level guardrails: no hard deletes, argument validation, audit
-      entries in `activity_events` attributed to the agent.
-- [ ] Verified end-to-end from Claude Code: create → list → complete → trash →
+- [x] Tool-level guardrails: no hard deletes, argument validation, audit
+      entries in `activity_events` attributed to the agent (new nullable
+      `actor` column; `NULL` = user, server stamps `agent:mcp`).
+- [x] Verified end-to-end from Claude Code: create → list → complete → trash →
       restore a task through the tools, each action visible in
-      `activity_events`.
-- [ ] Doc pass: `README.md` setup/usage for connecting an MCP client.
+      `activity_events`. (Driven over real stdio with the MCP client SDK —
+      the same wire path; the shipped `.mcp.json` auto-connects Claude Code
+      sessions started in this repo.)
+- [x] Doc pass: `README.md` setup/usage for connecting an MCP client.
 
 ---
 
