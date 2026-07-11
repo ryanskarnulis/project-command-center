@@ -345,6 +345,24 @@ main.agent-page {
   animation-delay: 0.3s;
 }
 
+/* Spider avatar bobs gently while a run is in flight — static for
+   reduced-motion users. */
+@media (prefers-reduced-motion: no-preference) {
+  .agent-spider-working {
+    animation: agent-spider-bob 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes agent-spider-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.5px);
+  }
+}
+
 @keyframes agent-dot {
   0%,
   60%,

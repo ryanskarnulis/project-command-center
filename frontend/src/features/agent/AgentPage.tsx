@@ -7,7 +7,8 @@ import {
   type KeyboardEvent,
 } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Bot, MessageSquarePlus, SendHorizontal, Trash2 } from 'lucide-react'
+import { MessageSquarePlus, SendHorizontal, Trash2 } from 'lucide-react'
+import { SpiderMark } from '../../components/SpiderMark'
 import { formatRelative } from '../../utils/dates'
 import { MessageBubble } from './MessageBubble'
 import { useConversation } from './useConversation'
@@ -23,7 +24,7 @@ function PendingExchange({ text }: { text: string }) {
       </li>
       <li className="agent-message agent-message--assistant">
         <span className="agent-avatar" aria-hidden="true">
-          <Bot size={16} />
+          <SpiderMark size={16} className="agent-spider-working" />
         </span>
         <div className="agent-message-body">
           <div className="agent-bubble agent-bubble--working" role="status">
@@ -157,7 +158,7 @@ export function AgentPage() {
       <section className="agent-thread" aria-label="Agent chat">
         {activeId === null ? (
           <div className="agent-thread-empty">
-            <Bot size={22} aria-hidden="true" />
+            <SpiderMark size={22} />
             <h1>Agent</h1>
             <p>
               Ask for anything your projects need — “create a task…”, “what’s

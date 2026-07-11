@@ -35,9 +35,11 @@ Open decisions (resolve in the slices, record the outcome here):
   risks the eval constraint (prompt tweaks must not degrade tool honesty)
   for fuzzy benefit. Revisit only if real usage shows people hunting for
   links the trajectory rows don't provide.
-- **Mascot scope (#289).** Static spider avatar (derived from the brand
-  mark) vs. animated states (idle / working). Decide in slice 3 when it's
-  on screen; the working indicator is the natural animation site.
+- **Mascot scope (#289) — RESOLVED (slice 3): static mark + working-state
+  animation only.** One shared `SpiderMark` component (extracted from the
+  topbar brand SVG) everywhere; a subtle CSS-only bob (1.6s ease-in-out)
+  on the working indicator, guarded by `prefers-reduced-motion`. No idle
+  animation — nothing else earned it.
 
 **Status legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
@@ -79,12 +81,14 @@ Open decisions (resolve in the slices, record the outcome here):
 
 ### Slice 3 — Spider mascot for the agent (#289)
 
-- [ ] Replace the stock `Bot` avatar with a spider mark that reads as the
-      PCC brand (the topbar `SpiderIcon` is the seed) — used in the panel
-      avatar, the working indicator, and the Agent nav entry if it fits.
-- [ ] Resolve the static-vs-animated open decision; record it here. If
-      animated, the working state is the one that earns it.
-- [ ] `verifier-browser` screenshot pass (pure rendered surface).
+- [x] Replace the stock `Bot` avatar with a spider mark that reads as the
+      PCC brand — the topbar SVG extracted into a shared
+      `components/SpiderMark.tsx` (size prop, currentColor, aria-hidden),
+      consumed by the brand, Agent nav entry, panel avatar, working
+      indicator, and empty state; zero `Bot` imports remain.
+- [x] Resolve the static-vs-animated open decision; recorded above
+      (static + working-state bob, reduced-motion guarded).
+- [x] `verifier-browser` screenshot pass (pure rendered surface).
 
 ### Slice 4 — Ambient agent entry from the search bar (#292)
 

@@ -1,5 +1,5 @@
-import { Bot } from 'lucide-react'
 import ReactMarkdown, { type Components } from 'react-markdown'
+import { SpiderMark } from '../../components/SpiderMark'
 import type { AgentMessage, AgentStopReason } from '../../types/agent'
 import { formatRelative } from '../../utils/dates'
 import { ToolCallList } from './ToolCallList'
@@ -34,7 +34,7 @@ export function MessageBubble({ message }: { message: AgentMessage }) {
   return (
     <li className="agent-message agent-message--assistant">
       <span className="agent-avatar" aria-hidden="true">
-        <Bot size={16} />
+        <SpiderMark size={16} />
       </span>
       <div className="agent-message-body">
         {message.tool_calls !== null && message.tool_calls.length > 0 && (
