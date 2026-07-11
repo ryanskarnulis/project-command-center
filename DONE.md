@@ -1518,3 +1518,24 @@ shipped slices:
 - [x] Close/reopen projects to hide them without deleting (#27)
 - [x] Sidebar removed; navigation (Focus / Tasks / Trash) moved into the
       topbar (#28)
+
+## Phase 2 kickoff — tasks-table cleanup, agent design, PCC MCP server (epic, 2026-07-10)
+> First Phase 2 checkout: clean the dead AI-era columns out of the service
+> layer, write the agent design doc, ship the PCC MCP server. Claude Code is
+> PCC's first agent client.
+
+- [x] Slice 1 — dropped `review_status`, `confidence`, `assignee_hint` from
+      the tasks table (migration with upgrade/downgrade round-trip; compound
+      index replaced with a plain `deleted_at` index); stripped the pervasive
+      `review_status == accepted` filtering from services, schemas, routes,
+      and the frontend types/surfaces (#30)
+- [x] Slice 2 — agent design doc (`docs/agent-design.md`): MCP tool surface,
+      guardrails, transport, dependency sign-off, explicit deferrals (#31)
+- [x] Slice 3 — PCC MCP server (`backend/app/mcp/`) exposing the service
+      layer as tools (task CRUD + complete, project CRUD, search, focus,
+      trash/restore); guardrails (no hard deletes, boundary validation,
+      `activity_events` stamped via new nullable `actor` column,
+      `agent:mcp`); verified end-to-end over real stdio from Claude Code;
+      `.mcp.json` auto-connects sessions in this repo (#32)
+- [x] Deferred by design: dependencies/recurrence tools (follow-up in the
+      next checkout), llama.cpp runtime (GPU-contention story)

@@ -10,12 +10,14 @@ which lives in `CURRENT.md`. Completed work is archived in `DONE.md`.
 
 ## Current focus
 
-**Phase 2 kickoff — tasks-table cleanup, agent design, PCC MCP server**
-(checked out 2026-07-10, tracked in `CURRENT.md`). The dashboard-redo epic is
-done (archived in `DONE.md`). This kickoff drops the dead AI-era task columns,
-writes the agent design doc, and builds the PCC MCP server; the llama.cpp
-runtime is deliberately deferred to a later checkout (GPU contention — see
-`../future-plans/llama-swap.md`).
+**Phase 2 — local runtime + provider layer (and MCP tool-surface completion)**
+(checked out 2026-07-10, tracked in `CURRENT.md`). The Phase 2 kickoff epic is
+done (archived in `DONE.md`). This checkout finishes the MCP tool surface
+(dependencies + recurrence), decides the GPU/model-sharing shape with the
+chess app (`../chess` already runs gemma-4-12B on llama.cpp with strong tool
+calling, fully GPU-resident — one shared server, not a swap, is the working
+assumption; partially supersedes `../future-plans/llama-swap.md`), and builds
+PCC's llama.cpp provider layer.
 
 ---
 
