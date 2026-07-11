@@ -38,3 +38,15 @@ class TaskDependentRead(BaseModel):
     dependent_title: str
     dependent_workflow_status: TaskWorkflowStatus
     dependent_done: bool
+
+
+class TaskDependenciesRead(BaseModel):
+    """Both directions of one task's dependency graph in a single payload.
+
+    The MCP ``list_dependencies`` tool returns this so an agent sees what the
+    task waits on and what waits on it in one call; the REST API keeps its two
+    separate endpoints.
+    """
+
+    depends_on: list[TaskDependencyRead]
+    dependents: list[TaskDependentRead]

@@ -106,8 +106,9 @@ returns to the full board.
 
 ## MCP server (agent access)
 
-The service layer is exposed to MCP clients as ~20 tools (task CRUD +
-complete, project CRUD, search, focus plan, trash/restore, activity log) by a
+The service layer is exposed to MCP clients as ~25 tools (task CRUD +
+complete, project CRUD, search, focus plan, trash/restore, activity log,
+dependencies, recurrence skip/stop) by a
 stdio server: `python -m app.mcp.server`, run from `backend/`. Design and
 guardrails: [`docs/agent-design.md`](docs/agent-design.md). In short: writes
 go through the same service layer as the UI, arguments are Pydantic-validated

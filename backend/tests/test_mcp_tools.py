@@ -106,6 +106,105 @@ async def test_task_lifecycle_with_agent_attribution(
         assert all(e["actor"] == "agent:mcp" for e in events["result"])
 
 
+async def test_dependency_tools_block_and_audit(
+    _mcp_db: sessionmaker[Session],
+) -> None:
+    """add → blocked → remove, both directions listed, audited as agent:mcp."""
+    async with mcp_client() as client:
+        project = await _call(client, "create_project", {"data": {"name": "Deps"}})
+        project_id = project["id"]
+        first = await _call(
+            client, "create_task", {"data": {"title": "Ship it", "project_id": project_id}}
+        )
+        second = await _call(
+            client, "create_task", {"data": {"title": "Test it", "project_id": project_id}}
+        )
+
+        edge = await _call(
+            client,
+            "add_dependency",
+            {"task_id": first["id"], "depends_on_task_id": second["id"]},
+        )
+        assert edge["depends_on_title"] == "Test it"
+
+        # The dependent is blocked; completing it is rejected with the reason.
+        blocked = await _call(client, "get_task", {"task_id": first["id"]})
+        assert blocked["is_blocked"] is True
+        rejected = await client.call_tool("complete_task", {"task_id": first["id"]})
+        assert rejected.isError
+
+        # A cycle is rejected as a tool error, not a crash.
+        cycle = await client.call_tool(
+            "add_dependency",
+            {"task_id": second["id"], "depends_on_task_id": first["id"]},
+        )
+        assert cycle.isError
+
+        # Both directions in one payload.
+        graph = await _call(client, "list_dependencies", {"task_id": second["id"]})
+        assert graph["depends_on"] == []
+        assert [d["dependent_task_id"] for d in graph["dependents"]] == [first["id"]]
+
+        removed = await _call(
+            client,
+            "remove_dependency",
+            {"task_id": first["id"], "dependency_id": edge["id"]},
+        )
+        assert "removed" in removed["result"]
+        unblocked = await _call(client, "get_task", {"task_id": first["id"]})
+        assert unblocked["is_blocked"] is False
+
+        events = await _call(client, "list_activity", {"project_id": project_id})
+        actions = {e["action"] for e in events["result"]}
+        assert {"dependency_added", "dependency_removed"} <= actions
+        assert all(e["actor"] == "agent:mcp" for e in events["result"])
+
+
+async def test_recurrence_tools_skip_and_stop(
+    _mcp_db: sessionmaker[Session],
+) -> None:
+    """skip rolls the series forward; stop ends it; non-recurring is rejected."""
+    async with mcp_client() as client:
+        project = await _call(client, "create_project", {"data": {"name": "Chores"}})
+        task = await _call(
+            client,
+            "create_task",
+            {
+                "data": {
+                    "title": "Water plants",
+                    "project_id": project["id"],
+                    "due_date": "2026-07-10",
+                }
+            },
+        )
+        recurring = await _call(
+            client,
+            "update_task",
+            {
+                "task_id": task["id"],
+                "changes": {"repeat_interval": {"unit": "week", "every": 1}},
+            },
+        )
+        assert recurring["next_occurrence_date"] == "2026-07-17"
+
+        next_occurrence = await _call(
+            client, "skip_occurrence", {"task_id": task["id"]}
+        )
+        assert next_occurrence["id"] != task["id"]
+        assert next_occurrence["due_date"] == "2026-07-17"
+        assert next_occurrence["recurrence_id"] == recurring["recurrence_id"]
+
+        stopped = await _call(
+            client, "stop_recurrence", {"task_id": next_occurrence["id"]}
+        )
+        assert stopped["repeat_interval"] is None
+
+        # Now non-recurring: both tools reject it with the service's reason.
+        for tool in ("skip_occurrence", "stop_recurrence"):
+            result = await client.call_tool(tool, {"task_id": next_occurrence["id"]})
+            assert result.isError, f"{tool} should reject a non-recurring task"
+
+
 async def test_invalid_arguments_are_rejected_as_tool_errors(
     _mcp_db: sessionmaker[Session],
 ) -> None:

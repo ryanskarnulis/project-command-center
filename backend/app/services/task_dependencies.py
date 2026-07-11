@@ -11,6 +11,7 @@ from app.db.models import (
     TaskDependency,
     TaskWorkflowStatus,
 )
+from app.services import activity
 from app.services.common import active, soft_delete
 from app.services.tasks import get_task
 
@@ -86,6 +87,26 @@ def _would_cycle(db: Session, task_id: int, depends_on_id: int) -> bool:
     return False
 
 
+def _log_dependency_event(
+    db: Session, task: Task, other: Task, action: str, summary: str
+) -> None:
+    """Record a dependency change on the dependent task's project feed.
+
+    Mirrors ``tasks.log_task_event``'s unfiled rule: a task with no project has
+    no feed to show the event on, so nothing is recorded.
+    """
+    if task.project_id is None:
+        return
+    activity.record_event(
+        db,
+        project_id=task.project_id,
+        entity_type="task",
+        entity_id=task.id,
+        action=action,
+        summary=summary.format(task=task.title, other=other.title),
+    )
+
+
 def add_dependency(
     db: Session, task_id: int, depends_on_id: int
 ) -> TaskDependency:
@@ -96,7 +117,9 @@ def add_dependency(
     """
     if task_id == depends_on_id:
         raise SelfDependencyError("A task cannot depend on itself")
-    if get_task(db, task_id) is None or get_task(db, depends_on_id) is None:
+    task = get_task(db, task_id)
+    depended = get_task(db, depends_on_id)
+    if task is None or depended is None:
         raise DependencyError("Both tasks must exist")
     if depends_on_id in _depends_on_ids(db, task_id):
         raise DuplicateDependencyError("That dependency already exists")
@@ -107,6 +130,9 @@ def add_dependency(
     db.add(edge)
     db.flush()
     db.refresh(edge)
+    _log_dependency_event(
+        db, task, depended, "dependency_added", 'Task "{task}" now waits on "{other}"'
+    )
     return edge
 
 
@@ -119,6 +145,16 @@ def get_dependency(db: Session, dependency_id: int) -> TaskDependency | None:
 def remove_dependency(db: Session, edge: TaskDependency) -> None:
     soft_delete(edge)
     db.flush()
+    task = get_task(db, edge.task_id)
+    depended = get_task(db, edge.depends_on_task_id)
+    if task is not None and depended is not None:
+        _log_dependency_event(
+            db,
+            task,
+            depended,
+            "dependency_removed",
+            'Task "{task}" no longer waits on "{other}"',
+        )
 
 
 def is_blocked(db: Session, task_id: int) -> bool:

@@ -69,10 +69,12 @@ Recurrence *creation/editing* rides on `create_task`/`update_task`
 overview (an MCP client can compose it from `list_projects` + `list_tasks`;
 add later if it earns its keep).
 
-Slice 3 lands the first pass (task CRUD + complete, project CRUD, search,
-focus, trash/restore per `CURRENT.md`); dependencies and recurrence tools can
-follow in the same PR if the diff stays reviewable, otherwise as a fast
-follow-up.
+Slice 3 landed the first pass (task CRUD + complete, project CRUD, search,
+focus, trash/restore); the dependencies and recurrence tools above shipped as
+the fast follow-up (2026-07-11), which also closed a pre-existing audit gap:
+`add_dependency`/`remove_dependency` now record `dependency_added`/
+`dependency_removed` events in `activity_events` from every caller, UI
+included.
 
 ## Guardrails
 

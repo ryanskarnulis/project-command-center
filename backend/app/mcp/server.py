@@ -1,4 +1,5 @@
-"""PCC MCP server (stdio): task/project CRUD, search, focus, trash/restore.
+"""PCC MCP server (stdio): task/project CRUD, search, focus, trash/restore,
+dependencies, recurrence.
 
 Run with ``python -m app.mcp.server`` from ``backend/`` (the repo's
 ``.mcp.json`` does exactly that). Each tool is a thin adapter: validate
@@ -22,6 +23,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import Field
 from sqlalchemy.orm import Session
 
+from app.api.dependency_reads import dependency_read, dependent_read
 from app.api.task_reads import read_with_blocked, reads_with_blocked
 from app.db.models import Project, Task, TaskWorkflowStatus
 from app.logging_config import configure_logging
@@ -30,12 +32,15 @@ from app.schemas.activity import ActivityEventRead
 from app.schemas.focus import FocusPlan
 from app.schemas.projects import ProjectCreate, ProjectRead, ProjectUpdate
 from app.schemas.search import SearchResults
+from app.schemas.task_dependencies import TaskDependenciesRead, TaskDependencyRead
 from app.schemas.tasks import TaskCreate, TaskRead, TaskUpdate
 from app.schemas.trash import ProjectRestoreResult, ProjectTrashRead, TrashRead
 from app.services import activity as activity_service
 from app.services import focus as focus_service
 from app.services import projects as projects_service
 from app.services import search as search_service
+from app.services import task_dependencies as deps_service
+from app.services import task_recurrence
 from app.services import task_trash
 from app.services import tasks as tasks_service
 
@@ -218,6 +223,88 @@ def restore_task(task_id: int) -> TaskRead:
         db.flush()
         logger.info("mcp_task_restored", task_id=restored.id)
         return read_with_blocked(db, restored)
+
+
+# --- Dependencies and recurrence ----------------------------------------------
+
+
+@mcp.tool()
+def list_dependencies(task_id: int) -> TaskDependenciesRead:
+    """Both directions of a task's dependency graph: what it waits on (depends_on) and what waits on it (dependents)."""
+    with tool_session("list_dependencies") as db:
+        _task_or_error(db, task_id)
+        return TaskDependenciesRead(
+            depends_on=[
+                dependency_read(db, e)
+                for e in deps_service.list_dependencies(db, task_id)
+            ],
+            dependents=[
+                dependent_read(db, e)
+                for e in deps_service.list_dependents(db, task_id)
+            ],
+        )
+
+
+@mcp.tool()
+def add_dependency(task_id: int, depends_on_task_id: int) -> TaskDependencyRead:
+    """Make task_id wait on depends_on_task_id: it is blocked until that task is done."""
+    with tool_session("add_dependency") as db:
+        try:
+            edge = deps_service.add_dependency(db, task_id, depends_on_task_id)
+        except deps_service.DependencyError as exc:
+            raise ToolError(str(exc)) from exc
+        logger.info(
+            "mcp_dependency_added",
+            task_id=task_id,
+            depends_on_task_id=depends_on_task_id,
+        )
+        return dependency_read(db, edge)
+
+
+@mcp.tool()
+def remove_dependency(task_id: int, dependency_id: int) -> str:
+    """Remove a dependency edge by its id (from list_dependencies); task_id must be its dependent."""
+    with tool_session("remove_dependency") as db:
+        edge = deps_service.get_dependency(db, dependency_id)
+        if edge is None or edge.task_id != task_id:
+            raise ToolError(f"Task {task_id} has no dependency {dependency_id}")
+        deps_service.remove_dependency(db, edge)
+        logger.info(
+            "mcp_dependency_removed", task_id=task_id, dependency_id=dependency_id
+        )
+        return f"Dependency {dependency_id} removed; task {task_id} no longer waits on task {edge.depends_on_task_id}"
+
+
+@mcp.tool()
+def skip_occurrence(task_id: int) -> TaskRead:
+    """Skip a recurring task's current occurrence (to trash, restorable) and return the next one."""
+    with tool_session("skip_occurrence") as db:
+        task = _task_or_error(db, task_id)
+        try:
+            next_occurrence = task_recurrence.skip_occurrence(db, task)
+        except tasks_service.RecurrenceError as exc:
+            raise ToolError(str(exc)) from exc
+        db.flush()
+        logger.info(
+            "mcp_occurrence_skipped",
+            task_id=task_id,
+            next_task_id=next_occurrence.id,
+        )
+        return read_with_blocked(db, next_occurrence)
+
+
+@mcp.tool()
+def stop_recurrence(task_id: int) -> TaskRead:
+    """Stop a recurring task from repeating; the current occurrence stays as a normal task."""
+    with tool_session("stop_recurrence") as db:
+        task = _task_or_error(db, task_id)
+        try:
+            updated = task_recurrence.stop_recurrence(db, task)
+        except tasks_service.RecurrenceError as exc:
+            raise ToolError(str(exc)) from exc
+        db.flush()
+        logger.info("mcp_recurrence_stopped", task_id=updated.id)
+        return read_with_blocked(db, updated)
 
 
 # --- Projects ----------------------------------------------------------------
