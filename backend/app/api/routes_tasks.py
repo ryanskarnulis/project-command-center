@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.guards import trashed_row_or_error
 from app.api.task_reads import read_with_blocked, reads_with_blocked
-from app.db.models import Task, TaskReviewStatus, TaskWorkflowStatus
+from app.db.models import Task, TaskWorkflowStatus
 from app.db.session import get_db
 from app.schemas.tasks import (
     TaskCreate,
@@ -61,7 +61,6 @@ def list_tasks(
         tasks_service.list_tasks(
             db,
             project_id,
-            review_status=TaskReviewStatus.accepted,
             workflow_status=workflow_status,
             exclude_done=workflow_status is None,
         ),
@@ -77,9 +76,6 @@ MAX_TASK_LIMIT = 1000
 
 @router.get("/tasks", response_model=list[TaskRead])
 def list_all_tasks(
-    review_status: TaskReviewStatus | None = Query(
-        default=TaskReviewStatus.accepted
-    ),
     workflow_status: TaskWorkflowStatus | None = Query(default=None),
     limit: int = Query(default=DEFAULT_TASK_LIMIT, ge=1, le=MAX_TASK_LIMIT),
     offset: int = Query(default=0, ge=0),
@@ -89,7 +85,6 @@ def list_all_tasks(
         db,
         tasks_service.list_tasks(
             db,
-            review_status=review_status,
             workflow_status=workflow_status,
             exclude_done=workflow_status is None,
             limit=limit,
@@ -108,13 +103,11 @@ def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db)) -> Tas
             project_id=data.project_id,
             title=data.title,
             description=data.description,
-            review_status=data.review_status,
             workflow_status=data.workflow_status,
             priority=data.priority,
             due_date=data.due_date,
             parent_task_id=data.parent_task_id,
             estimated_minutes=data.estimated_minutes,
-            assignee_hint=data.assignee_hint,
         )
     except tasks_service.TaskCycleError as exc:
         raise _cycle_409(exc) from exc
@@ -140,13 +133,11 @@ def create_task(
             project_id=project_id,
             title=data.title,
             description=data.description,
-            review_status=data.review_status,
             workflow_status=data.workflow_status,
             priority=data.priority,
             due_date=data.due_date,
             parent_task_id=data.parent_task_id,
             estimated_minutes=data.estimated_minutes,
-            assignee_hint=data.assignee_hint,
         )
     except tasks_service.TaskCycleError as exc:
         raise _cycle_409(exc) from exc
@@ -163,7 +154,7 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
 
 @router.get("/tasks/{task_id}/subtasks", response_model=list[TaskRead])
 def list_subtasks(task_id: int, db: Session = Depends(get_db)) -> list[TaskRead]:
-    """Direct active children of a task, including candidates and done (unlike GET /api/tasks)."""
+    """Direct active children of a task, including done ones (unlike GET /api/tasks)."""
     _get_task_or_404(db, task_id)
     return reads_with_blocked(db, tasks_service.list_subtasks(db, task_id))
 
@@ -175,9 +166,8 @@ def update_task(
     task = _get_task_or_404(db, task_id)
     fields = data.model_dump(exclude_unset=True)
     # A non-null project_id must reference a real project (matches the POST routes).
-    # An explicit null is allowed but does NOT un-file an accepted task: the service
-    # rehomes any accepted task with no project back to General (accepted tasks are
-    # always filed). Only a candidate task legitimately stays unfiled until review.
+    # An explicit null is allowed but does NOT un-file the task: the service
+    # rehomes any task with no project back to General (tasks are always filed).
     if fields.get("project_id") is not None:
         _ensure_project(db, fields["project_id"])
     try:

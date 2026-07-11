@@ -192,14 +192,8 @@ export function TaskCard({
               {task.next_occurrence_date && ` · next ${formatDueDate(task.next_occurrence_date)}`}
             </Badge>
           )}
-          {task.review_status === 'candidate' && task.confidence !== null && (
-            <Badge tone="neutral">conf {task.confidence.toFixed(2)}</Badge>
-          )}
           {projectName !== undefined && (
             <span className="source-pill">{projectName}</span>
-          )}
-          {task.assignee_hint && (
-            <span className="assignee-pill">👤 {task.assignee_hint}</span>
           )}
         </div>
       </div>

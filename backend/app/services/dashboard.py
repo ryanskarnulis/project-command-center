@@ -5,13 +5,13 @@ from collections.abc import Sequence
 
 from sqlalchemy.orm import Session
 
-from app.db.models import Project, Task, TaskReviewStatus, TaskWorkflowStatus
+from app.db.models import Project, Task, TaskWorkflowStatus
 from app.services import tasks as tasks_service
 from app.services.common import active
 
 
 def _open_tasks(db: Session) -> list[Task]:
-    """Active accepted tasks whose EFFECTIVE (rolled-up) status is not done.
+    """Active tasks whose EFFECTIVE (rolled-up) status is not done.
 
     A checklist parent's status is derived from its children and never written
     back to its stored column (it stays "open" once created), so a SQL
@@ -19,16 +19,10 @@ def _open_tasks(db: Session) -> list[Task]:
     open totals indefinitely. Resolve the roll-up and count effective status
     instead — the same rule ``list_tasks(exclude_done=True)`` applies.
 
-    One query: the fetched set is the complete active, accepted set, so the roll-up
-    child map is built from it in memory rather than re-read.
+    One query: the fetched set is the complete active set, so the roll-up child
+    map is built from it in memory rather than re-read.
     """
-    tasks = (
-        db.execute(
-            active(Task).where(Task.review_status == TaskReviewStatus.accepted)
-        )
-        .scalars()
-        .all()
-    )
+    tasks = db.execute(active(Task)).scalars().all()
     rollups = tasks_service.compute_rollups_for_full_set(tasks)
     return [
         task

@@ -5,7 +5,7 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from app.db.models import Task, TaskPriority, TaskReviewStatus, TaskWorkflowStatus
+from app.db.models import Task, TaskPriority, TaskWorkflowStatus
 from app.schemas.focus import (
     BlockedTask,
     BlockingTask,
@@ -108,14 +108,13 @@ def _parse_time(value: str) -> int:
 def _schedulable_subtasks(db: Session, parent: Task, target_date: date) -> list[Task]:
     """The parent's subtasks that could stand in for it on the timeline.
 
-    Accepted, not done, not deferred — same eligibility the parent itself had.
+    Not done, not deferred — same eligibility the parent itself had.
     ``list_subtasks`` already orders by id.
     """
     return [
         sub
         for sub in tasks_service.list_subtasks(db, parent.id)
-        if sub.review_status == TaskReviewStatus.accepted
-        and sub.workflow_status != TaskWorkflowStatus.done
+        if sub.workflow_status != TaskWorkflowStatus.done
         and not _is_deferred(sub, target_date)
     ]
 
@@ -211,17 +210,13 @@ def get_focus_plan(
 ) -> FocusPlan:
     """Build the deterministic day plan. No model calls; all from existing tables.
 
-    Source tasks are accepted, not-done top-level tasks (subtasks are excluded —
-    they belong to their parent). Blocked tasks (an unfinished dependency) are
+    Source tasks are not-done top-level tasks (subtasks are excluded — they
+    belong to their parent). Blocked tasks (an unfinished dependency) are
     surfaced separately and never scheduled.
     """
     source = [
         task
-        for task in tasks_service.list_tasks(
-            db,
-            review_status=TaskReviewStatus.accepted,
-            exclude_done=True,
-        )
+        for task in tasks_service.list_tasks(db, exclude_done=True)
         # Subtasks are scheduled as part of their parent's work, never as their
         # own day-plan rows (except as stand-ins when the parent doesn't fit —
         # see _pack). Deferred tasks are snoozed out of the plan entirely.

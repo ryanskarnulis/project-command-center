@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.db.models import TaskPriority, TaskReviewStatus, TaskWorkflowStatus
+from app.db.models import TaskPriority, TaskWorkflowStatus
 from app.schemas.common import NonBlankStr, OptionalStrippedStr, UTCDateTime
 
 # A duration estimate, when present, must be a positive whole number of minutes.
@@ -27,7 +27,6 @@ class RepeatInterval(BaseModel):
 class TaskCreate(BaseModel):
     title: NonBlankStr
     description: OptionalStrippedStr = None
-    review_status: TaskReviewStatus = TaskReviewStatus.accepted
     workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open
     # Optional so an omitted priority is distinguishable from an explicit choice:
     # a subtask with no priority/due_date seeds them from its parent (service
@@ -36,11 +35,10 @@ class TaskCreate(BaseModel):
     due_date: date | None = None
     # Honored only by the unscoped ``POST /api/tasks`` route; the project-scoped
     # route takes the project from its path and ignores this field. Omit to file
-    # in General (the default for accepted/filed statuses).
+    # in General.
     project_id: int | None = None
     parent_task_id: int | None = None
     estimated_minutes: PositiveMinutes | None = None
-    assignee_hint: OptionalStrippedStr = None
 
 
 # ``TaskUpdate`` columns backed by NOT-NULL DB columns: an explicit ``null`` on
@@ -48,7 +46,6 @@ class TaskCreate(BaseModel):
 _TASK_UPDATE_NON_NULLABLE_FIELDS = (
     "title",
     "priority",
-    "review_status",
     "workflow_status",
 )
 
@@ -56,7 +53,6 @@ _TASK_UPDATE_NON_NULLABLE_FIELDS = (
 class TaskUpdate(BaseModel):
     title: NonBlankStr | None = None
     description: OptionalStrippedStr = None
-    review_status: TaskReviewStatus | None = None
     workflow_status: TaskWorkflowStatus | None = None
     priority: TaskPriority | None = None
     due_date: date | None = None
@@ -66,7 +62,6 @@ class TaskUpdate(BaseModel):
     project_id: int | None = None
     parent_task_id: int | None = None
     estimated_minutes: PositiveMinutes | None = None
-    assignee_hint: OptionalStrippedStr = None
     # Recurrence (Sprint 9L). All three rely on the route's
     # ``model_dump(exclude_unset=True)``: an absent ``repeat_interval`` is left
     # untouched, while an explicit ``null`` clears recurrence. The
@@ -100,7 +95,6 @@ class TaskRead(BaseModel):
     parent_task_id: int | None
     title: str
     description: str | None
-    review_status: TaskReviewStatus
     workflow_status: TaskWorkflowStatus
     priority: TaskPriority
     due_date: date | None
@@ -112,8 +106,6 @@ class TaskRead(BaseModel):
     # recurring task, so the UI can render "next <date>" beside the repeat badge.
     # None for non-recurring or done tasks; populated by the read helpers.
     next_occurrence_date: date | None = None
-    confidence: float | None
-    assignee_hint: str | None
     created_at: UTCDateTime
     updated_at: UTCDateTime
     deleted_at: UTCDateTime | None = None
@@ -123,10 +115,10 @@ class TaskRead(BaseModel):
     is_blocked: bool = False
     # Derived (not stored): true when this task is the highest unfinished blocker
     # in an active dependency chain. ``blocked_task_count`` is the transitive
-    # count of unfinished accepted downstream tasks waiting on it.
+    # count of unfinished downstream tasks waiting on it.
     is_blocking: bool = False
     blocked_task_count: int = 0
-    # Derived (not stored): true when the task has accepted subtasks, in which case
+    # Derived (not stored): true when the task has subtasks, in which case
     # ``estimated_minutes`` and ``workflow_status`` above carry the rolled-up values
     # and are read-only in the UI. Defaults to False for the same reason as above.
     has_subtasks: bool = False

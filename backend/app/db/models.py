@@ -37,12 +37,6 @@ class SoftDeleteMixin:
     deleted_at: Mapped[datetime | None] = mapped_column(default=None)
 
 
-class TaskReviewStatus(enum.StrEnum):
-    candidate = "candidate"
-    accepted = "accepted"
-    rejected = "rejected"
-
-
 class TaskWorkflowStatus(enum.StrEnum):
     open = "open"
     in_progress = "in_progress"
@@ -83,11 +77,9 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "tasks"
     # Read-path indexes (Sprint 29 hardening). Profiled against the real service
     # queries, not the raw column list, to avoid dead write-overhead:
-    #   * The active-task list and search both filter
-    #     ``deleted_at IS NULL`` together with ``review_status`` — one compound
-    #     index serves them, and its leading ``deleted_at`` column also covers
-    #     the trash queries' ``deleted_at IS NOT NULL`` scan, so no standalone
-    #     ``deleted_at``/``review_status`` index is needed.
+    #   * ``deleted_at`` serves the active-task list and search
+    #     (``deleted_at IS NULL``) plus the trash queries'
+    #     ``deleted_at IS NOT NULL`` scan.
     #   * ``project_id``, ``parent_task_id``, ``recurrence_id`` each back a
     #     frequent equality filter (project scoping, subtree/children fetch,
     #     recurrence-series lookup) with no shared leading column, so each gets
@@ -96,7 +88,7 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     # (effective status is rolled up in Python), so an index on it would only add
     # write cost. Add one here if a SQL ``WHERE workflow_status`` ever lands.
     __table_args__ = (
-        Index("ix_tasks_deleted_at_review_status", "deleted_at", "review_status"),
+        Index("ix_tasks_deleted_at", "deleted_at"),
         Index("ix_tasks_project_id", "project_id"),
         Index("ix_tasks_parent_task_id", "parent_task_id"),
         Index("ix_tasks_recurrence_id", "recurrence_id"),
@@ -114,9 +106,6 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     )
     title: Mapped[str]
     description: Mapped[str | None] = mapped_column(default=None)
-    review_status: Mapped[TaskReviewStatus] = mapped_column(
-        default=TaskReviewStatus.accepted
-    )
     workflow_status: Mapped[TaskWorkflowStatus] = mapped_column(
         default=TaskWorkflowStatus.open
     )
@@ -137,8 +126,6 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     # next-occurrence logic lives in services/tasks.py.
     repeat_interval: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
     recurrence_id: Mapped[str | None] = mapped_column(String(36), default=None)
-    confidence: Mapped[float | None] = mapped_column(default=None)
-    assignee_hint: Mapped[str | None] = mapped_column(default=None)
     # Set when a task is cascade-soft-deleted because its PROJECT was deleted
     # (services/projects.soft_delete_project). Lets restore_project bring back
     # exactly the set it removed — not tasks the user trashed independently.

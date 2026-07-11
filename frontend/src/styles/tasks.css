@@ -805,7 +805,7 @@
   color: var(--text-h);
 }
 
-/* Small input + Set form inside a chip popover (estimate, assignee, repeat). */
+/* Small input + Set form inside a chip popover (estimate, repeat). */
 .chip-editor {
   display: flex;
   flex-wrap: wrap;
@@ -829,7 +829,7 @@
   font-size: 12px;
 }
 
-/* Parent-task pill: neutral like source/assignee, but no text-transform —
+/* Parent-task pill: neutral like source, but no text-transform —
    it shows a task title verbatim. */
 .parent-pill {
   background: var(--neutral-soft);

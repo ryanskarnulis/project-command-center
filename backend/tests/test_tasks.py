@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db.models import Task, TaskPriority, TaskReviewStatus, TaskWorkflowStatus
+from app.db.models import Task, TaskPriority, TaskWorkflowStatus
 from app.services import dashboard as dashboard_service
 from app.services import projects as projects_service
 from app.services import tasks as tasks_service
@@ -20,14 +20,12 @@ def test_task_create_markdone_softdelete(db_session: Session) -> None:
     db_session.commit()
     assert task.id is not None
     assert task.project_id == project.id
-    assert task.review_status == TaskReviewStatus.accepted
     assert task.priority == TaskPriority.medium
 
     assert task.id in [t.id for t in tasks_service.list_tasks(db_session, project.id)]
 
     done = tasks_service.mark_done(db_session, task)
     db_session.commit()
-    assert done.review_status == TaskReviewStatus.accepted
     assert done.workflow_status == TaskWorkflowStatus.done
 
     tasks_service.soft_delete_task(db_session, task)
@@ -56,7 +54,7 @@ def test_read_path_indexes_present_and_hot_queries_correct(
     inspector = inspect(db_session.get_bind())
     index_names = {ix["name"] for ix in inspector.get_indexes("tasks")}
     assert {
-        "ix_tasks_deleted_at_review_status",
+        "ix_tasks_deleted_at",
         "ix_tasks_project_id",
         "ix_tasks_parent_task_id",
         "ix_tasks_recurrence_id",
@@ -66,15 +64,9 @@ def test_read_path_indexes_present_and_hot_queries_correct(
     proj_b = projects_service.create_project(db_session, name="Beta")
     db_session.commit()
 
-    # project_id + deleted_at/review_status paths
+    # project_id + deleted_at paths
     top = tasks_service.create_task(db_session, project_id=proj_a.id, title="top a")
     other = tasks_service.create_task(db_session, project_id=proj_b.id, title="top b")
-    candidate = tasks_service.create_task(
-        db_session,
-        project_id=proj_a.id,
-        title="unreviewed",
-        review_status=TaskReviewStatus.candidate,
-    )
     db_session.commit()
 
     # parent_task_id path (subtree fetch)
@@ -83,18 +75,14 @@ def test_read_path_indexes_present_and_hot_queries_correct(
     )
     db_session.commit()
 
-    # deleted_at IS NOT NULL path (trash), still covered by the composite's
-    # leading column.
+    # deleted_at IS NOT NULL path (trash).
     tasks_service.soft_delete_task(db_session, other)
     db_session.commit()
 
-    # Active, project-scoped, accepted-only list.
-    active_a = tasks_service.list_tasks(
-        db_session, project_id=proj_a.id, review_status=TaskReviewStatus.accepted
-    )
+    # Active, project-scoped list.
+    active_a = tasks_service.list_tasks(db_session, project_id=proj_a.id)
     active_ids = {t.id for t in active_a}
     assert top.id in active_ids and child.id in active_ids
-    assert candidate.id not in active_ids  # review_status filter
     assert other.id not in active_ids  # different project AND soft-deleted
 
     # Subtree fetch via parent_task_id.
@@ -112,7 +100,7 @@ def test_read_path_indexes_present_and_hot_queries_correct(
     assert top.id not in trashed_ids
 
 
-def test_accepted_task_without_project_defaults_to_general(
+def test_task_without_project_defaults_to_general(
     db_session: Session,
 ) -> None:
     task = tasks_service.create_task(
@@ -125,38 +113,7 @@ def test_accepted_task_without_project_defaults_to_general(
     assert task.project_id == general.id
 
 
-def test_candidate_without_project_stays_unfiled_until_review(
-    db_session: Session,
-) -> None:
-    task = tasks_service.create_task(
-        db_session,
-        project_id=None,
-        title="candidate work",
-        review_status=TaskReviewStatus.candidate,
-    )
-    db_session.commit()
-
-    assert task.project_id is None
-
-
-def test_candidate_updated_to_accepted_defaults_to_general(
-    db_session: Session,
-) -> None:
-    task = tasks_service.create_task(
-        db_session,
-        project_id=None,
-        title="accepted later",
-        review_status=TaskReviewStatus.candidate,
-    )
-    tasks_service.update_task(db_session, task, {"review_status": TaskReviewStatus.accepted})
-    db_session.commit()
-
-    general = projects_service.get_default_project(db_session)
-    assert general is not None
-    assert task.project_id == general.id
-
-
-def test_global_tasks_route_lists_accepted_tasks_across_projects(
+def test_global_tasks_route_lists_open_tasks_across_projects(
     client: TestClient, db_session: Session
 ) -> None:
     a = projects_service.create_project(db_session, name="Firewall")
@@ -484,7 +441,7 @@ def test_update_rejects_explicit_null_on_non_nullable_fields(client: TestClient)
     task_id = created.json()["id"]
 
     # Explicit null on a NOT-NULL column is a 422, not a 500 / NOT-NULL violation.
-    for field in ("title", "priority", "review_status", "workflow_status"):
+    for field in ("title", "priority", "workflow_status"):
         resp = client.patch(f"/api/tasks/{task_id}", json={field: None})
         assert resp.status_code == 422, field
 
@@ -501,29 +458,6 @@ def test_update_rejects_explicit_null_on_non_nullable_fields(client: TestClient)
     omitted = client.patch(f"/api/tasks/{task_id}", json={"description": "back"})
     assert omitted.status_code == 200
     assert omitted.json()["title"] == "Audit logs"
-
-
-def test_assignee_hint_set_on_create_and_update(client: TestClient) -> None:
-    created = client.post(
-        "/api/tasks",
-        json={"title": "Renew TLS cert", "assignee_hint": "  Dana  "},
-    )
-    assert created.status_code == 201
-    task_id = created.json()["id"]
-    assert created.json()["assignee_hint"] == "Dana"
-
-    fetched = client.get(f"/api/tasks/{task_id}")
-    assert fetched.json()["assignee_hint"] == "Dana"
-
-    reassigned = client.patch(
-        f"/api/tasks/{task_id}", json={"assignee_hint": "Sam"}
-    )
-    assert reassigned.status_code == 200
-    assert reassigned.json()["assignee_hint"] == "Sam"
-
-    cleared = client.patch(f"/api/tasks/{task_id}", json={"assignee_hint": None})
-    assert cleared.status_code == 200
-    assert cleared.json()["assignee_hint"] is None
 
 
 def test_update_task_project_id_valid(client: TestClient, db_session: Session) -> None:
@@ -573,7 +507,7 @@ def test_patch_accepted_task_with_null_project_rehomes_to_general(
 # --- Parent <- child roll-ups (Sprint VVV) ---------------------------------
 
 
-def _accepted_subtask(db: Session, parent_id: int, **kw: Any) -> Task:
+def _subtask(db: Session, parent_id: int, **kw: Any) -> Task:
     return tasks_service.create_task(
         db, project_id=None, parent_task_id=parent_id, **kw
     )
@@ -583,8 +517,8 @@ def test_estimate_rolls_up_sum_of_children(db_session: Session) -> None:
     parent = tasks_service.create_task(
         db_session, project_id=None, title="parent", estimated_minutes=999
     )
-    _accepted_subtask(db_session, parent.id, title="a", estimated_minutes=30)
-    _accepted_subtask(db_session, parent.id, title="b", estimated_minutes=45)
+    _subtask(db_session, parent.id, title="a", estimated_minutes=30)
+    _subtask(db_session, parent.id, title="b", estimated_minutes=45)
     db_session.commit()
 
     rollup = tasks_service.get_rollup(db_session, parent)
@@ -595,9 +529,9 @@ def test_estimate_rolls_up_sum_of_children(db_session: Session) -> None:
 
 def test_estimate_rolls_up_across_two_levels(db_session: Session) -> None:
     parent = tasks_service.create_task(db_session, project_id=None, title="parent")
-    mid = _accepted_subtask(db_session, parent.id, title="mid", estimated_minutes=10)
-    _accepted_subtask(db_session, mid.id, title="leaf1", estimated_minutes=20)
-    _accepted_subtask(db_session, mid.id, title="leaf2", estimated_minutes=5)
+    mid = _subtask(db_session, parent.id, title="mid", estimated_minutes=10)
+    _subtask(db_session, mid.id, title="leaf1", estimated_minutes=20)
+    _subtask(db_session, mid.id, title="leaf2", estimated_minutes=5)
     db_session.commit()
 
     # mid's own 10 is ignored (it has children); parent = 20 + 5.
@@ -607,8 +541,8 @@ def test_estimate_rolls_up_across_two_levels(db_session: Session) -> None:
 
 def test_estimate_none_when_no_subtree_estimates(db_session: Session) -> None:
     parent = tasks_service.create_task(db_session, project_id=None, title="parent")
-    _accepted_subtask(db_session, parent.id, title="a")
-    _accepted_subtask(db_session, parent.id, title="b")
+    _subtask(db_session, parent.id, title="a")
+    _subtask(db_session, parent.id, title="b")
     db_session.commit()
 
     assert tasks_service.get_rollup(db_session, parent).estimated_minutes is None
@@ -647,7 +581,7 @@ def test_status_rolls_up(
 ) -> None:
     parent = tasks_service.create_task(db_session, project_id=None, title="parent")
     for i, status in enumerate(child_statuses):
-        _accepted_subtask(
+        _subtask(
             db_session, parent.id, title=f"c{i}", workflow_status=status
         )
     db_session.commit()
@@ -716,13 +650,13 @@ def test_compute_rollups_scoped_to_subtree(db_session: Session) -> None:
     # descendant (exercises the level-by-level descent's dedup path): every
     # resolved value must match a whole-table resolution.
     parent = tasks_service.create_task(db_session, project_id=None, title="parent")
-    mid = _accepted_subtask(db_session, parent.id, title="mid", estimated_minutes=10)
-    _accepted_subtask(db_session, mid.id, title="leaf1", estimated_minutes=20)
-    _accepted_subtask(db_session, mid.id, title="leaf2", estimated_minutes=5)
+    mid = _subtask(db_session, parent.id, title="mid", estimated_minutes=10)
+    _subtask(db_session, mid.id, title="leaf1", estimated_minutes=20)
+    _subtask(db_session, mid.id, title="leaf2", estimated_minutes=5)
 
     # Unrelated tree that must not leak into parent's roll-up.
     other = tasks_service.create_task(db_session, project_id=None, title="other")
-    _accepted_subtask(db_session, other.id, title="x", estimated_minutes=999)
+    _subtask(db_session, other.id, title="x", estimated_minutes=999)
     db_session.commit()
 
     rollups = tasks_service.compute_rollups(db_session, [parent, mid])
@@ -730,22 +664,6 @@ def test_compute_rollups_scoped_to_subtree(db_session: Session) -> None:
     assert rollups[parent.id].estimated_minutes == 25
     assert rollups[mid.id].estimated_minutes == 25
     assert rollups[parent.id].has_subtasks is True
-
-
-def test_candidate_children_do_not_count(db_session: Session) -> None:
-    parent = tasks_service.create_task(db_session, project_id=None, title="parent")
-    tasks_service.create_task(
-        db_session,
-        project_id=None,
-        parent_task_id=parent.id,
-        title="suggested",
-        review_status=TaskReviewStatus.candidate,
-        estimated_minutes=99,
-    )
-    db_session.commit()
-    rollup = tasks_service.get_rollup(db_session, parent)
-    assert rollup.has_subtasks is False
-    assert rollup.estimated_minutes is None
 
 
 def test_subtask_inherits_priority_and_due_date(db_session: Session) -> None:
@@ -758,7 +676,7 @@ def test_subtask_inherits_priority_and_due_date(db_session: Session) -> None:
         priority=TaskPriority.high,
         due_date=date(2026, 7, 1),
     )
-    child = _accepted_subtask(db_session, parent.id, title="child")
+    child = _subtask(db_session, parent.id, title="child")
     db_session.commit()
     assert child.priority == TaskPriority.high
     assert child.due_date == date(2026, 7, 1)
@@ -774,7 +692,7 @@ def test_subtask_explicit_values_override_inheritance(db_session: Session) -> No
         priority=TaskPriority.high,
         due_date=date(2026, 7, 1),
     )
-    child = _accepted_subtask(
+    child = _subtask(
         db_session,
         parent.id,
         title="child",
@@ -796,7 +714,7 @@ def test_changing_parent_does_not_clobber_children(db_session: Session) -> None:
     parent = tasks_service.create_task(
         db_session, project_id=None, title="parent", priority=TaskPriority.low
     )
-    child = _accepted_subtask(
+    child = _subtask(
         db_session, parent.id, title="child", priority=TaskPriority.urgent
     )
     db_session.commit()

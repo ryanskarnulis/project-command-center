@@ -21,7 +21,6 @@ const RESULTS: SearchResults = {
       title: 'Firewall Upgrade',
       subtitle: null,
       project_id: null,
-      review_status: null,
       workflow_status: null,
     },
   ],
@@ -32,7 +31,6 @@ const RESULTS: SearchResults = {
       title: 'Audit rules',
       subtitle: 'Firewall Upgrade',
       project_id: 7,
-      review_status: 'accepted',
       workflow_status: 'open',
     },
   ],
@@ -105,8 +103,7 @@ describe('CommandSearch', () => {
           title: 'Audit rules',
           subtitle: 'Firewall Upgrade',
           project_id: 7,
-          review_status: 'accepted',
-          workflow_status: 'open',
+              workflow_status: 'open',
         },
         {
           kind: 'task',
@@ -114,17 +111,7 @@ describe('CommandSearch', () => {
           title: 'Already finished',
           subtitle: null,
           project_id: 7,
-          review_status: 'accepted',
-          workflow_status: 'done',
-        },
-        {
-          kind: 'task',
-          id: 14,
-          title: 'Just a candidate',
-          subtitle: null,
-          project_id: 7,
-          review_status: 'candidate',
-          workflow_status: 'open',
+              workflow_status: 'done',
         },
       ],
     })
@@ -139,10 +126,9 @@ describe('CommandSearch', () => {
       '/done audit',
     )
 
-    // Open + accepted task is offered; done and candidate tasks are filtered out.
+    // Open task is offered; done tasks are filtered out.
     expect(await screen.findByText('Audit rules')).toBeInTheDocument()
     expect(screen.queryByText('Already finished')).not.toBeInTheDocument()
-    expect(screen.queryByText('Just a candidate')).not.toBeInTheDocument()
 
     await user.click(screen.getByText('Audit rules'))
 

@@ -37,17 +37,16 @@ function setup(props: Partial<Parameters<typeof QuickAddBar>[0]> = {}) {
 describe('QuickAddBar', () => {
   it('previews parsed tokens as chips while typing', () => {
     const { input } = setup()
-    fireEvent.change(input, { target: { value: 'Renew TLS cert !high #ops ~20m @ryan' } })
+    fireEvent.change(input, { target: { value: 'Renew TLS cert !high #ops ~20m' } })
 
     expect(screen.getByRole('button', { name: 'Priority: high' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Project: Ops' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Estimate: 20 minutes' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Assignee: ryan' })).toBeInTheDocument()
   })
 
   it('creates the parsed task on submit and clears the input', async () => {
     const { onCreate, input } = setup()
-    fireEvent.change(input, { target: { value: 'Renew TLS cert !high #ops ~20m @ryan' } })
+    fireEvent.change(input, { target: { value: 'Renew TLS cert !high #ops ~20m' } })
     fireEvent.submit(input)
 
     await waitFor(() =>
@@ -56,7 +55,6 @@ describe('QuickAddBar', () => {
         priority: 'high',
         due_date: null,
         estimated_minutes: 20,
-        assignee_hint: 'ryan',
         project_id: 1,
       }),
     )
@@ -106,7 +104,6 @@ describe('QuickAddBar', () => {
       priority: 'high',
       due_date: null,
       estimated_minutes: 20,
-      assignee_hint: null,
     })
     expect(onCreate).not.toHaveBeenCalled()
     expect(input).toHaveValue('')

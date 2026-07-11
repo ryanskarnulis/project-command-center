@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Task, TaskDependency, TaskReviewStatus, TaskWorkflowStatus
+from app.db.models import Task, TaskDependency, TaskWorkflowStatus
 from app.schemas.tasks import RepeatInterval
 from app.services import projects as projects_service
 from app.services import task_dependencies as deps_service
@@ -114,7 +114,6 @@ def test_complete_recurring_creates_next_occurrence(db_session: Session) -> None
     assert occurrence.id != task.id
     assert occurrence.due_date == date(2026, 6, 8)
     assert occurrence.recurrence_id == recurrence_id
-    assert occurrence.review_status == TaskReviewStatus.accepted
     assert occurrence.workflow_status == TaskWorkflowStatus.open
     assert occurrence.parent_task_id is None
     assert occurrence.repeat_interval == {"unit": "week", "every": 1}
@@ -334,7 +333,7 @@ def test_edit_scope_future_does_not_forward_structural_fields(
     db_session: Session,
 ) -> None:
     # A forward-patch must not bulk-propagate structural fields (parent_task_id,
-    # project_id, review_status): the bulk UPDATE skips the cycle / derived-status /
+    # project_id): the bulk UPDATE skips the cycle / derived-status /
     # project-coupling guards, so a crafted "future" patch setting parent_task_id
     # onto the acted-on row would otherwise make the future occurrence its own
     # parent. Only the acted-on row takes the (guarded) edit.

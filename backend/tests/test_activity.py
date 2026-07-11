@@ -1,7 +1,6 @@
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db.models import TaskReviewStatus
 from app.services import activity as activity_service
 from app.services import projects as projects_service
 from app.services import tasks as tasks_service
@@ -59,30 +58,15 @@ def test_project_lifecycle_emits_events(db_session: Session) -> None:
     assert actions == ["deleted", "updated", "created"]
 
 
-def test_task_lifecycle_emits_events_only_with_project(db_session: Session) -> None:
+def test_task_lifecycle_emits_events(db_session: Session) -> None:
     project = projects_service.create_project(db_session, name="Home")
     db_session.commit()
 
-    # A task with no project: no task event (the per-project feed can't show it).
-    unfiled = tasks_service.create_task(
-        db_session,
-        project_id=None,
-        title="loose task",
-        review_status=TaskReviewStatus.candidate,
+    task = tasks_service.create_task(
+        db_session, project_id=project.id, title="loose task"
     )
-    db_session.commit()
-    assert unfiled.project_id is None
-    task_events = [
-        e
-        for e in activity_service.list_events(db_session, project.id)
-        if e.entity_type == "task"
-    ]
-    assert task_events == []
-
-    # Filing it into a project (update sets project_id) logs an "updated" event.
-    tasks_service.update_task(db_session, unfiled, {"project_id": project.id})
-    tasks_service.mark_done(db_session, unfiled)
-    tasks_service.soft_delete_task(db_session, unfiled)
+    tasks_service.mark_done(db_session, task)
+    tasks_service.soft_delete_task(db_session, task)
     db_session.commit()
 
     task_actions = [
@@ -90,8 +74,8 @@ def test_task_lifecycle_emits_events_only_with_project(db_session: Session) -> N
         for e in activity_service.list_events(db_session, project.id)
         if e.entity_type == "task"
     ]
-    # Newest first: deleted, completed, updated. (No "created" — it had no project.)
-    assert task_actions == ["deleted", "completed", "updated"]
+    # Newest first.
+    assert task_actions == ["deleted", "completed", "created"]
 
 
 def test_created_task_with_project_emits_created_event(db_session: Session) -> None:

@@ -40,19 +40,10 @@ describe('ProjectChip', () => {
     expect(onChange).toHaveBeenCalledExactlyOnceWith(1)
   })
 
-  it('offers Unassigned only when allowed', () => {
+  it('never offers an Unassigned option (tasks are always filed)', () => {
     render(<ProjectChip value={2} projects={PROJECTS} onChange={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Project: Garden' }))
     expect(screen.queryByRole('button', { name: 'Unassigned' })).not.toBeInTheDocument()
-
-    cleanup()
-    const onChange = vi.fn()
-    render(
-      <ProjectChip value={2} projects={PROJECTS} onChange={onChange} allowUnassigned />,
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Project: Garden' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Unassigned' }))
-    expect(onChange).toHaveBeenCalledExactlyOnceWith(null)
   })
 
   it('does not fire when re-picking the current project', () => {

@@ -89,13 +89,10 @@ export function CommandSearch() {
 
   const groups: ActionGroup[] = useMemo(() => {
     if (command.kind === 'done') {
-      // Only accepted, not-yet-done tasks are valid completion targets; candidates
-      // and already-done tasks are filtered out (status fields come from search).
+      // Only not-yet-done tasks are valid completion targets; already-done
+      // tasks are filtered out (the status field comes from search).
       const rows = results.tasks
-        .filter(
-          (t) =>
-            t.review_status === 'accepted' && t.workflow_status !== 'done',
-        )
+        .filter((t) => t.workflow_status !== 'done')
         .map<ActionRow>((t) => ({
           key: `done-${t.id}`,
           badge: { label: 'Task', tone: 'purple' },

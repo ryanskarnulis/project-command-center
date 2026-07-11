@@ -11,7 +11,7 @@ from __future__ import annotations
 from sqlalchemy import ColumnElement, case, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
-from app.db.models import Project, Task, TaskReviewStatus, TaskWorkflowStatus
+from app.db.models import Project, Task, TaskWorkflowStatus
 from app.schemas.search import SearchResultItem, SearchResults
 from app.services.common import active
 
@@ -84,11 +84,7 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
     # Text tier wins first; state only breaks ties within the same text tier.
     task_text_score = _text_tier(Task.title, Task.description, q, prefix, contains)
     task_state_score = case(
-        (
-            (Task.review_status == TaskReviewStatus.accepted)
-            & (Task.workflow_status != TaskWorkflowStatus.done),
-            0,
-        ),
+        (Task.workflow_status != TaskWorkflowStatus.done, 0),
         else_=1,
     )
     task_rows = (
@@ -134,8 +130,7 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
                 subtitle=names.get(t.project_id) if t.project_id is not None else None,
                 project_id=t.project_id,
                 # Serialized off existing columns (no extra query) so the command
-                # bar can filter /done candidates to accepted, not-done tasks.
-                review_status=t.review_status,
+                # bar can filter /done candidates to not-done tasks.
                 workflow_status=t.workflow_status,
             )
             for t in task_rows

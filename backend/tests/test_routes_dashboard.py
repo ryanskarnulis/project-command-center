@@ -9,7 +9,6 @@ from app.db.models import (
     Project,
     Task,
     TaskPriority,
-    TaskReviewStatus,
     TaskWorkflowStatus,
 )
 from app.services import dashboard as dashboard_service
@@ -30,13 +29,11 @@ def _create_task(
     *,
     project_id: int | None,
     title: str,
-    review_status: TaskReviewStatus,
     workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open,
 ) -> Task:
     t = Task(
         project_id=project_id,
         title=title,
-        review_status=review_status,
         workflow_status=workflow_status,
         priority=TaskPriority.medium,
     )
@@ -64,7 +61,7 @@ class TestGetDashboard:
         assert data["total_open_tasks"] == 0
         assert data["projects"] == []
 
-    def test_counts_accepted_tasks_only(
+    def test_counts_open_active_tasks_only(
         self, client: TestClient, db_session: Session
     ) -> None:
         p = _create_project(db_session, "Alpha")
@@ -72,22 +69,16 @@ class TestGetDashboard:
             db_session,
             project_id=p.id,
             title="Deleted open task",
-            review_status=TaskReviewStatus.accepted,
         )
         soft_delete(deleted)
         db_session.commit()
-        _create_task(
-            db_session, project_id=p.id, title="Open one", review_status=TaskReviewStatus.accepted
-        )
+        _create_task(db_session, project_id=p.id, title="Open one")
         _create_task(
             db_session,
             project_id=p.id,
             title="Done one",
-            review_status=TaskReviewStatus.accepted,
             workflow_status=TaskWorkflowStatus.done,
         )
-        _create_task(db_session, project_id=p.id, title="Candidate", review_status=TaskReviewStatus.candidate)
-        _create_task(db_session, project_id=p.id, title="Rejected", review_status=TaskReviewStatus.rejected)
 
         resp = client.get("/api/dashboard")
         assert resp.status_code == 200
@@ -116,7 +107,6 @@ class TestGetDashboard:
             db_session,
             project_id=active_project.id,
             title="Open one",
-            review_status=TaskReviewStatus.accepted,
         )
 
         resp = client.get("/api/dashboard")
@@ -133,7 +123,6 @@ class TestGetDashboard:
                 db_session,
                 project_id=project.id,
                 title=f"Open {project.id}",
-                review_status=TaskReviewStatus.accepted,
             )
 
         statements: list[str] = []
@@ -162,7 +151,7 @@ class TestGetDashboard:
         # Tasks are cascade-trashed with their project, so they drop out of the
         # dashboard open-task counts (no longer rehomed to General).
         p = _create_project(db_session, "Alpha")
-        _create_task(db_session, project_id=p.id, title="Open one", review_status=TaskReviewStatus.accepted)
+        _create_task(db_session, project_id=p.id, title="Open one")
 
         projects_service.soft_delete_project(db_session, p)
         db_session.commit()

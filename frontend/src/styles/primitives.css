@@ -293,10 +293,8 @@
 .badge,
 .count-badge,
 .source-pill,
-.assignee-pill,
 .due,
 .estimate,
-.confidence,
 .repeat-badge,
 .blocked {
   display: inline-flex;
@@ -308,11 +306,6 @@
   font-weight: 760;
   line-height: 1;
   padding: 5px 8px;
-}
-
-.confidence {
-  background: var(--neutral-soft);
-  color: var(--text-muted);
 }
 
 .suggested-project,
@@ -335,11 +328,6 @@
   background: var(--neutral-soft);
   color: var(--text-muted);
   text-transform: capitalize;
-}
-
-.assignee-pill {
-  background: var(--neutral-soft);
-  color: var(--text-muted);
 }
 
 .insight-list,

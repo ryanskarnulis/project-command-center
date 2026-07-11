@@ -69,17 +69,15 @@ export function TaskFormModal(props: Props) {
   const [dueDate, setDueDate] = useState(
     existingTask?.due_date ?? defaults?.due_date ?? ''
   )
-  // The empty ("no project") option only lands as truly unfiled for a candidate, or as
-  // "inherit the parent's project" when creating a subtask (create_task copies the
-  // parent's project when project_id is null). A top-level accepted task is always
-  // filed, so default it to General rather than offering a misleading "unassigned".
+  // The empty ("no project") option means "inherit the parent's project" when
+  // creating a subtask (create_task copies the parent's project when project_id
+  // is null). A top-level task is always filed, so default it to General rather
+  // than offering a misleading "unassigned".
   const generalProject = projects.find((p) => p.system_key === 'general')
   const isSubtaskCreate = !isEdit && defaults?.parent_task_id != null
-  const isCandidate = existingTask?.review_status === 'candidate'
-  const allowUnassigned = isCandidate || isSubtaskCreate
   const [projectId, setProjectId] = useState(
     existingTask?.project_id != null ? String(existingTask.project_id)
-    : allowUnassigned ? ''
+    : isSubtaskCreate ? ''
     : String(generalProject?.id ?? '')
   )
   const [parentId, setParentId] = useState(
@@ -89,9 +87,6 @@ export function TaskFormModal(props: Props) {
   )
   const [estimateDraft, setEstimateDraft] = useState(
     formatDurationInput(existingTask?.estimated_minutes ?? defaults?.estimated_minutes ?? null)
-  )
-  const [assignee, setAssignee] = useState(
-    existingTask?.assignee_hint ?? defaults?.assignee_hint ?? ''
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -123,7 +118,6 @@ export function TaskFormModal(props: Props) {
           project_id: projectId === '' ? null : Number(projectId),
           parent_task_id: parentId === '' ? null : Number(parentId),
           estimated_minutes: estimatedMinutes,
-          assignee_hint: assignee.trim() || null,
         })
       } else {
         await (props as CreateMode).onSave({
@@ -134,7 +128,6 @@ export function TaskFormModal(props: Props) {
           due_date: dueDate || null,
           parent_task_id: parentId === '' ? null : Number(parentId),
           estimated_minutes: estimatedMinutes,
-          assignee_hint: assignee.trim() || null,
         })
       }
       onClose()
@@ -183,19 +176,9 @@ export function TaskFormModal(props: Props) {
 
         <label htmlFor="tf-project">Project</label>
         <select id="tf-project" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-          {allowUnassigned && (
-            <option value="">{isSubtaskCreate ? '— same as parent —' : '— unassigned —'}</option>
-          )}
+          {isSubtaskCreate && <option value="">— same as parent —</option>}
           {projects.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
         </select>
-
-        <label htmlFor="tf-assignee">Assignee</label>
-        <input
-          id="tf-assignee"
-          placeholder="Unassigned"
-          value={assignee}
-          onChange={(e) => setAssignee(e.target.value)}
-        />
 
         <label htmlFor="tf-parent">Parent task</label>
         <select id="tf-parent" value={parentId} onChange={(e) => setParentId(e.target.value)}>
