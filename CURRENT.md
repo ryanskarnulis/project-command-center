@@ -46,12 +46,18 @@ Open decisions (resolve in the slices, record the outcome here):
 
 ### Slice 1 — Mobile task-edit pills bug (#293)
 
-- [ ] The task edit modal's dropdown pills (chips) flash open and close on
-      mobile tap — investigate the interaction logic (likely
-      focus/blur/click ordering on touch), fix, and cover with a test where
-      jsdom can express it.
-- [ ] Verify on a mobile viewport with `verifier-browser` (touch events are
-      exactly what Vitest can't exercise).
+- [x] The task edit modal's dropdown pills (chips) flash open and close on
+      mobile tap — root cause: `ChipPopover`'s scroll/resize listeners
+      dismissed the popover when the soft keyboard shifted the viewport
+      right after opening. Scroll/resize now re-anchor instead of closing;
+      outside-press moved to capture phase (the peek panel's bubble-phase
+      `stopPropagation` swallowed it, leaving popovers stuck open). Covered
+      with jsdom tests for the tap sequence, keyboard scroll/resize, and
+      the swallowed outside-press.
+- [x] Verify on a mobile viewport with `verifier-browser` (touch events are
+      exactly what Vitest can't exercise) — iPhone 13 emulation, real touch
+      taps: open/stay-open, re-anchor on scroll/resize, estimate input +
+      apply, outside-press dismissal.
 
 ### Slice 2 — Agent output rendering (#291)
 

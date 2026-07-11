@@ -40,6 +40,48 @@ describe('ChipPopover', () => {
     expect(screen.getByText('Popover body')).toBeInTheDocument()
   })
 
+  it('closes on an outside press even when an enclosing surface stops propagation', () => {
+    // The peek panel stopPropagation()s mousedown in the bubble phase; the
+    // outside-press listener must run in the capture phase so presses inside
+    // the panel (but outside the popover) still dismiss it.
+    render(
+      <div onMouseDown={(e) => e.stopPropagation()}>
+        <span>Panel chrome</span>
+        <ChipPopover chip="high" chipClassName="priority-pill" label="Priority: high">
+          <span>Popover body</span>
+        </ChipPopover>
+      </div>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Priority: high' }))
+    fireEvent.mouseDown(screen.getByText('Panel chrome'))
+    expect(screen.queryByText('Popover body')).not.toBeInTheDocument()
+  })
+
+  it('stays open through a mobile tap on the trigger (touch + synthesized mouse events)', () => {
+    renderChip()
+    const trigger = screen.getByRole('button', { name: 'Priority: high' })
+    // A tap fires touch events, then the browser synthesizes the mouse pair
+    // and click. None of these may bounce the popover shut again.
+    fireEvent.touchStart(trigger)
+    fireEvent.touchEnd(trigger)
+    fireEvent.mouseDown(trigger)
+    fireEvent.mouseUp(trigger)
+    fireEvent.click(trigger)
+    expect(screen.getByText('Popover body')).toBeInTheDocument()
+  })
+
+  it('stays open when opening scrolls/resizes the viewport (mobile soft keyboard)', () => {
+    renderChip()
+    fireEvent.click(screen.getByRole('button', { name: 'Priority: high' }))
+    // On mobile the soft keyboard shows for an autofocused editor input (or
+    // hides once the tap blurs a text field) right after the popover opens,
+    // firing document scroll and window resize. These must re-anchor the
+    // popover, not dismiss it.
+    fireEvent.scroll(document)
+    fireEvent(window, new Event('resize'))
+    expect(screen.getByText('Popover body')).toBeInTheDocument()
+  })
+
   it('closes on Escape and refocuses the trigger without letting the event bubble', () => {
     const outerKeyDown = vi.fn()
     render(
