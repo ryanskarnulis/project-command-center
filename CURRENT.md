@@ -1,14 +1,114 @@
 # Current focus
 
-**No epic checked out** (agent-loop epic closed 2026-07-11 — archived in
-`DONE.md`; design record in `docs/agent-design.md`). The next checkout is
-being planned.
+**Epic: Agent UX — polish + ambient entry** (checked out 2026-07-11; PCC
+tasks #291, #292, #289, #293).
 
-Candidates on deck (from the closed epic's notes and `TODO.md`):
+The agent works (loop epic, archived in `DONE.md`); this epic makes it
+pleasant to use and reachable from where work happens. Replies render as
+plain text today (raw markdown asterisks and all), the agent hides behind
+its own page, the avatar is a stock icon, and there's an unrelated-but-real
+mobile bug in the task edit modal.
 
-- Agent as the capture surface (inbox successor) — the panel now exists.
-- Tasks-page decision, due-date reminders, markdown export — backlog.
-- llama-swap phase 3: retire host Ollama once the quiet week on
-  `journalctl -u ollama` completes (counted from 2026-07-10).
+Decisions already made (don't relitigate):
+
+- **`react-markdown` is approved** (signed off 2026-07-11) for rendering
+  assistant replies. Safe-by-default (no raw HTML), scoped to the agent
+  bubble. No other new dependency without asking.
+- **Search-bar handoff shape (#292): inline, expandable.** Enter in the
+  command search posts to the agent and renders the exchange in a panel
+  under the bar (reusing the panel's message components — one rendering
+  surface, not two); a "Continue in Agent" affordance opens `/agent/:id`
+  with the same conversation (free — conversations are persisted). Slash
+  commands are removed from the search bar in the same slice: delete the
+  feature fully per the constitution (parser, docs, tests), no dead config.
+- **Deferred as a pair — voice (#287) + personality (#290).** Direction
+  agreed with the user: stand up something *shared between projects* (chess,
+  PCC, future) rather than porting per-app copies — a workspace-level
+  companion layer, llama-swap-style. Needs its own design checkout; leave
+  the PCC tasks open.
+
+Open decisions (resolve in the slices, record the outcome here):
+
+- **Entity links (#291).** Tool-call rows carry ids in their persisted
+  results — linking "Created task X" → `/tasks/:id` is mechanical. Whether
+  reply *text* also gets entity linkification (fuzzier: the model must be
+  prompted to reference ids) — decide in slice 2; don't force it if the
+  trajectory links already feel sufficient.
+- **Mascot scope (#289).** Static spider avatar (derived from the brand
+  mark) vs. animated states (idle / working). Decide in slice 3 when it's
+  on screen; the working indicator is the natural animation site.
 
 **Status legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
+
+---
+
+## Slices (one PR each, squash-merged on green CI)
+
+### Slice 1 — Mobile task-edit pills bug (#293)
+
+- [ ] The task edit modal's dropdown pills (chips) flash open and close on
+      mobile tap — investigate the interaction logic (likely
+      focus/blur/click ordering on touch), fix, and cover with a test where
+      jsdom can express it.
+- [ ] Verify on a mobile viewport with `verifier-browser` (touch events are
+      exactly what Vitest can't exercise).
+
+### Slice 2 — Agent output rendering (#291)
+
+- [ ] Assistant replies render as markdown (`react-markdown`, agent bubble
+      only, dependency locked in `package.json`); user bubbles stay plain
+      text.
+- [ ] Tool-call trajectory rows link to what they touched: created/updated/
+      completed task rows → `/tasks/:id`, project rows → `/projects/:id`
+      (ids from the persisted arguments/results, same parsing as undo).
+      Trashed rows don't link to a 404 — they point at `/trash` or drop the
+      link once undone/deleted.
+- [ ] Resolve the reply-text linkification open decision; record it here.
+- [ ] Vitest for the mapping; `verifier-browser` pass over a real
+      conversation for the rendered surface.
+
+### Slice 3 — Spider mascot for the agent (#289)
+
+- [ ] Replace the stock `Bot` avatar with a spider mark that reads as the
+      PCC brand (the topbar `SpiderIcon` is the seed) — used in the panel
+      avatar, the working indicator, and the Agent nav entry if it fits.
+- [ ] Resolve the static-vs-animated open decision; record it here. If
+      animated, the working state is the one that earns it.
+- [ ] `verifier-browser` screenshot pass (pure rendered surface).
+
+### Slice 4 — Ambient agent entry from the search bar (#292)
+
+- [ ] `CommandSearch`: live results keep rendering under the bar as today;
+      Enter posts the text to the agent (new conversation via the existing
+      API + rate limit) and renders the exchange inline under the bar with
+      the same message/tool-call components as the panel.
+- [ ] "Continue in Agent" opens `/agent/:id` with that conversation.
+- [ ] Remove slash commands from the search bar completely (parser, its
+      tests, any docs/hints) — deletion done to the constitution's standard.
+- [ ] In-progress state matches the panel (working indicator, disabled
+      input); errors surface inline. `verifier-browser` for the whole flow.
+
+---
+
+## Out of scope for this epic
+
+- **Voice input (#287) and the personality system (#290)** — deferred
+  together toward a shared, workspace-level companion layer (one system
+  serving chess + PCC + future projects, like llama-swap owns the GPU).
+  Next checkout candidate; needs its own design doc first.
+- Streaming/SSE — only if the inline entry makes the synchronous wait feel
+  bad (decision recorded in the loop epic).
+- llama-swap phase 3 (retiring host Ollama) — separate chore once the quiet
+  week on `journalctl -u ollama` completes (counted from 2026-07-10).
+- Tasks-page decision, due-date reminders, markdown export — backlog.
+
+## Definition of done for the epic
+
+From the dashboard: type an ask into the search bar → inline agent exchange
+with markdown-rendered reply, spider mascot working state, and clickable
+links to whatever it created → continue the same conversation on `/agent`.
+The mobile pills bug is dead on a real mobile viewport. Agent evals stay
+6/6 on gemma-4-12b (formatting/prompt tweaks are not allowed to degrade
+tool honesty — rerun before merging anything that touches the system
+prompt). `./test.sh` and CI green throughout; PCC tasks #291/#292/#289/#293
+completed in the prod instance as slices land.
