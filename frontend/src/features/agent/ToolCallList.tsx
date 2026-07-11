@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { AlertTriangle, Eye, Wrench } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useToast } from '../../components/ToastContext'
 import { useTrashCount } from '../trash/trashCountContext'
 import type { ToolCallRecord } from '../../types/agent'
-import { describeToolCall, isMutation, undoFor } from './toolCalls'
+import { describeToolCall, isMutation, linkFor, undoFor } from './toolCalls'
 
 /**
  * The tool trajectory persisted on one assistant message: every call the loop
@@ -41,6 +42,9 @@ export function ToolCallList({
         const key = `${messageId}:${index}`
         const failed = record.error !== null
         const action = failed ? null : undoFor(record)
+        // After an undo the entity has moved (trashed / restored), so the
+        // link is recomputed rather than pointing at a 404.
+        const link = linkFor(record, { undone: undone.has(key) })
         return (
           <li
             key={key}
@@ -55,12 +59,21 @@ export function ToolCallList({
             ) : (
               <Eye size={14} aria-hidden="true" />
             )}
-            <span className="agent-tool-call-summary">
-              {describeToolCall(record)}
-              {failed && (
-                <span className="agent-tool-call-error"> — {record.error}</span>
-              )}
-            </span>
+            {link !== null ? (
+              <Link
+                to={link}
+                className="agent-tool-call-summary agent-tool-call-link"
+              >
+                {describeToolCall(record)}
+              </Link>
+            ) : (
+              <span className="agent-tool-call-summary">
+                {describeToolCall(record)}
+                {failed && (
+                  <span className="agent-tool-call-error"> — {record.error}</span>
+                )}
+              </span>
+            )}
             {action !== null &&
               (undone.has(key) ? (
                 <span className="agent-tool-call-undone">Undone</span>

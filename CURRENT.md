@@ -29,11 +29,12 @@ Decisions already made (don't relitigate):
 
 Open decisions (resolve in the slices, record the outcome here):
 
-- **Entity links (#291).** Tool-call rows carry ids in their persisted
-  results — linking "Created task X" → `/tasks/:id` is mechanical. Whether
-  reply *text* also gets entity linkification (fuzzier: the model must be
-  prompted to reference ids) — decide in slice 2; don't force it if the
-  trajectory links already feel sufficient.
+- **Entity links (#291) — RESOLVED (slice 2): no reply-text linkification.**
+  Trajectory rows link from persisted ids (exact, zero prompt changes);
+  text linkification would require prompting the model to emit ids, which
+  risks the eval constraint (prompt tweaks must not degrade tool honesty)
+  for fuzzy benefit. Revisit only if real usage shows people hunting for
+  links the trajectory rows don't provide.
 - **Mascot scope (#289).** Static spider avatar (derived from the brand
   mark) vs. animated states (idle / working). Decide in slice 3 when it's
   on screen; the working indicator is the natural animation site.
@@ -61,17 +62,20 @@ Open decisions (resolve in the slices, record the outcome here):
 
 ### Slice 2 — Agent output rendering (#291)
 
-- [ ] Assistant replies render as markdown (`react-markdown`, agent bubble
-      only, dependency locked in `package.json`); user bubbles stay plain
-      text.
-- [ ] Tool-call trajectory rows link to what they touched: created/updated/
-      completed task rows → `/tasks/:id`, project rows → `/projects/:id`
-      (ids from the persisted arguments/results, same parsing as undo).
-      Trashed rows don't link to a 404 — they point at `/trash` or drop the
-      link once undone/deleted.
-- [ ] Resolve the reply-text linkification open decision; record it here.
-- [ ] Vitest for the mapping; `verifier-browser` pass over a real
-      conversation for the rendered surface.
+- [x] Assistant replies render as markdown (`react-markdown@10`, agent
+      bubble only, dependency locked in `package.json`); user bubbles stay
+      plain text. Links open in a new tab; styles scoped under
+      `.agent-message--assistant .agent-bubble`.
+- [x] Tool-call trajectory rows link to what they touched via pure
+      `linkFor()` (same defensive id parsing as undo): task mutations →
+      `/tasks/:id`, project mutations → `/projects/:id`, trash rows →
+      `/trash`; undone rows re-route (undone create → `/trash`, undone
+      trash → detail page); failed calls never link.
+- [x] Resolve the reply-text linkification open decision; recorded above
+      (resolved: no — trajectory links suffice).
+- [x] Vitest for the mapping (linkFor suite + MessageBubble/ToolCallList
+      component tests); `verifier-browser` pass over a real conversation
+      for the rendered surface.
 
 ### Slice 3 — Spider mascot for the agent (#289)
 
