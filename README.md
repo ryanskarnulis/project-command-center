@@ -109,6 +109,8 @@ dependencies, Focus, search, trash, dashboard, docker + litestream deploy.
 - `CURRENT.md` — the checked-out focus
 - `TODO.md` — the backlog, including the Phase 2 agent plan
 - `DONE.md` — changelog
+- [`docs/agent-design.md`](docs/agent-design.md) — Phase 2 agent design (PCC
+  MCP server: tool surface, guardrails, transport)
 
 Next up:
 
