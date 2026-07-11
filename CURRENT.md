@@ -59,14 +59,15 @@ Open decision (slice 2 resolves it — don't pre-commit):
 
 ### Slice 1 — MCP follow-up tools (dependencies + recurrence)
 
-- [ ] Tools per `docs/agent-design.md`: add/remove task dependency,
+- [x] Tools per `docs/agent-design.md`: add/remove task dependency,
       skip/stop recurrence — same guardrails as the first pass (service layer
       only, validation at the boundary, `activity_events` stamped
-      `agent:mcp`).
-- [ ] Happy-path pytest per tool (monkeypatch `runtime.session_factory`, per
-      the established pattern) + end-to-end sanity from Claude Code.
-- [ ] Doc pass: `docs/agent-design.md` tool table, `README.md` if the tool
-      list is enumerated there.
+      `agent:mcp`). Bonus: dependency add/remove now writes audit events from
+      *every* caller (UI included) — a pre-existing gap. (#34)
+- [x] Happy-path pytest per tool (monkeypatch `runtime.session_factory`, per
+      the established pattern) + end-to-end verification over real stdio with
+      the MCP client SDK.
+- [x] Doc pass: `docs/agent-design.md` tool table, `README.md` tool list.
 
 ### Slice 2 — Shared runtime decision + stand-up
 
