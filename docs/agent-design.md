@@ -173,11 +173,15 @@ UD-Q4_K_XL, proven native tool calling):
 **Agreed server flags** live in `../llama-swap/config.yaml` — that file is the
 single owner; neither app repo carries flags anymore. The tuned chess set
 (full GPU offload, MTP speculative decoding, `--jinja` tool calling) plus one
-change negotiated for PCC's agent loop: **`-c 16384` with `q8_0` KV cache**
-(chess ran 8k/f16). Measured on the 3060: 7.9 GB VRAM (down from 10.2 GB —
-the KV quant more than pays for the doubled context), MTP intact (~112 tok/s,
-119/124 draft acceptance on a tool call). Sampling flags are server defaults
-only; the provider sets its own per request.
+change negotiated for PCC's agent loop: **`-c 131072` with `q8_0` KV cache**
+(chess ran 8k/f16) — the model's full 128k window, affordable because gemma's
+sliding-window attention keeps the KV small. Measured on the 3060
+(2026-07-10): 9.5 GB loaded, 10.5 GB total-GPU peak during a 125k-token
+needle test (retrieved correctly); MTP intact. The cost is depth-dependent
+speed only: ~112 tok/s generation shallow → ~41 tok/s at full depth, prefill
+~446–680 tok/s (a cold 125k prompt is ~5 min — the agent loop grows context
+incrementally, so this is a worst-case bound, not a typical call). Sampling
+flags are server defaults only; the provider sets its own per request.
 
 Operational notes for slice 3: the proxy binds `127.0.0.1:8200` *and*
 `172.17.0.1:8200` (docker0) — consumer containers reach it via
