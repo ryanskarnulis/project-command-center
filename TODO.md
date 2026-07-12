@@ -10,13 +10,15 @@ which lives in `CURRENT.md`. Completed work is archived in `DONE.md`.
 
 ## Current focus
 
-**No active checkout.** The Phase 2 agent epics are done and archived in
-`DONE.md`: runtime + provider (#36–#38), agent loop / persistence / chat
-panel / eval harness (#41–#44), and Agent UX polish + ambient entry
-(#47–#50, follow-ons #51–#52). `CURRENT.md` records the completed state,
-standing decisions, and next-checkout candidates — notably the shared
-voice + personality companion layer, now planned workspace-wide in
-`../AGENTS-MASTER-PLAN.md`.
+**Checked out 2026-07-12 (see `CURRENT.md`):** task due-date reminders,
+export tasks to markdown, and the Tasks-page decision — the three Backlog
+items below. The Phase 2 agent epics are done and archived in `DONE.md`:
+runtime + provider (#36–#38), agent loop / persistence / chat panel / eval
+harness (#41–#44), Agent UX polish + ambient entry (#47–#50, follow-ons
+#51–#52), and the fleet agent-standard alignment (#54–#56). Personality
+shipped with that alignment (#55, layered Glitch); only voice (#287) remains
+deferred toward the workspace companion layer, planned in
+`../agent-standard/AGENTS-MASTER-PLAN.md`.
 
 ---
 
@@ -101,7 +103,8 @@ the items below are scope, not order.
 
 ## Backlog
 
-*(Non-agent feature work — unprioritized.)*
+*(Non-agent feature work — all three items checked out 2026-07-12, see
+`CURRENT.md`.)*
 
 - [ ] **Decide the fate of the Tasks page.** The sidebar is gone (2026-07-10);
       Focus/Tasks/Trash live in the topbar. Usage so far is board + Focus only.

@@ -1,15 +1,15 @@
 # Project Command Center
 
 A local-first project and task management web app: projects, tasks (subtasks,
-dependencies, recurrence), Focus, search, trash, dashboard. A local agent
-(llama.cpp + tools + MCP + retrieval) that operates the app through its service
-layer is the next major direction (`TODO.md`, "Phase 2 — local agent").
+dependencies, recurrence), Focus, search, trash, dashboard — plus a local
+agent (llama.cpp + tools + MCP + retrieval) that operates the app through its
+service layer.
 
 ## Core principle
 
 **The app owns the logic. The service layer is the only write path.**
 
-The UI, the API, and the future agent are all peers that mutate state through
+The UI, the API, and the agent are all peers that mutate state through
 the same service layer — validation, soft deletes, activity events, and rollups
 apply identically no matter who is calling. An agent tool that bypasses the
 service layer is the same bug as a route handler that writes raw SQL.
@@ -69,7 +69,7 @@ Key decisions:
   `activity_events` is an append-only log with no `deleted_at`. Its nullable
   `actor` column attributes each event: `NULL` is the user; agents stamp an
   identifier (the MCP server writes `agent:mcp`, the in-app agent loop
-  `agent:loop`).
+  `agent:loop`, a conductor-delegated run `agent:conductor`).
 - Task progress lives in `workflow_status` (`open | in_progress | done`). The
   AI-era `review_status`/`confidence`/`assignee_hint` columns are dropped;
   every task is user-facing and always filed in a project (no project on
@@ -185,27 +185,21 @@ cd backend && PCC_LLM_INTEGRATION=1 .venv/bin/pytest tests/test_ai_llamacpp_inte
 cd backend && PCC_AGENT_EVALS=1 .venv/bin/pytest tests/test_agent_evals.py -v -s
 ```
 
-The agent loop that consumes it is the next checkout; design and runtime
-decisions: [`docs/agent-design.md`](docs/agent-design.md).
-
 ## Status & roadmap
 
 The core is complete and stable: tasks/projects, recurrence, subtasks +
 dependencies, Focus, search, trash, dashboard, docker + litestream deploy.
 
+Phase 2 (the local agent) is shipped end-to-end: MCP server, shared
+llama.cpp runtime + provider layer, agent loop, chat panel, eval harness,
+and the fleet agent-standard alignment (layered personality, `app.yaml`
+agent block, delegate attribution). What's next lives in the planning files:
+
 - `CURRENT.md` — the checked-out focus
-- `TODO.md` — the backlog, including the Phase 2 agent plan
+- `TODO.md` — the backlog
 - `DONE.md` — changelog
-- [`docs/agent-design.md`](docs/agent-design.md) — Phase 2 agent design (PCC
-  MCP server: tool surface, guardrails, transport)
-
-Next up:
-
-```
-Phase 2: local agent — agent loop, chat UI, eval harness, FTS5-first
-         retrieval (the PCC MCP server and the llama.cpp runtime +
-         provider layer are shipped, above)
-```
+- [`docs/agent-design.md`](docs/agent-design.md) — the agent design record
+  (tool surface, guardrails, runtime, loop, personality, evals)
 
 ## Do not build yet
 
@@ -274,7 +268,8 @@ Single-user, trusted-LAN app. `API_HOST` and `DEV_HOST` default to `127.0.0.1`;
 setting `API_HOST=0.0.0.0` is intentional and supported:
 
 - Normal project/task/trash routes are open to LAN reads and writes.
-- The rate-limit module is retained in code for future agent endpoints, but
-  there are no rate-limited routes right now.
+- The agent messages endpoint (`POST /api/agent/conversations/{id}/messages`)
+  is rate-limited per client IP (`AGENT_MESSAGES_PER_MIN`, default 10); the
+  other routes are unlimited on the trusted LAN.
 
 This is not multi-user auth; revisit real auth before exposing beyond a home LAN.

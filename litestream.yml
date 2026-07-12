@@ -15,7 +15,7 @@
 # S3-compatible block below (no cloud dependency is pulled in by default).
 #
 # Run:  litestream replicate -config /etc/litestream.yml   (the compose sidecar
-#       does this). Restore procedure is in the README backups section.
+#       does this). Restore procedure is in docs/backups.md.
 
 dbs:
   - path: /data/app.db
