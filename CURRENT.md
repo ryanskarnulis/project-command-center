@@ -32,10 +32,10 @@ for `honest_about_missing`, which the recorded baseline shows over-searching
 Standing decisions carried forward:
 
 - **Personality (#290) shipped** 2026-07-11 via the agent-standard layering
-  (#55) — global Glitch vendored, no app flavor. **Only voice (#287) remains
-  deferred** toward the workspace-level companion layer; it sits in
-  `../agent-standard/AGENTS-MASTER-PLAN.md` §10 as a placeholder, not a
-  commitment.
+  (#55) — global Glitch vendored, no app flavor. **Voice (#287) shipped** 2026-07-12 via the fleet voice standard
+  (`../agent-standard/voice.md`, VOICE-PLAN Phase 3, PRs #58–#60): backend
+  SpeechClient + /api/voice, vendored chess voice modules in the chat panel
+  (push-to-talk + hands-free), and voice entry on the ambient search bar.
 - **Non-streaming v1 stands** — SSE only if the inline entry makes the
   synchronous wait feel bad (decision recorded in the loop epic).
 - **llama-swap phase 3** (retiring host Ollama) — separate chore once the

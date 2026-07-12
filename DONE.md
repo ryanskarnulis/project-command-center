@@ -1680,3 +1680,26 @@ shipped slices:
       identity. Tests cover conductor attribution, the fallback, and the
       404-on-missing/soft-deleted-thread semantics conductor's
       recreate-and-retry-once depends on (#56)
+
+## Voice (VOICE-PLAN Phase 3, 2026-07-12)
+> A spoken "add a task to buy milk tomorrow" lands as a real task from the chat panel or the ambient search bar, reply spoken back. Closes long-deferred #287 via `../agent-standard/voice.md`.
+
+- [x] Voice backend: `app/ai/speech.py` `SpeechClient` per the fleet voice
+      standard (OpenAI audio wire over plain httpx, Pydantic-validated,
+      typed errors, PCC task/project/date STT vocabulary prompt) +
+      `/api/voice/transcribe` & `/api/voice/speak` proxies to the shared
+      `../speech/` service, rate-limited per IP like the agent surface
+      (`VOICE_REQUESTS_PER_MIN`); 20 boundary tests on `httpx.MockTransport`
+      fakes (#58)
+- [x] Voice in the agent chat panel: chess-canonical frontend modules
+      vendored verbatim (`src/voice/{vad,wav,tts,MicButton}`, drift checked
+      by `agent-standard/check-sync.sh`) with a PCC-owned `src/voice/api.ts`
+      adapter; push-to-talk + hands-free half-duplex conversation mode;
+      voice in → voice out, typed in → silent; localStorage voice-output
+      toggle; local-first VAD assets (`scripts/copy-vad-assets.mjs`) and a
+      Vite dev proxy for `/api`. Browser-verified end-to-end: spoken phrase
+      → transcribe → agent → real task + spoken reply (#59)
+- [x] Voice entry on the ambient search bar: vendored MicButton in
+      `.command-search`, transcript down the same inline-ask path as typed
+      text, voice-initiated asks spoken, typed Enter silent; eval harness
+      re-run green (6/6 twice — voice adds no prompt-visible change) (#60)

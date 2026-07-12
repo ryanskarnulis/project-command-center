@@ -16,9 +16,8 @@ items below. The Phase 2 agent epics are done and archived in `DONE.md`:
 runtime + provider (#36–#38), agent loop / persistence / chat panel / eval
 harness (#41–#44), Agent UX polish + ambient entry (#47–#50, follow-ons
 #51–#52), and the fleet agent-standard alignment (#54–#56). Personality
-shipped with that alignment (#55, layered Glitch); only voice (#287) remains
-deferred toward the workspace companion layer, planned in
-`../agent-standard/AGENTS-MASTER-PLAN.md`.
+shipped with that alignment (#55, layered Glitch); voice (#287) shipped 2026-07-12 via
+`../agent-standard/voice.md` (VOICE-PLAN Phase 3, PRs #58–#60).
 
 ---
 
