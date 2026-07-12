@@ -202,6 +202,114 @@ def test_provider_failure_is_502_and_keeps_the_user_message(
     assert detail["messages"][0]["content"] == "Anyone home?"
 
 
+def test_x_agent_actor_attributes_mutations_to_the_delegate(
+    client: TestClient, tool_db: sessionmaker[Session], db_session: Session
+) -> None:
+    """A recognized ``X-Agent-Actor`` binds the run's audit actor (conductor)."""
+    provider = ScriptedProvider(
+        [
+            tool_calls_turn(("create_task", {"data": {"title": "From conductor"}})),
+            text_turn("Done."),
+        ]
+    )
+    _use_loop(provider)
+
+    conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
+    response = client.post(
+        f"/api/agent/conversations/{conversation_id}/messages",
+        json={"content": "Create a task called From conductor"},
+        headers={"X-Agent-Actor": "agent:conductor"},
+    )
+    assert response.status_code == 200
+
+    task_events = (
+        db_session.execute(
+            select(ActivityEvent).where(ActivityEvent.entity_type == "task")
+        )
+        .scalars()
+        .all()
+    )
+    assert task_events and all(e.actor == "agent:conductor" for e in task_events)
+
+
+@pytest.mark.parametrize(
+    "headers", [{}, {"X-Agent-Actor": "agent:bogus"}], ids=["absent", "unrecognized"]
+)
+def test_actor_falls_back_to_loop_when_header_absent_or_unrecognized(
+    client: TestClient,
+    tool_db: sessionmaker[Session],
+    db_session: Session,
+    headers: dict[str, str],
+) -> None:
+    """Absent or unrecognized actor headers fall back to the loop's default
+    identity rather than erroring (contract: apps ignore unknown actors)."""
+    provider = ScriptedProvider(
+        [
+            tool_calls_turn(("create_task", {"data": {"title": "Default actor"}})),
+            text_turn("Done."),
+        ]
+    )
+    _use_loop(provider)
+
+    conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
+    response = client.post(
+        f"/api/agent/conversations/{conversation_id}/messages",
+        json={"content": "Create a task called Default actor"},
+        headers=headers,
+    )
+    assert response.status_code == 200
+
+    task_events = (
+        db_session.execute(
+            select(ActivityEvent).where(ActivityEvent.entity_type == "task")
+        )
+        .scalars()
+        .all()
+    )
+    assert task_events and all(e.actor == LOOP_ACTOR for e in task_events)
+
+
+def test_missing_and_soft_deleted_threads_404_across_endpoints(
+    client: TestClient,
+) -> None:
+    """Both a never-existed id and a soft-deleted thread 404 on GET,
+    POST-messages, and DELETE.
+
+    The contract rule the conductor relies on: it recreates the thread and
+    retries a message exactly once on 404, so a pruned/soft-deleted thread must
+    be indistinguishable from one that never existed — 404, not 200 or 410.
+    """
+    # Never existed.
+    missing_id = 999_999
+    assert client.get(f"/api/agent/conversations/{missing_id}").status_code == 404
+    assert (
+        client.post(
+            f"/api/agent/conversations/{missing_id}/messages",
+            json={"content": "hi"},
+        ).status_code
+        == 404
+    )
+    assert client.delete(f"/api/agent/conversations/{missing_id}").status_code == 404
+
+    # Soft-deleted: identical 404s, so conductor's retry recreates rather than
+    # resurrecting a trashed thread.
+    conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
+    assert (
+        client.delete(f"/api/agent/conversations/{conversation_id}").status_code == 204
+    )
+    assert client.get(f"/api/agent/conversations/{conversation_id}").status_code == 404
+    assert (
+        client.post(
+            f"/api/agent/conversations/{conversation_id}/messages",
+            json={"content": "hi"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.delete(f"/api/agent/conversations/{conversation_id}").status_code == 404
+    )
+
+
 def test_post_message_is_rate_limited(
     client: TestClient,
     tool_db: sessionmaker[Session],
