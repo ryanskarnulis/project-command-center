@@ -10,18 +10,17 @@ which lives in `CURRENT.md`. Completed work is archived in `DONE.md`.
 
 ## Current focus
 
-**Phase 2 — agent loop, conversation persistence, chat panel, eval harness**
-(checked out 2026-07-11, tracked in `CURRENT.md`). The runtime + provider
-epic is done (archived in `DONE.md`): one shared llama-swap server
-(`../llama-swap/`, port 8200) serves gemma-4-12b for chess and PCC, and PCC's
-provider (`app/ai/providers/llamacpp.py`) completes validated tool-call round
-trips against it. This checkout assembles the agent itself: backend loop over
-the provider + tool surface, persisted conversations, chat panel, eval
-harness.
+**No active checkout.** The Phase 2 agent epics are done and archived in
+`DONE.md`: runtime + provider (#36–#38), agent loop / persistence / chat
+panel / eval harness (#41–#44), and Agent UX polish + ambient entry
+(#47–#50, follow-ons #51–#52). `CURRENT.md` records the completed state,
+standing decisions, and next-checkout candidates — notably the shared
+voice + personality companion layer, now planned workspace-wide in
+`../AGENTS-MASTER-PLAN.md`.
 
 ---
 
-## Phase 2 — Local agent *(the north star; kickoff checked out 2026-07-10)*
+## Phase 2 — Local agent *(shipped 2026-07-10 → 2026-07-11; only the embeddings fallback remains open)*
 
 A full agent for the app: local llama.cpp runtime, tool calling, MCP, retrieval.
 The agent is a **peer of the UI, not a bypass** — every write goes through the
@@ -60,31 +59,43 @@ the items below are scope, not order.
 
 ### Agent loop
 
-- [ ] Backend agent loop (tool-runner over the provider layer): plan → call
-      tools → observe → respond; bounded iterations; every mutation logged.
-- [ ] Conversation/session persistence (new table(s) + migration).
+- [x] Backend agent loop (tool-runner over the provider layer) — shipped
+      2026-07-11 (#41): `app/ai/loop.py` over the transport-agnostic
+      registry (`app/tools/`, schemas byte-identical to the MCP
+      `inputSchema`s); bounded iterations + bounded self-correction on
+      schema-invalid calls; every mutation audited as `agent:loop`.
+- [x] Conversation/session persistence — shipped 2026-07-11 (#42):
+      `conversations` + `conversation_messages` (migration `7efad5645027`),
+      tool trajectory stored on the assistant turn, `/api/agent` REST
+      surface rate-limited via `agent_messages_per_min`.
 
 ### Retrieval / RAG
 
-- [ ] Start with **agentic retrieval over FTS5**: give the agent search tools
-      over tasks/projects/activity history and let it query. Local-first, no new
-      infra.
+- [x] Start with **agentic retrieval over FTS5** — shipped with the loop:
+      the `search` + `list_activity` tools are the retrieval story; the eval
+      baseline (#44) found the described task via FTS5 on every run.
 - [ ] Embeddings only if FTS proves insufficient: `sqlite-vec` inside the
       existing SQLite DB (no external vector store), embedding model served
       locally.
 
 ### UI
 
-- [ ] Chat panel feature (`features/agent/`): streaming responses, visible tool
-      calls ("agent created task X — undo"), session history.
-- [ ] Agent becomes the capture surface that inbox used to be (paste messy
-      text → agent proposes and creates tasks, with undo as the safety net
-      instead of a review queue).
+- [x] Chat panel feature (`features/agent/`) — shipped 2026-07-11 (#43):
+      visible tool trajectory with per-mutation undo, conversation sidebar;
+      non-streaming v1 by decision (SSE only if usage demands); markdown
+      replies + trajectory entity links landed in the UX epic (#48).
+- [x] Agent becomes the capture surface that inbox used to be — shipped
+      2026-07-11 (#50): ambient agent entry from the search bar (inline
+      exchange, "Continue in Agent" opens `/agent/:id`), undo as the safety
+      net; slash commands removed wholesale.
 
 ### Quality
 
-- [ ] Agent eval harness: scripted scenarios asserting tool-call trajectories
-      and end-state DB assertions (spiritual successor to the old eval suites).
+- [x] Agent eval harness — shipped 2026-07-11 (#44):
+      `tests/test_agent_evals.py` (opt-in `PCC_AGENT_EVALS=1`), six scenarios
+      asserting trajectory shape + DB end-state + audit invariants against
+      the real model; 24/24 baseline over 4 runs recorded in
+      `docs/agent-design.md`.
 
 ---
 
