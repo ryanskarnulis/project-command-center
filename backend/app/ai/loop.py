@@ -45,6 +45,24 @@ logger = structlog.get_logger(__name__)
 # the user, "agent:mcp" an external MCP client, this the in-app loop.
 LOOP_ACTOR = "agent:loop"
 
+# Actors a trusted delegate caller may bind via the ``X-Agent-Actor`` header
+# in place of ``LOOP_ACTOR`` (agent-standard/delegate-api.md). Unrecognized
+# values fall back to the default rather than erroring, so a caller can never
+# stamp an arbitrary identity into the audit trail.
+DELEGATE_ACTORS = frozenset({"agent:conductor"})
+
+
+def resolve_actor(header_value: str | None) -> str:
+    """The audit actor for a run given an ``X-Agent-Actor`` header, if any.
+
+    Returns the header value only when it names a recognized delegate actor
+    (``agent:conductor``); an absent or unrecognized header falls back to the
+    default :data:`LOOP_ACTOR`.
+    """
+    if header_value is not None and header_value in DELEGATE_ACTORS:
+        return header_value
+    return LOOP_ACTOR
+
 # The system prompt is composed in layers (agent-standard/STANDARD.md §5):
 #   1. app base prompt — PCC's behavioral contract and tool guidance (below);
 #   2. global Glitch — the vendored house personality (verbatim canonical
@@ -161,21 +179,30 @@ class AgentLoop:
         user_message: str,
         *,
         history: Sequence[dict[str, Any]] | None = None,
+        actor: str = LOOP_ACTOR,
     ) -> AgentRunResult:
         """Run the loop for one user message. Always returns; never spins.
 
         Binds a request ID for the whole run unless the caller (e.g. the HTTP
         middleware, come slice 2) already bound one — every tool call and
         provider log line of the run then carries the same ID.
+
+        ``actor`` is stamped into ``activity_events`` for every mutation the
+        run makes: the default in-app loop identity, or a delegate actor (e.g.
+        ``agent:conductor``) resolved from the request's ``X-Agent-Actor``
+        header by :func:`resolve_actor`.
         """
         bindings: dict[str, str] = {}
         if "request_id" not in structlog.contextvars.get_contextvars():
             bindings["request_id"] = uuid.uuid4().hex[:8]
         with structlog.contextvars.bound_contextvars(**bindings):
-            return self._run(user_message, history)
+            return self._run(user_message, history, actor)
 
     def _run(
-        self, user_message: str, history: Sequence[dict[str, Any]] | None
+        self,
+        user_message: str,
+        history: Sequence[dict[str, Any]] | None,
+        actor: str,
     ) -> AgentRunResult:
         specs = registry.tool_specs()
         messages: list[dict[str, Any]] = [
@@ -226,7 +253,7 @@ class AgentLoop:
             messages.append(result.to_message())
             schema_error_this_turn = False
             for call in result.tool_calls:
-                record, feedback, schema_error = self._dispatch(call)
+                record, feedback, schema_error = self._dispatch(call, actor)
                 records.append(record)
                 messages.append(tool_result_message(call.id, feedback))
                 schema_error_this_turn = schema_error_this_turn or schema_error
@@ -236,8 +263,8 @@ class AgentLoop:
                     return self._finish("correction_limit", None, records, iteration, messages)
         return self._finish("max_iterations", None, records, iterations, messages)
 
-    def _dispatch(self, call: ToolCall) -> tuple[ToolCallRecord, str, bool]:
-        """Run one tool call.
+    def _dispatch(self, call: ToolCall, actor: str) -> tuple[ToolCallRecord, str, bool]:
+        """Run one tool call as ``actor``.
 
         Returns the record, the feedback text for the model's ``role: tool``
         message, and whether the failure was schema-level (counts against the
@@ -247,7 +274,7 @@ class AgentLoop:
         record = ToolCallRecord(tool=call.name, arguments=call.arguments)
         schema_error = False
         try:
-            outcome = registry.call_tool(call.name, call.arguments, actor=LOOP_ACTOR)
+            outcome = registry.call_tool(call.name, call.arguments, actor=actor)
         except UnknownToolError as exc:
             record.error = str(exc)
             schema_error = True

@@ -12,10 +12,10 @@ from __future__ import annotations
 from collections.abc import Generator, Sequence
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.ai.loop import AgentLoop
+from app.ai.loop import AgentLoop, resolve_actor
 from app.ai.providers.llamacpp import ProviderError, provider_from_settings
 from app.api.rate_limit import rate_limit
 from app.db.models import Conversation
@@ -109,14 +109,20 @@ def post_message(
     data: MessageCreate,
     db: Session = Depends(get_db),
     loop: AgentLoop = Depends(get_agent_loop),
+    x_agent_actor: str | None = Header(default=None),
 ) -> MessageExchange:
     """Store the user turn, run the loop, store and return the assistant turn.
 
     The user message is committed *before* the loop runs: the loop's tool
     calls open their own sessions (write lock contention otherwise), and a
     provider failure — surfaced as 502 — must not swallow what the user said.
+
+    ``X-Agent-Actor`` lets a trusted delegate caller (conductor) attribute the
+    run's mutations to itself in the audit trail; an absent or unrecognized
+    value falls back to the loop's default identity (see ``resolve_actor``).
     """
     conversation = _get_or_404(db, conversation_id)
+    actor = resolve_actor(x_agent_actor)
     history = conversations_service.history_for_loop(db, conversation.id)
     user_message = conversations_service.append_user_message(
         db, conversation, data.content
@@ -124,7 +130,7 @@ def post_message(
     db.commit()
 
     try:
-        run = loop.run(data.content, history=history)
+        run = loop.run(data.content, history=history, actor=actor)
     except ProviderError as exc:
         logger.error(
             "agent_run_failed", conversation_id=conversation_id, error=str(exc)
