@@ -15,6 +15,10 @@ dependencies = [
     # httpx. Already pinned in requirements.lock (mcp depends on it) — this
     # declares the direct runtime use, it does not add a package.
     "httpx>=0.28.1",
+    # Voice endpoints take multipart uploads (fastapi UploadFile). Already
+    # pinned in requirements.lock — this declares the direct runtime use,
+    # it does not add a package.
+    "python-multipart>=0.0.32",
 ]
 
 [project.optional-dependencies]
