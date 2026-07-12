@@ -796,7 +796,8 @@ Revamp follow-up fixes (from review of the Sprint 7 revamp):
 > **Round closed 2026-07-01**: all confirmed bugs, hardening follow-ups, and
 > boundaries/tests/docs items are done (gate now 325 backend + 228 frontend tests, with
 > `mypy --strict` covering `tests/` too). The Performance section and the improvement-ideas
-> notes were left in `TODO.md` by design — see the "Deferred hardening notes" section there.
+> notes were left in `TODO.md` by design — see the "Deferred hardening notes" section there
+> *(section later removed in the #6 pivot)*.
 > _Severity: (high) user-facing breakage · (med) bug or confusing state · (low) polish/docs._
 
 ### Confirmed bugs (reproduced — fixed)
@@ -1649,3 +1650,33 @@ shipped slices:
       dead on a real mobile viewport; prod tasks #289/#291/#292/#293 done
       (verified against the prod instance 2026-07-11); `./test.sh`/CI green
       throughout
+
+---
+
+## Fleet agent-standard alignment (2026-07-11)
+> Phase 1 of the workspace agents master plan
+> (`../agent-standard/AGENTS-MASTER-PLAN.md`) — PCC is the standard's
+> reference implementation, so alignment was the smallest delta in the fleet:
+> discovery, layered personality, and delegate attribution.
+
+- [x] `agent:` block in `app.yaml` (description, `api: /api/agent`, six
+      examples) per `../agent-standard/app-yaml-agent-block.md`, so conductor
+      discovers PCC's agent and builds its delegate tool without any
+      conductor code change (#54)
+- [x] Layered personality: the loop's single hardcoded system prompt became
+      the standard's layered composition (`STANDARD.md` §5) — app base
+      prompt → global Glitch, vendored verbatim at
+      `backend/app/ai/personality-global.md` (canonical in `agent-standard/`,
+      drift checked by `check-sync.sh`) → per-run date injection; no
+      app-flavor layer, nothing has earned one. Layer order/presence
+      unit-tested; eval harness re-run green under the layered prompt
+      (2 consecutive suites, 12/12) — Glitch's brevity did not degrade tool
+      honesty (#55)
+- [x] `X-Agent-Actor` delegate attribution on `POST …/messages`:
+      `resolve_actor` (`app/ai/loop.py`) stamps a recognized delegate actor
+      (`agent:conductor`) into `activity_events`; absent or unrecognized
+      values fall back to `agent:loop` per the contract's
+      ignore-unknown-actors rule, so a caller can't stamp an arbitrary
+      identity. Tests cover conductor attribution, the fallback, and the
+      404-on-missing/soft-deleted-thread semantics conductor's
+      recreate-and-retry-once depends on (#56)

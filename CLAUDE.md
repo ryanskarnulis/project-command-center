@@ -7,9 +7,9 @@ acting.
 ## What this project is
 
 A local-first project and task management web app — a simple, boring, reliable
-core (projects, tasks, Focus, search, trash, dashboard) that a local agent
-(llama.cpp + tools + MCP + retrieval) will be built on top of. See `README.md`
-for the architecture; `TODO.md` for the backlog (including the Phase 2 agent plan); `CURRENT.md` for
+core (projects, tasks, Focus, search, trash, dashboard) with a local agent
+(llama.cpp + tools + MCP + retrieval) built on top of it. See `README.md`
+for the architecture; `TODO.md` for the backlog; `CURRENT.md` for
 the checked-out focus; `DONE.md` for the changelog. This file is rules of
 engagement, not the plan.
 
@@ -42,16 +42,21 @@ pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
   `gh pr merge --squash`. Never merge with failing or pending checks.
 - CI (`.github/workflows/ci.yml`) mirrors `./test.sh`: backend pytest, ruff,
   and mypy; frontend Vitest, lint, and build. Run `./test.sh` before pushing.
+- **Eval gate:** before merging any prompt, model, or loop change, run the
+  opt-in agent eval harness
+  (`cd backend && PCC_AGENT_EVALS=1 .venv/bin/pytest tests/test_agent_evals.py -v -s`);
+  the recorded baseline in `docs/agent-design.md` must not regress. Default
+  `pytest` skips it — the evals hit the real model.
 
 ## Prime directives
 
 1. **The service layer is the only write path.** UI routes, API clients, and
-   the future agent's tools are all peers: every mutation goes through
+   the agent's tools are all peers: every mutation goes through
    `services/`, gets validated, respects soft deletes, and lands in
    `activity_events`. Never let anything — route handler, agent tool, script —
    write around it.
 
-2. **The agent (Phase 2) inherits rule 1**: it acts exclusively through tools
+2. **The agent inherits rule 1**: it acts exclusively through tools
    backed by the service layer, every action auditable in `activity_events`
    and undoable via the trash. No hard deletes from the agent, ever. Model
    outputs are validated with Pydantic at the boundary — no best-effort
@@ -104,7 +109,7 @@ pointer-drag interactions that jsdom/Vitest can't exercise — verify with the
 
 - Default bind is `127.0.0.1`, but **LAN exposure via `API_HOST=0.0.0.0` is an
   intentional, supported mode** (single-user trusted LAN). Keep the rate-limit
-  module; agent endpoints will need it.
+  module; the agent messages endpoint depends on it.
 
 ## Dependencies
 

@@ -1,10 +1,11 @@
-# Agent design — PCC MCP server (Phase 2)
+# Agent design (Phase 2)
 
-Design for the first Phase 2 building block: an MCP server that exposes the
-service layer as tools, making any MCP client (Claude Code first, the in-app
-llama.cpp agent later) a full peer of the UI. This doc scopes slice 3 of the
-Phase 2 kickoff epic (`CURRENT.md`); the llama.cpp runtime, agent loop, chat
-UI, and RAG are explicitly deferred (see the end).
+The living design record of the shipped Phase 2 agent stack: the MCP server,
+the shared llama.cpp runtime, the provider layer, the tool registry + agent
+loop, the layered personality, conversation persistence + the agent REST API,
+the chat panel, delegate attribution, and the eval harness with its recorded
+baseline. Sections carry their decision/landed dates; what remains gated
+lives under "Explicitly deferred" at the end.
 
 The one-sentence architecture: **the MCP server is a third consumer of
 `app/services/` — same write path as the UI routes, same validation, same soft
@@ -113,15 +114,15 @@ included.
 in WAL mode handles the FastAPI process and the MCP server process writing
 concurrently; writes are short transactions, same as today.
 
-Claude Code connects via a project-scoped `.mcp.json` at the repo root:
+Claude Code connects via the project-scoped [`.mcp.json`](../.mcp.json) at
+the repo root:
 
 ```json
 {
   "mcpServers": {
     "pcc": {
-      "command": "backend/.venv/bin/python",
-      "args": ["-m", "app.mcp.server"],
-      "cwd": "backend"
+      "command": "bash",
+      "args": ["-c", "cd backend && exec .venv/bin/python -m app.mcp.server"]
     }
   }
 }
@@ -309,6 +310,21 @@ Verified end-to-end on the live runtime (2026-07-11): a three-step ask
 (create project → create high-priority task → complete it) ran in ~9 s warm,
 including two genuine self-corrections the loop fed back and the model fixed;
 the follow-up message answered from persisted history without tool calls.
+
+## Delegate attribution (landed 2026-07-11 — Phase 1 of the agents master plan)
+
+`POST /conversations/{id}/messages` accepts the `X-Agent-Actor` header per
+the workspace delegate contract (`../agent-standard/delegate-api.md`): a
+trusted delegate caller — conductor sends `X-Agent-Actor: agent:conductor`
+on every call — gets its runs' mutations stamped with its own identity in
+`activity_events`, so the audit trail distinguishes conductor-driven writes
+from PCC's own chat panel. `resolve_actor` (`app/ai/loop.py`) recognizes
+exactly the delegate-actor set (`agent:conductor` today); an absent or
+unrecognized value falls back to `agent:loop` — the contract's
+ignore-unknown-actors rule, so a caller can never stamp an arbitrary identity
+into the audit trail. Missing *and* soft-deleted conversations 404 across
+GET / POST-messages / DELETE — the semantics conductor's
+recreate-and-retry-once depends on. All covered in `tests/test_agent_api.py`.
 
 ## Chat panel (landed 2026-07-11 — slice 3 of the loop epic)
 
