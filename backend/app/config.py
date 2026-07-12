@@ -49,6 +49,23 @@ class Settings(BaseSettings):
     # llama-swap is ~100 s before the first byte; warm calls never get near it.
     llamacpp_timeout_seconds: float = 300.0
 
+    # Shared workspace speech service (../speech/: Speaches STT on 8400,
+    # Kokoro-FastAPI TTS on 8410). Env var names are the fleet voice
+    # contract's (../agent-standard/voice.md). Unset speech_base_url = voice
+    # off: /api/voice endpoints answer 503, everything else untouched.
+    speech_base_url: str | None = None
+    # TTS on its own server (the house-voice Kokoro container); unset means
+    # speech_base_url serves both STT and TTS.
+    tts_base_url: str | None = None
+    stt_model: str = "Systran/faster-whisper-small"
+    tts_model: str = "speaches-ai/Kokoro-82M-v1.0-ONNX"
+    tts_voice: str = "af_heart"
+
+    # Per-IP cap on the /voice endpoints, rate-limited like the agent surface.
+    # STT/TTS round-trips are cheap CPU work but proxy to a shared service;
+    # 30/min covers a lively hands-free conversation with headroom.
+    voice_requests_per_min: int = 30
+
     # Per-IP cap on POST /agent/conversations/{id}/messages — the one endpoint
     # that runs the model. A loop run takes seconds-to-minutes on the local
     # GPU, so 10/min is generous for a person and a brake on runaway clients.

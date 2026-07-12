@@ -167,6 +167,19 @@ endpoint — which stores the user turn, runs the loop synchronously, and
 returns the exchange with the full tool-call trajectory. It is rate-limited
 per client IP (`AGENT_MESSAGES_PER_MIN`, default 10).
 
+## Voice (STT/TTS)
+
+Voice rides the same agent pipeline: `app/ai/speech.py` speaks the OpenAI
+audio wire format over `httpx` to the shared workspace `../speech/` service
+per the fleet contract (`../agent-standard/voice.md`), and
+`app/api/routes_voice.py` proxies it — `POST /api/voice/transcribe` (audio →
+text, biased toward PCC's task/project vocabulary) and `POST /api/voice/speak`
+(text → mp3, the fleet house voice). Both are rate-limited per client IP
+(`VOICE_REQUESTS_PER_MIN`, default 30). Configure with `SPEECH_BASE_URL` /
+`TTS_BASE_URL` / `STT_MODEL` / `TTS_MODEL` / `TTS_VOICE` (defaults in
+`app/config.py`); leave `SPEECH_BASE_URL` unset to run voiceless — the voice
+endpoints answer 503 and nothing else changes.
+
 The chat panel (`frontend/src/features/agent/`, the **Agent** nav entry)
 drives that API: conversations in a sidebar, the thread with every tool call
 the agent made rendered on the assistant turn — failed calls included — and

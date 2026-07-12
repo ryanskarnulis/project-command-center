@@ -18,6 +18,7 @@ from app.api import (
     routes_task_dependencies,
     routes_tasks,
     routes_trash,
+    routes_voice,
 )
 from app.config import get_settings
 from app.logging_config import RequestIDMiddleware, configure_logging
@@ -33,6 +34,7 @@ api_router.include_router(routes_trash.router)
 api_router.include_router(routes_search.router)
 api_router.include_router(routes_focus.router)
 api_router.include_router(routes_agent.router)
+api_router.include_router(routes_voice.router)
 
 
 @asynccontextmanager
