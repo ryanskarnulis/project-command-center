@@ -1612,3 +1612,40 @@ shipped slices:
 - Decisions: registry `app/tools/`, loop `app/ai/loop.py`, actor
   `agent:loop`; trajectory persisted on the message; text-only model
   context; non-streaming v1 (SSE only if usage demands)
+
+---
+
+## Agent UX — polish + ambient entry (epic, 2026-07-11)
+> Made the shipped agent pleasant and reachable: markdown replies, entity
+> links in the tool trajectory, the spider mascot, and agent entry straight
+> from the command search bar. Decisions recorded at checkout: no reply-text
+> linkification (trajectory rows link from persisted ids); static mark +
+> working-state bob only; voice (#287) + personality (#290) deferred as a
+> pair toward a shared workspace companion layer.
+
+- [x] Slice 1 — mobile task-edit chip popovers no longer flash closed on
+      tap: scroll/resize re-anchor instead of dismissing, outside-press
+      moved to capture phase; jsdom tests for the tap/keyboard sequences +
+      verifier-browser pass on iPhone emulation (#47, prod task #293)
+- [x] Slice 2 — assistant replies render as markdown (`react-markdown@10`,
+      agent bubble only, dependency approved + locked); tool-trajectory rows
+      link to what they touched via pure `linkFor()` (undone rows re-route,
+      failed calls never link); reply-text linkification resolved: no —
+      trajectory links suffice (#48, prod task #291)
+- [x] Slice 3 — shared `SpiderMark` component replaces the stock Bot avatar
+      everywhere (brand, Agent nav, panel avatar, working indicator, empty
+      state); CSS-only working-state bob, reduced-motion guarded (#49, prod
+      task #289)
+- [x] Slice 4 — ambient agent entry: plain Enter / "Ask the agent" in the
+      command search posts to a fresh conversation and renders the exchange
+      inline (one rendering surface — the panel's components); "Continue in
+      Agent" opens `/agent/:id`; slash commands deleted wholesale (parser,
+      tests, hints, dead CSS) (#50, prod task #292)
+- [x] Follow-ons: parent-dropdown row overlap + mobile scroll-to-bottom fix
+      (#51); topbar brand got its own web mark so the spider reads as the
+      agent, not the app (#52)
+- [x] Epic DoD held: search bar → inline exchange → markdown reply +
+      trajectory links → same conversation on `/agent`; mobile pills bug
+      dead on a real mobile viewport; prod tasks #289/#291/#292/#293 done
+      (verified against the prod instance 2026-07-11); `./test.sh`/CI green
+      throughout
