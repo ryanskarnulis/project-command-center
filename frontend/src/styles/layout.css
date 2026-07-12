@@ -97,8 +97,10 @@
 }
 
 .command-search {
+  position: relative; /* anchors the mic's tucked-under error line */
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
+  /* icon | input | mic (absent in browsers without recording) | Cmd-K hint */
+  grid-template-columns: 20px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 12px;
   min-height: 54px;
@@ -115,6 +117,22 @@
   border: 0;
   background: transparent;
   padding: 0;
+}
+
+/* Vendored MicButton, compacted for the bar; its inline error tucks under
+   the bar instead of stretching the grid. */
+.command-search .mic-button {
+  padding: 6px 9px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+}
+
+.command-search .mic-error {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin: 4px 0 0;
+  max-width: 320px;
 }
 
 .icon-button {
