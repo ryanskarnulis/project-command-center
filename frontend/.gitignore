@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Hands-free VAD runtime assets, copied from node_modules (see scripts/copy-vad-assets.mjs)
+public/vad/
