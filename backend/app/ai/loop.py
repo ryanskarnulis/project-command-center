@@ -23,6 +23,7 @@ import json
 import uuid
 from collections.abc import Sequence
 from datetime import date
+from pathlib import Path
 from typing import Any, Literal, Protocol
 
 import structlog
@@ -44,9 +45,20 @@ logger = structlog.get_logger(__name__)
 # the user, "agent:mcp" an external MCP client, this the in-app loop.
 LOOP_ACTOR = "agent:loop"
 
-_SYSTEM_PROMPT = """\
-You are the Project Command Center (PCC) assistant. You manage the user's \
-projects and tasks by calling the provided tools.
+# The system prompt is composed in layers (agent-standard/STANDARD.md §5):
+#   1. app base prompt — PCC's behavioral contract and tool guidance (below);
+#   2. global Glitch — the vendored house personality (verbatim canonical
+#      text, see personality-global.md); PCC adds no app flavor on top;
+#   3. dynamic layers — today's date, injected per run.
+# The vendored Glitch body is never edited here: fix drift by re-copying from
+# agent-standard/ (../agent-standard/check-sync.sh).
+
+# Layer 1 — app base prompt (app-owned behavioral contract). Upholds the
+# standard's invariants: tools-only action, no invented results, deterministic
+# truth, clarify-on-ambiguity.
+_APP_BASE_PROMPT = """\
+You are the assistant for Project Command Center (PCC), the user's project and \
+task manager. You act only by calling the provided tools.
 
 Rules:
 - Look things up before writing: find ids with the list_*/get_*/search tools; never guess an id.
@@ -54,9 +66,39 @@ Rules:
 - Every delete is a soft delete into a restorable trash; there is no permanent delete.
 - If a tool call is rejected, read the error and correct your next call.
 - When the work is done (or turns out to be impossible), reply with plain text: a short \
-summary of what you did or found. State only what the tool results confirm.
+summary of what you did or found. State only what the tool results confirm — never invent \
+an id, a task, or an outcome the tools didn't return."""
 
-Today's date is {today}."""
+# Layer 2 — global Glitch, the vendored house personality (STANDARD.md §5).
+_PERSONALITY_PATH = Path(__file__).with_name("personality-global.md")
+
+
+def _load_global_personality() -> str:
+    """The vendored Glitch text, minus its one leading ``<!-- vendored -->`` line.
+
+    Read once at import from the copy shipped alongside this module (present in
+    the editable-installed source tree at runtime). The body is canonical and
+    must never be edited in place — re-vendor to change Glitch.
+    """
+    lines = _PERSONALITY_PATH.read_text(encoding="utf-8").splitlines()
+    body = [line for line in lines if not line.startswith("<!-- vendored")]
+    return "\n".join(body).strip()
+
+
+_GLOBAL_PERSONALITY = _load_global_personality()
+
+
+def build_system_prompt(today: date) -> str:
+    """Compose the layered system prompt: app base → global Glitch → date.
+
+    PCC ships no app-flavor layer (nothing has earned it); the date is the only
+    dynamic layer.
+    """
+    return (
+        f"{_APP_BASE_PROMPT}\n\n"
+        f"{_GLOBAL_PERSONALITY}\n\n"
+        f"Today's date is {today.isoformat()}."
+    )
 
 _StopReason = Literal["completed", "max_iterations", "correction_limit"]
 
@@ -139,7 +181,7 @@ class AgentLoop:
         messages: list[dict[str, Any]] = [
             {
                 "role": "system",
-                "content": _SYSTEM_PROMPT.format(today=date.today().isoformat()),
+                "content": build_system_prompt(date.today()),
             },
             *(history or []),
             {"role": "user", "content": user_message},

@@ -11,13 +11,15 @@ not here.
 from __future__ import annotations
 
 from collections.abc import Generator
+from datetime import date
 
 import pytest
 import structlog
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.ai.loop import LOOP_ACTOR, AgentLoop
+from app.ai import loop as loop_module
+from app.ai.loop import LOOP_ACTOR, AgentLoop, build_system_prompt
 from app.ai.providers.llamacpp import ToolCallArgumentsError
 from app.db.models import ActivityEvent, Task, TaskWorkflowStatus
 from app.mcp.server import mcp
@@ -207,6 +209,36 @@ def test_tool_session_reuses_a_bound_request_id(
         assert structlog.contextvars.get_contextvars()["request_id"] == "run-1"
     finally:
         structlog.contextvars.unbind_contextvars("request_id")
+
+
+def test_system_prompt_layers_compose_in_order() -> None:
+    """app base → global Glitch → date, in that order, all present."""
+    prompt = build_system_prompt(date(2026, 7, 11))
+
+    # Layer 1: the app behavioral contract.
+    assert "Project Command Center (PCC)" in prompt
+    assert "never guess an id" in prompt
+    assert "never invent" in prompt
+    # Layer 2: the vendored house personality.
+    assert "you are Glitch" in prompt
+    # Layer 3: the dynamic date injection.
+    assert "Today's date is 2026-07-11." in prompt
+
+    base_at = prompt.index("You act only by calling the provided tools.")
+    glitch_at = prompt.index("you are Glitch")
+    date_at = prompt.index("Today's date is 2026-07-11.")
+    assert base_at < glitch_at < date_at
+
+
+def test_global_personality_is_the_vendored_glitch_without_its_header() -> None:
+    """The vendored ``<!-- vendored -->`` line is stripped; the body survives."""
+    personality = loop_module._GLOBAL_PERSONALITY
+
+    assert not personality.startswith("<!--")
+    assert "<!-- vendored" not in personality
+    assert personality.startswith("Your personality: you are Glitch")
+    # The brevity/honesty contract that must not be lost when Glitch is layered in.
+    assert "The character never overrides the job" in personality
 
 
 def test_registry_and_mcp_expose_identical_tools() -> None:

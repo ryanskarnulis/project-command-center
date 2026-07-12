@@ -242,8 +242,8 @@ for the provider are byte-identical to the MCP `inputSchema`s — a parity test
 asserts it. `registry.call_tool(name, arguments, actor=…)` is the loop-facing
 dispatch: validate against the tool's argument model, stamp the actor, run.
 
-`app/ai/loop.py` is the in-app loop (`AgentLoop.run(user_message)`): system
-prompt with today's date, at most `max_iterations` (default 10) provider
+`app/ai/loop.py` is the in-app loop (`AgentLoop.run(user_message)`): a layered
+system prompt (see below), at most `max_iterations` (default 10) provider
 turns, terminate on a text turn. Self-correction is bounded separately
 (default 3): schema-level failures — unparseable tool-call arguments from the
 provider, argument-model rejections, unknown tool names — are fed back to the
@@ -254,6 +254,31 @@ are stamped **`agent:loop`** in `activity_events`; the loop binds one request
 ID per run (unless the caller already bound one) so every tool call and the
 provider's `llm_call_id`-tagged lines correlate. Tests drive the whole thing
 with a scripted provider (`tests/test_agent_loop.py`) — no GPU.
+
+## Layered personality (landed 2026-07-11 — Phase 1 of the agents master plan)
+
+The loop's system prompt is composed in layers per the workspace agent
+standard (`../agent-standard/STANDARD.md` §5), replacing the earlier single
+hardcoded prompt. `build_system_prompt(today)` in `app/ai/loop.py` concatenates:
+
+1. **App base prompt** (`_APP_BASE_PROMPT`, app-owned) — PCC's behavioral
+   contract and tool guidance: look things up before writing, prefer the
+   specific tool, soft-delete-only, self-correct on rejection, and state only
+   what the tools confirmed (never invent an id/task/outcome). These are the
+   old prompt's rules, minus the date line.
+2. **Global Glitch** — the house personality, vendored verbatim as
+   `app/ai/personality-global.md` (canonical in `agent-standard/`). The loader
+   strips the one leading `<!-- vendored … -->` header and never edits the
+   body; fix drift by re-copying (`../agent-standard/check-sync.sh`). PCC ships
+   **no app-flavor layer** — nothing has earned one.
+3. **Dynamic layer** — today's date, injected per run.
+
+The vendored `.md` ships in the image for free: the Dockerfile `COPY backend/`
++ editable install (`pip install -e .`) keeps the source tree in place, so the
+`Path(__file__)`-relative read resolves at runtime. Composition order and layer
+presence are unit-tested (`test_agent_loop.py`); the eval baseline below was
+re-run green under the layered prompt (Glitch's brevity did not degrade tool
+honesty).
 
 ## Conversation persistence + agent API (landed 2026-07-11 — slice 2 of the loop epic)
 
@@ -311,6 +336,11 @@ Each scenario seeds a fresh DB via the service layer and asserts trajectory
 *shape* (reads precede writes; read-only asks mutate nothing) plus DB
 end-state and audit invariants — never exact call sequences (the model is
 sampled at temp 1.0). `-s` prints per-run `[eval]` stats lines.
+
+Re-run green under the layered personality prompt (2026-07-11, 2 consecutive
+suites, 12/12 pass): trajectories unchanged in shape, `honest_about_missing`
+conceded in 2–3 iterations, and the recurring `create_task` self-correction
+still fixes itself — Glitch's brevity contract did not degrade tool honesty.
 
 **Baseline (gemma-4-12b UD-Q4_K_XL, 2026-07-11, 4 consecutive suite runs —
 24/24 pass, warm model):**
