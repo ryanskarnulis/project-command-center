@@ -57,7 +57,8 @@
 
 @media (max-width: 560px) {
   .command-search {
-    grid-template-columns: 20px minmax(0, 1fr);
+    /* Cmd-K hint hidden; the mic keeps its slot (phones are voice's home). */
+    grid-template-columns: 20px minmax(0, 1fr) auto;
   }
 
   .command-search kbd {

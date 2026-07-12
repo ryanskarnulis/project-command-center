@@ -14,8 +14,10 @@ export type InlineAskState =
 
 interface UseInlineAgentAsk {
   state: InlineAskState
-  /** Create a conversation and run one exchange. Resolves true on success. */
-  ask: (text: string) => Promise<boolean>
+  /** Create a conversation and run one exchange. Resolves to the assistant's
+   * reply text on success (possibly ''), or null on failure — voice entry
+   * uses the text to speak the reply. */
+  ask: (text: string) => Promise<string | null>
   /** Close the inline exchange (the conversation stays persisted server-side).
    * No-op while a run is in flight — the working state stays visible until
    * the run lands, matching the panel's disabled-while-running contract. */
@@ -31,16 +33,16 @@ interface UseInlineAgentAsk {
 export function useInlineAgentAsk(): UseInlineAgentAsk {
   const [state, setState] = useState<InlineAskState>({ phase: 'idle' })
 
-  const ask = useCallback(async (text: string): Promise<boolean> => {
+  const ask = useCallback(async (text: string): Promise<string | null> => {
     setState({ phase: 'pending', text })
     try {
       const conversation = await createConversation()
       const exchange = await postMessage(conversation.id, text)
       setState({ phase: 'done', conversationId: conversation.id, exchange })
-      return true
+      return exchange.assistant_message.content ?? ''
     } catch (e: unknown) {
       setState({ phase: 'error', text, message: sendErrorMessage(e) })
-      return false
+      return null
     }
   }, [])
 

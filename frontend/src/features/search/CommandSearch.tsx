@@ -6,6 +6,8 @@ import { Card } from '../../components/Card'
 import { AsyncState } from '../../components/AsyncState'
 import { SpiderMark } from '../../components/SpiderMark'
 import type { SearchKind, SearchResultItem } from '../../types/search'
+import { MicButton } from '../../voice/MicButton'
+import { playText } from '../../voice/tts'
 import { InlineAgentExchange } from './InlineAgentExchange'
 import { useInlineAgentAsk } from './useInlineAgentAsk'
 import { useSearch } from './useSearch'
@@ -112,9 +114,23 @@ export function CommandSearch() {
   // for a retry.
   const submitAsk = useCallback(async () => {
     if (trimmed === '' || asking) return
-    const ok = await ask(trimmed)
-    if (ok) setQuery('')
+    const reply = await ask(trimmed)
+    if (reply !== null) setQuery('')
   }, [trimmed, asking, ask])
+
+  // Voice entry on the ambient surface: the transcript goes down the exact
+  // same inline-ask path as typed text, and — fleet UX rule — only
+  // voice-initiated asks get the reply spoken (typed Enter stays silent).
+  // The same localStorage flag as the chat panel's toggle mutes playback.
+  const onVoiceTranscript = useCallback(
+    async (text: string) => {
+      const reply = await ask(text)
+      if (reply && localStorage.getItem('agent-voice-output') !== 'off') {
+        void playText(reply)
+      }
+    },
+    [ask],
+  )
 
   const dismissExchange = useCallback(() => dismiss(), [dismiss])
 
@@ -198,6 +214,7 @@ export function CommandSearch() {
           aria-controls="command-search-results"
           disabled={asking}
         />
+        <MicButton onTranscript={onVoiceTranscript} disabled={asking} />
         <kbd>Cmd K</kbd>
       </div>
 
