@@ -1,5 +1,10 @@
 import { apiClient } from './client'
-import type { EmptyTrashResult, Trash, TrashCountResult } from '../types/trash'
+import type {
+  EmptyTrashResult,
+  PurgeSelectedRequest,
+  Trash,
+  TrashCountResult,
+} from '../types/trash'
 
 // The /trash list paginates (server caps at 200). We fetch the max so the page
 // shows as much as possible; the unbounded /trash/count drives the true totals.
@@ -13,6 +18,18 @@ export async function getTrash(): Promise<Trash> {
 export async function getTrashCount(): Promise<TrashCountResult> {
   const res = await apiClient('/api/trash/count')
   return (await res.json()) as TrashCountResult
+}
+
+/** Permanently delete the selected trashed rows. Ids already gone are skipped. */
+export async function purgeSelected(
+  data: PurgeSelectedRequest,
+): Promise<EmptyTrashResult> {
+  const res = await apiClient('/api/trash/purge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  return (await res.json()) as EmptyTrashResult
 }
 
 export async function emptyTrash(): Promise<EmptyTrashResult> {

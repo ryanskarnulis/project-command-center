@@ -16,6 +16,11 @@ export interface EmptyTrashResult {
   tasks: number
 }
 
+export interface PurgeSelectedRequest {
+  project_ids: number[]
+  task_ids: number[]
+}
+
 export interface TrashCountResult {
   projects: number
   tasks: number

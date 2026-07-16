@@ -8,6 +8,7 @@ from app.db.session import get_db
 from app.schemas.trash import (
     EmptyTrashResult,
     ProjectTrashRead,
+    PurgeSelectedRequest,
     TrashCountResult,
     TrashRead,
 )
@@ -47,6 +48,36 @@ def get_trash_count(db: Session = Depends(get_db)) -> TrashCountResult:
     """Exact per-kind trash counts for the nav badge (unbounded by the list page)."""
     counts = trash_service.count_trash(db)
     return TrashCountResult(
+        projects=counts.projects,
+        tasks=counts.tasks,
+    )
+
+
+@router.post("/purge", response_model=EmptyTrashResult)
+def purge_selected(
+    payload: PurgeSelectedRequest,
+    db: Session = Depends(get_db),
+) -> EmptyTrashResult:
+    """Permanently delete the selected trashed rows, in one transaction.
+
+    Skips ids that aren't in trash instead of 404ing: for a bulk purge the end
+    state is what matters, and the caller's own cascade is the usual reason an id
+    is already gone. The single-item purge routes keep their 404.
+    """
+    counts = trash_service.purge_selected(
+        db,
+        project_ids=payload.project_ids,
+        task_ids=payload.task_ids,
+    )
+    db.commit()
+    logger.info(
+        "trash_purged_selected",
+        projects=counts.projects,
+        tasks=counts.tasks,
+        requested_projects=len(payload.project_ids),
+        requested_tasks=len(payload.task_ids),
+    )
+    return EmptyTrashResult(
         projects=counts.projects,
         tasks=counts.tasks,
     )

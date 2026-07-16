@@ -260,6 +260,101 @@ def test_empty_trash_clears_all_and_is_idempotent(
     assert client.get("/api/projects").json()  # General still present
 
 
+# --- Bulk purge of a selection (BUG-11) -------------------------------------
+
+
+def test_purge_selected_parent_and_child_together(
+    client: TestClient, db_session: Session
+) -> None:
+    """The regression: selecting a parent *and* its cascaded child must succeed.
+
+    Purging the parent takes the child's row with it, so by the child's turn it's
+    already gone. That's a success, not a failure — both were removed.
+    """
+    parent = client.post("/api/tasks", json={"title": "Parent"}).json()["id"]
+    child = client.post(
+        "/api/tasks", json={"title": "Child", "parent_task_id": parent}
+    ).json()["id"]
+    client.delete(f"/api/tasks/{parent}")  # cascade-soft-deletes the child too
+
+    # Trash lists newest-deleted first, and the cascade stamps the parent last,
+    # so the parent genuinely does come first in what the UI sends.
+    assert [t["id"] for t in client.get("/api/trash").json()["tasks"]] == [
+        parent,
+        child,
+    ]
+
+    result = client.post(
+        "/api/trash/purge", json={"project_ids": [], "task_ids": [parent, child]}
+    )
+    assert result.status_code == 200
+    assert result.json() == {"projects": 0, "tasks": 2}
+
+    assert db_session.get(Task, parent) is None
+    assert db_session.get(Task, child) is None
+    assert client.get("/api/trash").json()["tasks"] == []
+
+
+def test_purge_selected_skips_unknown_and_active_ids(client: TestClient) -> None:
+    trashed = client.post("/api/tasks", json={"title": "Trashed"}).json()["id"]
+    active_task = client.post("/api/tasks", json={"title": "Alive"}).json()["id"]
+    client.delete(f"/api/tasks/{trashed}")
+
+    # Ids that were never in trash aren't errors, but don't count as removed.
+    result = client.post(
+        "/api/trash/purge",
+        json={"project_ids": [], "task_ids": [trashed, active_task, 424242]},
+    )
+    assert result.status_code == 200
+    assert result.json() == {"projects": 0, "tasks": 1}
+    assert client.get(f"/api/tasks/{active_task}").status_code == 200  # untouched
+
+
+def test_purge_selected_empty_selection_is_a_noop(client: TestClient) -> None:
+    tid = client.post("/api/tasks", json={"title": "Survivor"}).json()["id"]
+    client.delete(f"/api/tasks/{tid}")
+
+    result = client.post(
+        "/api/trash/purge", json={"project_ids": [], "task_ids": []}
+    )
+    assert result.status_code == 200
+    assert result.json() == {"projects": 0, "tasks": 0}
+    # An empty selection must not be read as "everything".
+    assert [t["id"] for t in client.get("/api/trash").json()["tasks"]] == [tid]
+
+
+def test_purge_selected_spares_protected_project(
+    client: TestClient, db_session: Session
+) -> None:
+    client.post("/api/tasks", json={"title": "files into General"})
+    general = db_session.execute(
+        select(Project).where(Project.system_key == "general")
+    ).scalar_one()
+    soft_delete(general)
+    db_session.commit()
+
+    result = client.post(
+        "/api/trash/purge", json={"project_ids": [general.id], "task_ids": []}
+    )
+    assert result.status_code == 200
+    assert result.json()["projects"] == 0
+    assert db_session.get(Project, general.id) is not None  # untouched
+
+
+def test_purge_selected_removes_projects(
+    client: TestClient, db_session: Session
+) -> None:
+    pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
+    client.delete(f"/api/projects/{pid}")
+
+    result = client.post(
+        "/api/trash/purge", json={"project_ids": [pid], "task_ids": []}
+    )
+    assert result.status_code == 200
+    assert result.json()["projects"] == 1
+    assert db_session.get(Project, pid) is None
+
+
 # --- LAN clients may purge --------------------------------------------------
 #
 # Purge/empty-trash are the app's only irreversible deletes, but the trusted

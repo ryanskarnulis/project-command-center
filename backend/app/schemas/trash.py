@@ -34,8 +34,23 @@ class ProjectRestoreResult(BaseModel):
     restored_task_count: int
 
 
+class PurgeSelectedRequest(BaseModel):
+    """Which trashed rows ``POST /api/trash/purge`` should permanently remove.
+
+    Ids not in trash are skipped rather than rejected: purging a parent task takes
+    its subtree with it, so a child selected alongside its parent is legitimately
+    gone by the time the server reaches it (BUG-11).
+    """
+
+    project_ids: list[int] = []
+    task_ids: list[int] = []
+
+
 class EmptyTrashResult(BaseModel):
-    """Per-kind counts of rows permanently removed by ``DELETE /api/trash`` (9f)."""
+    """Per-kind counts of rows permanently removed by ``DELETE /api/trash`` (9f).
+
+    Also the response for ``POST /api/trash/purge`` — same shape, same meaning.
+    """
 
     projects: int
     tasks: int

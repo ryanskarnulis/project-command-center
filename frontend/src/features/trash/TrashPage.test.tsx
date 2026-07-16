@@ -4,7 +4,8 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects, purgeProject, restoreProject } from '../../api/projects'
 import { purgeTask, restoreTask } from '../../api/tasks'
-import { emptyTrash, getTrash } from '../../api/trash'
+import { emptyTrash, getTrash, purgeSelected } from '../../api/trash'
+import { ApiError } from '../../api/client'
 import type { Trash } from '../../types/trash'
 import { TrashPage } from './TrashPage'
 
@@ -13,7 +14,11 @@ const renderPage = () => render(<TrashPage />, { wrapper: MemoryRouter })
 // Relative to the test run's clock so formatRelative is deterministic ("3 days ago").
 const DELETED_AT = new Date(Date.now() - 3 * 86_400_000).toISOString()
 
-vi.mock('../../api/trash', () => ({ getTrash: vi.fn(), emptyTrash: vi.fn() }))
+vi.mock('../../api/trash', () => ({
+  getTrash: vi.fn(),
+  emptyTrash: vi.fn(),
+  purgeSelected: vi.fn(),
+}))
 vi.mock('../../api/projects', () => ({
   listProjects: vi.fn(),
   restoreProject: vi.fn(),
@@ -28,6 +33,7 @@ const mockListProjects = vi.mocked(listProjects)
 const mockRestoreTask = vi.mocked(restoreTask)
 const mockPurgeProject = vi.mocked(purgeProject)
 const mockPurgeTask = vi.mocked(purgeTask)
+const mockPurgeSelected = vi.mocked(purgeSelected)
 
 const trash: Trash = {
   projects: [
@@ -299,7 +305,7 @@ describe('TrashPage', () => {
 
   it('bulk-purges the checked items via Delete selected after confirm', async () => {
     const user = userEvent.setup()
-    mockPurgeTask.mockResolvedValue(undefined)
+    mockPurgeSelected.mockResolvedValue({ projects: 0, tasks: 1 })
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     renderPage()
@@ -310,11 +316,86 @@ describe('TrashPage', () => {
     await user.click(screen.getByRole('button', { name: 'Delete selected' }))
 
     expect(confirm).toHaveBeenCalled()
-    expect(mockPurgeTask).toHaveBeenCalledWith(5)
+    // One request for the whole selection, not one per id.
+    expect(mockPurgeSelected).toHaveBeenCalledTimes(1)
+    expect(mockPurgeSelected).toHaveBeenCalledWith({ project_ids: [], task_ids: [5] })
     expect(await screen.findByRole('status')).toHaveTextContent(
       /Permanently deleted 1 task./,
     )
     confirm.mockRestore()
+  })
+
+  it('reports honest success when a parent and its cascaded child are purged together', async () => {
+    // BUG-11: purging the parent takes the child's row with it. The old per-id
+    // loop 404'd on the child and cried failure over a purge that fully worked.
+    const user = userEvent.setup()
+    const parent = { ...trash.tasks[0], id: 5, title: 'Parent', has_subtasks: true }
+    const child = { ...trash.tasks[0], id: 6, title: 'Child', parent_task_id: 5 }
+    mockGetTrash.mockReset()
+    mockGetTrash
+      .mockResolvedValueOnce({ projects: [], tasks: [parent, child] })
+      .mockResolvedValue({ projects: [], tasks: [] })
+    mockPurgeSelected.mockResolvedValue({ projects: 0, tasks: 2 })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderPage()
+
+    await screen.findByText('Parent')
+    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
+    await user.click(screen.getByRole('checkbox', { name: 'Select all' }))
+    await user.click(screen.getByRole('button', { name: 'Delete selected' }))
+
+    expect(mockPurgeSelected).toHaveBeenCalledWith({
+      project_ids: [],
+      task_ids: [5, 6],
+    })
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /Permanently deleted 2 tasks./,
+    )
+    // The whole point: no error banner, and no "stopped at the first error".
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    confirm.mockRestore()
+  })
+
+  it('keeps bulk-restoring when an item is already gone from trash', async () => {
+    // Restoring a skipped occurrence can purge a subtask selected alongside it;
+    // its 404 means "already gone", not a failed batch.
+    const user = userEvent.setup()
+    const first = { ...trash.tasks[0], id: 5, title: 'Parent' }
+    const second = { ...trash.tasks[0], id: 6, title: 'Child' }
+    mockGetTrash.mockReset()
+    mockGetTrash
+      .mockResolvedValueOnce({ projects: [], tasks: [first, second] })
+      .mockResolvedValue({ projects: [], tasks: [] })
+    mockRestoreTask
+      .mockResolvedValueOnce(first)
+      .mockRejectedValueOnce(new ApiError(404, { detail: 'No deleted task with that id' }))
+
+    renderPage()
+
+    await screen.findByText('Parent')
+    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
+    await user.click(screen.getByRole('checkbox', { name: 'Select all' }))
+    await user.click(screen.getByRole('button', { name: 'Restore selected' }))
+
+    expect(mockRestoreTask).toHaveBeenCalledTimes(2)  // didn't stop at the 404
+    expect(await screen.findByRole('status')).toHaveTextContent(/Restored 1 task./)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('surfaces a real bulk-restore failure', async () => {
+    // The 404 tolerance must not swallow genuine errors.
+    const user = userEvent.setup()
+    mockRestoreTask.mockRejectedValue(new ApiError(500, { detail: 'boom' }))
+
+    renderPage()
+
+    await screen.findByText('Firewall')
+    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
+    await user.click(screen.getByRole('checkbox', { name: 'Select all' }))
+    await user.click(screen.getByRole('button', { name: 'Restore selected' }))
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
   })
 
   it('select-all checks every item in a section', async () => {
