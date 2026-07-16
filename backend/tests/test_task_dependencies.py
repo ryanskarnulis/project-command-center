@@ -281,3 +281,101 @@ def test_done_dependency_is_not_blocking(client: TestClient) -> None:
     dep = client.get(f"/api/tasks/{a}/dependencies").json()[0]
     assert dep["depends_on_done"] is True
     assert dep["depends_on_workflow_status"] == TaskWorkflowStatus.done.value
+
+
+# --- Checklist blockers: dependency checks resolve EFFECTIVE status ----------
+#
+# A checklist parent's status is derived from its children and never written
+# back, so its stored column stays "open" even once every child is done.
+
+
+def _child(db: Session, parent_id: int, title: str) -> int:
+    task = tasks_service.create_task(
+        db, project_id=None, title=title, parent_task_id=parent_id
+    )
+    db.commit()
+    return task.id
+
+
+def _done(db: Session, task_id: int) -> None:
+    task = tasks_service.get_task(db, task_id)
+    assert task is not None
+    tasks_service.mark_done(db, task)
+    db.commit()
+
+
+def test_fully_done_checklist_blocker_unblocks_dependent(db_session: Session) -> None:
+    parent = _task(db_session, "checklist")
+    child = _child(db_session, parent, "step")
+    dependent = _task(db_session, "downstream")
+    deps_service.add_dependency(db_session, dependent, parent)
+    db_session.commit()
+
+    assert deps_service.is_blocked(db_session, dependent) is True
+
+    _done(db_session, child)
+
+    # The parent's stored column is untouched; only the roll-up says done.
+    parent_task = tasks_service.get_task(db_session, parent)
+    assert parent_task is not None
+    assert parent_task.workflow_status == TaskWorkflowStatus.open
+
+    assert deps_service.is_blocked(db_session, dependent) is False
+    assert deps_service.blocked_task_ids(db_session, [dependent]) == set()
+    assert deps_service.top_level_blocker_counts(db_session, [parent]) == {}
+
+    # And completion goes through.
+    dependent_task = tasks_service.get_task(db_session, dependent)
+    assert dependent_task is not None
+    tasks_service.mark_done(db_session, dependent_task)
+    db_session.commit()
+    assert dependent_task.workflow_status == TaskWorkflowStatus.done
+
+
+def test_partial_checklist_blocker_still_blocks(db_session: Session) -> None:
+    parent = _task(db_session, "checklist")
+    first = _child(db_session, parent, "step 1")
+    _child(db_session, parent, "step 2")
+    dependent = _task(db_session, "downstream")
+    deps_service.add_dependency(db_session, dependent, parent)
+    db_session.commit()
+
+    _done(db_session, first)
+
+    assert deps_service.is_blocked(db_session, dependent) is True
+    assert deps_service.blocked_task_ids(db_session, [dependent]) == {dependent}
+    assert deps_service.top_level_blocker_counts(db_session, [parent]) == {parent: 1}
+
+
+def test_stored_done_blocker_reopened_by_new_child_blocks_again(
+    db_session: Session,
+) -> None:
+    blocker = _task(db_session, "was a leaf")
+    dependent = _task(db_session, "downstream")
+    deps_service.add_dependency(db_session, dependent, blocker)
+    db_session.commit()
+    _done(db_session, blocker)
+    assert deps_service.is_blocked(db_session, dependent) is False
+
+    # A new active child re-opens the blocker's effective status.
+    _child(db_session, blocker, "extra work")
+
+    assert deps_service.is_blocked(db_session, dependent) is True
+    assert deps_service.blocked_task_ids(db_session, [dependent]) == {dependent}
+
+
+def test_done_checklist_dependent_excluded_from_blocker_counts(
+    db_session: Session,
+) -> None:
+    blocker = _task(db_session, "root blocker")
+    parent = _task(db_session, "checklist dependent")
+    child = _child(db_session, parent, "step")
+    deps_service.add_dependency(db_session, parent, blocker)
+    db_session.commit()
+    assert deps_service.top_level_blocker_counts(db_session, [blocker]) == {blocker: 1}
+
+    # Once the dependent checklist is effectively done, it is no longer
+    # downstream work waiting on the blocker.
+    _done(db_session, child)
+
+    assert deps_service.top_level_blocker_counts(db_session, [blocker]) == {}
