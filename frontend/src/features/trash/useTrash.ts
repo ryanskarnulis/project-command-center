@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
+import { ApiError } from '../../api/client'
 import { listProjects, purgeProject, restoreProject } from '../../api/projects'
 import { purgeTask, restoreTask } from '../../api/tasks'
-import { emptyTrash, getTrash } from '../../api/trash'
+import { emptyTrash, getTrash, purgeSelected } from '../../api/trash'
 import type { Task } from '../../types/task'
 import type { Trash } from '../../types/trash'
 import { useTrashCount } from './trashCountContext'
@@ -177,6 +178,10 @@ export function useTrash(): UseTrash {
           }
           restored += 1
         } catch (e: unknown) {
+          // Already gone from trash — restoring a skipped occurrence can purge a
+          // subtask selected alongside it — so there's nothing left to fail at.
+          // Skip it rather than reporting the whole batch as broken (BUG-11).
+          if (e instanceof ApiError && e.status === 404) continue
           failed = true
           setError(e instanceof Error ? e.message : 'Failed to restore items')
           break
@@ -215,26 +220,25 @@ export function useTrash(): UseTrash {
     async (kind: TrashKind, ids: number[]) => {
       setError(null)
       setNotice(null)
-      let deleted = 0
-      let failed = false
-      for (const id of ids) {
-        try {
-          await PURGE[kind](id)
-          deleted += 1
-        } catch (e: unknown) {
-          failed = true
-          setError(e instanceof Error ? e.message : 'Failed to delete items')
-          break
+      // One server-side call, not a request per id: purging a parent task takes
+      // its subtree, so a child selected alongside its parent is already gone by
+      // the time its own turn comes. The server skips it and still counts it as
+      // removed, instead of the old loop 404ing and reporting a false failure on
+      // a purge that fully succeeded (BUG-11).
+      try {
+        const result = await purgeSelected({
+          project_ids: kind === 'projects' ? ids : [],
+          task_ids: kind === 'tasks' ? ids : [],
+        })
+        const deleted = result[kind]
+        if (deleted > 0) {
+          const noun = KIND_NOUN[kind]
+          setNotice(`Permanently deleted ${deleted} ${noun}${deleted === 1 ? '' : 's'}.`)
         }
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Failed to delete items')
       }
       reload()
-      if (deleted > 0) {
-        const noun = KIND_NOUN[kind]
-        setNotice(
-          `Permanently deleted ${deleted} ${noun}${deleted === 1 ? '' : 's'}.` +
-            (failed ? ' Stopped at the first error.' : ''),
-        )
-      }
     },
     [reload],
   )
