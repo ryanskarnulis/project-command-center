@@ -5,6 +5,13 @@ on:
   push:
     branches: [main]
 
+# Cancel superseded runs so a stale run can't finish late and fire a deploy
+# event for a commit that is no longer main. Deploy gates on the verified SHA
+# regardless; this just narrows the window.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 defaults:
   run:
     working-directory: backend
