@@ -113,6 +113,14 @@ the items below are scope, not order.
       project detail survived the Projects-page removal.
       *Decision 2026-07-10: keep as-is for now; re-evaluate once the Phase 2
       agent surfaces settle real usage.*
+- [ ] **Revisit `_find_occurrence_on`'s deleted-row guard.** It ignores
+      `deleted_at`, so a *normally trashed* occurrence still blocks its date from
+      respawning — the "a skipped occurrence still happened" rationale in its
+      docstring only really holds for a skip. Left alone with the BUG-04 fix
+      (2026-07-16) on purpose: it's the idempotency guard from `ec3cd8e`, and
+      narrowing it to skipped-only would let a re-completion respawn onto a date
+      the user deliberately trashed, then collide with that row if it's restored.
+      Revisit only if the blocked-date behavior actually bites.
 - [ ] Task due-date reminders
 - [ ] Export tasks to markdown
 

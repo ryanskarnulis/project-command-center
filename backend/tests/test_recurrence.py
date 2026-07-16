@@ -902,3 +902,162 @@ def test_unskip_with_dependent_task_present(db_session: Session) -> None:
     assert all(skipped_id not in (e.task_id, e.depends_on_task_id) for e in edges)
     assert not deps_service.is_blocked(db_session, dependent.id)
     assert restored.due_date == date(2026, 6, 1)
+
+
+# --- Delete-vs-skip intent (BUG-04) -----------------------------------------
+#
+# A skipped occurrence and a normally-trashed one both carry ``deleted_at``; only
+# ``skipped_at`` tells them apart. Without it, restore treated every recurring
+# restore as an un-skip — dragging the live occurrence backward and purging the
+# row the user asked to restore.
+
+
+def _weekly_leaf_with_successor(db: Session) -> tuple[Task, Task, str]:
+    """A completed weekly occurrence (06-01) and the successor it spawned (06-08)."""
+    task = _make_task(db, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db.commit()
+    recurrence_id = task.recurrence_id
+    assert recurrence_id is not None
+
+    tasks_service.mark_done(db, task)
+    db.commit()
+    successor = _series(db, recurrence_id)[-1]
+    assert successor.due_date == date(2026, 6, 8)
+    return task, successor, recurrence_id
+
+
+def test_restore_normally_deleted_occurrence_restores_in_place(
+    db_session: Session,
+) -> None:
+    # The BUG-04 repro: trashing a completed past occurrence and restoring it must
+    # bring back that row, not rewind the series onto its date and purge it.
+    task, successor, recurrence_id = _weekly_leaf_with_successor(db_session)
+    task_id = task.id
+
+    tasks_service.soft_delete_task(db_session, task)
+    db_session.commit()
+    restored = task_trash.restore_task(db_session, task)
+    db_session.commit()
+
+    # The restored row is the one that was asked for, at its own date, intact.
+    assert restored.id == task_id
+    assert restored.deleted_at is None
+    assert restored.due_date == date(2026, 6, 1)
+    # The live successor was not dragged backward, and nothing was purged.
+    db_session.refresh(successor)
+    assert successor.due_date == date(2026, 6, 8)
+    assert successor.deleted_at is None
+    assert {t.id for t in _series(db_session, recurrence_id)} == {task_id, successor.id}
+
+
+def test_restore_normally_deleted_checklist_leaves_clones_alone(
+    db_session: Session,
+) -> None:
+    # Same as above for a checklist occurrence: the successor's cloned subtree must
+    # not be rescheduled backward with its parent.
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session)
+    for child in children:
+        tasks_service.mark_done(db_session, child)
+        db_session.commit()
+    successor = _series(db_session, recurrence_id)[-1]
+    assert successor.due_date == date(2026, 6, 8)
+
+    tasks_service.soft_delete_task(db_session, parent)
+    db_session.commit()
+    restored = task_trash.restore_task(db_session, parent)
+    db_session.commit()
+
+    assert restored.id == parent.id
+    assert restored.due_date == date(2026, 6, 1)
+    db_session.refresh(successor)
+    assert successor.due_date == date(2026, 6, 8)
+    clones = tasks_service.list_subtasks(db_session, successor.id)
+    assert {c.due_date for c in clones} == {date(2026, 6, 8)}
+
+
+def test_skip_marks_skipped_at_and_delete_does_not(db_session: Session) -> None:
+    task, successor, _recurrence_id = _weekly_leaf_with_successor(db_session)
+
+    tasks_service.soft_delete_task(db_session, task)
+    db_session.commit()
+    assert task.deleted_at is not None
+    assert task.skipped_at is None  # ordinary delete records no intent
+
+    task_recurrence.skip_occurrence(db_session, successor)
+    db_session.commit()
+    assert successor.deleted_at is not None
+    assert successor.skipped_at == successor.deleted_at
+
+
+def test_restore_skipped_occurrence_still_unskips(db_session: Session) -> None:
+    # The existing un-skip behavior must not regress: it's now gated on skipped_at.
+    task, successor, recurrence_id = _weekly_leaf_with_successor(db_session)
+    successor_id = successor.id
+
+    third = task_recurrence.skip_occurrence(db_session, successor)
+    db_session.commit()
+    assert third.due_date == date(2026, 6, 15)
+
+    restored = task_trash.restore_task(db_session, successor)
+    db_session.commit()
+
+    # The series rewinds to the un-skipped date with exactly one live occurrence.
+    assert restored.id == third.id
+    assert restored.due_date == date(2026, 6, 8)
+    assert successor_id not in {t.id for t in _series(db_session, recurrence_id)}
+    assert task.id in {t.id for t in _series(db_session, recurrence_id)}
+
+
+def test_restore_skipped_occurrence_without_successor_clears_skipped_at(
+    db_session: Session,
+) -> None:
+    # No live sibling to rewind onto, so the skipped row restores in place — and
+    # must not come back still flagged as skipped while it's active.
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    successor = task_recurrence.skip_occurrence(db_session, task)
+    db_session.commit()
+    tasks_service.soft_delete_task(db_session, successor)
+    db_session.commit()
+
+    restored = task_trash.restore_task(db_session, task)
+    db_session.commit()
+
+    assert restored.id == task.id
+    assert restored.deleted_at is None
+    assert restored.skipped_at is None
+
+
+def test_series_hides_normally_deleted_but_shows_skipped(
+    db_session: Session,
+) -> None:
+    task, successor, recurrence_id = _weekly_leaf_with_successor(db_session)
+    third = task_recurrence.skip_occurrence(db_session, successor)
+    db_session.commit()
+    tasks_service.soft_delete_task(db_session, task)
+    db_session.commit()
+
+    series = task_recurrence.get_series(db_session, recurrence_id)
+
+    # Skipped (successor) stays on the timeline; normally-trashed (task) leaves it.
+    assert {t.id for t in series} == {successor.id, third.id}
+
+
+def test_series_shows_normally_deleted_occurrence_again_once_restored(
+    db_session: Session,
+) -> None:
+    task, _successor, recurrence_id = _weekly_leaf_with_successor(db_session)
+    tasks_service.soft_delete_task(db_session, task)
+    db_session.commit()
+    assert task.id not in {t.id for t in task_recurrence.get_series(db_session, recurrence_id)}
+
+    task_trash.restore_task(db_session, task)
+    db_session.commit()
+
+    assert task.id in {t.id for t in task_recurrence.get_series(db_session, recurrence_id)}
