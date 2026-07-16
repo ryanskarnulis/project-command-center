@@ -58,7 +58,15 @@ def restore_task(db: Session, task: Task) -> Task:
     # occurrence's date (and its subtasks') back to the restored occurrence's date,
     # then hard-delete the restored row — the series resumes at the un-skipped date
     # with exactly one live occurrence.
-    if task.recurrence_id is not None and task.due_date is not None:
+    #
+    # Gated on ``skipped_at``: this rewinds the series and destroys the restored
+    # row, which is only what the user meant if they SKIPPED it. A normally-trashed
+    # occurrence falls through to the plain restore below and comes back in place.
+    if (
+        task.skipped_at is not None
+        and task.recurrence_id is not None
+        and task.due_date is not None
+    ):
         # The occurrence that replaced this one when it was skipped: the earliest
         # active sibling due on or after it. Filtering by date avoids retargeting an
         # earlier, already-completed occurrence (e.g. a done checklist parent).
@@ -93,6 +101,10 @@ def restore_task(db: Session, task: Task) -> Task:
         task.project_id = projects_service.ensure_default_project_id(db)
     # An individually-restored task drops its project-cascade marker.
     task.deleted_with_project_id = None
+    # And its skip marker: a skipped occurrence whose series has no live successor
+    # restores in place through this path, and must not stay flagged as skipped
+    # while it's active again.
+    task.skipped_at = None
     restore(task)
     db.flush()
     db.refresh(task)

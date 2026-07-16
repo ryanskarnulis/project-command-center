@@ -133,6 +133,12 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     deleted_with_project_id: Mapped[int | None] = mapped_column(
         ForeignKey("projects.id"), default=None
     )
+    # Set when this occurrence was SKIPPED (services/task_recurrence.skip_occurrence)
+    # rather than trashed normally. Both paths set ``deleted_at``; only this marker
+    # tells them apart, and ``restore_task`` branches on it: a skip restores by
+    # rolling the series back to this date, an ordinary delete restores in place.
+    # Cleared on restore. Null = ordinary soft delete (or active).
+    skipped_at: Mapped[datetime | None] = mapped_column(default=None)
 
     project: Mapped[Project | None] = relationship(
         back_populates="tasks", foreign_keys=[project_id]

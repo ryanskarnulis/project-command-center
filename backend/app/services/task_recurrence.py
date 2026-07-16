@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Task, TaskWorkflowStatus
@@ -209,23 +209,34 @@ def skip_occurrence(db: Session, task: Task) -> Task:
     for child in list_subtasks(db, task.id):
         soft_delete_task(db, child)
     soft_delete(task)
+    # Persist the *intent*, not just the deletion: an ordinary delete also sets
+    # deleted_at, and restore_task must not treat that as an un-skip (it would
+    # drag the live occurrence backward and purge the restored row).
+    task.skipped_at = task.deleted_at
     db.flush()
     log_task_event(db, task, "skipped")
     return next_occurrence
 
 
 def get_series(db: Session, recurrence_id: str) -> list[Task]:
-    """All occurrences in a recurrence series, oldest due date first.
+    """The series' active and skipped occurrences, oldest due date first.
 
-    Deliberately a plain ``select(Task)`` rather than the ``active()`` helper:
-    skipped occurrences are soft-deleted, but the series timeline must show them
-    so the chain is truthful. Ordered by ``due_date`` (then ``id`` as a stable
-    tiebreak for rows sharing a date).
+    Deliberately not the ``active()`` helper: a skipped occurrence is soft-deleted,
+    but it's a scheduling decision the user made and the timeline must show it for
+    the chain to be truthful. A *normally trashed* occurrence is not — it's in the
+    trash, so it leaves the timeline and reappears if restored.
+
+    That filter is load-bearing for the client: it's what lets the timeline read a
+    ``deleted_at`` row as "Skipped" without also needing ``skipped_at`` on the wire.
+    Ordered by ``due_date`` (then ``id`` as a stable tiebreak for rows sharing a date).
     """
     return list(
         db.execute(
             select(Task)
-            .where(Task.recurrence_id == recurrence_id)
+            .where(
+                Task.recurrence_id == recurrence_id,
+                or_(Task.deleted_at.is_(None), Task.skipped_at.is_not(None)),
+            )
             .order_by(Task.due_date.asc(), Task.id.asc())
         )
         .scalars()

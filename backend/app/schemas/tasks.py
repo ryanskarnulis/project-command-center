@@ -125,11 +125,15 @@ class TaskRead(BaseModel):
 
 
 class TaskSeries(BaseModel):
-    """A recurrence series: every occurrence sharing a ``recurrence_id``.
+    """A recurrence series: the active and skipped occurrences sharing a
+    ``recurrence_id``.
 
     Occurrences reuse ``TaskRead`` (which already carries ``deleted_at``, so the
-    client can mark skipped rows) and are ordered oldest due date first. Includes
-    soft-deleted (skipped) rows so the timeline is complete.
+    client can mark skipped rows) and are ordered oldest due date first. Skipped
+    rows are soft-deleted but included, so the timeline tells the truth about the
+    chain; normally-trashed occurrences are excluded (they live in the trash).
+    That makes ``deleted_at`` an exact stand-in for "skipped" on this payload,
+    which is why ``skipped_at`` needn't be on the wire.
     """
 
     recurrence_id: str

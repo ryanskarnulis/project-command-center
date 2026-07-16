@@ -17,7 +17,10 @@ interface RecurrenceSeriesProps {
 }
 
 function occurrenceState(o: Task): { label: string; className: string } {
-  // Skipped occurrences are soft-deleted (not marked done), so check that first.
+  // A skipped occurrence is soft-deleted rather than marked done, so check that
+  // first. deleted_at alone is enough to mean "skipped" here only because the
+  // series endpoint returns active and skipped rows and nothing else — a normally
+  // trashed occurrence never reaches this list (services/task_recurrence.get_series).
   if (o.deleted_at) return { label: 'Skipped', className: 'workflow-skipped' }
   if (o.workflow_status === 'in_progress')
     return { label: 'In progress', className: 'workflow-in_progress' }

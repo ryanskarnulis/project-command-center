@@ -47,8 +47,9 @@ export interface Task {
 /** A recurrence series: every occurrence sharing a `recurrence_id`. */
 export interface TaskSeries {
   recurrence_id: string
-  // Oldest due date first; includes soft-deleted (skipped) occurrences, which
-  // carry a non-null `deleted_at`.
+  // Oldest due date first. Active and skipped occurrences only: a skipped one is
+  // soft-deleted and carries a non-null `deleted_at`, while a normally-trashed
+  // occurrence is omitted entirely — so `deleted_at` here means "skipped".
   occurrences: Task[]
 }
 
