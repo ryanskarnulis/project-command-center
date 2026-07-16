@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.schemas.common import NonBlankStr, OptionalStrippedStr, UTCDateTime
+
+# ``ProjectUpdate`` columns backed by NOT-NULL DB columns: an explicit ``null`` on
+# any of these must be a 422, never a silent NOT-NULL violation.
+_PROJECT_UPDATE_NON_NULLABLE_FIELDS = ("name",)
 
 
 class ProjectCreate(BaseModel):
@@ -14,6 +18,18 @@ class ProjectCreate(BaseModel):
 class ProjectUpdate(BaseModel):
     name: NonBlankStr | None = None
     description: OptionalStrippedStr = None
+
+    # The ``| None`` above is what lets a partial PATCH *omit* ``name`` via the
+    # route's ``model_dump(exclude_unset=True)``, so it can't be dropped; instead
+    # distinguish omit from explicit null via ``model_fields_set``. Mirrors
+    # ``TaskUpdate._reject_null_non_nullable``. ``description`` is nullable in the
+    # DB and may legitimately be cleared.
+    @model_validator(mode="after")
+    def _reject_null_non_nullable(self) -> "ProjectUpdate":
+        for name in _PROJECT_UPDATE_NON_NULLABLE_FIELDS:
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"{name} cannot be cleared to null")
+        return self
 
 
 class ProjectOrderUpdate(BaseModel):
