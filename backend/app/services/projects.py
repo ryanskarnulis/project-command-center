@@ -207,10 +207,23 @@ def soft_delete_project(db: Session, project: Project) -> None:
 
     # Safety sweep: any task still active in this project (e.g. a subtask whose
     # parent lives in a different project, so the cascade above never reached it).
+    # Same shape as the pass above — stamp the whole subtree, then cascade —
+    # because the invariant is that every row this deletion removes is stamped,
+    # and a swept task's children can sit outside this project (a cross-project
+    # child is supported: create_task only inherits the parent's project when
+    # none is given, and re-parenting never moves it). Stamping them with the
+    # deleted project is what the top-level pass already does to its own
+    # cross-project descendants.
+    #
+    # The row list is read up front, so a task an earlier iteration's cascade
+    # already deleted is skipped rather than soft-deleted twice — soft_delete
+    # re-stamps deleted_at unconditionally and the event log would fire again.
     for task in db.execute(
         active(Task).where(Task.project_id == project.id)
     ).scalars().all():
-        task.deleted_with_project_id = project.id
+        if task.deleted_at is not None:
+            continue
+        _mark_subtree_deleted_with_project(db, task, project.id)
         tasks_service.soft_delete_task(db, task)
 
     db.flush()
