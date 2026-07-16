@@ -19,12 +19,26 @@ jobs:
     runs-on: [self-hosted, homelab]
     steps:
       - name: Pull deploy clone and rebuild stack
+        env:
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           cd "$HOME/deploy/project-command-center"
           # Refuse to deploy over local edits — the clone must stay pristine.
           git diff --quiet && git diff --cached --quiet || { echo "deploy clone is dirty"; exit 1; }
           before=$(git rev-parse HEAD)
-          git pull --ff-only origin main
+          git fetch origin main
+          # Only deploy the commit this CI run actually verified. CI runs for
+          # consecutive main commits overlap, so a slow run for an older commit
+          # can finish after a newer one lands — deploying current main here
+          # would ship a revision no green run ever checked. If main has moved
+          # on, this event is stale: skip, and let the newer commit's own CI
+          # success deploy it. (Deploying VERIFIED_SHA directly would instead
+          # roll production backwards in that case.)
+          if [ "$(git rev-parse origin/main)" != "$VERIFIED_SHA" ]; then
+            echo "::notice title=Stale deploy skipped::main has moved past the verified commit $VERIFIED_SHA; its own CI run will deploy it."
+            exit 0
+          fi
+          git merge --ff-only origin/main
           docker compose up -d --build
           if ! git diff --quiet "$before" HEAD -- app.yaml; then
             cd "$HOME/deploy/gateway"
