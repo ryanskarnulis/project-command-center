@@ -164,7 +164,11 @@ export function ProjectDetailPage() {
 
   async function handleDeleteProject(): Promise<void> {
     if (!project) return
-    if (!window.confirm(`Delete "${project.name}"? Its active tasks move to General.`)) {
+    if (
+      !window.confirm(
+        `Delete “${project.name}”? Its active tasks move to Trash with it. You can restore them together.`,
+      )
+    ) {
       return
     }
     await withToast(deleteProject(project.id), { success: 'Project moved to trash' })
