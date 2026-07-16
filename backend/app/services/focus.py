@@ -261,18 +261,26 @@ def _unfinished_dependencies(db: Session, task_id: int) -> list[BlockingTask]:
     """Active dependencies of ``task_id`` whose target is not yet done.
 
     Returns the blocker's title + workflow status (not just the id) so the UI can
-    render a self-explanatory blocked row. Same ``get_task`` loop that already
-    decided "unfinished" — it just keeps the row it had already loaded.
+    render a self-explanatory blocked row. The status reported is the *effective*
+    one (``deps_service.effective_statuses``), matching both the decision that the
+    blocker is unfinished and the status the task detail page shows.
     """
+    edges = deps_service.list_dependencies(db, task_id)
+    statuses = deps_service.effective_statuses(
+        db, (dep.depends_on_task_id for dep in edges)
+    )
     unfinished: list[BlockingTask] = []
-    for dep in deps_service.list_dependencies(db, task_id):
+    for dep in edges:
+        status = statuses.get(dep.depends_on_task_id)
+        if status is None or status == TaskWorkflowStatus.done:
+            continue
         depended = tasks_service.get_task(db, dep.depends_on_task_id)
-        if depended is not None and depended.workflow_status != TaskWorkflowStatus.done:
+        if depended is not None:
             unfinished.append(
                 BlockingTask(
                     task_id=depended.id,
                     title=depended.title,
-                    workflow_status=depended.workflow_status,
+                    workflow_status=status,
                 )
             )
     return unfinished

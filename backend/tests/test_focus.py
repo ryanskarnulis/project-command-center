@@ -276,3 +276,29 @@ def test_scheduled_and_overflow_flag_recurring(db_session: Session) -> None:
     overflow = {o.task_id: o.is_recurring for o in tight.overflow}
     assert overflow[rec] is True
     assert overflow[plain] is False
+
+
+def test_blocked_details_report_effective_checklist_status(
+    db_session: Session,
+) -> None:
+    blocker = _task(db_session, "checklist blocker")
+    first = tasks_service.create_task(
+        db_session, project_id=None, title="step 1", parent_task_id=blocker
+    )
+    tasks_service.create_task(
+        db_session, project_id=None, title="step 2", parent_task_id=blocker
+    )
+    dependent = _task(db_session, "downstream")
+    deps_service.add_dependency(db_session, dependent, blocker)
+    db_session.commit()
+
+    tasks_service.mark_done(db_session, first)
+    db_session.commit()
+
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
+
+    assert [b.task_id for b in plan.blocked] == [dependent]
+    blocking = plan.blocked[0].blocking_tasks
+    assert [b.task_id for b in blocking] == [blocker]
+    # Stored status is still "open"; the roll-up says in_progress.
+    assert blocking[0].workflow_status == TaskWorkflowStatus.in_progress

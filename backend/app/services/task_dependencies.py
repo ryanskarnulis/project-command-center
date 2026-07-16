@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, aliased
@@ -13,7 +13,7 @@ from app.db.models import (
 )
 from app.services import activity
 from app.services.common import active, soft_delete
-from app.services.tasks import get_task
+from app.services.tasks import compute_rollups, get_task
 
 
 class DependencyError(ValueError):
@@ -157,36 +157,58 @@ def remove_dependency(db: Session, edge: TaskDependency) -> None:
         )
 
 
+def effective_statuses(
+    db: Session, task_ids: Iterable[int]
+) -> dict[int, TaskWorkflowStatus]:
+    """Rolled-up workflow status per active task id.
+
+    A checklist parent's status is derived from its children and never written
+    back (see ``tasks.compute_rollups``), so comparing the stored column would
+    strand a fully-done checklist as a permanent blocker — and, conversely, treat
+    a stored-done row that gained an active child as a satisfied one. Every
+    dependency check resolves through here so it asks the same question the read
+    model answers. Missing/soft-deleted ids are absent from the result.
+    """
+    ids = set(task_ids)
+    if not ids:
+        return {}
+    tasks = db.execute(active(Task).where(Task.id.in_(ids))).scalars().all()
+    rollups = compute_rollups(db, tasks)
+    return {t.id: rollups[t.id].workflow_status for t in tasks}
+
+
 def is_blocked(db: Session, task_id: int) -> bool:
-    """True if any active dependency's depended-on task is not workflow-done."""
-    for dep in list_dependencies(db, task_id):
-        depended = get_task(db, dep.depends_on_task_id)
-        if depended is not None and depended.workflow_status != TaskWorkflowStatus.done:
-            return True
-    return False
+    """True if any active dependency's depended-on task is not effectively done."""
+    statuses = effective_statuses(db, _depends_on_ids(db, task_id))
+    return any(status != TaskWorkflowStatus.done for status in statuses.values())
 
 
 def blocked_task_ids(db: Session, task_ids: Sequence[int]) -> set[int]:
     """The subset of ``task_ids`` that have an unfinished dependency.
 
     One query for the whole list (avoids N+1 on the task list): a task is blocked
-    if it has an active edge to an active, not workflow-``done`` task.
+    if it has an active edge to an active task that is not *effectively* done. The
+    done check can't be a SQL predicate — see ``effective_statuses``.
     """
     if not task_ids:
         return set()
     depended = aliased(Task)
     rows = db.execute(
-        select(TaskDependency.task_id)
+        select(TaskDependency.task_id, depended.id)
         .join(depended, depended.id == TaskDependency.depends_on_task_id)
         .where(
             TaskDependency.deleted_at.is_(None),
             TaskDependency.task_id.in_(task_ids),
             depended.deleted_at.is_(None),
-            depended.workflow_status != TaskWorkflowStatus.done,
         )
         .distinct()
-    ).scalars()
-    return set(rows)
+    ).all()
+    statuses = effective_statuses(db, (blocker_id for _, blocker_id in rows))
+    return {
+        int(dependent_id)
+        for dependent_id, blocker_id in rows
+        if statuses.get(int(blocker_id)) != TaskWorkflowStatus.done
+    }
 
 
 def edges_among_tasks(db: Session, task_ids: Sequence[int]) -> list[TaskDependency]:
@@ -218,6 +240,9 @@ def top_level_blocker_counts(db: Session, task_ids: Sequence[int]) -> dict[int, 
     waiting on it, and is not itself waiting on another unfinished dependency.
     Counts are transitive: in ``A depends on B depends on C``, only ``C`` is
     returned, with a count of 2.
+
+    "Unfinished" is the effective status on both endpoints, resolved in Python
+    rather than filtered in SQL — see ``effective_statuses``.
     """
     requested = set(task_ids)
     if not requested:
@@ -232,15 +257,22 @@ def top_level_blocker_counts(db: Session, task_ids: Sequence[int]) -> dict[int, 
         .where(
             TaskDependency.deleted_at.is_(None),
             dependent.deleted_at.is_(None),
-            dependent.workflow_status != TaskWorkflowStatus.done,
             blocker.deleted_at.is_(None),
-            blocker.workflow_status != TaskWorkflowStatus.done,
         )
     ).all()
+
+    statuses = effective_statuses(
+        db, (int(task_id) for row in rows for task_id in row)
+    )
+
+    def _unfinished(task_id: int) -> bool:
+        return statuses.get(task_id) not in (None, TaskWorkflowStatus.done)
 
     dependencies_by_task: defaultdict[int, set[int]] = defaultdict(set)
     dependents_by_blocker: defaultdict[int, set[int]] = defaultdict(set)
     for dependent_id, blocker_id in rows:
+        if not _unfinished(int(dependent_id)) or not _unfinished(int(blocker_id)):
+            continue
         dependencies_by_task[int(dependent_id)].add(int(blocker_id))
         dependents_by_blocker[int(blocker_id)].add(int(dependent_id))
 
