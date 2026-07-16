@@ -642,6 +642,75 @@ def test_stop_recurrence_non_recurring_raises(db_session: Session) -> None:
         task_recurrence.stop_recurrence(db_session, task)
 
 
+def test_stop_recurrence_from_historical_occurrence_stops_live_one(
+    db_session: Session,
+) -> None:
+    # The timeline links past occurrences, so "Stop recurrence" is reachable from a
+    # done row. Every row carries its own repeat_interval, so clearing only the row
+    # acted on left the live occurrence spawning while the UI claimed the series
+    # had stopped.
+    recurrence_id, series = _three_occurrence_series(db_session)
+    first, _second, third = series
+
+    task_recurrence.stop_recurrence(db_session, first)
+    db_session.commit()
+
+    refreshed = _series(db_session, recurrence_id)
+    assert all(t.repeat_interval is None for t in refreshed)
+    assert all(t.recurrence_id == recurrence_id for t in refreshed)  # chain readable
+
+    # The real regression: the live occurrence must not spawn a successor.
+    before = _active_count(db_session)
+    tasks_service.mark_done(db_session, third)
+    db_session.commit()
+    assert _active_count(db_session) == before
+
+
+def test_stop_recurrence_from_live_occurrence_clears_past_rows_too(
+    db_session: Session,
+) -> None:
+    # Guards against a fix that only walks forward from the acted-on row.
+    recurrence_id, series = _three_occurrence_series(db_session)
+    third = series[2]
+
+    task_recurrence.stop_recurrence(db_session, third)
+    db_session.commit()
+
+    assert all(t.repeat_interval is None for t in _series(db_session, recurrence_id))
+
+
+def test_stop_recurrence_clears_trashed_occurrence_too(db_session: Session) -> None:
+    # A trashed occurrence keeps its repeat_interval; if a stop skipped it,
+    # restoring it later would quietly resume the series the user stopped.
+    recurrence_id, series = _three_occurrence_series(db_session)
+    first, _second, third = series
+    tasks_service.soft_delete_task(db_session, first)
+    db_session.commit()
+
+    task_recurrence.stop_recurrence(db_session, third)
+    db_session.commit()
+
+    all_rows = (
+        db_session.execute(select(Task).where(Task.recurrence_id == recurrence_id))
+        .scalars()
+        .all()
+    )
+    assert len(all_rows) == 3  # the trashed row is in scope, not filtered out
+    assert all(t.repeat_interval is None for t in all_rows)
+
+
+def test_stop_recurrence_twice_raises(db_session: Session) -> None:
+    _recurrence_id, series = _three_occurrence_series(db_session)
+    first, _second, third = series
+
+    task_recurrence.stop_recurrence(db_session, first)
+    db_session.commit()
+
+    # Nothing left to stop anywhere in the series.
+    with pytest.raises(tasks_service.RecurrenceError):
+        task_recurrence.stop_recurrence(db_session, third)
+
+
 def test_get_series_over_http(client: TestClient, db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
     tasks_service.update_task(
@@ -834,6 +903,22 @@ def test_stop_recurrence_over_http(client: TestClient, db_session: Session) -> N
     res = client.post(f"/api/tasks/{task.id}/stop-recurrence")
     assert res.status_code == 200
     assert res.json()["repeat_interval"] is None
+
+
+def test_stop_recurrence_from_historical_row_over_http(
+    client: TestClient, db_session: Session
+) -> None:
+    recurrence_id, series = _three_occurrence_series(db_session)
+    first, _second, third = series
+
+    res = client.post(f"/api/tasks/{first.id}/stop-recurrence")
+    assert res.status_code == 200
+    assert res.json()["repeat_interval"] is None
+
+    # The response is about the acted-on row; the point is the live one is stopped.
+    live = client.get(f"/api/tasks/{third.id}")
+    assert live.json()["repeat_interval"] is None
+    assert live.json()["recurrence_id"] == recurrence_id
 
 
 # --- Un-skip with dependencies present (recurrence × dependency seam) --------
