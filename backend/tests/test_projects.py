@@ -44,6 +44,28 @@ def test_ensure_default_project_is_idempotent(db_session: Session) -> None:
     assert first.is_protected is True
 
 
+def test_ensure_default_project_adopts_oldest_of_duplicate_names(
+    db_session: Session,
+) -> None:
+    # Project names aren't unique, so a database that never ran the seed migration
+    # can hold several ordinary projects called "General". Adoption takes the oldest
+    # instead of raising MultipleResultsFound.
+    older = projects_service.create_project(db_session, name="General")
+    newer = projects_service.create_project(db_session, name="General")
+    db_session.commit()
+    assert older.system_key is None
+    assert newer.system_key is None
+
+    adopted = projects_service.ensure_default_project(db_session)
+    db_session.commit()
+
+    assert adopted.id == older.id
+    assert adopted.system_key == "general"
+    assert adopted.is_protected is True
+    db_session.refresh(newer)
+    assert newer.system_key is None
+
+
 def test_soft_delete_project_cascades_tasks(db_session: Session) -> None:
     project = projects_service.create_project(db_session, name="Firewall")
     parent = tasks_service.create_task(

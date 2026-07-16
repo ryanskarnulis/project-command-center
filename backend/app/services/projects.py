@@ -55,15 +55,27 @@ def get_default_project(db: Session) -> Project | None:
 
 
 def ensure_default_project(db: Session) -> Project:
+    """Return General, adopting or creating it if it's somehow missing.
+
+    The real seed is migration ``4f2c8b7d0a1e``, which runs before any request is
+    served; General is protected, so nothing can close, trash, or purge it. This is
+    a fallback for a database that never saw that migration. Names aren't unique, so
+    the adoption lookup takes the oldest match rather than assuming there's one.
+    """
     project = get_default_project(db)
     if project is not None:
         return project
 
-    project = db.execute(
-        active(Project)
-        .where(Project.name == DEFAULT_PROJECT_NAME, Project.system_key.is_(None))
-        .order_by(Project.id)
-    ).scalar_one_or_none()
+    project = (
+        db.execute(
+            active(Project)
+            .where(Project.name == DEFAULT_PROJECT_NAME, Project.system_key.is_(None))
+            .order_by(Project.id)
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
     if project is None:
         project = Project(
             name=DEFAULT_PROJECT_NAME,
