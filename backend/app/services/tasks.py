@@ -227,8 +227,15 @@ def _resolve_rollup(
 def _rollups_over(
     tasks: Sequence[Task], by_parent: dict[int | None, list[Task]]
 ) -> dict[int, Rollup]:
+    """Roll-ups for ``tasks`` and, incidentally, every descendant walked to get them.
+
+    ``_resolve_rollup`` memoizes by id as it recurses, so the memo is a complete
+    map for the whole subtree — callers wanting only the roots project it down.
+    """
     memo: dict[int, Rollup] = {}
-    return {t.id: _resolve_rollup(t, by_parent, memo) for t in tasks}
+    for task in tasks:
+        _resolve_rollup(task, by_parent, memo)
+    return memo
 
 
 def compute_rollups(db: Session, tasks: Sequence[Task]) -> dict[int, Rollup]:
@@ -238,8 +245,22 @@ def compute_rollups(db: Session, tasks: Sequence[Task]) -> dict[int, Rollup]:
     the requested subtree (``roots`` + descendants), not the whole task table. A
     caller that already holds the entire active set (the dashboard's open-task
     scan) should use ``compute_rollups_for_full_set`` to skip the reread.
+
+    Keyed by the ids of ``tasks`` only; a caller that also needs the descendants'
+    roll-ups should use ``compute_subtree_rollups`` rather than a second pass.
     """
-    return _rollups_over(tasks, _children_map_for(db, tasks))
+    memo = _rollups_over(tasks, _children_map_for(db, tasks))
+    return {t.id: memo[t.id] for t in tasks}
+
+
+def compute_subtree_rollups(db: Session, roots: Sequence[Task]) -> dict[int, Rollup]:
+    """Roll-ups for ``roots`` *and* every active descendant, from one descent.
+
+    Resolving a root already resolves each of its children on the way, so a caller
+    that reasons about both (Focus ranks parents, then falls back to their
+    subtasks) gets the whole subtree for the cost of ``compute_rollups``.
+    """
+    return _rollups_over(roots, _children_map_for(db, roots))
 
 
 def compute_rollups_for_full_set(tasks: Sequence[Task]) -> dict[int, Rollup]:
