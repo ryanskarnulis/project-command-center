@@ -89,6 +89,26 @@ def _clone_subtask_tree(
         _clone_subtask_tree(db, child, clone.id, due_date)
 
 
+def _find_occurrence_on(db: Session, recurrence_id: str, due_date: date) -> Task | None:
+    """The series' existing occurrence due on ``due_date``, or ``None``.
+
+    Deliberately does not filter ``deleted_at``: a skipped occurrence is
+    soft-deleted but still *happened* as a scheduling decision, and respawning its
+    date would re-add work the user explicitly said they didn't do. Same reasoning
+    as ``get_series``. An active row wins over a soft-deleted one on the same date
+    so callers get the live occurrence when both exist.
+    """
+    return (
+        db.execute(
+            select(Task)
+            .where(Task.recurrence_id == recurrence_id, Task.due_date == due_date)
+            .order_by(Task.deleted_at.is_not(None), Task.id.asc())
+        )
+        .scalars()
+        .first()
+    )
+
+
 def create_next_occurrence(db: Session, task: Task) -> Task:
     """Clone a completed recurring task as its next open occurrence.
 
@@ -98,12 +118,27 @@ def create_next_occurrence(db: Session, task: Task) -> Task:
     out-of-scope note). The caller guarantees ``repeat_interval`` and ``due_date``
     are set.
 
+    Idempotent on ``(recurrence_id, next due date)``: if that occurrence already
+    exists it is returned as-is rather than inserted again. Completion is not a
+    once-only event — reopening a done occurrence and re-completing it makes the
+    open->done transition a second time, and a checklist's roll-up re-derives to
+    done whenever its last child is reopened and re-completed. Both spawn paths
+    land here, so the guard lives here rather than in each caller. Reopening
+    deliberately leaves an already-spawned successor alone (no hard deletes, and
+    the successor may have its own progress); this guard is what makes the
+    re-completion a no-op instead of a duplicate.
+
     If the recurring task is a checklist parent, its whole active subtree is
     cloned fresh under the new occurrence so a multi-step routine ("weekly release
     checklist") resets for the next cadence. A recurring leaf clones a single row.
     """
     assert task.repeat_interval is not None
     assert task.due_date is not None
+    next_due = _next_due_date(task.due_date, task.repeat_interval)
+    if task.recurrence_id is not None:
+        existing = _find_occurrence_on(db, task.recurrence_id, next_due)
+        if existing is not None:
+            return existing
     occurrence = Task(
         project_id=task.project_id,
         title=task.title,
@@ -112,7 +147,7 @@ def create_next_occurrence(db: Session, task: Task) -> Task:
         estimated_minutes=task.estimated_minutes,
         repeat_interval=task.repeat_interval,
         recurrence_id=task.recurrence_id,
-        due_date=_next_due_date(task.due_date, task.repeat_interval),
+        due_date=next_due,
         workflow_status=TaskWorkflowStatus.open,
         parent_task_id=None,
     )

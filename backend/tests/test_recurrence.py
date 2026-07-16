@@ -174,6 +174,71 @@ def test_skip_soft_deletes_current_and_rolls_forward(db_session: Session) -> Non
     assert next_occurrence.workflow_status == TaskWorkflowStatus.open
 
 
+# --- Idempotent successor creation -------------------------------------------
+
+
+def test_reopen_and_recomplete_does_not_duplicate_occurrence(
+    db_session: Session,
+) -> None:
+    # Completion is not a once-only event: reopening a done occurrence and
+    # completing it again makes the open->done transition a second time. The
+    # successor is resolved by (recurrence_id, due date), so the re-completion
+    # finds 06-08 and returns it instead of inserting a twin.
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    recurrence_id = task.recurrence_id
+    assert recurrence_id is not None
+
+    tasks_service.mark_done(db_session, task)
+    db_session.commit()
+    first = _series(db_session, recurrence_id)[-1]
+
+    tasks_service.reopen_task(db_session, task)
+    db_session.commit()
+    tasks_service.mark_done(db_session, task)
+    db_session.commit()
+
+    series = _series(db_session, recurrence_id)
+    assert len(series) == 2
+    # Reopening leaves the already-spawned successor alone rather than trashing it,
+    # so it must be the same row, not a replacement.
+    assert [t.id for t in series] == [task.id, first.id]
+
+
+def test_recomplete_does_not_respawn_a_skipped_occurrence(db_session: Session) -> None:
+    # A skipped occurrence is soft-deleted but still happened as a scheduling
+    # decision, so the successor guard counts it: re-completing the predecessor
+    # must not resurrect a date the user explicitly said didn't happen.
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    recurrence_id = task.recurrence_id
+    assert recurrence_id is not None
+
+    tasks_service.mark_done(db_session, task)
+    db_session.commit()
+    spawned = _series(db_session, recurrence_id)[-1]
+    task_recurrence.skip_occurrence(db_session, spawned)  # 06-08 skipped -> 06-15
+    db_session.commit()
+
+    tasks_service.reopen_task(db_session, task)
+    db_session.commit()
+    tasks_service.mark_done(db_session, task)
+    db_session.commit()
+
+    # 06-08 stays skipped; the live series is the original plus 06-15.
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
+        date(2026, 6, 1),
+        date(2026, 6, 15),
+    ]
+    assert spawned.deleted_at is not None
+
+
 # --- next_occurrence_date on the read payload (Slice 2) ---------------------
 
 
@@ -632,6 +697,30 @@ def test_partial_completion_does_not_spawn(db_session: Session) -> None:
 
     # Only one of two children done -> parent not rolled up to done -> no spawn.
     assert len(_series(db_session, recurrence_id)) == 1
+
+
+def test_reopen_and_recomplete_child_does_not_duplicate_checklist_occurrence(
+    db_session: Session,
+) -> None:
+    # A checklist parent's status is derived, so reopening its last child re-derives
+    # the roll-up to done and re-enters the spawn path via
+    # maybe_spawn_recurring_checklist.
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session)
+    for child in children:
+        tasks_service.mark_done(db_session, child)
+    db_session.commit()
+    assert len(_series(db_session, recurrence_id)) == 2
+
+    tasks_service.reopen_task(db_session, children[-1])
+    db_session.commit()
+    tasks_service.mark_done(db_session, children[-1])
+    db_session.commit()
+
+    series = _series(db_session, recurrence_id)
+    assert len(series) == 2
+    assert series[0].id == parent.id
+    # The duplicate would have brought a second cloned subtree with it.
+    assert len(tasks_service.list_subtasks(db_session, series[-1].id)) == len(children)
 
 
 def test_skip_checklist_occurrence_cascades_to_subtree(db_session: Session) -> None:
