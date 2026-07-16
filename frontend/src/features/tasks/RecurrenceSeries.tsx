@@ -109,8 +109,8 @@ export function RecurrenceSeries({ task, onStopped, onSkip }: RecurrenceSeriesPr
       {confirmingStop && (
         <div className="skip-confirm" role="alertdialog" aria-label="Confirm stop recurrence">
           <p>
-            Stop this recurrence? Completing this task will no longer create the
-            next occurrence. Past occurrences are kept.
+            Stop this recurrence? No occurrence in this series will create the
+            next one. Past occurrences are kept.
           </p>
           <div className="skip-confirm-actions">
             <button type="button" onClick={() => void handleStop()}>

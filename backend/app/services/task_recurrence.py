@@ -244,20 +244,49 @@ def get_series(db: Session, recurrence_id: str) -> list[Task]:
     )
 
 
-def stop_recurrence(db: Session, task: Task) -> Task:
-    """Stop a series from spawning further occurrences.
+def _series_rows(db: Session, recurrence_id: str) -> list[Task]:
+    """Every row sharing this ``recurrence_id``, trashed and skipped ones included."""
+    return list(
+        db.execute(select(Task).where(Task.recurrence_id == recurrence_id))
+        .scalars()
+        .all()
+    )
 
-    Clears ``repeat_interval`` (so completing the task no longer creates the next
-    occurrence) while leaving ``recurrence_id`` intact, matching the inline-clear
-    rule in ``update_task`` so the existing chain stays readable. Rejects a
-    non-recurring task with a 422 — there is nothing to stop.
+
+def stop_recurrence(db: Session, task: Task) -> Task:
+    """Stop a series from spawning further occurrences, from any occurrence in it.
+
+    A series is not one row: ``create_next_occurrence`` copies ``repeat_interval``
+    onto every clone, and completing an occurrence never clears it. So "stop" has
+    to clear the interval across the whole ``recurrence_id``, not just the row the
+    user happened to be looking at — the timeline links past occurrences, and
+    stopping from one of those used to clear a dead row while the live successor
+    kept spawning.
+
+    Deliberately not scoped by ``deleted_at`` the way ``get_series`` is: a trashed
+    occurrence still holds its ``repeat_interval``, and restoring it later would
+    resume the series the user just stopped.
+
+    ``recurrence_id`` is left intact so the existing chain stays readable, matching
+    the inline-clear rule in ``update_task``. Rejects a series with nothing left to
+    stop with a 422.
     """
-    if task.repeat_interval is None:
+    rows = (
+        _series_rows(db, task.recurrence_id)
+        if task.recurrence_id is not None
+        # Defensive: tasks.update_task mints a recurrence_id whenever
+        # repeat_interval is set, so a recurring row without one shouldn't exist.
+        else [task]
+    )
+    recurring = [row for row in rows if row.repeat_interval is not None]
+    if not recurring:
         raise RecurrenceError("Task is not recurring")
-    task.repeat_interval = None
+    for row in recurring:
+        row.repeat_interval = None
     db.flush()
+    for row in recurring:
+        log_task_event(db, row, "updated")
     db.refresh(task)
-    log_task_event(db, task, "updated")
     return task
 
 
