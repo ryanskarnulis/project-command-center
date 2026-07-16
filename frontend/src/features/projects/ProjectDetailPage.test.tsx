@@ -181,7 +181,7 @@ describe('ProjectDetailPage', () => {
     )
 
     expect(confirmSpy).toHaveBeenCalledWith(
-      'Delete "Firewall"? Its active tasks move to General.',
+      'Delete “Firewall”? Its active tasks move to Trash with it. You can restore them together.',
     )
     await waitFor(() => expect(mockDeleteProject).toHaveBeenCalledWith(7))
     expect(await screen.findByText('Dashboard page')).toBeInTheDocument()
