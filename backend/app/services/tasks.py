@@ -318,22 +318,32 @@ def list_tasks(
     limit: int | None = None,
     offset: int = 0,
 ) -> Sequence[Task]:
-    # ``limit``/``offset`` bound the SQL read (default: unbounded, for internal
-    # callers). They are applied to the *stored* row set, before the effective
-    # workflow-status roll-up filters below in Python — so when
-    # ``workflow_status``/``exclude_done`` is active a page can return fewer than
-    # ``limit`` rows even though more matches exist further down the id order.
-    # That is acceptable for a bounding cap (the purpose here) but means this is
-    # not exact page-boundary pagination for the status-filtered views.
+    # ``limit``/``offset`` page the *effective* result (default: unbounded, for
+    # internal callers), so they mean the same thing whether or not a status
+    # filter is on. That forces a choice, because the roll-up filter below can
+    # only run in Python: page in SQL and the boundary is computed over rows that
+    # are about to be discarded (a full page of done tasks filters down to
+    # nothing, and — id order being oldest-first — that is exactly what the front
+    # of the list holds), or read the matching set whole and slice after
+    # filtering. We slice after.
+    #
+    # The unbounded read that costs is not a new class of query here: the day plan
+    # (``focus.list_tasks(db, exclude_done=True)``) and the dashboard already scan
+    # the full active set and roll it up on every call, on one user's SQLite file.
+    # Correct pages are worth more than the scan. The unfiltered path is exact
+    # already, so it keeps paging in SQL and pays nothing.
+    filtering = workflow_status is not None or exclude_done
+
     query = active(Task).order_by(Task.id)
     if project_id is not None:
         query = query.where(Task.project_id == project_id)
     if top_level_only:
         query = query.where(Task.parent_task_id.is_(None))
-    if offset:
-        query = query.offset(offset)
-    if limit is not None:
-        query = query.limit(limit)
+    if not filtering:
+        if offset:
+            query = query.offset(offset)
+        if limit is not None:
+            query = query.limit(limit)
     tasks = db.execute(query).scalars().all()
 
     # Status filtering resolves EFFECTIVE (rolled-up) status, not the stored
@@ -346,7 +356,7 @@ def list_tasks(
     # displays. An explicit ``workflow_status`` takes precedence over
     # ``exclude_done``, matching the callers that set ``exclude_done =
     # workflow_status is None``.
-    if (workflow_status is not None or exclude_done) and tasks:
+    if filtering and tasks:
         rollups = compute_rollups(db, tasks)
         if workflow_status is not None:
             tasks = [
@@ -360,6 +370,9 @@ def list_tasks(
                 for t in tasks
                 if rollups[t.id].workflow_status != TaskWorkflowStatus.done
             ]
+        # The page boundary belongs on the filtered set, not the stored one.
+        end = None if limit is None else offset + limit
+        tasks = tasks[offset:end]
     return tasks
 
 

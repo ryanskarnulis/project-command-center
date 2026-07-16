@@ -754,3 +754,104 @@ def test_parent_read_exposes_rolled_up_values(client: TestClient) -> None:
     assert body["has_subtasks"] is True
     assert body["estimated_minutes"] == 60
     assert body["workflow_status"] == "in_progress"
+
+
+def _titled(db: Session, title: str, *, done: bool = False) -> Task:
+    return tasks_service.create_task(
+        db,
+        project_id=None,
+        title=title,
+        workflow_status=(
+            TaskWorkflowStatus.done if done else TaskWorkflowStatus.open
+        ),
+    )
+
+
+def test_a_page_of_done_tasks_does_not_hide_the_open_ones(
+    db_session: Session,
+) -> None:
+    """The agent's read: limit=N must return N open tasks, not N minus the done.
+
+    Ids run oldest-first, and the oldest tasks are the ones most likely to be
+    finished — so paging the stored rows and filtering after lets a front-loaded
+    block of done tasks eat the whole page and report "no open tasks".
+    """
+    for i in range(5):
+        _titled(db_session, f"finished {i}", done=True)
+    open_ids = [_titled(db_session, f"todo {i}").id for i in range(3)]
+    db_session.commit()
+
+    page = tasks_service.list_tasks(db_session, exclude_done=True, limit=3)
+
+    assert [t.id for t in page] == open_ids
+
+
+def test_status_filtered_pages_tile_the_effective_result(
+    db_session: Session,
+) -> None:
+    """Walking offset must yield every match once: no gaps, dupes, or short pages."""
+    ids: list[int] = []
+    for i in range(6):
+        # Interleaved, so every stored page straddles the filter.
+        _titled(db_session, f"done {i}", done=True)
+        ids.append(_titled(db_session, f"open {i}").id)
+    db_session.commit()
+
+    pages = [
+        [
+            t.id
+            for t in tasks_service.list_tasks(
+                db_session, exclude_done=True, limit=2, offset=offset
+            )
+        ]
+        for offset in (0, 2, 4, 6)
+    ]
+
+    assert pages == [ids[0:2], ids[2:4], ids[4:6], []]
+    # Every open task, exactly once, in id order — and no done task.
+    assert [i for page in pages for i in page] == ids
+
+
+def test_a_checklist_parent_pages_by_its_roll_up(db_session: Session) -> None:
+    """A parent that is done-by-roll-up pages with the done tasks, not the open.
+
+    The parent sits first in id order, so a page sized to it either drops it and
+    surfaces both open tasks (right) or spends a slot on it (wrong).
+    """
+    parent = _titled(db_session, "checklist")
+    tasks_service.create_task(
+        db_session,
+        project_id=None,
+        title="step",
+        parent_task_id=parent.id,
+        workflow_status=TaskWorkflowStatus.done,
+    )
+    open_ids = [_titled(db_session, f"plain open {i}").id for i in range(2)]
+    db_session.commit()
+
+    # Stored, the parent's column still says "open" — only the roll-up knows.
+    assert parent.workflow_status == TaskWorkflowStatus.open
+
+    done_page = tasks_service.list_tasks(
+        db_session, workflow_status=TaskWorkflowStatus.done, top_level_only=True
+    )
+    open_page = tasks_service.list_tasks(
+        db_session, exclude_done=True, top_level_only=True, limit=2
+    )
+
+    assert [t.id for t in done_page] == [parent.id]
+    assert [t.id for t in open_page] == open_ids
+
+
+def test_offset_past_the_filtered_end_is_empty_not_a_wrapped_page(
+    db_session: Session,
+) -> None:
+    for i in range(4):
+        _titled(db_session, f"done {i}", done=True)
+    _titled(db_session, "the only open one")
+    db_session.commit()
+
+    assert tasks_service.list_tasks(db_session, exclude_done=True, offset=1) == []
+    assert (
+        tasks_service.list_tasks(db_session, exclude_done=True, limit=2, offset=5) == []
+    )

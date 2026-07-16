@@ -184,7 +184,7 @@ def list_tasks(
     limit: _ListLimit = 50,
     offset: int = 0,
 ) -> list[TaskRead]:
-    """List active tasks, newest first. Omit project_id to search all projects."""
+    """List active tasks, oldest first. Omit project_id to search all projects."""
     with tool_session("list_tasks") as db:
         if project_id is not None:
             _ensure_project_exists(db, project_id)
