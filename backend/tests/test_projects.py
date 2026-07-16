@@ -317,6 +317,34 @@ def test_project_routes_strip_and_reject_blank_text(client: TestClient) -> None:
     assert blank_update.status_code == 422
 
 
+def test_project_update_rejects_explicit_null_name(client: TestClient) -> None:
+    created = client.post(
+        "/api/projects",
+        json={"name": "Firewall", "description": "perimeter"},
+    )
+    project_id = created.json()["id"]
+
+    # ``name`` is NOT NULL: an explicit null is a 422, not a NOT-NULL violation.
+    null_name = client.patch(f"/api/projects/{project_id}", json={"name": None})
+    assert null_name.status_code == 422
+
+    # ``description`` is nullable, so an explicit null still clears it.
+    null_description = client.patch(
+        f"/api/projects/{project_id}", json={"description": None}
+    )
+    assert null_description.status_code == 200
+    assert null_description.json()["description"] is None
+    assert null_description.json()["name"] == "Firewall"
+
+    # An omitted ``name`` is untouched, not treated as a null.
+    omitted_name = client.patch(
+        f"/api/projects/{project_id}", json={"description": "rebuilt"}
+    )
+    assert omitted_name.status_code == 200
+    assert omitted_name.json()["name"] == "Firewall"
+    assert omitted_name.json()["description"] == "rebuilt"
+
+
 def test_delete_general_route_returns_409(
     client: TestClient, db_session: Session
 ) -> None:
