@@ -1,8 +1,11 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db.models import ActivityEvent
 from app.services import projects as projects_service
+from app.services import task_trash as task_trash_service
 from app.services import tasks as tasks_service
 
 
@@ -138,6 +141,145 @@ def test_restore_project_skips_independently_trashed_tasks(
     assert cascade.deleted_at is None
     # The independently-trashed task was NOT swept back.
     assert independent.deleted_at is not None
+
+
+def test_cross_project_subtree_round_trips_through_the_safety_sweep(
+    db_session: Session,
+) -> None:
+    # A child may sit in a different project than its parent (create_task only
+    # inherits the parent's project when none is given). Such a child is reached
+    # by the safety sweep, not the top-level pass — and its own descendants must
+    # still be stamped, or they stay trashed when the project is restored.
+    project_a = projects_service.create_project(db_session, name="Alpha")
+    project_b = projects_service.create_project(db_session, name="Bravo")
+    parent = tasks_service.create_task(
+        db_session, project_id=project_a.id, title="lives in A"
+    )
+    swept = tasks_service.create_task(
+        db_session,
+        project_id=project_b.id,
+        title="child in B",
+        parent_task_id=parent.id,
+    )
+    grandchild = tasks_service.create_task(
+        db_session,
+        project_id=project_a.id,
+        title="grandchild back in A",
+        parent_task_id=swept.id,
+    )
+    db_session.commit()
+
+    projects_service.soft_delete_project(db_session, project_b)
+    db_session.commit()
+
+    db_session.refresh(parent)
+    db_session.refresh(swept)
+    db_session.refresh(grandchild)
+    # The swept task AND its cross-project descendant go down stamped together.
+    assert swept.deleted_at is not None
+    assert grandchild.deleted_at is not None
+    assert swept.deleted_with_project_id == project_b.id
+    assert grandchild.deleted_with_project_id == project_b.id
+    # The parent lives in another project and is untouched.
+    assert parent.deleted_at is None
+
+    _, count = projects_service.restore_project(
+        db_session, project_b, restore_tasks=True
+    )
+    db_session.commit()
+
+    assert count == 2
+    db_session.refresh(swept)
+    db_session.refresh(grandchild)
+    assert swept.deleted_at is None
+    assert grandchild.deleted_at is None
+    assert swept.deleted_with_project_id is None
+    assert grandchild.deleted_with_project_id is None
+
+
+def test_swept_subtree_is_hidden_from_the_standalone_task_trash(
+    db_session: Session,
+) -> None:
+    # A stamped row belongs to the project's trash entry; surfacing it loose in
+    # the Tasks trash is what made the missing subtree user-visible.
+    project_a = projects_service.create_project(db_session, name="Alpha")
+    project_b = projects_service.create_project(db_session, name="Bravo")
+    parent = tasks_service.create_task(
+        db_session, project_id=project_a.id, title="lives in A"
+    )
+    swept = tasks_service.create_task(
+        db_session,
+        project_id=project_b.id,
+        title="child in B",
+        parent_task_id=parent.id,
+    )
+    grandchild = tasks_service.create_task(
+        db_session,
+        project_id=project_a.id,
+        title="grandchild back in A",
+        parent_task_id=swept.id,
+    )
+    db_session.commit()
+
+    projects_service.soft_delete_project(db_session, project_b)
+    db_session.commit()
+
+    trashed_ids = [t.id for t in task_trash_service.list_deleted_tasks(db_session)]
+    assert swept.id not in trashed_ids
+    assert grandchild.id not in trashed_ids
+    assert (
+        projects_service.count_tasks_deleted_with_project(db_session, project_b.id) == 2
+    )
+
+
+def test_safety_sweep_deletes_each_task_once(db_session: Session) -> None:
+    # The sweep reads its rows up front, so a task an earlier iteration's cascade
+    # already deleted must be skipped: soft_delete re-stamps deleted_at
+    # unconditionally and the event log would fire a second time.
+    project_a = projects_service.create_project(db_session, name="Alpha")
+    project_b = projects_service.create_project(db_session, name="Bravo")
+    parent = tasks_service.create_task(
+        db_session, project_id=project_a.id, title="lives in A"
+    )
+    swept = tasks_service.create_task(
+        db_session,
+        project_id=project_b.id,
+        title="child in B",
+        parent_task_id=parent.id,
+    )
+    # Also in B, and under `swept` — so the sweep query returns both of them.
+    descendant = tasks_service.create_task(
+        db_session,
+        project_id=project_b.id,
+        title="descendant also in B",
+        parent_task_id=swept.id,
+    )
+    db_session.commit()
+
+    projects_service.soft_delete_project(db_session, project_b)
+    db_session.commit()
+
+    db_session.refresh(descendant)
+    assert descendant.deleted_with_project_id == project_b.id
+    deleted_at_after_sweep = descendant.deleted_at
+
+    for task_id in (swept.id, descendant.id):
+        events = (
+            db_session.execute(
+                select(ActivityEvent).where(
+                    ActivityEvent.entity_type == "task",
+                    ActivityEvent.entity_id == task_id,
+                    ActivityEvent.action == "deleted",
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(events) == 1, f"task {task_id} logged {len(events)} deleted events"
+
+    # And its trash timestamp was not moved by a second delete.
+    db_session.refresh(descendant)
+    assert descendant.deleted_at == deleted_at_after_sweep
 
 
 def test_soft_delete_project_refuses_general(db_session: Session) -> None:
