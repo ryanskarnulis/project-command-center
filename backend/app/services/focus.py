@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date
 
 from sqlalchemy.orm import Session
@@ -16,6 +16,13 @@ from app.schemas.focus import (
 )
 from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
+from app.services.tasks import Rollup
+
+# A checklist parent's status and estimate are derived from its children and never
+# written back (see ``tasks.compute_rollups``), so every read of those two fields
+# below goes through this map rather than the ORM row. It covers the source tasks
+# *and* their subtasks, so the ``_pack`` fallback resolves from it too.
+Rollups = Mapping[int, Rollup]
 
 # Unsized tasks are planned at this duration; surfaced as ``estimate_assumed`` so
 # the UI never pretends the number came from the task.
@@ -56,22 +63,34 @@ def _due_signal(due_date: date | None, target_date: date) -> DueSignal:
     return DueSignal.none
 
 
-def _effective_estimate(task: Task) -> tuple[int, bool]:
-    """Return ``(minutes, assumed)`` — the task's estimate or the assumed default."""
-    if task.estimated_minutes is not None:
-        return task.estimated_minutes, False
+def _effective_estimate(task: Task, rollups: Rollups) -> tuple[int, bool]:
+    """Return ``(minutes, assumed)`` — the task's estimate or the assumed default.
+
+    A checklist parent's estimate is the sum of its subtree; a leaf's roll-up
+    carries its own stored value, so both cases resolve the same way.
+    """
+    minutes = rollups[task.id].estimated_minutes
+    if minutes is not None:
+        return minutes, False
     return DEFAULT_ESTIMATE_MINUTES, True
 
 
-def _rank_key(task: Task, target_date: date) -> tuple[int, int, int, int, int]:
+def _effective_status(task: Task, rollups: Rollups) -> TaskWorkflowStatus:
+    """The rolled-up status — what the API reports, not the stored column."""
+    return rollups[task.id].workflow_status
+
+
+def _rank_key(
+    task: Task, target_date: date, rollups: Rollups
+) -> tuple[int, int, int, int, int]:
     """Deterministic sort key (ascending). Mirrors the v1 rules in CURRENT.md.
 
     Order: in-progress first, then due urgency, then priority, then shorter tasks
     as a tie-breaker, then id for a stable final ordering.
     """
-    minutes, _assumed = _effective_estimate(task)
+    minutes, _assumed = _effective_estimate(task, rollups)
     return (
-        _WORKFLOW_RANK[task.workflow_status],
+        _WORKFLOW_RANK[_effective_status(task, rollups)],
         _DUE_RANK[_due_signal(task.due_date, target_date)],
         _PRIORITY_RANK[task.priority],
         minutes,
@@ -79,9 +98,9 @@ def _rank_key(task: Task, target_date: date) -> tuple[int, int, int, int, int]:
     )
 
 
-def _reason(task: Task, target_date: date) -> str:
+def _reason(task: Task, target_date: date, rollups: Rollups) -> str:
     """Human-readable, deterministic explanation of a task's placement."""
-    parts = [task.workflow_status.value.replace("_", "-")]
+    parts = [_effective_status(task, rollups).value.replace("_", "-")]
     signal = _due_signal(task.due_date, target_date)
     if signal is not DueSignal.none:
         parts.append(signal.value.replace("_", " "))
@@ -105,16 +124,19 @@ def _parse_time(value: str) -> int:
     return int(hours) * 60 + int(minutes)
 
 
-def _schedulable_subtasks(db: Session, parent: Task, target_date: date) -> list[Task]:
+def _schedulable_subtasks(
+    db: Session, parent: Task, target_date: date, rollups: Rollups
+) -> list[Task]:
     """The parent's subtasks that could stand in for it on the timeline.
 
-    Not done, not deferred — same eligibility the parent itself had.
-    ``list_subtasks`` already orders by id.
+    Not done, not deferred — same eligibility the parent itself had. Done-ness is
+    the rolled-up one, so a nested checklist whose own children are all finished
+    isn't offered as a stand-in. ``list_subtasks`` already orders by id.
     """
     return [
         sub
         for sub in tasks_service.list_subtasks(db, parent.id)
-        if sub.workflow_status != TaskWorkflowStatus.done
+        if _effective_status(sub, rollups) != TaskWorkflowStatus.done
         and not _is_deferred(sub, target_date)
     ]
 
@@ -125,6 +147,7 @@ def _pack(
     start_minutes: int,
     available_minutes: int,
     target_date: date,
+    rollups: Rollups,
 ) -> tuple[list[ScheduledBlock], list[OverflowTask], int]:
     """Place ranked tasks into sequential blocks, backfilling smaller tasks.
 
@@ -147,7 +170,7 @@ def _pack(
         nonlocal used
         block_start = start_minutes + used
         used += minutes
-        reason = _reason(task, target_date)
+        reason = _reason(task, target_date, rollups)
         if parent is not None:
             reason = f"part of {parent.title} · {reason}"
         blocks.append(
@@ -160,7 +183,7 @@ def _pack(
                 estimated_minutes=minutes,
                 estimate_assumed=assumed,
                 priority=task.priority,
-                workflow_status=task.workflow_status,
+                workflow_status=_effective_status(task, rollups),
                 due_date=task.due_date,
                 due_signal=_due_signal(task.due_date, target_date),
                 is_recurring=task.repeat_interval is not None,
@@ -171,15 +194,15 @@ def _pack(
         )
 
     for task in ranked:
-        minutes, assumed = _effective_estimate(task)
+        minutes, assumed = _effective_estimate(task, rollups)
         if used + minutes <= available_minutes:
             _schedule(task, minutes, assumed, parent=None)
             continue
         # Too large for what's left: try the parent's own subtasks in this rank
         # slot before overflowing it, so part of the work still lands today.
         scheduled_subtasks = 0
-        for sub in _schedulable_subtasks(db, task, target_date):
-            sub_minutes, sub_assumed = _effective_estimate(sub)
+        for sub in _schedulable_subtasks(db, task, target_date, rollups):
+            sub_minutes, sub_assumed = _effective_estimate(sub, rollups)
             if used + sub_minutes <= available_minutes:
                 _schedule(sub, sub_minutes, sub_assumed, parent=task)
                 scheduled_subtasks += 1
@@ -189,7 +212,7 @@ def _pack(
                 title=task.title,
                 project_id=task.project_id,
                 priority=task.priority,
-                workflow_status=task.workflow_status,
+                workflow_status=_effective_status(task, rollups),
                 due_date=task.due_date,
                 due_signal=_due_signal(task.due_date, target_date),
                 is_recurring=task.repeat_interval is not None,
@@ -222,6 +245,10 @@ def get_focus_plan(
         # see _pack). Deferred tasks are snoozed out of the plan entirely.
         if task.parent_task_id is None and not _is_deferred(task, target_date)
     ]
+    # Resolved once, for the source tasks and their subtasks together: ranking,
+    # reasons, packing and the subtask fallback all read status/estimate from here
+    # so the plan agrees with what the task detail page shows.
+    rollups = tasks_service.compute_subtree_rollups(db, source)
     blocked_ids = deps_service.blocked_task_ids(db, [task.id for task in source])
 
     blocked: list[BlockedTask] = []
@@ -241,9 +268,11 @@ def get_focus_plan(
         else:
             schedulable.append(task)
 
-    ranked = sorted(schedulable, key=lambda task: _rank_key(task, target_date))
+    ranked = sorted(
+        schedulable, key=lambda task: _rank_key(task, target_date, rollups)
+    )
     blocks, overflow, used = _pack(
-        db, ranked, _parse_time(start_time), available_minutes, target_date
+        db, ranked, _parse_time(start_time), available_minutes, target_date, rollups
     )
 
     return FocusPlan(

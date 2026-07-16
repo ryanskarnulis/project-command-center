@@ -302,3 +302,117 @@ def test_blocked_details_report_effective_checklist_status(
     assert [b.task_id for b in blocking] == [blocker]
     # Stored status is still "open"; the roll-up says in_progress.
     assert blocking[0].workflow_status == TaskWorkflowStatus.in_progress
+
+
+def _subtask(
+    db: Session,
+    parent_id: int,
+    title: str,
+    *,
+    workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open,
+    estimated_minutes: int | None = None,
+) -> int:
+    task = tasks_service.create_task(
+        db,
+        project_id=None,
+        title=title,
+        parent_task_id=parent_id,
+        workflow_status=workflow_status,
+        estimated_minutes=estimated_minutes,
+    )
+    db.commit()
+    return task.id
+
+
+def test_checklist_parent_is_sized_and_labelled_from_its_roll_up(
+    db_session: Session,
+) -> None:
+    """A parent with no stored estimate is planned at its subtree's size.
+
+    Stored, it looks like an unsized "open" task worth an assumed 30 minutes — small
+    enough to fit the day and never hand off to its subtasks. Rolled up, it is 760
+    minutes of in-progress work that must overflow.
+    """
+    parent = _task(db_session, "big checklist")
+    _subtask(
+        db_session,
+        parent,
+        "done step",
+        workflow_status=TaskWorkflowStatus.done,
+        estimated_minutes=60,
+    )
+    started = _subtask(
+        db_session,
+        parent,
+        "started step",
+        workflow_status=TaskWorkflowStatus.in_progress,
+        estimated_minutes=300,
+    )
+    _subtask(db_session, parent, "huge step", estimated_minutes=400)
+
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
+
+    assert [o.task_id for o in plan.overflow] == [parent]
+    overflowed = plan.overflow[0]
+    assert overflowed.estimated_minutes == 760
+    assert overflowed.estimate_assumed is False
+    assert overflowed.workflow_status == TaskWorkflowStatus.in_progress
+
+    # The parent didn't fit, so its subtasks stand in: the 300-minute one fits the
+    # 360-minute day, the 400-minute one doesn't, and the done one isn't offered.
+    assert [b.task_id for b in plan.scheduled] == [started]
+    assert overflowed.scheduled_subtask_count == 1
+    block = plan.scheduled[0]
+    assert block.parent_task_id == parent
+    assert block.estimated_minutes == 300
+    assert block.reason.startswith("part of big checklist · in-progress")
+
+
+def test_a_rolled_up_done_subtask_is_not_offered_as_a_stand_in(
+    db_session: Session,
+) -> None:
+    """A nested checklist whose own children are all done is finished work."""
+    parent = _task(db_session, "outer")
+    inner = _subtask(db_session, parent, "inner checklist")
+    _subtask(
+        db_session, inner, "inner step", workflow_status=TaskWorkflowStatus.done
+    )
+    _subtask(db_session, parent, "too big", estimated_minutes=400)
+
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
+
+    # Inner's stored status is still "open" — only the roll-up knows it's done.
+    assert [o.task_id for o in plan.overflow] == [parent]
+    assert plan.scheduled == []
+    assert plan.overflow[0].scheduled_subtask_count == 0
+
+
+def test_an_obsolete_parent_estimate_loses_to_the_roll_up(db_session: Session) -> None:
+    parent = _task(db_session, "stale estimate", estimated_minutes=30)
+    _subtask(db_session, parent, "step 1", estimated_minutes=90)
+    _subtask(db_session, parent, "step 2", estimated_minutes=45)
+
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
+
+    assert [b.estimated_minutes for b in plan.scheduled] == [135]
+    assert plan.used_minutes == 135
+
+
+def test_roll_up_in_progress_ranks_ahead_of_a_plain_open_task(
+    db_session: Session,
+) -> None:
+    # Created first, so it wins the id tie-breaker unless status separates them.
+    plain = _task(db_session, "plain open", estimated_minutes=60)
+    parent = _task(db_session, "checklist")
+    _subtask(
+        db_session,
+        parent,
+        "started step",
+        workflow_status=TaskWorkflowStatus.in_progress,
+        estimated_minutes=60,
+    )
+
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
+
+    assert [b.task_id for b in plan.scheduled] == [parent, plain]
+    assert plan.scheduled[0].workflow_status == TaskWorkflowStatus.in_progress
