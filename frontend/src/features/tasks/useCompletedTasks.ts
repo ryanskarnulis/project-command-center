@@ -57,6 +57,9 @@ export function useCompletedTasks(
       setTasks((prev) => prev.filter((t) => t.id !== id))
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to reopen task')
+      // Callers chain follow-up writes off a resolved reopen — a swallowed
+      // rejection would let those run against a task that never reopened.
+      throw e
     }
   }, [])
 

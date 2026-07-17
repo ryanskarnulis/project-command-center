@@ -186,7 +186,9 @@ export function TaskListView({
     const actions = (
       <button
         className="task-action"
-        onClick={() => void reopen(t.id).then(reload)}
+        // A failed reopen surfaces through the hook's error state; swallow the
+        // rejection here so it doesn't reload a list that didn't change.
+        onClick={() => void reopen(t.id).then(reload).catch(() => {})}
       >
         Reopen
       </button>
