@@ -4,7 +4,7 @@ import { RouterProvider, createMemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
 import { listDependencies, listDependents } from '../../api/taskDependencies'
-import { createUnscopedTask, getSubtasks, getTask, listAllTasks, listCompletedTasks, markTaskDone } from '../../api/tasks'
+import { createUnscopedTask, getSubtasks, getTask, listAllTasks, listCompletedTasks, markTaskDone, reopenTask, updateTask } from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { TasksPage } from './TasksPage'
@@ -45,6 +45,8 @@ const mockListCompletedTasks = vi.mocked(listCompletedTasks)
 const mockListProjects = vi.mocked(listProjects)
 const mockCreateUnscopedTask = vi.mocked(createUnscopedTask)
 const mockMarkTaskDone = vi.mocked(markTaskDone)
+const mockReopenTask = vi.mocked(reopenTask)
+const mockUpdateTask = vi.mocked(updateTask)
 const mockGetTask = vi.mocked(getTask)
 const mockGetSubtasks = vi.mocked(getSubtasks)
 const mockListDependencies = vi.mocked(listDependencies)
@@ -519,6 +521,28 @@ describe('TasksPage', () => {
       expect(screen.queryByRole('dialog', { name: 'Task details' })).not.toBeInTheDocument(),
     )
     expect(new URLSearchParams(router.state.location.search).get('task')).toBeNull()
+  })
+
+  it('does not patch the status when reopening a done card fails', async () => {
+    const user = userEvent.setup()
+    const doneTask = {
+      ...baseTask,
+      id: 2,
+      title: 'A done task',
+      workflow_status: 'done' as const,
+    }
+    mockListCompletedTasks.mockResolvedValue([doneTask])
+    mockReopenTask.mockRejectedValue(new Error('Task is blocked'))
+    renderGlobal(['/tasks?view=board'])
+
+    await screen.findByText('A done task')
+    await user.click(screen.getByRole('button', { name: 'Status: Done' }))
+    await user.click(screen.getByRole('button', { name: 'In progress' }))
+
+    await waitFor(() => expect(mockReopenTask).toHaveBeenCalledWith(2))
+    // The reopen was refused, so the follow-up in-progress PATCH must not run.
+    expect(mockUpdateTask).not.toHaveBeenCalled()
+    expect(await screen.findByText('Task is blocked')).toBeInTheDocument()
   })
 
   it('keeps the peek panel open when switching to the board view', async () => {

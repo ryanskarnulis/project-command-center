@@ -79,6 +79,10 @@ export function KanbanBoard({
     setPendingId(task.id)
     try {
       await onSetStatus(task, target)
+    } catch {
+      // The caller already surfaces the failure (toast or board error state).
+      // Swallow here so the fire-and-forget drag/click handlers below don't
+      // raise an unhandled rejection.
     } finally {
       setPendingId(null)
     }
