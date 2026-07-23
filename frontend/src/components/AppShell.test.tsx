@@ -28,7 +28,7 @@ describe('AppShell', () => {
   })
 
   it('shows the summed trash count beside the Trash link', async () => {
-    mockGetTrashCount.mockResolvedValue({ projects: 2, tasks: 1 })
+    mockGetTrashCount.mockResolvedValue({ projects: 2, tasks: 1, purge_total: 3 })
 
     render(
       <MemoryRouter>
@@ -46,7 +46,7 @@ describe('AppShell', () => {
   })
 
   it('hides the trash badge when the trash is empty', async () => {
-    mockGetTrashCount.mockResolvedValue({ projects: 0, tasks: 0 })
+    mockGetTrashCount.mockResolvedValue({ projects: 0, tasks: 0, purge_total: 0 })
 
     render(
       <MemoryRouter>
@@ -64,7 +64,7 @@ describe('AppShell', () => {
   })
 
   it('renders no workspace-status chrome or fake sync/focus controls', async () => {
-    mockGetTrashCount.mockResolvedValue({ projects: 0, tasks: 0 })
+    mockGetTrashCount.mockResolvedValue({ projects: 0, tasks: 0, purge_total: 0 })
 
     render(
       <MemoryRouter>

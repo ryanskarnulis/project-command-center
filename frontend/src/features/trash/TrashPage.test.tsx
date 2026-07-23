@@ -239,16 +239,17 @@ describe('TrashPage', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/Restored project .*Firewall/)
   })
 
-  it('restores a whole section with Restore all', async () => {
+  it('restores a whole section with the restore-all button', async () => {
     const user = userEvent.setup()
     mockRestoreTask.mockResolvedValue(trash.tasks[0])
 
     renderPage()
 
-    // Isolate the Tasks section so there's a single "Restore all" button.
+    // Isolate the Tasks section so there's a single restore-all button. With the
+    // type filter active the button names its true scope: the 1 shown task.
     await screen.findByText('Firewall')
     await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
-    await user.click(screen.getByRole('button', { name: 'Restore all' }))
+    await user.click(screen.getByRole('button', { name: 'Restore 1 shown' }))
 
     expect(mockRestoreTask).toHaveBeenCalledWith(5)
     expect(await screen.findByRole('status')).toHaveTextContent(/Restored 1 task./)

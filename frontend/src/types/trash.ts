@@ -24,4 +24,6 @@ export interface PurgeSelectedRequest {
 export interface TrashCountResult {
   projects: number
   tasks: number
+  /** Exact rows `DELETE /api/trash` removes (incl. cascade tasks, excl. protected projects). */
+  purge_total: number
 }

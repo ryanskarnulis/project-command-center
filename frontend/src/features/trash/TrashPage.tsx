@@ -143,10 +143,16 @@ export function TrashPage() {
     }
   }
 
+  // Empty trash purges *everything* server-side — the whole trash, not just the
+  // loaded page, and including tasks archived with deleted projects. Confirm with
+  // the server's exact removable total (counts.purge_total) so the number never
+  // understates what's about to be destroyed. Falls back to the loaded length
+  // only if the count hasn't arrived, and never reads lower than what's on screen.
+  const emptyTrashTotal = Math.max(counts.purge_total, totalCount)
   const confirmEmptyTrash = () => {
     if (
       window.confirm(
-        `Permanently delete all ${totalCount} item${totalCount === 1 ? '' : 's'} in trash? This cannot be undone.`,
+        `Permanently delete all ${emptyTrashTotal} item${emptyTrashTotal === 1 ? '' : 's'} in trash, including any tasks archived with deleted projects? This cannot be undone.`,
       )
     ) {
       void emptyTrashAll()
@@ -197,6 +203,18 @@ export function TrashPage() {
   // on screen.
   const headingCount = (filtered: number, loaded: number, total: number) =>
     filtersActive ? filtered : Math.max(total, loaded)
+
+  // "Restore all" only ever restores the rows currently shown — the filtered
+  // subset of the loaded page, which can be a prefix of the whole section. Label
+  // it with that true scope so it never implies it cleared more than it did:
+  // "N shown" while filtering, "N loaded" when the page is a truncated prefix,
+  // and a plain "Restore all" only when the loaded set really is everything.
+  const restoreAllLabel = (shown: number, loaded: number, total: number) =>
+    filtersActive
+      ? `Restore ${shown} shown`
+      : loaded < total
+        ? `Restore ${loaded} loaded`
+        : 'Restore all'
 
   // Restore payloads for the visible items in each section (label + project
   // cascade count), reused by both "Restore all" and the selection bar.
@@ -307,7 +325,7 @@ export function TrashPage() {
               className="secondary-action"
               onClick={() => void restoreAll('projects', projectItems)}
             >
-              Restore all
+              {restoreAllLabel(projects.length, trash.projects.length, counts.projects)}
             </button>
           </div>
           <BulkBar
@@ -388,7 +406,7 @@ export function TrashPage() {
               className="secondary-action"
               onClick={() => void restoreAll('tasks', taskItems)}
             >
-              Restore all
+              {restoreAllLabel(tasks.length, trash.tasks.length, counts.tasks)}
             </button>
           </div>
           <BulkBar

@@ -50,6 +50,7 @@ def get_trash_count(db: Session = Depends(get_db)) -> TrashCountResult:
     return TrashCountResult(
         projects=counts.projects,
         tasks=counts.tasks,
+        purge_total=counts.purge_total,
     )
 
 

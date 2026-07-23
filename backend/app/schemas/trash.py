@@ -57,7 +57,15 @@ class EmptyTrashResult(BaseModel):
 
 
 class TrashCountResult(BaseModel):
-    """Exact per-kind counts of rows currently in trash, for the nav badge (9f)."""
+    """Exact trash counts for the nav badge and the Empty-trash confirm (9f).
+
+    ``projects`` / ``tasks`` drive the badge and section headings (soft-deleted
+    projects; *standalone* soft-deleted tasks). ``purge_total`` is the exact
+    number of rows ``DELETE /api/trash`` would remove — including tasks archived
+    with deleted projects and excluding protected projects — so the Empty-trash
+    confirm names a figure that matches the actual deletion.
+    """
 
     projects: int
     tasks: int
+    purge_total: int
