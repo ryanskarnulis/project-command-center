@@ -172,6 +172,64 @@ def test_search_text_relevance_beats_task_state_bias(db_session: Session) -> Non
     assert [t.title for t in results.tasks] == ["firewall", "zzz top"]
 
 
+def test_search_reports_effective_done_for_completed_checklist_parent(
+    db_session: Session,
+) -> None:
+    """A checklist parent whose children are all done reads as done in search.
+
+    Its stored column stays open (status rolls up from children and is never
+    written back), so search must resolve the effective status — otherwise the
+    command bar keeps offering a finished checklist as a /done candidate.
+    """
+    project = projects_service.create_project(db_session, name="P")
+    parent = tasks_service.create_task(
+        db_session, project_id=project.id, title="firewall rollout"
+    )
+    tasks_service.create_task(
+        db_session,
+        project_id=project.id,
+        title="child step",
+        parent_task_id=parent.id,
+        workflow_status=TaskWorkflowStatus.done,
+    )
+    db_session.commit()
+
+    # Stored column is still open; effective status is done.
+    assert parent.workflow_status == TaskWorkflowStatus.open
+    results = search_service.search(db_session, "firewall rollout")
+    match = next(t for t in results.tasks if t.id == parent.id)
+    assert match.workflow_status == TaskWorkflowStatus.done
+
+
+def test_search_reports_effective_open_for_reopened_leaf(
+    db_session: Session,
+) -> None:
+    """A stored-done leaf that gains an active child reads as not-done in search.
+
+    Its status now rolls up from the new child, so search must not keep serving
+    the stale done column (which would hide it from the not-done command-bar set).
+    """
+    project = projects_service.create_project(db_session, name="P")
+    leaf = tasks_service.create_task(
+        db_session,
+        project_id=project.id,
+        title="firewall audit",
+        workflow_status=TaskWorkflowStatus.done,
+    )
+    tasks_service.create_task(
+        db_session,
+        project_id=project.id,
+        title="new child step",
+        parent_task_id=leaf.id,
+    )
+    db_session.commit()
+
+    assert leaf.workflow_status == TaskWorkflowStatus.done
+    results = search_service.search(db_session, "firewall audit")
+    match = next(t for t in results.tasks if t.id == leaf.id)
+    assert match.workflow_status != TaskWorkflowStatus.done
+
+
 def test_search_route_happy_path(client: TestClient, db_session: Session) -> None:
     _seed(db_session)
 
