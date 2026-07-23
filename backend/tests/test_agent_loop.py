@@ -10,6 +10,7 @@ not here.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Generator
 from datetime import date
 
@@ -19,8 +20,8 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai import loop as loop_module
-from app.ai.loop import LOOP_ACTOR, AgentLoop, build_system_prompt
-from app.ai.providers.llamacpp import ToolCallArgumentsError
+from app.ai.loop import LOOP_ACTOR, AgentLoop, AgentRunFailed, build_system_prompt
+from app.ai.providers.llamacpp import ProviderRequestError, ToolCallArgumentsError
 from app.db.models import ActivityEvent, Task, TaskWorkflowStatus
 from app.mcp.server import mcp
 from app.tools import registry, runtime
@@ -196,6 +197,54 @@ def test_max_iterations_terminates_the_loop(tool_db: sessionmaker[Session]) -> N
     assert result.stop_reason == "max_iterations"
     assert result.iterations == 2
     assert len(provider.requests) == 2
+
+
+def test_provider_failure_mid_run_keeps_the_partial_trajectory(
+    tool_db: sessionmaker[Session],
+) -> None:
+    """A tool runs, then the provider fails: AgentRunFailed carries the tool
+    that already ran, tagged provider_error → 502."""
+    provider = ScriptedProvider(
+        [
+            _calls(("create_task", {"data": {"title": "Ran before the fall"}})),
+            ProviderRequestError("boom"),
+        ]
+    )
+    with pytest.raises(AgentRunFailed) as exc_info:
+        AgentLoop(provider).run("Do a thing")
+
+    failed = exc_info.value
+    assert failed.http_status == 502
+    assert failed.result.stop_reason == "provider_error"
+    assert failed.result.reply is None
+    assert [r.tool for r in failed.result.tool_calls] == ["create_task"]
+    assert failed.result.tool_calls[0].error is None  # the tool itself succeeded
+
+
+def test_passed_deadline_times_out_before_calling_the_provider(
+    tool_db: sessionmaker[Session],
+) -> None:
+    """An already-expired deadline stops the run before any provider call —
+    timed_out → 504, and the provider is never asked (empty script)."""
+    provider = ScriptedProvider([])
+    with pytest.raises(AgentRunFailed) as exc_info:
+        AgentLoop(provider).run("Too late", deadline=time.monotonic() - 1.0)
+
+    assert exc_info.value.http_status == 504
+    assert exc_info.value.result.stop_reason == "timed_out"
+    assert provider.requests == []
+
+
+def test_deadline_caps_the_provider_call_timeout(
+    tool_db: sessionmaker[Session],
+) -> None:
+    """The loop passes the time remaining as each call's timeout, so a single
+    call can't outlive the budget."""
+    provider = ScriptedProvider([_text("done")])
+    AgentLoop(provider).run("Hi", deadline=time.monotonic() + 30.0)
+
+    passed_timeout = provider.requests[0]["timeout"]
+    assert passed_timeout is not None and 0.0 < passed_timeout <= 30.0
 
 
 def test_tool_session_reuses_a_bound_request_id(

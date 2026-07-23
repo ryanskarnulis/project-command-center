@@ -20,6 +20,7 @@ the MCP server's behavior.
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from collections.abc import Sequence
 from datetime import date
@@ -31,6 +32,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.ai.providers.llamacpp import (
     ChatResult,
+    ProviderError,
     ToolCall,
     ToolCallArgumentsError,
     ToolSpec,
@@ -118,7 +120,16 @@ def build_system_prompt(today: date) -> str:
         f"Today's date is {today.isoformat()}."
     )
 
-_StopReason = Literal["completed", "max_iterations", "correction_limit"]
+_StopReason = Literal[
+    "completed", "max_iterations", "correction_limit", "provider_error", "timed_out"
+]
+
+# HTTP status the route surfaces for each failure stop reason: a provider fault
+# is an upstream 502; exhausting the time budget is a 504.
+_FAILURE_STATUS: dict[_StopReason, int] = {
+    "provider_error": 502,
+    "timed_out": 504,
+}
 
 
 class ChatProvider(Protocol):
@@ -131,6 +142,7 @@ class ChatProvider(Protocol):
         tools: Sequence[ToolSpec] | None = None,
         enable_thinking: bool = False,
         max_tokens: int | None = None,
+        timeout: float | None = None,
     ) -> ChatResult: ...
 
 
@@ -158,6 +170,25 @@ class AgentRunResult(BaseModel):
     messages: list[dict[str, Any]]
 
 
+class AgentRunFailed(Exception):
+    """A run that ran but couldn't finish: the provider failed, or the time
+    budget was exhausted mid-run.
+
+    Carries the *partial* :class:`AgentRunResult` — the tool calls that did run
+    before the failure — so the caller can persist a truthful record of what
+    happened (see ``routes_agent.post_message``) before surfacing the error.
+    ``http_status`` is what the route returns to the client (502 provider, 504
+    timeout).
+    """
+
+    def __init__(
+        self, result: AgentRunResult, *, http_status: int, message: str
+    ) -> None:
+        super().__init__(message)
+        self.result = result
+        self.http_status = http_status
+
+
 class AgentLoop:
     """Bounded tool-calling loop over one provider and the shared registry."""
 
@@ -180,8 +211,9 @@ class AgentLoop:
         *,
         history: Sequence[dict[str, Any]] | None = None,
         actor: str = LOOP_ACTOR,
+        deadline: float | None = None,
     ) -> AgentRunResult:
-        """Run the loop for one user message. Always returns; never spins.
+        """Run the loop for one user message. Always returns or raises cleanly.
 
         Binds a request ID for the whole run unless the caller (e.g. the HTTP
         middleware, come slice 2) already bound one — every tool call and
@@ -191,18 +223,26 @@ class AgentLoop:
         run makes: the default in-app loop identity, or a delegate actor (e.g.
         ``agent:conductor``) resolved from the request's ``X-Agent-Actor``
         header by :func:`resolve_actor`.
+
+        ``deadline`` is an absolute :func:`time.monotonic` value: once it passes
+        the loop stops before the next provider call and each provider call is
+        capped at the time remaining, so a run can never outlive its budget.
+        A provider failure or a crossed deadline raises :class:`AgentRunFailed`
+        carrying the partial trajectory — the caller persists it, then surfaces
+        the error. ``None`` means no time bound (the default, used by tests).
         """
         bindings: dict[str, str] = {}
         if "request_id" not in structlog.contextvars.get_contextvars():
             bindings["request_id"] = uuid.uuid4().hex[:8]
         with structlog.contextvars.bound_contextvars(**bindings):
-            return self._run(user_message, history, actor)
+            return self._run(user_message, history, actor, deadline)
 
     def _run(
         self,
         user_message: str,
         history: Sequence[dict[str, Any]] | None,
         actor: str,
+        deadline: float | None,
     ) -> AgentRunResult:
         specs = registry.tool_specs()
         messages: list[dict[str, Any]] = [
@@ -221,8 +261,15 @@ class AgentLoop:
         )
         for iteration in range(1, self._max_iterations + 1):
             iterations = iteration
+            if deadline is not None and time.monotonic() >= deadline:
+                # Out of time before this turn's provider call — stop with the
+                # tool calls that already ran (they stay committed and undoable).
+                raise self._out_of_time(records, iteration, messages)
+            call_timeout = (
+                None if deadline is None else max(0.0, deadline - time.monotonic())
+            )
             try:
-                result = self._provider.chat(messages, tools=specs)
+                result = self._provider.chat(messages, tools=specs, timeout=call_timeout)
             except ToolCallArgumentsError as exc:
                 # The turn is unusable — its tool calls can't round-trip into
                 # history — so the correction goes back as a user-role message
@@ -246,6 +293,12 @@ class AgentLoop:
                     }
                 )
                 continue
+            except ProviderError as exc:
+                # The provider fault ends the run, but the tool calls that ran
+                # before it are already committed — keep their record truthful.
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise self._out_of_time(records, iteration, messages) from exc
+                raise self._provider_failed(exc, records, iteration, messages) from exc
             if not result.tool_calls:
                 # A text turn terminates the loop, even when content is empty.
                 messages.append(result.to_message())
@@ -317,6 +370,51 @@ class AgentLoop:
             tool_calls=records,
             iterations=iterations,
             messages=messages,
+        )
+
+    @classmethod
+    def _out_of_time(
+        cls,
+        records: list[ToolCallRecord],
+        iterations: int,
+        messages: list[dict[str, Any]],
+    ) -> AgentRunFailed:
+        return cls._failed("timed_out", "agent run exceeded its time budget", records, iterations, messages)
+
+    @classmethod
+    def _provider_failed(
+        cls,
+        exc: ProviderError,
+        records: list[ToolCallRecord],
+        iterations: int,
+        messages: list[dict[str, Any]],
+    ) -> AgentRunFailed:
+        return cls._failed("provider_error", f"agent run failed: {exc}", records, iterations, messages)
+
+    @staticmethod
+    def _failed(
+        stop_reason: _StopReason,
+        message: str,
+        records: list[ToolCallRecord],
+        iterations: int,
+        messages: list[dict[str, Any]],
+    ) -> AgentRunFailed:
+        """Package a failed run: the partial trajectory plus its HTTP status."""
+        logger.warning(
+            "agent_run_failed",
+            stop_reason=stop_reason,
+            iterations=iterations,
+            tool_calls=len(records),
+        )
+        result = AgentRunResult(
+            reply=None,
+            stop_reason=stop_reason,
+            tool_calls=records,
+            iterations=iterations,
+            messages=messages,
+        )
+        return AgentRunFailed(
+            result, http_status=_FAILURE_STATUS[stop_reason], message=message
         )
 
 

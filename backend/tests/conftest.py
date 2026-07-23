@@ -6,7 +6,7 @@ from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api import rate_limit
+from app.api import conversation_locks, rate_limit
 from app.db.models import Base
 from app.db.session import enable_sqlite_fk_enforcement, get_db
 from app.main import app
@@ -20,8 +20,10 @@ def _reset_rate_limiter() -> Generator[None, None, None]:
     # per-IP caps on the model routes don't bleed across cases (a file that hits a
     # rate-limited route many times would otherwise trip the limit cumulatively).
     rate_limit._reset()
+    conversation_locks._reset()
     yield
     rate_limit._reset()
+    conversation_locks._reset()
 
 
 @pytest.fixture

@@ -9,15 +9,18 @@ request ID the middleware bound.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Generator, Sequence
 
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.ai.loop import AgentLoop, resolve_actor
-from app.ai.providers.llamacpp import ProviderError, provider_from_settings
+from app.ai.loop import AgentLoop, AgentRunFailed, resolve_actor
+from app.ai.providers.llamacpp import provider_from_settings
+from app.api.conversation_locks import conversation_run_lock
 from app.api.rate_limit import rate_limit
+from app.config import get_settings
 from app.db.models import Conversation
 from app.db.session import get_db
 from app.schemas.conversations import (
@@ -113,9 +116,19 @@ def post_message(
 ) -> MessageExchange:
     """Store the user turn, run the loop, store and return the assistant turn.
 
-    The user message is committed *before* the loop runs: the loop's tool
-    calls open their own sessions (write lock contention otherwise), and a
-    provider failure — surfaced as 502 — must not swallow what the user said.
+    Runs on this conversation are serialized (``conversation_run_lock``): a
+    second concurrent message waits for the first to finish — so it reads
+    history that includes the first reply — or gets 409 if the wait exceeds the
+    run budget. The single deadline covers both the wait and the run, keeping
+    the whole request under the proxy timeout.
+
+    The user message is committed *before* the loop runs: the loop's tool calls
+    open their own sessions (write lock contention otherwise), and a failure
+    must not swallow what the user said. On failure the loop raises
+    ``AgentRunFailed`` carrying the tool calls that *did* run; we persist that
+    partial trajectory as a truthful assistant turn (``content`` null, a
+    ``provider_error``/``timed_out`` stop reason) before surfacing the error, so
+    the conversation always reflects what actually happened.
 
     ``X-Agent-Actor`` lets a trusted delegate caller (conductor) attribute the
     run's mutations to itself in the audit trail; an absent or unrecognized
@@ -123,28 +136,38 @@ def post_message(
     """
     conversation = _get_or_404(db, conversation_id)
     actor = resolve_actor(x_agent_actor)
-    history = conversations_service.history_for_loop(db, conversation.id)
-    user_message = conversations_service.append_user_message(
-        db, conversation, data.content
-    )
-    db.commit()
+    budget = get_settings().agent_run_budget_seconds
+    deadline = time.monotonic() + budget
 
-    try:
-        run = loop.run(data.content, history=history, actor=actor)
-    except ProviderError as exc:
-        logger.error(
-            "agent_run_failed", conversation_id=conversation_id, error=str(exc)
+    with conversation_run_lock(conversation_id, wait_seconds=budget):
+        history = conversations_service.history_for_loop(db, conversation.id)
+        user_message = conversations_service.append_user_message(
+            db, conversation, data.content
         )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"agent run failed: {exc}",
-        ) from exc
+        db.commit()
 
-    assistant_message = conversations_service.append_assistant_message(
-        db, conversation, run
-    )
-    db.commit()
-    return MessageExchange(
-        user_message=MessageRead.model_validate(user_message),
-        assistant_message=MessageRead.model_validate(assistant_message),
-    )
+        try:
+            run = loop.run(
+                data.content, history=history, actor=actor, deadline=deadline
+            )
+        except AgentRunFailed as exc:
+            logger.error(
+                "agent_run_failed",
+                conversation_id=conversation_id,
+                stop_reason=exc.result.stop_reason,
+                error=str(exc),
+            )
+            conversations_service.append_assistant_message(db, conversation, exc.result)
+            db.commit()
+            raise HTTPException(
+                status_code=exc.http_status, detail=str(exc)
+            ) from exc
+
+        assistant_message = conversations_service.append_assistant_message(
+            db, conversation, run
+        )
+        db.commit()
+        return MessageExchange(
+            user_message=MessageRead.model_validate(user_message),
+            assistant_message=MessageRead.model_validate(assistant_message),
+        )

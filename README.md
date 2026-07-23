@@ -167,6 +167,18 @@ endpoint — which stores the user turn, runs the loop synchronously, and
 returns the exchange with the full tool-call trajectory. It is rate-limited
 per client IP (`AGENT_MESSAGES_PER_MIN`, default 10).
 
+Runs on one conversation are serialized: a second message that arrives mid-run
+waits for the first to finish (so it sees the reply in history) or gets a 409.
+Each request is bounded by `AGENT_RUN_BUDGET_SECONDS` (default 240) — the loop
+stops once it passes and caps each provider call at the time left, so a run
+can't outlive its budget. That budget is the tightest ceiling on the agent path
+and stays below nginx's `proxy_read_timeout` (300 s), which stays below the
+frontend abort (330 s), so the backend always returns a clean error first. When
+a run fails or times out, the endpoint still persists a truthful assistant turn
+recording exactly which tool calls ran (with a `provider_error`/`timed_out` stop
+reason) and returns 502/504 — the tool mutations that committed remain, undoable
+via the trash, and the conversation never hides what happened.
+
 ## Voice (STT/TTS)
 
 Voice rides the same agent pipeline: `app/ai/speech.py` speaks the OpenAI

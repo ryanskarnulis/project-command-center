@@ -18,6 +18,10 @@ const STOP_FALLBACK: Record<Exclude<AgentStopReason, 'completed'>, string> = {
     'The agent hit its step limit before finishing — the tool calls above still ran.',
   correction_limit:
     'The agent kept producing invalid tool calls and gave up on this request.',
+  provider_error:
+    'The run failed partway — the tool calls above still ran (undo any from the trash).',
+  timed_out:
+    'The run ran out of time — the tool calls above still ran (undo any from the trash).',
 }
 
 export function MessageBubble({ message }: { message: AgentMessage }) {

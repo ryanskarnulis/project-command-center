@@ -16,7 +16,14 @@ export interface ToolCallRecord {
   error: string | null
 }
 
-export type AgentStopReason = 'completed' | 'max_iterations' | 'correction_limit'
+export type AgentStopReason =
+  | 'completed'
+  | 'max_iterations'
+  | 'correction_limit'
+  // Failure stops: the run couldn't finish. The tool calls listed still ran
+  // (and are undoable via the trash); the backend returns 502 / 504 for these.
+  | 'provider_error'
+  | 'timed_out'
 
 export interface AgentMessage {
   id: number
