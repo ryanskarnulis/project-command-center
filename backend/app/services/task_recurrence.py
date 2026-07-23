@@ -178,10 +178,65 @@ def maybe_spawn_recurring_checklist(db: Session, completed_child: Task) -> None:
         if ancestor is None:
             return
         if ancestor.repeat_interval is not None and ancestor.due_date is not None:
-            if get_rollup(db, ancestor).workflow_status == TaskWorkflowStatus.done:
+            # Local import: task_dependencies builds on tasks, which this module
+            # already depends on — a top-level import would cycle.
+            from app.services import task_dependencies as deps_service
+
+            if (
+                get_rollup(db, ancestor).workflow_status == TaskWorkflowStatus.done
+                and not deps_service.is_blocked(db, ancestor.id)
+            ):
                 create_next_occurrence(db, ancestor)
+            # A blocked recurring parent doesn't spawn here; completing its
+            # blocker later drives the deferred spawn via
+            # spawn_unblocked_recurring_dependents.
             return
         current_id = ancestor.parent_task_id
+
+
+def spawn_unblocked_recurring_dependents(db: Session, completed: Task) -> None:
+    """Spawn recurrences that a just-completed blocker has now unblocked.
+
+    A recurring checklist parent whose children were all completed while it was
+    still blocked by an unfinished dependency does *not* spawn its next occurrence
+    at child-completion time (see ``maybe_spawn_recurring_checklist``). Completing
+    that blocker is what should roll the series forward, so on every completion we
+    walk the dependents of ``completed`` and, for each one that is now effectively
+    done and no longer blocked, spawn it.
+
+    Propagates transitively: finishing a task can make a non-recurring dependent
+    effectively done too, which in turn unblocks *its* recurring dependents. The
+    ``seen`` set bounds the walk; ``create_next_occurrence`` is idempotent on
+    ``(recurrence_id, next due date)`` so a dependent reached by more than one path
+    spawns at most once.
+    """
+    from app.services import task_dependencies as deps_service
+
+    queue = [completed.id]
+    seen: set[int] = set()
+    while queue:
+        current_id = queue.pop()
+        for edge in deps_service.list_dependents(db, current_id):
+            dependent_id = edge.task_id
+            if dependent_id in seen:
+                continue
+            dependent = get_task(db, dependent_id)
+            if dependent is None:
+                continue
+            if deps_service.is_blocked(db, dependent_id):
+                continue
+            if get_rollup(db, dependent).workflow_status != TaskWorkflowStatus.done:
+                continue
+            # Now effectively done and unblocked. Spawn if it's a recurring series
+            # head, and propagate: it just became a satisfied blocker for its own
+            # downstream.
+            seen.add(dependent_id)
+            if (
+                dependent.repeat_interval is not None
+                and dependent.due_date is not None
+            ):
+                create_next_occurrence(db, dependent)
+            queue.append(dependent_id)
 
 
 def skip_occurrence(db: Session, task: Task) -> Task:

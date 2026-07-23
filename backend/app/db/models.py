@@ -153,9 +153,10 @@ class TaskDependency(Base, TimestampMixin, SoftDeleteMixin):
     """A 'must finish first' edge between tasks (Sprint 7 task-model slice).
 
     ``task_id depends_on depends_on_task_id`` means the depended-on task must be
-    workflow-``done`` before this task can be started; a task is "blocked" (a
+    workflow-``done`` before this task can be completed; a task is "blocked" (a
     derived state, computed in Python — there is no ``blocked`` status column)
-    while any of its dependencies is unfinished. Cycle prevention (no A->B->A) lives in
+    while any of its dependencies is unfinished. Blocking gates completion, not
+    starting: a blocked task may still be moved to ``in_progress``. Cycle prevention (no A->B->A) lives in
     ``services/task_dependencies.py``, never in the DB. The partial unique index
     keeps one active edge per ordered pair while allowing a soft-deleted edge to be
     re-added later (mirrors the inbox ``input_hash`` index).

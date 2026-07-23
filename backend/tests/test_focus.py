@@ -387,6 +387,28 @@ def test_a_rolled_up_done_subtask_is_not_offered_as_a_stand_in(
     assert plan.overflow[0].scheduled_subtask_count == 0
 
 
+def test_a_blocked_subtask_is_not_offered_as_a_stand_in(db_session: Session) -> None:
+    # A parent too large to fit falls back to its subtasks; a subtask with its own
+    # unfinished dependency must be excluded, matching the main path's promise that
+    # blocked work is never scheduled.
+    parent = _task(db_session, "big parent", estimated_minutes=720)
+    blocked_sub = _subtask(db_session, parent, "blocked step", estimated_minutes=60)
+    open_sub = _subtask(db_session, parent, "open step", estimated_minutes=60)
+    blocker = _task(db_session, "external blocker")
+    deps_service.add_dependency(db_session, blocked_sub, blocker)
+    db_session.commit()
+
+    plan = focus_service.get_focus_plan(
+        db_session, target_date=TARGET, available_minutes=120
+    )
+
+    scheduled_ids = [b.task_id for b in plan.scheduled]
+    assert open_sub in scheduled_ids
+    assert blocked_sub not in scheduled_ids
+    overflow = next(o for o in plan.overflow if o.task_id == parent)
+    assert overflow.scheduled_subtask_count == 1
+
+
 def test_an_obsolete_parent_estimate_loses_to_the_roll_up(db_session: Session) -> None:
     parent = _task(db_session, "stale estimate", estimated_minutes=30)
     _subtask(db_session, parent, "step 1", estimated_minutes=90)
