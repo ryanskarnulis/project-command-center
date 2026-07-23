@@ -240,7 +240,6 @@ def test_top_level_blocker_counts_ignore_done_and_deleted_tasks(
 ) -> None:
     blocker = _task(db_session, "active blocker")
     active = _task(db_session, "active downstream")
-    done = _task(db_session, "done downstream")
     deleted = _task(db_session, "deleted downstream")
     done_blocker = _task(
         db_session, "done blocker", workflow_status=TaskWorkflowStatus.done
@@ -249,23 +248,20 @@ def test_top_level_blocker_counts_ignore_done_and_deleted_tasks(
 
     deps_service.add_dependency(db_session, active, blocker)
     deps_service.add_dependency(db_session, deleted, blocker)
+    # A done task can't be a downstream blocker's dependent: completion is gated
+    # on the blocker, and a dependency can't be added to an already-done task
+    # (see test_add_dependency_to_done_task_rejected). So the only shapes left to
+    # ignore are a soft-deleted dependent and an already-done blocker.
     deps_service.add_dependency(db_session, downstream_of_done, done_blocker)
 
-    # ``done`` must be completed before its blocking edge exists: a task can't be
-    # marked done while it still waits on an open blocker. Adding the edge to an
-    # already-done task is fine.
-    done_task = tasks_service.get_task(db_session, done)
     deleted_task = tasks_service.get_task(db_session, deleted)
-    assert done_task is not None
     assert deleted_task is not None
-    tasks_service.mark_done(db_session, done_task)
-    deps_service.add_dependency(db_session, done, blocker)
     tasks_service.soft_delete_task(db_session, deleted_task)
     db_session.commit()
 
     counts = deps_service.top_level_blocker_counts(
         db_session,
-        [blocker, active, done, deleted, done_blocker, downstream_of_done],
+        [blocker, active, deleted, done_blocker, downstream_of_done],
     )
 
     assert counts == {blocker: 1}
@@ -364,9 +360,13 @@ def test_stored_done_blocker_reopened_by_new_child_blocks_again(
     assert deps_service.blocked_task_ids(db_session, [dependent]) == {dependent}
 
 
-def test_done_checklist_dependent_excluded_from_blocker_counts(
+def test_blocked_checklist_dependent_still_counts_after_children_done(
     db_session: Session,
 ) -> None:
+    # A checklist parent that itself depends on an unfinished blocker does NOT
+    # become satisfied just because its children are all done: its completion is
+    # derived and so never passes the blocked-gate. Its rolled-up "done" is capped
+    # to in_progress, so it stays downstream work the blocker holds up.
     blocker = _task(db_session, "root blocker")
     parent = _task(db_session, "checklist dependent")
     child = _child(db_session, parent, "step")
@@ -374,8 +374,102 @@ def test_done_checklist_dependent_excluded_from_blocker_counts(
     db_session.commit()
     assert deps_service.top_level_blocker_counts(db_session, [blocker]) == {blocker: 1}
 
-    # Once the dependent checklist is effectively done, it is no longer
-    # downstream work waiting on the blocker.
     _done(db_session, child)
 
+    assert deps_service.top_level_blocker_counts(db_session, [blocker]) == {blocker: 1}
+    assert deps_service.is_blocked(db_session, parent) is True
+    assert (
+        deps_service.effective_statuses(db_session, [parent]).get(parent)
+        == TaskWorkflowStatus.in_progress
+    )
+
+    # Finishing the blocker satisfies the parent: now it is effectively done and
+    # drops out of the blocker's downstream count.
+    _done(db_session, blocker)
     assert deps_service.top_level_blocker_counts(db_session, [blocker]) == {}
+    assert deps_service.is_blocked(db_session, parent) is False
+
+
+def test_blocked_checklist_parent_keeps_downstream_blocked(db_session: Session) -> None:
+    # P depends on X (unfinished); completing all of P's children must NOT unblock
+    # a task D that depends on P, and must not let D be completed.
+    blocker = _task(db_session, "X")
+    parent = _task(db_session, "P checklist")
+    child = _child(db_session, parent, "step")
+    dependent = _task(db_session, "D downstream")
+    deps_service.add_dependency(db_session, parent, blocker)
+    deps_service.add_dependency(db_session, dependent, parent)
+    db_session.commit()
+
+    _done(db_session, child)  # P rolls up to done, but is still blocked by X
+
+    assert deps_service.is_blocked(db_session, dependent) is True
+    assert deps_service.blocked_task_ids(db_session, [dependent]) == {dependent}
+    dependent_task = tasks_service.get_task(db_session, dependent)
+    assert dependent_task is not None
+    with pytest.raises(tasks_service.BlockedTaskError):
+        tasks_service.mark_done(db_session, dependent_task)
+
+    # Finishing X satisfies P, which unblocks D.
+    _done(db_session, blocker)
+    assert deps_service.is_blocked(db_session, dependent) is False
+    tasks_service.mark_done(db_session, dependent_task)
+    db_session.commit()
+    assert dependent_task.workflow_status == TaskWorkflowStatus.done
+
+
+def test_add_dependency_to_done_task_rejected(db_session: Session) -> None:
+    a = _task(db_session, "already done")
+    b = _task(db_session, "blocker")
+    a_task = tasks_service.get_task(db_session, a)
+    assert a_task is not None
+    tasks_service.mark_done(db_session, a_task)
+    db_session.commit()
+    with pytest.raises(deps_service.CompletedTaskDependencyError):
+        deps_service.add_dependency(db_session, a, b)
+
+
+def test_add_dependency_to_done_checklist_parent_rejected(
+    db_session: Session,
+) -> None:
+    parent = _task(db_session, "finished checklist")
+    child = _child(db_session, parent, "step")
+    blocker = _task(db_session, "blocker")
+    _done(db_session, child)  # parent rolls up to done
+    with pytest.raises(deps_service.CompletedTaskDependencyError):
+        deps_service.add_dependency(db_session, parent, blocker)
+
+
+def test_add_dependency_to_in_progress_task_allowed(db_session: Session) -> None:
+    a = _task(
+        db_session, "in progress", workflow_status=TaskWorkflowStatus.in_progress
+    )
+    b = _task(db_session, "blocker")
+    edge = deps_service.add_dependency(db_session, a, b)
+    db_session.commit()
+    assert edge.depends_on_task_id == b
+    assert deps_service.is_blocked(db_session, a) is True
+
+
+def test_add_dependency_to_done_task_rejected_over_http(client: TestClient) -> None:
+    a = client.post("/api/tasks", json={"title": "a"}).json()["id"]
+    b = client.post("/api/tasks", json={"title": "b"}).json()["id"]
+    client.post(f"/api/tasks/{a}/done")
+    resp = client.post(
+        f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b}
+    )
+    assert resp.status_code == 409
+
+
+def test_blocked_task_can_be_started(client: TestClient) -> None:
+    # Blocking gates completion, not starting: a blocked task may move to
+    # in_progress, but still can't be marked done.
+    a = client.post("/api/tasks", json={"title": "a"}).json()["id"]
+    b = client.post("/api/tasks", json={"title": "b"}).json()["id"]
+    client.post(f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b})
+
+    started = client.patch(f"/api/tasks/{a}", json={"workflow_status": "in_progress"})
+    assert started.status_code == 200
+    assert started.json()["workflow_status"] == "in_progress"
+
+    assert client.post(f"/api/tasks/{a}/done").status_code == 409

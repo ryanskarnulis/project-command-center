@@ -92,12 +92,29 @@ describe('KanbanBoard', () => {
     expect(onSetStatus.mock.calls[0][1]).toBe('in_progress')
   })
 
-  it('refuses moving a blocked task into In progress', async () => {
+  it('allows starting a blocked task (blocking gates completion, not starting)', async () => {
     const user = userEvent.setup()
     const onSetStatus = renderBoard([
       task({ id: 1, title: 'Blocked one', is_blocked: true }),
     ])
     await moveViaStatusChip(user, 'Open', 'In progress')
+    expect(onSetStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 1 }),
+      'in_progress',
+    )
+  })
+
+  it('refuses completing a blocked task', async () => {
+    const user = userEvent.setup()
+    const onSetStatus = renderBoard([
+      task({
+        id: 1,
+        title: 'Blocked one',
+        workflow_status: 'in_progress',
+        is_blocked: true,
+      }),
+    ])
+    await moveViaStatusChip(user, 'In progress', 'Done')
     expect(onSetStatus).not.toHaveBeenCalled()
   })
 

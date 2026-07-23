@@ -11,16 +11,23 @@ from app.services import task_recurrence
 from app.services import tasks as tasks_service
 
 
-def _rollup_update(rollup: tasks_service.Rollup) -> dict[str, object]:
+def _rollup_update(
+    rollup: tasks_service.Rollup, is_blocked: bool
+) -> dict[str, object]:
     """The ``model_copy`` overrides a roll-up implies.
 
     Only a task with subtasks overrides its estimate/status; a leaf keeps
     its stored values, so we touch nothing but the ``has_subtasks`` flag for it.
+    A blocked parent's rolled-up ``done`` is capped to ``in_progress`` so the UI
+    never shows a task as done while it is flagged blocked (see
+    ``tasks.capped_status``).
     """
     update: dict[str, object] = {"has_subtasks": rollup.has_subtasks}
     if rollup.has_subtasks:
         update["estimated_minutes"] = rollup.estimated_minutes
-        update["workflow_status"] = rollup.workflow_status
+        update["workflow_status"] = tasks_service.capped_status(
+            rollup.workflow_status, is_blocked
+        )
     return update
 
 
@@ -34,12 +41,13 @@ def _blocking_update(blocked_task_count: int) -> dict[str, object]:
 def read_with_blocked(db: Session, task: Task) -> TaskRead:
     """A single task's read model with ``is_blocked`` and roll-ups populated."""
     blocker_counts = deps_service.top_level_blocker_counts(db, [task.id])
+    is_blocked = deps_service.is_blocked(db, task.id)
     return TaskRead.model_validate(task).model_copy(
         update={
-            "is_blocked": deps_service.is_blocked(db, task.id),
+            "is_blocked": is_blocked,
             "next_occurrence_date": task_recurrence.next_occurrence_date(task),
             **_blocking_update(blocker_counts.get(task.id, 0)),
-            **_rollup_update(tasks_service.get_rollup(db, task)),
+            **_rollup_update(tasks_service.get_rollup(db, task), is_blocked),
         }
     )
 
@@ -56,7 +64,7 @@ def reads_with_blocked(db: Session, tasks: Sequence[Task]) -> list[TaskRead]:
                 "is_blocked": t.id in blocked,
                 "next_occurrence_date": task_recurrence.next_occurrence_date(t),
                 **_blocking_update(blocker_counts.get(t.id, 0)),
-                **_rollup_update(rollups[t.id]),
+                **_rollup_update(rollups[t.id], t.id in blocked),
             }
         )
         for t in tasks

@@ -36,6 +36,15 @@ class DependencyCycleError(DependencyError):
     """Adding the edge would create a cycle (e.g. A->B->A) — a deadlock."""
 
 
+class CompletedTaskDependencyError(DependencyError):
+    """A dependency was added to a task that is already (effectively) done.
+
+    Adding a blocker to a finished task would leave it done-yet-blocked — a
+    contradiction. A blocked task can never have been completed (completion is
+    gated), so this only rejects a genuinely finished dependent.
+    """
+
+
 def list_dependencies(db: Session, task_id: int) -> Sequence[TaskDependency]:
     """Active edges where ``task_id`` is the dependent (what it waits on)."""
     return (
@@ -121,6 +130,10 @@ def add_dependency(
     depended = get_task(db, depends_on_id)
     if task is None or depended is None:
         raise DependencyError("Both tasks must exist")
+    if effective_statuses(db, [task_id]).get(task_id) == TaskWorkflowStatus.done:
+        raise CompletedTaskDependencyError(
+            "Can't add a dependency to a task that is already done"
+        )
     if depends_on_id in _depends_on_ids(db, task_id):
         raise DuplicateDependencyError("That dependency already exists")
     if _would_cycle(db, task_id, depends_on_id):
@@ -160,21 +173,72 @@ def remove_dependency(db: Session, edge: TaskDependency) -> None:
 def effective_statuses(
     db: Session, task_ids: Iterable[int]
 ) -> dict[int, TaskWorkflowStatus]:
-    """Rolled-up workflow status per active task id.
+    """Blocked-aware, rolled-up workflow status per active task id.
 
-    A checklist parent's status is derived from its children and never written
-    back (see ``tasks.compute_rollups``), so comparing the stored column would
-    strand a fully-done checklist as a permanent blocker — and, conversely, treat
-    a stored-done row that gained an active child as a satisfied one. Every
-    dependency check resolves through here so it asks the same question the read
-    model answers. Missing/soft-deleted ids are absent from the result.
+    Two derivations stack here:
+
+    1. A checklist parent's status is rolled up from its children and never
+       written back (see ``tasks.compute_rollups``), so comparing the stored
+       column would strand a fully-done checklist as a permanent blocker — and,
+       conversely, treat a stored-done row that gained an active child as a
+       satisfied one.
+    2. A rolled-up ``done`` is capped to ``in_progress`` when the task itself has
+       an unfinished (transitive) dependency. A checklist parent's completion is
+       *derived* from its children and so never passes through the blocked-gate
+       that leaf completion does; without this, finishing a blocked parent's
+       children would silently satisfy anything waiting on the parent. A leaf can
+       never be simultaneously done and blocked (leaf completion is gated, and a
+       finished task can't gain a dependency — see ``add_dependency``), so the cap
+       only ever bites checklist parents, exactly the target.
+
+    The dependency graph is a DAG (``add_dependency`` rejects cycles); the visited
+    memo bounds the walk even against a corrupt graph. Every dependency check
+    resolves through here so it asks the same question the read model answers.
+    Missing/soft-deleted ids are absent from the result.
     """
     ids = set(task_ids)
     if not ids:
         return {}
-    tasks = db.execute(active(Task).where(Task.id.in_(ids))).scalars().all()
+
+    # Gather the transitive dependency closure: demoting a rolled-up-done task
+    # needs each of its (transitive) blockers' effective status too, and a blocker
+    # may sit outside the requested ids.
+    deps_of: dict[int, list[int]] = {}
+    closure: set[int] = set()
+    frontier = set(ids)
+    while frontier:
+        closure |= frontier
+        nxt: set[int] = set()
+        for tid in frontier:
+            edges = _depends_on_ids(db, tid)
+            deps_of[tid] = edges
+            nxt.update(d for d in edges if d not in closure)
+        frontier = nxt
+
+    tasks = db.execute(active(Task).where(Task.id.in_(closure))).scalars().all()
     rollups = compute_rollups(db, tasks)
-    return {t.id: rollups[t.id].workflow_status for t in tasks}
+    rollup_status = {t.id: rollups[t.id].workflow_status for t in tasks}
+
+    memo: dict[int, TaskWorkflowStatus] = {}
+
+    def resolve(tid: int) -> TaskWorkflowStatus | None:
+        if tid in memo:
+            return memo[tid]
+        status = rollup_status.get(tid)
+        if status is None:  # missing/soft-deleted: never a blocker
+            return None
+        memo[tid] = status  # tentative — bounds a cyclic (corrupt) graph
+        if status == TaskWorkflowStatus.done:
+            for dep_id in deps_of.get(tid, ()):
+                dep_status = resolve(dep_id)
+                if dep_status is not None and dep_status != TaskWorkflowStatus.done:
+                    status = TaskWorkflowStatus.in_progress
+                    break
+        memo[tid] = status
+        return status
+
+    resolved = {tid: resolve(tid) for tid in ids}
+    return {tid: status for tid, status in resolved.items() if status is not None}
 
 
 def is_blocked(db: Session, task_id: int) -> bool:

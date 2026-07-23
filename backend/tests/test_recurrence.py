@@ -845,6 +845,39 @@ def test_completing_last_child_spawns_checklist_occurrence(
         assert clone.due_date == date(2026, 6, 8)
 
 
+def test_blocked_recurring_checklist_defers_spawn_until_blocker_done(
+    db_session: Session,
+) -> None:
+    # A recurring checklist parent that itself depends on an unfinished blocker
+    # must NOT spawn its next occurrence when its children finish; the spawn is
+    # deferred until the blocker is completed.
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session)
+    blocker = tasks_service.create_task(
+        db_session, project_id=parent.project_id, title="external blocker"
+    )
+    deps_service.add_dependency(db_session, parent.id, blocker.id)
+    db_session.commit()
+
+    for child in children:
+        tasks_service.mark_done(db_session, child)
+        db_session.commit()
+
+    # Parent rolls up to done but is blocked: no next occurrence yet.
+    assert len(_series(db_session, recurrence_id)) == 1
+
+    # Completing the blocker rolls the series forward exactly once.
+    tasks_service.mark_done(db_session, blocker)
+    db_session.commit()
+    series = _series(db_session, recurrence_id)
+    assert len(series) == 2
+    assert series[-1].due_date == date(2026, 6, 8)
+
+    # Idempotent: re-completing the blocker (a no-op) spawns nothing further.
+    tasks_service.mark_done(db_session, blocker)
+    db_session.commit()
+    assert len(_series(db_session, recurrence_id)) == 2
+
+
 def test_completing_last_child_via_patch_spawns_occurrence(
     db_session: Session,
 ) -> None:

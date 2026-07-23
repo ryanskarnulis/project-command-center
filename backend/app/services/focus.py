@@ -125,19 +125,26 @@ def _parse_time(value: str) -> int:
 
 
 def _schedulable_subtasks(
-    db: Session, parent: Task, target_date: date, rollups: Rollups
+    db: Session,
+    parent: Task,
+    target_date: date,
+    rollups: Rollups,
+    blocked_ids: set[int],
 ) -> list[Task]:
     """The parent's subtasks that could stand in for it on the timeline.
 
-    Not done, not deferred — same eligibility the parent itself had. Done-ness is
-    the rolled-up one, so a nested checklist whose own children are all finished
-    isn't offered as a stand-in. ``list_subtasks`` already orders by id.
+    Not done, not deferred, not blocked — the same eligibility the parent itself
+    had. Done-ness is the rolled-up one, so a nested checklist whose own children
+    are all finished isn't offered as a stand-in; the ``blocked_ids`` filter is
+    what keeps a subtask with its own unfinished dependency off the timeline,
+    matching the main path's guarantee. ``list_subtasks`` already orders by id.
     """
     return [
         sub
         for sub in tasks_service.list_subtasks(db, parent.id)
         if _effective_status(sub, rollups) != TaskWorkflowStatus.done
         and not _is_deferred(sub, target_date)
+        and sub.id not in blocked_ids
     ]
 
 
@@ -148,6 +155,7 @@ def _pack(
     available_minutes: int,
     target_date: date,
     rollups: Rollups,
+    blocked_ids: set[int],
 ) -> tuple[list[ScheduledBlock], list[OverflowTask], int]:
     """Place ranked tasks into sequential blocks, backfilling smaller tasks.
 
@@ -201,7 +209,7 @@ def _pack(
         # Too large for what's left: try the parent's own subtasks in this rank
         # slot before overflowing it, so part of the work still lands today.
         scheduled_subtasks = 0
-        for sub in _schedulable_subtasks(db, task, target_date, rollups):
+        for sub in _schedulable_subtasks(db, task, target_date, rollups, blocked_ids):
             sub_minutes, sub_assumed = _effective_estimate(sub, rollups)
             if used + sub_minutes <= available_minutes:
                 _schedule(sub, sub_minutes, sub_assumed, parent=task)
@@ -249,7 +257,10 @@ def get_focus_plan(
     # reasons, packing and the subtask fallback all read status/estimate from here
     # so the plan agrees with what the task detail page shows.
     rollups = tasks_service.compute_subtree_rollups(db, source)
-    blocked_ids = deps_service.blocked_task_ids(db, [task.id for task in source])
+    # Blocked-ness is resolved over the whole subtree, not just top-level source,
+    # so the subtask-fallback in _pack can exclude a blocked stand-in. Source ids
+    # are a subset, so the top-level split below reads the same set.
+    blocked_ids = deps_service.blocked_task_ids(db, list(rollups.keys()))
 
     blocked: list[BlockedTask] = []
     schedulable: list[Task] = []
@@ -272,7 +283,13 @@ def get_focus_plan(
         schedulable, key=lambda task: _rank_key(task, target_date, rollups)
     )
     blocks, overflow, used = _pack(
-        db, ranked, _parse_time(start_time), available_minutes, target_date, rollups
+        db,
+        ranked,
+        _parse_time(start_time),
+        available_minutes,
+        target_date,
+        rollups,
+        blocked_ids,
     )
 
     return FocusPlan(

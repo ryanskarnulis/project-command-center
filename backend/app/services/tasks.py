@@ -169,6 +169,22 @@ def _rollup_status(child_statuses: Sequence[TaskWorkflowStatus]) -> TaskWorkflow
     return TaskWorkflowStatus.in_progress
 
 
+def capped_status(
+    rollup_status: TaskWorkflowStatus, is_blocked: bool
+) -> TaskWorkflowStatus:
+    """Cap a rolled-up ``done`` to ``in_progress`` when the task is blocked.
+
+    A checklist parent's completion is derived from its children, so it never
+    passes the blocked-gate that leaf completion does; a parent all of whose
+    children are done but which itself waits on an unfinished dependency must not
+    read as ``done``. Shared by the read model, ``list_tasks`` filtering, and (in
+    spirit) ``task_dependencies.effective_statuses`` so every surface agrees.
+    """
+    if is_blocked and rollup_status == TaskWorkflowStatus.done:
+        return TaskWorkflowStatus.in_progress
+    return rollup_status
+
+
 def _children_map_for(
     db: Session, roots: Sequence[Task]
 ) -> dict[int | None, list[Task]]:
@@ -357,19 +373,19 @@ def list_tasks(
     # ``exclude_done``, matching the callers that set ``exclude_done =
     # workflow_status is None``.
     if filtering and tasks:
+        # Local import: task_dependencies imports this module (cycle otherwise).
+        from app.services import task_dependencies
+
         rollups = compute_rollups(db, tasks)
+        blocked = task_dependencies.blocked_task_ids(db, [t.id for t in tasks])
+
+        def _effective(task: Task) -> TaskWorkflowStatus:
+            return capped_status(rollups[task.id].workflow_status, task.id in blocked)
+
         if workflow_status is not None:
-            tasks = [
-                t
-                for t in tasks
-                if rollups[t.id].workflow_status == workflow_status
-            ]
+            tasks = [t for t in tasks if _effective(t) == workflow_status]
         else:
-            tasks = [
-                t
-                for t in tasks
-                if rollups[t.id].workflow_status != TaskWorkflowStatus.done
-            ]
+            tasks = [t for t in tasks if _effective(t) != TaskWorkflowStatus.done]
         # The page boundary belongs on the filtered set, not the stored one.
         end = None if limit is None else offset + limit
         tasks = tasks[offset:end]
@@ -529,6 +545,10 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
         # Completing a child can finish a recurring checklist ancestor whose own
         # status is derived and so never spawns directly.
         task_recurrence.maybe_spawn_recurring_checklist(db, task)
+    if becoming_done:
+        # Completing this task may have been the last unfinished blocker of a
+        # recurring checklist that couldn't spawn while blocked.
+        task_recurrence.spawn_unblocked_recurring_dependents(db, task)
 
     db.flush()
     db.refresh(task)
@@ -563,6 +583,10 @@ def mark_done(db: Session, task: Task) -> Task:
         # Completing a child can finish a recurring checklist ancestor whose own
         # status is derived and so never spawns directly.
         task_recurrence.maybe_spawn_recurring_checklist(db, task)
+    if becoming_done:
+        # Completing this task may have been the last unfinished blocker of a
+        # recurring checklist that couldn't spawn while blocked.
+        task_recurrence.spawn_unblocked_recurring_dependents(db, task)
     db.flush()
     db.refresh(task)
     log_task_event(db, task, "completed")
