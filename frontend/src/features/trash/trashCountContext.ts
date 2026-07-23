@@ -3,6 +3,8 @@ import { createContext, useContext } from 'react'
 export interface TrashCounts {
   projects: number
   tasks: number
+  /** Exact rows Empty-trash removes (incl. cascade tasks, excl. protected projects). */
+  purge_total: number
 }
 
 export interface TrashCount {
@@ -17,6 +19,7 @@ export interface TrashCount {
 export const ZERO_TRASH_COUNTS: TrashCounts = {
   projects: 0,
   tasks: 0,
+  purge_total: 0,
 }
 
 // Default is a no-op so consumers (e.g. AppShell) render fine with no provider —

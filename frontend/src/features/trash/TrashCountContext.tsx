@@ -10,6 +10,7 @@ function toTrashCounts(counts: TrashCounts): TrashCounts {
   return {
     projects: counts.projects,
     tasks: counts.tasks,
+    purge_total: counts.purge_total,
   }
 }
 

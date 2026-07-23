@@ -32,6 +32,7 @@ def test_trash_count_reports_each_kind(client: TestClient) -> None:
     assert client.get("/api/trash/count").json() == {
         "projects": 1,
         "tasks": 1,
+        "purge_total": 2,  # 1 project + 1 standalone task, all removable
     }
 
 
@@ -44,6 +45,51 @@ def test_trash_count_is_not_capped_by_the_list_page_limit(client: TestClient) ->
 
     assert len(client.get("/api/trash").json()["tasks"]) == 50  # list still paginated
     assert client.get("/api/trash/count").json()["tasks"] == 51  # count is exact
+
+
+def test_trash_count_purge_total_matches_what_empty_trash_removes(
+    client: TestClient, db_session: Session
+) -> None:
+    # purge_total drives the Empty-trash confirm, so it must equal exactly what
+    # DELETE /api/trash removes: all soft-deleted tasks (INCLUDING those cascaded
+    # with a project, which the badge's `tasks` excludes) plus non-protected
+    # projects. A cascade project (2 archived tasks) + a standalone task → the
+    # badge shows projects=1, tasks=1, but purge_total is 1 project + 3 tasks = 4.
+    pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "cascade a"})
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "cascade b"})
+    standalone = client.post("/api/tasks", json={"title": "standalone"}).json()["id"]
+    client.delete(f"/api/projects/{pid}")  # cascades its 2 tasks into trash
+    client.delete(f"/api/tasks/{standalone}")
+
+    count = client.get("/api/trash/count").json()
+    assert count["projects"] == 1
+    assert count["tasks"] == 1  # standalone only; cascade tasks excluded from badge
+    assert count["purge_total"] == 4  # 1 project + 3 tasks (2 cascade + 1 standalone)
+
+    # Emptying trash removes exactly purge_total rows.
+    removed = client.delete("/api/trash").json()
+    assert removed["projects"] + removed["tasks"] == count["purge_total"]
+
+
+def test_trash_count_purge_total_excludes_protected_projects(
+    client: TestClient, db_session: Session
+) -> None:
+    # empty_trash spares the protected General project, so purge_total must not
+    # count it — otherwise the confirm would overstate the deletion.
+    tid = client.post("/api/tasks", json={"title": "files into General"}).json()["id"]
+    client.delete(f"/api/tasks/{tid}")  # a real standalone trash row
+    general = db_session.execute(
+        select(Project).where(Project.system_key == "general")
+    ).scalar_one()
+    soft_delete(general)  # General can't reach trash via the API; force it here
+    db_session.commit()
+
+    count = client.get("/api/trash/count").json()
+    assert count["projects"] == 1  # badge counts every deleted project, protected too
+    # Only the standalone task is purgeable; General (protected) is spared, so
+    # purge_total is 1 rather than 2.
+    assert count["purge_total"] == 1
 
 
 def test_project_delete_appears_in_trash_and_restores(client: TestClient) -> None:
