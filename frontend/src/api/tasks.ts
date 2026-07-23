@@ -6,23 +6,46 @@ export async function listTasks(projectId: number): Promise<Task[]> {
   return (await res.json()) as Task[]
 }
 
-// The all-tasks endpoint now caps its result server-side (default 500, max
-// 1000). These views want the full working set, so they request the max
-// explicitly rather than relying on the smaller default.
+// The all-tasks endpoint caps its result server-side (default 500, max 1000).
+// The "all tasks" views want the full working set, so they page through it: a
+// single max-size request would silently drop every task past the first 1,000.
 const MAX_TASK_LIMIT = 1000
 
+/**
+ * Fetch every page of a capped list endpoint, following `offset` until a short
+ * page signals the end. Sequential paged reads (not N+1) over the server's
+ * already-supported offset paging — the only way to read past the 1,000 cap.
+ */
+async function fetchAllPages(
+  buildPath: (limit: number, offset: number) => string,
+): Promise<Task[]> {
+  const all: Task[] = []
+  for (let offset = 0; ; offset += MAX_TASK_LIMIT) {
+    const res = await apiClient(buildPath(MAX_TASK_LIMIT, offset))
+    const page = (await res.json()) as Task[]
+    all.push(...page)
+    if (page.length < MAX_TASK_LIMIT) break
+  }
+  return all
+}
+
 export async function listAllTasks(): Promise<Task[]> {
-  const res = await apiClient(`/api/tasks?limit=${MAX_TASK_LIMIT}`)
-  return (await res.json()) as Task[]
+  return fetchAllPages((limit, offset) => `/api/tasks?limit=${limit}&offset=${offset}`)
 }
 
 export async function listCompletedTasks(projectId?: number): Promise<Task[]> {
-  const path =
-    projectId === undefined
-      ? `/api/tasks?workflow_status=done&limit=${MAX_TASK_LIMIT}`
-      : `/api/projects/${projectId}/tasks?workflow_status=done`
-  const res = await apiClient(path)
-  return (await res.json()) as Task[]
+  // The project-scoped route is unbounded (no cap), so it needs no paging; only
+  // the global completed list rides the capped /api/tasks endpoint.
+  if (projectId !== undefined) {
+    const res = await apiClient(
+      `/api/projects/${projectId}/tasks?workflow_status=done`,
+    )
+    return (await res.json()) as Task[]
+  }
+  return fetchAllPages(
+    (limit, offset) =>
+      `/api/tasks?workflow_status=done&limit=${limit}&offset=${offset}`,
+  )
 }
 
 export async function createUnscopedTask(data: TaskCreate): Promise<Task> {

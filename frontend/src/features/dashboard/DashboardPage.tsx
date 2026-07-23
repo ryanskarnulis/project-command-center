@@ -37,21 +37,36 @@ export function DashboardPage() {
   const [creatingProject, setCreatingProject] = useState(false)
   const [addingTask, setAddingTask] = useState(false)
 
+  // The lanes are exactly the backend's non-closed projects (get_overview
+  // filters closed_at). Scoping counts to these ids ties the headline and
+  // signals to the rendered board: a task in a closed project has no lane, so
+  // it must not be counted here either.
+  const laneProjectIds = useMemo(
+    () => new Set((overview?.projects ?? []).map((p) => p.project_id)),
+    [overview],
+  )
+
   // Signal counts cover exactly what the board can surface: root tasks filed
-  // in a project. Unfiled tasks live on /tasks, not in any lane.
+  // in a currently-shown (non-closed) project. Unfiled tasks live on /tasks,
+  // and closed-project tasks live in no lane — neither belongs in a signal.
   const boardTasks = useMemo(
     () =>
       tasks.filter(
-        (task) => task.parent_task_id === null && task.project_id !== null,
+        (task) =>
+          task.parent_task_id === null &&
+          task.project_id !== null &&
+          laneProjectIds.has(task.project_id),
       ),
-    [tasks],
+    [tasks, laneProjectIds],
   )
 
-  // The headline describes what the lanes hold: unfiled tasks appear in no
-  // lane, so lumping them into one total reads as a wrong count. Both slices
-  // come from the same fetch the board renders, so they can't drift from it.
-  const filedOpenCount = tasks.filter((t) => t.project_id !== null).length
-  const unfiledOpenCount = tasks.length - filedOpenCount
+  // The headline describes what the lanes hold: unfiled tasks appear in no lane
+  // (counted separately as a /tasks link) and closed-project tasks in none at
+  // all, so both are excluded from the filed total the board renders.
+  const filedOpenCount = tasks.filter(
+    (t) => t.project_id !== null && laneProjectIds.has(t.project_id),
+  ).length
+  const unfiledOpenCount = tasks.filter((t) => t.project_id === null).length
 
   // Route a lane move to the right endpoint: Done uses the recurrence-safe
   // done endpoint, leaving Done reopens (→ open), everything else is a PATCH.

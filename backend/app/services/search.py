@@ -81,26 +81,47 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
         .all()
     )
 
-    # Text tier wins first; state only breaks ties within the same text tier.
+    # Text tier decides inclusion (id desc breaks ties); the state tiebreak is
+    # applied in Python below, because it must run on EFFECTIVE status — a
+    # checklist parent's stored ``workflow_status`` is never written back (see
+    # ``tasks.compute_rollups``), so a SQL ``!= done`` predicate would misrank a
+    # fully-done parent as not-done and a reopened-by-a-child leaf as done. The
+    # tier is selected alongside the row so the Python re-sort stays within tier.
     task_text_score = _text_tier(Task.title, Task.description, q, prefix, contains)
-    task_state_score = case(
-        (Task.workflow_status != TaskWorkflowStatus.done, 0),
-        else_=1,
-    )
-    task_rows = (
-        db.execute(
-            active(Task)
-            .where(
-                or_(
-                    Task.title.ilike(contains, escape=_LIKE_ESCAPE),
-                    Task.description.ilike(contains, escape=_LIKE_ESCAPE),
-                )
+    task_result = db.execute(
+        active(Task)
+        .add_columns(task_text_score.label("text_tier"))
+        .where(
+            or_(
+                Task.title.ilike(contains, escape=_LIKE_ESCAPE),
+                Task.description.ilike(contains, escape=_LIKE_ESCAPE),
             )
-            .order_by(task_text_score.asc(), task_state_score.asc(), Task.id.desc())
-            .limit(per_kind)
         )
-        .scalars()
-        .all()
+        .order_by(task_text_score.asc(), Task.id.desc())
+        .limit(per_kind)
+    ).all()
+    task_rows = [row[0] for row in task_result]
+    text_tiers = {row[0].id: row[1] for row in task_result}
+
+    # Resolve blocked-aware, rolled-up status for the (≤ per_kind) matched rows
+    # through the one shared source of truth every other read surface uses. Local
+    # import: task_dependencies imports this package's siblings and a module-level
+    # import would cycle (mirrors ``services/tasks.list_tasks``).
+    from app.services import task_dependencies
+
+    effective = task_dependencies.effective_statuses(db, [t.id for t in task_rows])
+
+    def _effective(task: Task) -> TaskWorkflowStatus:
+        return effective.get(task.id, task.workflow_status)
+
+    # Re-apply the state tiebreak on effective status, still within text tier:
+    # (tier, not-done-before-done, recency). Stable over the SQL order.
+    task_rows.sort(
+        key=lambda t: (
+            text_tiers[t.id],
+            1 if _effective(t) == TaskWorkflowStatus.done else 0,
+            -t.id,
+        )
     )
 
     # Resolve owning-project names for the task subtitles in one query (no N+1).
@@ -129,9 +150,10 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
                 title=t.title,
                 subtitle=names.get(t.project_id) if t.project_id is not None else None,
                 project_id=t.project_id,
-                # Serialized off existing columns (no extra query) so the command
-                # bar can filter /done candidates to not-done tasks.
-                workflow_status=t.workflow_status,
+                # Effective (rolled-up, blocked-aware) status so the command bar
+                # filters /done candidates to what is really not-done — not the
+                # stored column, which lies for checklist parents.
+                workflow_status=_effective(t),
             )
             for t in task_rows
         ],
