@@ -139,6 +139,17 @@ def create_next_occurrence(db: Session, task: Task) -> Task:
         existing = _find_occurrence_on(db, task.recurrence_id, next_due)
         if existing is not None:
             return existing
+    return _insert_occurrence(db, task, next_due)
+
+
+def _insert_occurrence(db: Session, task: Task, due_date: date) -> Task:
+    """Clone ``task`` as a fresh open occurrence due on ``due_date``.
+
+    The raw insert with no idempotency check — callers decide whether a row may
+    already exist on the date. Copies the series identity and content, files the
+    clone as an open top-level task, and clones the active subtree so a checklist
+    routine resets for the new cadence.
+    """
     occurrence = Task(
         project_id=task.project_id,
         title=task.title,
@@ -147,7 +158,7 @@ def create_next_occurrence(db: Session, task: Task) -> Task:
         estimated_minutes=task.estimated_minutes,
         repeat_interval=task.repeat_interval,
         recurrence_id=task.recurrence_id,
-        due_date=next_due,
+        due_date=due_date,
         workflow_status=TaskWorkflowStatus.open,
         parent_task_id=None,
     )
@@ -157,6 +168,48 @@ def create_next_occurrence(db: Session, task: Task) -> Task:
     log_task_event(db, occurrence, "created")
     _clone_subtask_tree(db, task, occurrence.id, occurrence.due_date)
     return occurrence
+
+
+def _next_live_occurrence(db: Session, task: Task) -> Task:
+    """The live occurrence a skip rolls forward to, guaranteeing one on the wire.
+
+    ``create_next_occurrence``'s idempotency guard returns whatever
+    ``_find_occurrence_on`` finds on the next date — including a *soft-deleted*
+    row. That's right for re-completion (don't respawn), but wrong for a skip: the
+    caller expects the next occurrence to be a live, actionable row. So skip needs
+    its own roll-forward that always lands a live occurrence on the correct date:
+
+    - Empty date, or a date whose only row is *normally trashed* → insert a fresh
+      live occurrence there (the trashed row stays in the trash; a later restore of
+      it may leave two live rows on the date, which is accepted).
+    - Date already holds a *live* row → return it (no duplicate).
+    - Date holds a *skipped* row (``skipped_at`` set) → honor that earlier skip and
+      advance to the following date. The live successor spawned when that date was
+      skipped normally sits just beyond it, so this returns that existing live row.
+
+    ``_find_occurrence_on`` is left untouched, so the completion/idempotency path
+    keeps its no-duplicate, no-data-loss behavior.
+    """
+    assert task.repeat_interval is not None
+    assert task.due_date is not None
+    current_due = task.due_date
+    while True:
+        next_due = _next_due_date(current_due, task.repeat_interval)
+        existing = (
+            _find_occurrence_on(db, task.recurrence_id, next_due)
+            if task.recurrence_id is not None
+            else None
+        )
+        if existing is None:
+            return _insert_occurrence(db, task, next_due)
+        if existing.deleted_at is None:
+            return existing
+        if existing.skipped_at is not None:
+            # Explicitly skipped date: don't revive it — advance past it.
+            current_due = next_due
+            continue
+        # Normally-trashed row on this date: land a fresh live occurrence here.
+        return _insert_occurrence(db, task, next_due)
 
 
 def maybe_spawn_recurring_checklist(db: Session, completed_child: Task) -> None:
@@ -254,7 +307,7 @@ def skip_occurrence(db: Session, task: Task) -> Task:
         raise RecurrenceError(
             "Only a recurring task with a due date can be skipped"
         )
-    next_occurrence = create_next_occurrence(db, task)
+    next_occurrence = _next_live_occurrence(db, task)
     # Cascade the skip across the occurrence's subtree. The next occurrence is
     # cloned first (above), so the children can now go to trash with the parent:
     # otherwise a checklist occurrence's subtasks stay active pointing at a

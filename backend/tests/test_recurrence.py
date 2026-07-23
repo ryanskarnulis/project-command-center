@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Task, TaskDependency, TaskWorkflowStatus
 from app.schemas.tasks import RepeatInterval
+from app.services import activity as activity_service
 from app.services import projects as projects_service
 from app.services import task_dependencies as deps_service
 from app.services import task_recurrence, task_trash
@@ -239,6 +240,115 @@ def test_recomplete_does_not_respawn_a_skipped_occurrence(db_session: Session) -
     assert spawned.deleted_at is not None
 
 
+# --- Skip rolls forward to a live occurrence (BUG-2) -------------------------
+
+
+def _two_live_occurrences(db_session: Session) -> tuple[str, Task, Task]:
+    """A weekly series left with two live open occurrences: 06-01 and 06-08.
+
+    Completing 06-01 spawns 06-08; reopening 06-01 leaves 06-08 alone, so both are
+    open and live at once. This is the precondition where skip's next date can
+    already hold another row (trashed or skipped).
+    """
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    recurrence_id = task.recurrence_id
+    assert recurrence_id is not None
+    tasks_service.mark_done(db_session, task)
+    db_session.commit()
+    second = _series(db_session, recurrence_id)[-1]
+    tasks_service.reopen_task(db_session, task)
+    db_session.commit()
+    return recurrence_id, task, second
+
+
+def test_skip_returns_live_successor_when_next_date_active(
+    db_session: Session,
+) -> None:
+    # The next date already holds a live occurrence: return it, don't duplicate.
+    recurrence_id, first, second = _two_live_occurrences(db_session)
+
+    next_occurrence = task_recurrence.skip_occurrence(db_session, first)
+    db_session.commit()
+
+    assert next_occurrence.id == second.id
+    assert next_occurrence.deleted_at is None
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
+        date(2026, 6, 8)
+    ]
+
+
+def test_skip_into_normally_trashed_next_date_creates_live_occurrence(
+    db_session: Session,
+) -> None:
+    # The next date holds only a normally-trashed row. Skip must still land a live,
+    # actionable occurrence on that date rather than returning the dead row.
+    recurrence_id, first, second = _two_live_occurrences(db_session)
+    tasks_service.soft_delete_task(db_session, second)
+    db_session.commit()
+    assert second.deleted_at is not None and second.skipped_at is None
+
+    next_occurrence = task_recurrence.skip_occurrence(db_session, first)
+    db_session.commit()
+
+    assert next_occurrence.due_date == date(2026, 6, 8)
+    assert next_occurrence.deleted_at is None
+    assert next_occurrence.id != second.id  # a fresh live row, not the trashed one
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
+        date(2026, 6, 8)
+    ]
+
+
+def test_skip_past_skipped_next_date_returns_live_beyond(
+    db_session: Session,
+) -> None:
+    # The next date was explicitly skipped earlier. Honor that: roll forward to the
+    # live successor beyond it (spawned when it was skipped), never the skipped row.
+    recurrence_id, first, second = _two_live_occurrences(db_session)
+    third = task_recurrence.skip_occurrence(db_session, second)  # 06-08 skipped
+    db_session.commit()
+    assert second.skipped_at is not None
+    assert third.due_date == date(2026, 6, 15) and third.deleted_at is None
+
+    next_occurrence = task_recurrence.skip_occurrence(db_session, first)
+    db_session.commit()
+
+    assert next_occurrence.id == third.id
+    assert next_occurrence.due_date == date(2026, 6, 15)
+    assert next_occurrence.deleted_at is None
+    # No live row revived on the explicitly-skipped 06-08.
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
+        date(2026, 6, 15)
+    ]
+
+
+def test_restore_trashed_occurrence_after_skip_replaced_it(
+    db_session: Session,
+) -> None:
+    # Documents the accepted interaction from the "create a new live row" choice:
+    # skipping onto a trashed date makes a live replacement, and later restoring the
+    # trashed row brings it back in place — two live rows share the date. Not data
+    # loss; completion idempotency stays deterministic (ordered by id).
+    recurrence_id, first, second = _two_live_occurrences(db_session)
+    tasks_service.soft_delete_task(db_session, second)
+    db_session.commit()
+    replacement = task_recurrence.skip_occurrence(db_session, first)
+    db_session.commit()
+
+    task_trash.restore_task(db_session, second)
+    db_session.commit()
+
+    live_on_0608 = [
+        t
+        for t in _series(db_session, recurrence_id)
+        if t.due_date == date(2026, 6, 8)
+    ]
+    assert {t.id for t in live_on_0608} == {second.id, replacement.id}
+
+
 # --- next_occurrence_date on the read payload (Slice 2) ---------------------
 
 
@@ -419,6 +529,34 @@ def test_edit_scope_future_does_not_forward_structural_fields(
     assert refreshed[date(2026, 6, 1)].parent_task_id is None
 
 
+def test_edit_scope_future_logs_event_per_occurrence(db_session: Session) -> None:
+    # The forward-patch is a bulk UPDATE; every occurrence it mutates must still
+    # land an activity event, like every other multi-row op. The acted-on row and
+    # the forwarded future row each get an "updated" event.
+    recurrence_id, series = _three_occurrence_series(db_session)
+    first, second, third = series
+    project_id = second.project_id
+    assert project_id is not None
+
+    events = activity_service.list_events(db_session, project_id, limit=200)
+    last_event_id = events[0].id if events else 0
+
+    tasks_service.update_task(
+        db_session, second, {"title": "deep clean", "edit_scope": "future"}
+    )
+    db_session.commit()
+
+    new_updated_ids = {
+        e.entity_id
+        for e in activity_service.list_events(db_session, project_id, limit=200)
+        if e.id > last_event_id and e.action == "updated" and e.entity_type == "task"
+    }
+    # Both the acted-on row (06-08) and the forwarded future row (06-15) logged;
+    # the untouched past row (06-01) did not.
+    assert new_updated_ids == {second.id, third.id}
+    assert first.id not in new_updated_ids
+
+
 def test_setting_repeat_without_due_date_raises(db_session: Session) -> None:
     task = _make_task(db_session, due=None)
 
@@ -445,6 +583,57 @@ def test_setting_repeat_with_due_date_in_same_request_succeeds(
 
     assert task.due_date == date(2026, 7, 1)
     assert task.recurrence_id is not None
+
+
+def test_clearing_due_date_on_recurring_task_is_rejected(db_session: Session) -> None:
+    # Clearing the due date while the task stays recurring would leave a series
+    # that never spawns and can't be skipped. The guard checks the post-patch view,
+    # so an omitted repeat_interval doesn't sneak past it.
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+
+    with pytest.raises(tasks_service.RecurrenceError):
+        tasks_service.update_task(db_session, task, {"due_date": None})
+    db_session.rollback()
+
+    # Left untouched: still recurring, still has its due date.
+    assert task.due_date == date(2026, 6, 1)
+    assert task.repeat_interval is not None
+
+
+def test_clearing_due_date_and_repeat_together_succeeds(db_session: Session) -> None:
+    # Clearing both at once is fine: with the recurrence gone there's no series to
+    # leave stranded.
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+
+    tasks_service.update_task(
+        db_session, task, {"due_date": None, "repeat_interval": None}
+    )
+    db_session.commit()
+
+    assert task.due_date is None
+    assert task.repeat_interval is None
+
+
+def test_patch_clear_due_date_on_recurring_returns_422_over_http(
+    client: TestClient, db_session: Session
+) -> None:
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+
+    res = client.patch(f"/api/tasks/{task.id}", json={"due_date": None})
+
+    assert res.status_code == 422
 
 
 def test_patch_repeat_without_due_date_returns_422_over_http(
