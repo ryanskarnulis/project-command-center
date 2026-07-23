@@ -5,7 +5,7 @@ from datetime import date
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -476,16 +476,19 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
 
     # Recurrence requires a due date. The schema can't enforce this (the task may
     # already carry one not present in this request), so re-check against the
-    # post-patch view: an incoming due_date wins, else the task's existing one.
-    setting_recurrence = (
-        "repeat_interval" in control and control["repeat_interval"] is not None
+    # post-patch view: an incoming value wins, else the task's existing one. This
+    # covers both directions — setting a recurrence without a due date, and
+    # clearing the due date on a task that stays recurring (which would otherwise
+    # leave a series that never spawns and can't be skipped).
+    effective_repeat = (
+        control["repeat_interval"] if "repeat_interval" in control
+        else task.repeat_interval
     )
-    if setting_recurrence:
-        effective_due = (
-            control["due_date"] if "due_date" in control else task.due_date
-        )
-        if effective_due is None:
-            raise RecurrenceError("A due date is required to set a recurrence")
+    effective_due = (
+        control["due_date"] if "due_date" in control else task.due_date
+    )
+    if effective_repeat is not None and effective_due is None:
+        raise RecurrenceError("A recurring task requires a due date")
 
     prev_workflow = task.workflow_status
     for key, value in control.items():
@@ -523,6 +526,24 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
             .values(**forward_fields)
         )
         db.expire_all()
+        # The bulk UPDATE mutates every forwarded occurrence but emits no activity
+        # events, unlike every other multi-row op (which loops and logs per row).
+        # Re-select the forwarded rows (same predicate) and log each so the audit
+        # trail is complete; the acted-on row is logged once below.
+        forwarded = (
+            db.execute(
+                select(Task).where(
+                    Task.recurrence_id == task.recurrence_id,
+                    Task.due_date >= task.due_date,
+                    Task.deleted_at.is_(None),
+                    Task.id != task.id,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for row in forwarded:
+            log_task_event(db, row, "updated")
 
     # Completing a recurring task spawns its next occurrence. Only on the
     # open->done transition (a no-op re-save of a done task must not duplicate);

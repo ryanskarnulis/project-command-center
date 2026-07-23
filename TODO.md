@@ -120,7 +120,12 @@ the items below are scope, not order.
       (2026-07-16) on purpose: it's the idempotency guard from `ec3cd8e`, and
       narrowing it to skipped-only would let a re-completion respawn onto a date
       the user deliberately trashed, then collide with that row if it's restored.
-      Revisit only if the blocked-date behavior actually bites.
+      *Update 2026-07-23:* the skip path now sidesteps this via
+      `_next_live_occurrence` (skip lands a live row on the correct date instead of
+      returning the dead one; explicitly-skipped dates are advanced past), leaving
+      `_find_occurrence_on` untouched. The remaining question is only the
+      *completion* path — revisit if a re-completion landing on a trashed date
+      actually bites.
 - [ ] Task due-date reminders
 - [ ] Export tasks to markdown
 
