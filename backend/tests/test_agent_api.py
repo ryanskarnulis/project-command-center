@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai.loop import LOOP_ACTOR, AgentLoop, AgentRunResult, ToolCallRecord
 from app.ai.providers.llamacpp import ProviderRequestError
-from app.api import routes_agent
+from app.api import conversation_locks, routes_agent
 from app.config import get_settings
 from app.db.models import ActivityEvent, Task
 from app.main import app
@@ -185,9 +185,11 @@ def test_post_message_runs_loop_and_persists_exchange(
     assert not any("tool" in (m.get("role") or "") for m in prior_turns)
 
 
-def test_provider_failure_is_502_and_keeps_the_user_message(
+def test_provider_failure_before_any_tool_is_502_with_a_truthful_turn(
     client: TestClient, tool_db: sessionmaker[Session]
 ) -> None:
+    """A first-call provider failure: 502, and a persisted assistant turn that
+    honestly records the failure (no reply, no tool calls)."""
     _use_loop(ScriptedProvider([ProviderRequestError("connect timeout")]))
     conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
 
@@ -197,9 +199,75 @@ def test_provider_failure_is_502_and_keeps_the_user_message(
     )
     assert response.status_code == 502
 
-    detail = client.get(f"/api/agent/conversations/{conversation_id}").json()
-    assert [m["role"] for m in detail["messages"]] == ["user"]
-    assert detail["messages"][0]["content"] == "Anyone home?"
+    messages = client.get(f"/api/agent/conversations/{conversation_id}").json()[
+        "messages"
+    ]
+    assert [m["role"] for m in messages] == ["user", "assistant"]
+    assert messages[0]["content"] == "Anyone home?"
+    assistant = messages[1]
+    assert assistant["content"] is None
+    assert assistant["stop_reason"] == "provider_error"
+    assert assistant["tool_calls"] is None
+
+
+def test_provider_failure_mid_run_records_the_tools_that_already_ran(
+    client: TestClient, tool_db: sessionmaker[Session], db_session: Session
+) -> None:
+    """The core Issue-1 case: a tool commits, then the provider dies. The task
+    stays committed (undoable via trash) AND the conversation truthfully records
+    that create_task ran — the failure never hides what happened."""
+    _use_loop(
+        ScriptedProvider(
+            [
+                tool_calls_turn(("create_task", {"data": {"title": "Half-done"}})),
+                ProviderRequestError("llama-server went away"),
+            ]
+        )
+    )
+    conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
+
+    response = client.post(
+        f"/api/agent/conversations/{conversation_id}/messages",
+        json={"content": "Create a task called Half-done"},
+    )
+    assert response.status_code == 502
+
+    # The mutation committed independently and survives (as designed — undoable).
+    tasks = db_session.execute(select(Task)).scalars().all()
+    assert [t.title for t in tasks] == ["Half-done"]
+
+    # The conversation records the truth: the create_task that ran, then failure.
+    assistant = client.get(f"/api/agent/conversations/{conversation_id}").json()[
+        "messages"
+    ][1]
+    assert assistant["stop_reason"] == "provider_error"
+    assert assistant["content"] is None
+    assert [c["tool"] for c in assistant["tool_calls"]] == ["create_task"]
+    assert assistant["tool_calls"][0]["error"] is None
+
+
+def test_run_over_budget_is_504_with_a_timed_out_turn(
+    client: TestClient, tool_db: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run that can't finish within the budget stops with a 504 and a truthful
+    timed_out turn, rather than running on past the proxy/browser ceilings."""
+    monkeypatch.setattr(get_settings(), "agent_run_budget_seconds", 0.0)
+    # Budget 0 → the loop is already out of time before its first provider call,
+    # so the provider is never even asked (script left intentionally empty).
+    _use_loop(ScriptedProvider([]))
+    conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
+
+    response = client.post(
+        f"/api/agent/conversations/{conversation_id}/messages",
+        json={"content": "Take your time"},
+    )
+    assert response.status_code == 504
+
+    assistant = client.get(f"/api/agent/conversations/{conversation_id}").json()[
+        "messages"
+    ][1]
+    assert assistant["stop_reason"] == "timed_out"
+    assert assistant["content"] is None
 
 
 def test_x_agent_actor_attributes_mutations_to_the_delegate(
@@ -331,3 +399,24 @@ def test_post_message_is_rate_limited(
     )
     assert second.status_code == 429
     assert "Retry-After" in second.headers
+
+
+def test_second_message_while_a_run_is_in_progress_gets_409(
+    client: TestClient,
+    tool_db: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A message posted while the same conversation is mid-run is rejected with
+    409 (not run against overlapping history). Simulated by holding the
+    conversation's run lock while the request is in flight — the endpoint runs
+    in a worker thread, so its acquire genuinely blocks and times out."""
+    monkeypatch.setattr(get_settings(), "agent_run_budget_seconds", 0.05)
+    _use_loop(ScriptedProvider([text_turn("hi")]))
+    conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
+
+    with conversation_locks.conversation_run_lock(conversation_id, wait_seconds=1.0):
+        response = client.post(
+            f"/api/agent/conversations/{conversation_id}/messages",
+            json={"content": "are you busy?"},
+        )
+    assert response.status_code == 409

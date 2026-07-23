@@ -195,12 +195,18 @@ class LlamaCppProvider:
         tools: Sequence[ToolSpec] | None = None,
         enable_thinking: bool = False,
         max_tokens: int | None = None,
+        timeout: float | None = None,
     ) -> ChatResult:
-        """One completion turn, optionally offering tools."""
+        """One completion turn, optionally offering tools.
+
+        ``timeout`` overrides the client's default read timeout for this one
+        call (the agent loop passes the time left in its run budget), so a
+        single call can never outlive the caller's deadline.
+        """
         payload = self._payload(
             messages, tools=tools, enable_thinking=enable_thinking, max_tokens=max_tokens
         )
-        return self._result(self._post(payload))
+        return self._result(self._post(payload, timeout=timeout))
 
     def chat_structured(
         self,
@@ -260,7 +266,9 @@ class LlamaCppProvider:
             payload["tool_choice"] = "auto"
         return payload
 
-    def _post(self, payload: dict[str, Any]) -> _WireCompletion:
+    def _post(
+        self, payload: dict[str, Any], *, timeout: float | None = None
+    ) -> _WireCompletion:
         log = logger.bind(llm_call_id=uuid.uuid4().hex[:8], model=self._model)
         log.info(
             "llm_request",
@@ -268,9 +276,20 @@ class LlamaCppProvider:
             tools=len(payload.get("tools", ())),
             structured="response_format" in payload,
         )
+        # Per-call read-timeout override (keep the client's short connect cap);
+        # httpx.USE_CLIENT_DEFAULT falls back to the timeout set at construction.
+        request_timeout: Any = (
+            httpx.USE_CLIENT_DEFAULT
+            if timeout is None
+            else httpx.Timeout(timeout, connect=10.0)
+        )
         started = time.monotonic()
         try:
-            response = self._client.post(f"{self._base_url}/chat/completions", json=payload)
+            response = self._client.post(
+                f"{self._base_url}/chat/completions",
+                json=payload,
+                timeout=request_timeout,
+            )
         except httpx.HTTPError as exc:
             log.error("llm_request_failed", error=str(exc))
             raise ProviderRequestError(f"llama-server request failed: {exc}") from exc

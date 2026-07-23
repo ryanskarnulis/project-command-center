@@ -7,8 +7,10 @@ import type {
 
 // Posting a message runs the agent loop synchronously on the local GPU: warm
 // runs are seconds, but a cold model load is ~100 s before the first token.
-// Match the backend provider's own read timeout instead of the 30 s default.
-const AGENT_RUN_TIMEOUT_MS = 300_000
+// This is the outermost ceiling and must stay above nginx (300 s) and the
+// backend run budget (240 s) so the backend always returns a real error first
+// rather than the browser aborting a still-valid run.
+const AGENT_RUN_TIMEOUT_MS = 330_000
 
 export async function listConversations(): Promise<Conversation[]> {
   const res = await apiClient('/api/agent/conversations')

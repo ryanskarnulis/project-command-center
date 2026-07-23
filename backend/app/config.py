@@ -71,6 +71,16 @@ class Settings(BaseSettings):
     # GPU, so 10/min is generous for a person and a brake on runaway clients.
     agent_messages_per_min: int = 10
 
+    # Wall-clock ceiling on one agent message request, covering both the wait
+    # for the per-conversation run lock and the loop run itself. The loop stops
+    # (with a truthful partial trajectory) once this passes, and each provider
+    # call is capped at the time remaining. It is the tightest ceiling on the
+    # agent path and MUST stay below the nginx proxy_read_timeout, which in turn
+    # stays below the frontend's AGENT_RUN_TIMEOUT_MS — so the backend always
+    # returns a clean error before the proxy or the browser gives up
+    # (backend 240 s < nginx 300 s < frontend 330 s).
+    agent_run_budget_seconds: float = 240.0
+
     # Explicit CORS allow-list (the local Vite dev server).
     cors_origins: list[str] = [
         "http://localhost:5173",
