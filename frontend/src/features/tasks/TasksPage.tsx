@@ -4,6 +4,7 @@ import { Columns3, List } from 'lucide-react'
 import { listProjects } from '../../api/projects'
 import { createUnscopedTask } from '../../api/tasks'
 import { useToast } from '../../components/ToastContext'
+import { fireAndForget } from '../../utils/async'
 import type { Project } from '../../types/project'
 import type { Task, TaskCreate, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { ActivityFeed } from '../projects/ActivityFeed'
@@ -210,7 +211,7 @@ export function TasksPage() {
         taskTitle={skipTarget?.title ?? null}
         onCancel={() => setSkipTarget(null)}
         onConfirm={() => {
-          if (skipTarget) void skip(skipTarget.id).then(bumpActivity)
+          if (skipTarget) fireAndForget(skip(skipTarget.id).then(bumpActivity))
           setSkipTarget(null)
         }}
       />

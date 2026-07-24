@@ -147,4 +147,68 @@ describe('KanbanBoard', () => {
       'open',
     )
   })
+
+  // The rejecting handlers below are PLAIN functions, not vi.fn(): Vitest
+  // observes a mock's returned promise (for settledResults), which attaches a
+  // handler and hides the very unhandled rejection these tests guard against.
+  // A plain function leaves the promise unobserved, so the setup.ts backstop
+  // (process 'unhandledRejection') fails the test if a handler leaks it.
+
+  // A failed move must not leak — the swallow lives in move()'s try/catch.
+  it('swallows a failing move (onSetStatus rejects) without leaking', async () => {
+    const user = userEvent.setup()
+    let calls = 0
+    const onSetStatus = () => {
+      calls += 1
+      return Promise.reject(new Error('boom'))
+    }
+    render(
+      <MemoryRouter>
+        <KanbanBoard
+          activeTasks={[task({ id: 1, title: 'Open one', workflow_status: 'open' })]}
+          completedTasks={[]}
+          isGlobal={false}
+          onSetStatus={onSetStatus}
+          onUpdate={vi.fn(() => Promise.resolve())}
+        />
+      </MemoryRouter>,
+    )
+    await moveViaStatusChip(user, 'Open', 'In progress')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(calls).toBe(1)
+    // The card stays interactive after the failed move (pending cleared).
+    expect(
+      screen.getByRole('button', { name: 'Status: Open' }),
+    ).toBeInTheDocument()
+  })
+
+  // The card chip edit calls onUpdate directly (not via move()); it must be
+  // wrapped so a rejected patch doesn't leak. Covers KanbanBoard.tsx:115.
+  it('swallows a failing chip edit (onUpdate rejects) without leaking', async () => {
+    const user = userEvent.setup()
+    const patches: Partial<Task>[] = []
+    const onUpdate = (_t: Task, patch: Partial<Task>) => {
+      patches.push(patch)
+      return Promise.reject(new Error('boom'))
+    }
+    render(
+      <MemoryRouter>
+        <KanbanBoard
+          activeTasks={[
+            task({ id: 1, title: 'Open one', workflow_status: 'open', priority: 'medium' }),
+          ]}
+          completedTasks={[]}
+          isGlobal={false}
+          onSetStatus={vi.fn(() => Promise.resolve())}
+          onUpdate={onUpdate}
+        />
+      </MemoryRouter>,
+    )
+    await user.click(screen.getByRole('button', { name: 'Priority: medium' }))
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: /high/i }),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(patches).toEqual([{ priority: 'high' }])
+  })
 })

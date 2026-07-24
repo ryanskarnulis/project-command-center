@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AlertTriangle, Eye, Wrench } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../../components/ToastContext'
+import { fireAndForget } from '../../utils/async'
 import { useTrashCount } from '../trash/trashCountContext'
 import type { ToolCallRecord } from '../../types/agent'
 import { describeToolCall, isMutation, linkFor, undoFor } from './toolCalls'
@@ -81,7 +82,7 @@ export function ToolCallList({
                 <button
                   type="button"
                   className="secondary-action agent-undo"
-                  onClick={() => void undo(key, record)}
+                  onClick={() => fireAndForget(undo(key, record))}
                 >
                   {action.label}
                 </button>

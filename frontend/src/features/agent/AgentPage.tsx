@@ -15,6 +15,7 @@ import {
   VolumeX,
 } from 'lucide-react'
 import { SpiderMark } from '../../components/SpiderMark'
+import { fireAndForget } from '../../utils/async'
 import { formatRelative } from '../../utils/dates'
 import { MicButton } from '../../voice/MicButton'
 import { playText } from '../../voice/tts'
@@ -115,7 +116,7 @@ export function AgentPage() {
         <button
           type="button"
           className="agent-new-chat"
-          onClick={() => void startConversation()}
+          onClick={() => fireAndForget(startConversation())}
         >
           <MessageSquarePlus size={17} aria-hidden="true" />
           New conversation
@@ -152,7 +153,9 @@ export function AgentPage() {
                   className="agent-conversation-delete"
                   aria-label={`Delete conversation ${conversation.title ?? conversation.id}`}
                   onClick={() =>
-                    void removeConversation(conversation.id, conversation.title)
+                    fireAndForget(
+                      removeConversation(conversation.id, conversation.title),
+                    )
                   }
                 >
                   <Trash2 size={15} aria-hidden="true" />
@@ -176,7 +179,7 @@ export function AgentPage() {
             <button
               type="button"
               className="agent-new-chat"
-              onClick={() => void startConversation()}
+              onClick={() => fireAndForget(startConversation())}
             >
               <MessageSquarePlus size={17} aria-hidden="true" />
               Start a conversation

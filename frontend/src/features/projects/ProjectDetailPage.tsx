@@ -13,6 +13,7 @@ import { useToast } from '../../components/ToastContext'
 import type { Project, ProjectUpdate } from '../../types/project'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { useBeforeUnload } from '../../hooks/useBeforeUnload'
+import { fireAndForget } from '../../utils/async'
 import { buildProjectStats } from '../../utils/projectStatus'
 import { TaskCard } from '../tasks/TaskCard'
 import { SubtaskGroup } from '../tasks/SubtaskGroup'
@@ -260,7 +261,9 @@ export function ProjectDetailPage() {
               <button
                 type="button"
                 onClick={() =>
-                  void (project.closed_at ? handleReopenProject() : handleCloseProject())
+                  fireAndForget(
+                    project.closed_at ? handleReopenProject() : handleCloseProject(),
+                  )
                 }
               >
                 {project.closed_at ? 'Reopen project' : 'Close project'}
@@ -268,7 +271,7 @@ export function ProjectDetailPage() {
               <button
                 type="button"
                 className="danger-action"
-                onClick={() => void handleDeleteProject()}
+                onClick={() => fireAndForget(handleDeleteProject())}
               >
                 Delete project
               </button>
@@ -334,15 +337,21 @@ export function ProjectDetailPage() {
               <li key={t.id}>
                 <TaskCard
                   task={t}
-                  onComplete={() => void handleCompleteTask(t)}
-                  onUpdate={(patch) => void handleUpdateTask(t, patch)}
-                  onSetStatus={(target) => void handleSetTaskStatus(t, target)}
+                  onComplete={() => fireAndForget(handleCompleteTask(t))}
+                  onUpdate={(patch) => fireAndForget(handleUpdateTask(t, patch))}
+                  onSetStatus={(target) =>
+                    fireAndForget(handleSetTaskStatus(t, target))
+                  }
                 />
                 <SubtaskGroup
                   children={taskTree.childrenOf.get(t.id) ?? []}
-                  onCompleteTask={(s) => void handleCompleteTask(s)}
-                  onUpdateTask={(s, patch) => void handleUpdateTask(s, patch)}
-                  onSetTaskStatus={(s, target) => void handleSetTaskStatus(s, target)}
+                  onCompleteTask={(s) => fireAndForget(handleCompleteTask(s))}
+                  onUpdateTask={(s, patch) =>
+                    fireAndForget(handleUpdateTask(s, patch))
+                  }
+                  onSetTaskStatus={(s, target) =>
+                    fireAndForget(handleSetTaskStatus(s, target))
+                  }
                 />
               </li>
             ))}

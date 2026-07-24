@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { AsyncState } from '../../components/AsyncState'
+import { fireAndForget } from '../../utils/async'
 import type { Project } from '../../types/project'
 import type { Task, TaskCreate, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { SubtaskComposer } from './SubtaskComposer'
@@ -127,7 +128,7 @@ export function TaskListView({
           className="task-icon-action danger-action"
           aria-label={`Delete ${t.title}`}
           title="Delete"
-          onClick={() => void remove(t.id).then(bumpActivity)}
+          onClick={() => fireAndForget(remove(t.id).then(bumpActivity))}
         >
           <Trash2 size={17} aria-hidden="true" />
         </button>
@@ -139,9 +140,9 @@ export function TaskListView({
           task={t}
           projects={isGlobal ? projects : undefined}
           actions={actions}
-          onComplete={() => void markDone(t.id).then(bumpActivity)}
-          onUpdate={(patch) => void update(t, patch)}
-          onSetStatus={(target) => void onSetStatus(t, target)}
+          onComplete={() => fireAndForget(markDone(t.id).then(bumpActivity))}
+          onUpdate={(patch) => fireAndForget(update(t, patch))}
+          onSetStatus={(target) => fireAndForget(onSetStatus(t, target))}
           onSkipOccurrence={() => onSkip(t)}
         />
         {subtaskParentId === t.id && (
@@ -199,8 +200,8 @@ export function TaskListView({
           task={t}
           projects={isGlobal ? projects : undefined}
           actions={actions}
-          onUpdate={(patch) => void update(t, patch)}
-          onSetStatus={(target) => void onSetStatus(t, target)}
+          onUpdate={(patch) => fireAndForget(update(t, patch))}
+          onSetStatus={(target) => fireAndForget(onSetStatus(t, target))}
         />
       </li>
     )

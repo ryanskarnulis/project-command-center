@@ -3,19 +3,29 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  closeProject,
   deleteProject,
   getProject,
   getProjectActivity,
+  reopenProject,
   updateProject,
 } from '../../api/projects'
-import { getTask, listCompletedTasks, listTasks, updateTask } from '../../api/tasks'
+import {
+  getTask,
+  listCompletedTasks,
+  listTasks,
+  markTaskDone,
+  updateTask,
+} from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { ProjectDetailPage } from './ProjectDetailPage'
 
 vi.mock('../../api/projects', () => ({
+  closeProject: vi.fn(),
   deleteProject: vi.fn(),
   getProject: vi.fn(),
+  reopenProject: vi.fn(),
   updateProject: vi.fn(),
   getProjectActivity: vi.fn(),
   listProjects: vi.fn(() => Promise.resolve([])),
@@ -77,10 +87,13 @@ const task: Task = {
 }
 
 const mockDeleteProject = vi.mocked(deleteProject)
+const mockCloseProject = vi.mocked(closeProject)
 const mockGetProject = vi.mocked(getProject)
+const mockReopenProject = vi.mocked(reopenProject)
 const mockUpdateProject = vi.mocked(updateProject)
 const mockGetTask = vi.mocked(getTask)
 const mockUpdateTask = vi.mocked(updateTask)
+const mockMarkTaskDone = vi.mocked(markTaskDone)
 const mockListTasks = vi.mocked(listTasks)
 const mockListCompleted = vi.mocked(listCompletedTasks)
 const mockGetProjectActivity = vi.mocked(getProjectActivity)
@@ -188,6 +201,53 @@ describe('ProjectDetailPage', () => {
     confirmSpy.mockRestore()
   })
 
+  it('stays on the project when delete rejects', async () => {
+    const user = userEvent.setup()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mockDeleteProject.mockRejectedValue(new Error('Delete failed'))
+    renderDetail()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Delete project' }),
+    )
+    await waitFor(() => expect(mockDeleteProject).toHaveBeenCalledWith(7))
+    expect(screen.getByLabelText('Project name')).toBeInTheDocument()
+    expect(screen.queryByText('Dashboard page')).not.toBeInTheDocument()
+    confirmSpy.mockRestore()
+  })
+
+  it('keeps the close action available when closing rejects', async () => {
+    const user = userEvent.setup()
+    mockCloseProject.mockRejectedValue(new Error('Close failed'))
+    renderDetail()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Close project' }),
+    )
+    await waitFor(() => expect(mockCloseProject).toHaveBeenCalledWith(7))
+    expect(
+      screen.getByRole('button', { name: 'Close project' }),
+    ).toBeInTheDocument()
+  })
+
+  it('keeps the reopen action available when reopening rejects', async () => {
+    const user = userEvent.setup()
+    mockGetProject.mockResolvedValue({
+      ...project,
+      closed_at: '2026-07-01T00:00:00Z',
+    })
+    mockReopenProject.mockRejectedValue(new Error('Reopen failed'))
+    renderDetail()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Reopen project' }),
+    )
+    await waitFor(() => expect(mockReopenProject).toHaveBeenCalledWith(7))
+    expect(
+      screen.getByRole('button', { name: 'Reopen project' }),
+    ).toBeInTheDocument()
+  })
+
   it('hides the delete action on protected projects', async () => {
     mockGetProject.mockResolvedValue({ ...project, is_protected: true })
     renderDetail()
@@ -229,5 +289,42 @@ describe('ProjectDetailPage', () => {
       expect(mockUpdateTask).toHaveBeenCalledWith(3, expect.objectContaining({ priority: 'urgent' })),
     )
     await waitFor(() => expect(mockListTasks).toHaveBeenCalledTimes(2))
+  })
+
+  it('does not refetch tasks after rejected card mutations', async () => {
+    const user = userEvent.setup()
+    mockMarkTaskDone.mockRejectedValue(new Error('Complete failed'))
+    mockUpdateTask.mockRejectedValue(new Error('Update failed'))
+    renderDetail()
+    await screen.findByText('Patch the router')
+    const taskCard = screen.getByRole('link', { name: 'Patch the router' })
+
+    await user.click(
+      within(taskCard).getByRole('button', {
+        name: 'Mark Patch the router done',
+      }),
+    )
+    await waitFor(() => expect(mockMarkTaskDone).toHaveBeenCalledWith(3))
+    expect(mockListTasks).toHaveBeenCalledTimes(1)
+
+    await user.click(
+      within(taskCard).getByRole('button', { name: 'Priority: high' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'urgent' }))
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(3, { priority: 'urgent' }),
+    )
+    expect(mockListTasks).toHaveBeenCalledTimes(1)
+
+    await user.click(
+      within(taskCard).getByRole('button', { name: 'Status: Open' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'In progress' }))
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(3, {
+        workflow_status: 'in_progress',
+      }),
+    )
+    expect(mockListTasks).toHaveBeenCalledTimes(1)
   })
 })

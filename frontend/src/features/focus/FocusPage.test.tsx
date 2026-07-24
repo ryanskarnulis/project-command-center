@@ -2,7 +2,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getFocusPlan } from '../../api/focus'
-import { getTask, markTaskDone, updateTask } from '../../api/tasks'
+import {
+  getTask,
+  markTaskDone,
+  skipOccurrence,
+  updateTask,
+} from '../../api/tasks'
 import type { ScheduledBlock, FocusPlan } from '../../types/focus'
 import type { Task } from '../../types/task'
 import { FocusPage } from './FocusPage'
@@ -37,6 +42,7 @@ vi.mock('../../api/taskDependencies', () => ({
 
 const mockGetFocusPlan = vi.mocked(getFocusPlan)
 const mockMarkTaskDone = vi.mocked(markTaskDone)
+const mockSkipOccurrence = vi.mocked(skipOccurrence)
 const mockUpdateTask = vi.mocked(updateTask)
 const mockGetTask = vi.mocked(getTask)
 
@@ -343,6 +349,38 @@ describe('FocusPage', () => {
       expect(mockUpdateTask).toHaveBeenCalledWith(7, { deferred_until: '2026-06-21' }),
     )
     await waitFor(() => expect(mockGetFocusPlan).toHaveBeenCalledTimes(2))
+  })
+
+  it('swallows a rejected skip and does not refetch the plan', async () => {
+    mockGetFocusPlan.mockResolvedValue(
+      makePlan({
+        scheduled: [
+          scheduledBlock({
+            task_id: 7,
+            workflow_status: 'open',
+            is_recurring: true,
+          }),
+        ],
+      }),
+    )
+    mockSkipOccurrence.mockRejectedValue(new Error('Skip failed'))
+    render(
+      <MemoryRouter>
+        <FocusPage />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Skip this occurrence of Draft launch checklist',
+      }),
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Skip occurrence' }),
+    )
+
+    await waitFor(() => expect(mockSkipOccurrence).toHaveBeenCalledWith(7))
+    expect(mockGetFocusPlan).toHaveBeenCalledTimes(1)
   })
 
   it('labels a scheduled subtask with its parent task', async () => {

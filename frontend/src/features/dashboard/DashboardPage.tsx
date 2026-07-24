@@ -11,6 +11,7 @@ import {
   updateTask,
 } from '../../api/tasks'
 import { useToast } from '../../components/ToastContext'
+import { fireAndForget } from '../../utils/async'
 import { useTaskRefresh } from '../tasks/taskRefreshContext'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { TaskFormModal } from '../tasks/TaskFormModal'
@@ -194,7 +195,7 @@ export function DashboardPage() {
                   <Link to={`/projects/${project.id}`}>{project.name}</Link>
                   <button
                     type="button"
-                    onClick={() => void handleReopenProject(project.id)}
+                    onClick={() => fireAndForget(handleReopenProject(project.id))}
                   >
                     Reopen
                   </button>
