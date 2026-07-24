@@ -9,6 +9,8 @@ BACKEND_PYTHON="$BACKEND_VENV/bin/python"
 SYSTEM_PYTHON="${PYTHON:-python3}"
 FAILURES=0
 
+source "$ROOT_DIR/scripts/dependencies.sh"
+
 log() {
   printf '[test] %s\n' "$*"
 }
@@ -57,48 +59,6 @@ copy_env_if_missing() {
     [ -f "$example" ] || die "Cannot create $target because $example is missing."
     cp "$example" "$target"
     log "Created ${target#$ROOT_DIR/} from ${example#$ROOT_DIR/}."
-  fi
-}
-
-check_python_version() {
-  "$SYSTEM_PYTHON" - <<'PY'
-import sys
-
-if sys.version_info < (3, 11):
-    raise SystemExit("Python 3.11+ is required.")
-PY
-}
-
-backend_tools_missing() {
-  [ ! -x "$BACKEND_PYTHON" ] && return 0
-  [ ! -x "$BACKEND_VENV/bin/alembic" ] && return 0
-  [ ! -x "$BACKEND_VENV/bin/pytest" ] && return 0
-  [ ! -x "$BACKEND_VENV/bin/ruff" ] && return 0
-  [ ! -x "$BACKEND_VENV/bin/mypy" ] && return 0
-  return 1
-}
-
-ensure_backend_deps() {
-  require_command "$SYSTEM_PYTHON"
-  check_python_version
-
-  if [ ! -x "$BACKEND_PYTHON" ]; then
-    log "Creating backend virtualenv."
-    "$SYSTEM_PYTHON" -m venv "$BACKEND_VENV"
-  fi
-
-  if backend_tools_missing; then
-    log "Installing backend dependencies."
-    (cd "$BACKEND_DIR" && "$BACKEND_PYTHON" -m pip install -e '.[dev]' -c requirements.lock)
-  fi
-}
-
-ensure_frontend_deps() {
-  require_command npm
-
-  if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
-    log "Installing frontend dependencies."
-    (cd "$FRONTEND_DIR" && npm ci)
   fi
 }
 

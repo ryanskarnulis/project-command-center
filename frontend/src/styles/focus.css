@@ -38,6 +38,17 @@
   font-size: 0.9rem;
 }
 
+.focus-controls input[aria-invalid='true'] {
+  border-color: var(--red);
+}
+
+.focus-control-error {
+  max-width: 190px;
+  color: var(--red);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
 .focus-summary {
   margin: 0;
   color: var(--text-muted);
@@ -336,4 +347,3 @@
     flex-wrap: wrap;
   }
 }
-

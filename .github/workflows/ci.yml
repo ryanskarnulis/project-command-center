@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
+          python-version: "3.11"
       - run: cp .env.example .env
       - run: pip install -e .[dev] -c requirements.lock
       - name: Ruff lint
@@ -32,12 +32,17 @@ jobs:
         run: mypy app tests
 
   test:
+    name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
       - run: cp .env.example .env
       - run: pip install -e .[dev] -c requirements.lock
       - name: Run tests

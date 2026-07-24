@@ -248,9 +248,34 @@ def test_block_times_are_sequential_from_start(db_session: Session) -> None:
 
     assert plan.scheduled[0].start_time == "09:00"
     assert plan.scheduled[0].end_time == "09:30"
+    assert plan.scheduled[0].start_day_offset == 0
+    assert plan.scheduled[0].end_day_offset == 0
     assert plan.scheduled[1].start_time == "09:30"
     assert plan.scheduled[1].end_time == "10:15"
+    assert plan.scheduled[1].start_day_offset == 0
+    assert plan.scheduled[1].end_day_offset == 0
     assert plan.used_minutes == 75
+
+
+def test_block_times_wrap_at_midnight_with_day_offsets(db_session: Session) -> None:
+    _task(db_session, "to midnight", priority=TaskPriority.urgent, estimated_minutes=60)
+    _task(db_session, "next day", priority=TaskPriority.high, estimated_minutes=45)
+
+    plan = focus_service.get_focus_plan(
+        db_session,
+        target_date=TARGET,
+        start_time="23:00",
+        available_minutes=105,
+    )
+
+    assert plan.scheduled[0].start_time == "23:00"
+    assert plan.scheduled[0].start_day_offset == 0
+    assert plan.scheduled[0].end_time == "00:00"
+    assert plan.scheduled[0].end_day_offset == 1
+    assert plan.scheduled[1].start_time == "00:00"
+    assert plan.scheduled[1].start_day_offset == 1
+    assert plan.scheduled[1].end_time == "00:45"
+    assert plan.scheduled[1].end_day_offset == 1
 
 
 def test_scheduled_and_overflow_flag_recurring(db_session: Session) -> None:

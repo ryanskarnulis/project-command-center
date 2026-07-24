@@ -246,10 +246,13 @@ Obsidian integration · Email ingestion
 ```
 
 `main.sh` creates missing `.env` files from the examples, builds
-`backend/.venv` when needed, installs pinned deps
-(`pip install -e '.[dev]' -c requirements.lock`; frontend uses `npm ci`), runs
-migrations, and keeps everything in the foreground until Ctrl-C. After
-intentionally bumping a backend dependency, regenerate the lock:
+`backend/.venv` when needed, and installs pinned deps
+(`pip install -e '.[dev]' -c requirements.lock`; frontend uses `npm ci`).
+It fingerprints each dependency manifest plus lockfile and reinstalls when
+either input changes, so an existing virtualenv or `node_modules` tree cannot
+silently stay stale after a pull. It then runs migrations and keeps everything
+in the foreground until Ctrl-C. After intentionally bumping a backend
+dependency, regenerate the lock:
 
 ```
 cd backend && .venv/bin/python -m pip freeze --exclude-editable > requirements.lock

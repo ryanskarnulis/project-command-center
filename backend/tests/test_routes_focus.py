@@ -57,6 +57,24 @@ def test_focus_route_passes_through_start_and_capacity(
     assert len(body["overflow"]) == 1
 
 
+def test_focus_route_represents_next_day_times(
+    client: TestClient, db_session: Session
+) -> None:
+    _task(db_session, "overnight", estimated_minutes=360)
+
+    response = client.get(
+        "/api/focus",
+        params={"date": "2026-06-20", "start_time": "23:00", "available_minutes": 360},
+    )
+
+    assert response.status_code == 200
+    block = response.json()["scheduled"][0]
+    assert block["start_time"] == "23:00"
+    assert block["start_day_offset"] == 0
+    assert block["end_time"] == "05:00"
+    assert block["end_day_offset"] == 1
+
+
 def test_focus_route_rejects_malformed_start_time(
     client: TestClient, db_session: Session
 ) -> None:
