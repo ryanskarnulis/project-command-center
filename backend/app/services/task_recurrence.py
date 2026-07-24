@@ -6,11 +6,13 @@ from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import Task, TaskWorkflowStatus
 from app.services.common import soft_delete
 from app.services.tasks import (
+    OccurrenceConflictError,
     RecurrenceError,
     get_rollup,
     get_task,
@@ -175,13 +177,42 @@ def create_next_occurrence(db: Session, task: Task) -> Task:
     assert task.repeat_interval is not None
     assert task.due_date is not None
     next_due = _next_due_date(task.due_date, task.repeat_interval)
-    if task.recurrence_id is not None:
-        existing = find_live_occurrence_on(
-            db, task.recurrence_id, next_due
-        ) or _find_skipped_occurrence_on(db, task.recurrence_id, next_due)
-        if existing is not None:
-            return existing
-    return _insert_occurrence(db, task, next_due)
+    if task.recurrence_id is None:
+        return _insert_occurrence(db, task, next_due)
+
+    existing = find_live_occurrence_on(
+        db, task.recurrence_id, next_due
+    ) or _find_skipped_occurrence_on(db, task.recurrence_id, next_due)
+    if existing is not None:
+        return existing
+
+    # The guard above is a read, and two writers can both pass it — completing the
+    # same recurring task twice at once, or the web UI racing the agent. Writers
+    # start IMMEDIATE (see get_db_write), so the loser's transaction begins after
+    # the winner commits and the guard simply sees the winner's row; this branch is
+    # the backstop for a caller that reached here on a read session, where the
+    # unique index would otherwise surface as a 500. A SAVEPOINT keeps the failed
+    # insert from poisoning the caller's transaction, which may already hold the
+    # completion this occurrence follows from.
+    savepoint = db.begin_nested()
+    try:
+        occurrence = _insert_occurrence(db, task, next_due)
+    except IntegrityError as exc:
+        if "uq_tasks_active_occurrence" not in str(exc.orig):
+            raise
+        savepoint.rollback()
+        winner = find_live_occurrence_on(db, task.recurrence_id, next_due)
+        if winner is None:
+            # Rolling back to a savepoint does not release the transaction's read
+            # snapshot, so a DEFERRED caller cannot see the winner it just lost to.
+            # Report the conflict rather than retrying into the same blind spot.
+            raise OccurrenceConflictError(
+                f"Another occurrence of this series was created for {next_due} "
+                "concurrently; retry the request."
+            ) from exc
+        return winner
+    savepoint.commit()
+    return occurrence
 
 
 def _insert_occurrence(db: Session, task: Task, due_date: date) -> Task:

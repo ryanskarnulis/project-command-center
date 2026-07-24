@@ -4,6 +4,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Sequence
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import (
@@ -254,7 +255,18 @@ def add_dependency(
 
     edge = TaskDependency(task_id=task_id, depends_on_task_id=depends_on_id)
     db.add(edge)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        # The duplicate check above is a read, and a read can be stale — two
+        # requests adding the same edge (a double-clicked button) both pass it.
+        # get_db_write serializes writers so this should be unreachable over HTTP,
+        # but a caller on the read session would otherwise surface the driver
+        # error as a 500 rather than the 409 the duplicate deserves. Only the
+        # active-edge index means "duplicate"; anything else is a real fault.
+        if "uq_task_dependencies_active_edge" not in str(exc.orig):
+            raise
+        raise DuplicateDependencyError("That dependency already exists") from exc
     db.refresh(edge)
     _log_dependency_event(
         db, task, depended, "dependency_added", 'Task "{task}" now waits on "{other}"'
