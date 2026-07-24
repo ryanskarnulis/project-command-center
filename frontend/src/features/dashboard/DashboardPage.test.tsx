@@ -470,13 +470,15 @@ describe('DashboardPage', () => {
     renderPage()
     await screen.findByRole('heading', { name: 'Project board' })
 
-    // Two filed tasks (root + subtask); the unfiled one is linked separately
-    // instead of inflating the "across all projects" number.
+    // Two filed tasks (root + subtask), split the way the lane headers split
+    // them; the unfiled one is linked separately instead of inflating the
+    // "across all projects" number.
     expect(
       screen.getByText(
         (_, el) =>
           el?.tagName === 'P' &&
-          el.textContent === '2 open tasks across all projects · 1 unfiled',
+          el.textContent ===
+            '1 open task with 1 subtask across all projects · 1 unfiled',
       ),
     ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '1 unfiled' })).toBeInTheDocument()

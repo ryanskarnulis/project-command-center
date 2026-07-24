@@ -63,10 +63,14 @@ export function DashboardPage() {
 
   // The headline describes what the lanes hold: unfiled tasks appear in no lane
   // (counted separately as a /tasks link) and closed-project tasks in none at
-  // all, so both are excluded from the filed total the board renders.
+  // all, so both are excluded from the filed total the board renders. Subtasks
+  // are called out separately rather than folded into "open tasks" (same rule
+  // as the lane headers) — a count larger than the visible cards reads wrong.
   const filedOpenCount = tasks.filter(
     (t) => t.project_id !== null && laneProjectIds.has(t.project_id),
   ).length
+  const filedOpenRootCount = boardTasks.length
+  const filedOpenSubtaskCount = filedOpenCount - filedOpenRootCount
   const unfiledOpenCount = tasks.filter((t) => t.project_id === null).length
 
   // Route a lane move to the right endpoint: Done uses the recurrence-safe
@@ -140,8 +144,13 @@ export function DashboardPage() {
           <div>
             <h1>Project board</h1>
             <p>
-              {filedOpenCount} open{' '}
-              {filedOpenCount === 1 ? 'task' : 'tasks'} across all projects
+              {filedOpenRootCount} open{' '}
+              {filedOpenRootCount === 1 ? 'task' : 'tasks'}
+              {filedOpenSubtaskCount > 0 &&
+                ` with ${filedOpenSubtaskCount} ${
+                  filedOpenSubtaskCount === 1 ? 'subtask' : 'subtasks'
+                }`}{' '}
+              across all projects
               {unfiledOpenCount > 0 && (
                 <>
                   {' · '}
