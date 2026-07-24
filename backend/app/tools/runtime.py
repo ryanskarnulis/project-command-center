@@ -16,7 +16,7 @@ from contextvars import ContextVar
 import structlog
 from sqlalchemy.orm import Session
 
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, begin_immediate
 from app.services import activity
 
 logger = structlog.get_logger(__name__)
@@ -38,7 +38,7 @@ session_factory = SessionLocal
 
 
 @contextmanager
-def tool_session(tool_name: str) -> Iterator[Session]:
+def tool_session(tool_name: str, *, write: bool = True) -> Iterator[Session]:
     """One tool call = one request: logging context, actor, transaction.
 
     Commits when the tool body finishes cleanly (a no-op for pure reads) and
@@ -46,11 +46,20 @@ def tool_session(tool_name: str) -> Iterator[Session]:
     write behind. A request ID is minted only when the caller hasn't bound one
     already: the MCP server hasn't (one fresh ID per tool call, as before),
     while the agent loop binds one per run so all its tool calls share it.
+
+    ``write`` (the default) starts the transaction ``IMMEDIATE``, the same
+    guarantee HTTP write routes get from ``get_db_write``. This is not optional
+    for parity: the MCP server is a *separate process* from uvicorn, so an agent
+    writing on a DEFERRED transaction would race the web UI exactly as two
+    uncoordinated writers do — and no in-process lock can see across that
+    boundary. Read-only tools pass ``write=False`` so they don't serialize behind
+    (or ahead of) real writers.
     """
     bindings: dict[str, str] = {"tool": tool_name}
     if "request_id" not in structlog.contextvars.get_contextvars():
         bindings["request_id"] = uuid.uuid4().hex[:8]
     actor_token = activity.current_actor.set(current_tool_actor.get())
+    immediate_token = begin_immediate.set(write)
     db = session_factory()
     try:
         with structlog.contextvars.bound_contextvars(**bindings):
@@ -61,4 +70,5 @@ def tool_session(tool_name: str) -> Iterator[Session]:
         raise
     finally:
         db.close()
+        begin_immediate.reset(immediate_token)
         activity.current_actor.reset(actor_token)

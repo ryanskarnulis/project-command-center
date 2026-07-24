@@ -4,7 +4,7 @@ import structlog
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.db.session import get_db
+from app.db.session import get_db, get_db_write
 from app.schemas.trash import (
     EmptyTrashResult,
     ProjectTrashRead,
@@ -57,7 +57,7 @@ def get_trash_count(db: Session = Depends(get_db)) -> TrashCountResult:
 @router.post("/purge", response_model=EmptyTrashResult)
 def purge_selected(
     payload: PurgeSelectedRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_write),
 ) -> EmptyTrashResult:
     """Permanently delete the selected trashed rows, in one transaction.
 
@@ -88,7 +88,7 @@ def purge_selected(
     "",
     response_model=EmptyTrashResult,
 )
-def empty_trash(db: Session = Depends(get_db)) -> EmptyTrashResult:
+def empty_trash(db: Session = Depends(get_db_write)) -> EmptyTrashResult:
     """Permanently delete every trashed row. Idempotent; protected projects spared."""
     counts = trash_service.empty_trash(db)
     db.commit()

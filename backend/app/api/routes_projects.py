@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.guards import trashed_row_or_error
 from app.db.models import ActivityEvent, Project
-from app.db.session import get_db
+from app.db.session import get_db, get_db_write
 from app.schemas.activity import ActivityEventRead
 from app.schemas.projects import (
     ProjectCreate,
@@ -44,7 +44,7 @@ def list_projects(
 # Declared before /{project_id} so "order" isn't parsed as a project id.
 @router.put("/order", response_model=list[ProjectRead])
 def reorder_projects(
-    data: ProjectOrderUpdate, db: Session = Depends(get_db)
+    data: ProjectOrderUpdate, db: Session = Depends(get_db_write)
 ) -> Sequence[Project]:
     try:
         projects = projects_service.reorder_projects(db, data.project_ids)
@@ -63,7 +63,7 @@ def get_project(project_id: int, db: Session = Depends(get_db)) -> Project:
 
 
 @router.post("", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
-def create_project(data: ProjectCreate, db: Session = Depends(get_db)) -> Project:
+def create_project(data: ProjectCreate, db: Session = Depends(get_db_write)) -> Project:
     project = projects_service.create_project(
         db, name=data.name, description=data.description
     )
@@ -75,7 +75,7 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db)) -> Projec
 
 @router.patch("/{project_id}", response_model=ProjectRead)
 def update_project(
-    project_id: int, data: ProjectUpdate, db: Session = Depends(get_db)
+    project_id: int, data: ProjectUpdate, db: Session = Depends(get_db_write)
 ) -> Project:
     project = _get_or_404(db, project_id)
     updated = projects_service.update_project(
@@ -88,7 +88,7 @@ def update_project(
 
 
 @router.post("/{project_id}/close", response_model=ProjectRead)
-def close_project(project_id: int, db: Session = Depends(get_db)) -> Project:
+def close_project(project_id: int, db: Session = Depends(get_db_write)) -> Project:
     project = _get_or_404(db, project_id)
     try:
         closed = projects_service.close_project(db, project)
@@ -101,7 +101,7 @@ def close_project(project_id: int, db: Session = Depends(get_db)) -> Project:
 
 
 @router.post("/{project_id}/reopen", response_model=ProjectRead)
-def reopen_project(project_id: int, db: Session = Depends(get_db)) -> Project:
+def reopen_project(project_id: int, db: Session = Depends(get_db_write)) -> Project:
     project = _get_or_404(db, project_id)
     reopened = projects_service.reopen_project(db, project)
     db.commit()
@@ -111,7 +111,7 @@ def reopen_project(project_id: int, db: Session = Depends(get_db)) -> Project:
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_project(project_id: int, db: Session = Depends(get_db)) -> None:
+def delete_project(project_id: int, db: Session = Depends(get_db_write)) -> None:
     project = _get_or_404(db, project_id)
     try:
         projects_service.soft_delete_project(db, project)
@@ -125,7 +125,7 @@ def delete_project(project_id: int, db: Session = Depends(get_db)) -> None:
 def restore_project(
     project_id: int,
     restore_tasks: bool = False,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_write),
 ) -> ProjectRestoreResult:
     project = projects_service.get_deleted_project(db, project_id)
     if project is None:
@@ -153,7 +153,7 @@ def restore_project(
     "/{project_id}/purge",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-def purge_project(project_id: int, db: Session = Depends(get_db)) -> None:
+def purge_project(project_id: int, db: Session = Depends(get_db_write)) -> None:
     project = trashed_row_or_error(
         projects_service.get_deleted_project(db, project_id),
         lambda: projects_service.get_project(db, project_id),

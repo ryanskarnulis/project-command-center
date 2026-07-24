@@ -12,7 +12,8 @@ from sqlalchemy.pool import NullPool, StaticPool
 
 from app.api import conversation_locks, rate_limit
 from app.db.models import Base
-from app.db.session import enable_sqlite_fk_enforcement, get_db
+from app.db.session import engine as app_engine
+from app.db.session import enable_sqlite_fk_enforcement, get_db, get_db_write
 from app.main import app
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -58,12 +59,44 @@ def db_session(test_engine: Engine) -> Generator[Session, None, None]:
         db.close()
 
 
+@pytest.fixture(autouse=True)
+def _no_accidental_real_database() -> Generator[None, None, None]:
+    """Fail loudly if a test ever opens the application engine.
+
+    Every DB dependency is meant to be overridden onto a test engine. Miss one —
+    ``get_db_write`` was added and only ``get_db`` was overridden — and the route
+    silently falls through to ``app.db.session.engine``, which points at the real
+    ``data/app.db``. That reads as a pile of confusing 404s while the test suite
+    quietly writes rows into the developer's database. Cheap tripwire, and the
+    failure names itself.
+    """
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError(
+            "a test opened the application database engine — a DB dependency is "
+            "not overridden onto the test engine (see the client fixtures)"
+        )
+
+    event.listen(app_engine, "connect", refuse)
+    try:
+        yield
+    finally:
+        event.remove(app_engine, "connect", refuse)
+
+
+def _override_db(session: Session) -> Generator[Session, None, None]:
+    yield session
+
+
 @pytest.fixture
 def client(db_session: Session) -> Generator[TestClient, None, None]:
     def override_get_db() -> Generator[Session, None, None]:
         yield db_session
 
+    # Both dependencies, always. A write route left on the real ``get_db_write``
+    # reaches the application engine and the developer's database file.
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_db_write] = override_get_db
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -117,7 +150,21 @@ def file_client(
         finally:
             db.close()
 
+    def override_get_db_write() -> Generator[Session, None, None]:
+        conn = file_engine.connect()
+        conn.info["begin_statement"] = "BEGIN IMMEDIATE"
+        db = session_factory(bind=conn)
+        try:
+            yield db
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+            conn.close()
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_db_write] = override_get_db_write
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

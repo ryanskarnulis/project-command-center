@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.dependency_reads import dependency_read, dependent_read
-from app.db.session import get_db
+from app.db.session import get_db, get_db_write
 from app.schemas.task_dependencies import (
     TaskDependencyCreate,
     TaskDependencyRead,
@@ -58,7 +58,7 @@ def list_dependents(
     status_code=status.HTTP_201_CREATED,
 )
 def add_dependency(
-    task_id: int, data: TaskDependencyCreate, db: Session = Depends(get_db)
+    task_id: int, data: TaskDependencyCreate, db: Session = Depends(get_db_write)
 ) -> TaskDependencyRead:
     _get_task_or_404(db, task_id)
     try:
@@ -82,7 +82,7 @@ def add_dependency(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 def remove_dependency(
-    task_id: int, dependency_id: int, db: Session = Depends(get_db)
+    task_id: int, dependency_id: int, db: Session = Depends(get_db_write)
 ) -> None:
     edge = deps_service.get_dependency(db, dependency_id)
     if edge is None or edge.task_id != task_id:

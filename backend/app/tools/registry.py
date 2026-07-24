@@ -185,7 +185,7 @@ def list_tasks(
     offset: int = 0,
 ) -> list[TaskRead]:
     """List active tasks, oldest first. Omit project_id to search all projects."""
-    with tool_session("list_tasks") as db:
+    with tool_session("list_tasks", write=False) as db:
         if project_id is not None:
             _ensure_project_exists(db, project_id)
         tasks = tasks_service.list_tasks(
@@ -203,7 +203,7 @@ def list_tasks(
 @_tool
 def get_task(task_id: int) -> TaskRead:
     """Fetch one task with its subtask roll-up and blocked/blocking flags."""
-    with tool_session("get_task") as db:
+    with tool_session("get_task", write=False) as db:
         return read_with_blocked(db, _task_or_error(db, task_id))
 
 
@@ -318,7 +318,7 @@ def restore_task(task_id: int) -> TaskRead:
 @_tool
 def list_dependencies(task_id: int) -> TaskDependenciesRead:
     """Both directions of a task's dependency graph: what it waits on (depends_on) and what waits on it (dependents)."""
-    with tool_session("list_dependencies") as db:
+    with tool_session("list_dependencies", write=False) as db:
         _task_or_error(db, task_id)
         depends_on_edges = deps_service.list_dependencies(db, task_id)
         dependent_edges = deps_service.list_dependents(db, task_id)
@@ -409,7 +409,7 @@ def stop_recurrence(task_id: int) -> TaskRead:
 @_tool
 def list_projects(include_closed: bool = False) -> list[ProjectRead]:
     """List active projects in display order."""
-    with tool_session("list_projects") as db:
+    with tool_session("list_projects", write=False) as db:
         projects = projects_service.list_projects(db, include_closed=include_closed)
         return [ProjectRead.model_validate(p) for p in projects]
 
@@ -417,7 +417,7 @@ def list_projects(include_closed: bool = False) -> list[ProjectRead]:
 @_tool
 def get_project(project_id: int) -> ProjectRead:
     """Fetch one project."""
-    with tool_session("get_project") as db:
+    with tool_session("get_project", write=False) as db:
         return ProjectRead.model_validate(_project_or_error(db, project_id))
 
 
@@ -518,7 +518,7 @@ def restore_project(
 @_tool
 def search(query: str, per_kind: _PerKind = 8) -> SearchResults:
     """Full-text search over active projects and tasks (title, description)."""
-    with tool_session("search") as db:
+    with tool_session("search", write=False) as db:
         return search_service.search(db, query, per_kind=per_kind)
 
 
@@ -529,7 +529,7 @@ def get_focus_plan(
     available_minutes: _AvailableMinutes = focus_service.DEFAULT_AVAILABLE_MINUTES,
 ) -> FocusPlan:
     """Deterministic day plan: what to work on for `date` (default: today)."""
-    with tool_session("get_focus_plan") as db:
+    with tool_session("get_focus_plan", write=False) as db:
         return focus_service.get_focus_plan(
             db,
             target_date=date or date_type.today(),
@@ -541,7 +541,7 @@ def get_focus_plan(
 @_tool
 def list_trash(limit: _ListLimit = 50) -> TrashRead:
     """Recently trashed projects and tasks — what restore_task/restore_project can bring back."""
-    with tool_session("list_trash") as db:
+    with tool_session("list_trash", write=False) as db:
         deleted_projects = projects_service.list_deleted_projects(db, limit=limit)
         return TrashRead(
             projects=[
@@ -564,7 +564,7 @@ def list_trash(limit: _ListLimit = 50) -> TrashRead:
 @_tool
 def list_activity(project_id: int, limit: _ListLimit = 50) -> list[ActivityEventRead]:
     """A project's audit trail, newest first. actor is null for the user; agents stamp theirs (e.g. "agent:mcp", "agent:loop")."""
-    with tool_session("list_activity") as db:
+    with tool_session("list_activity", write=False) as db:
         _ensure_project_exists(db, project_id)
         events = activity_service.list_events(db, project_id, limit=limit)
         return [ActivityEventRead.model_validate(e) for e in events]

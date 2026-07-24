@@ -22,7 +22,7 @@ from app.api.conversation_locks import conversation_run_lock
 from app.api.rate_limit import rate_limit
 from app.config import get_settings
 from app.db.models import Conversation
-from app.db.session import get_db
+from app.db.session import get_db, get_db_write
 from app.schemas.conversations import (
     ConversationCreate,
     ConversationDetail,
@@ -67,7 +67,7 @@ def list_conversations(db: Session = Depends(get_db)) -> Sequence[Conversation]:
     status_code=status.HTTP_201_CREATED,
 )
 def create_conversation(
-    data: ConversationCreate, db: Session = Depends(get_db)
+    data: ConversationCreate, db: Session = Depends(get_db_write)
 ) -> Conversation:
     conversation = conversations_service.create_conversation(db, title=data.title)
     db.commit()
@@ -93,7 +93,7 @@ def get_conversation(
 @router.delete(
     "/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT
 )
-def delete_conversation(conversation_id: int, db: Session = Depends(get_db)) -> None:
+def delete_conversation(conversation_id: int, db: Session = Depends(get_db_write)) -> None:
     conversation = _get_or_404(db, conversation_id)
     conversations_service.soft_delete_conversation(db, conversation)
     db.commit()
@@ -110,7 +110,7 @@ def delete_conversation(conversation_id: int, db: Session = Depends(get_db)) -> 
 def post_message(
     conversation_id: int,
     data: MessageCreate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_write),
     loop: AgentLoop = Depends(get_agent_loop),
     x_agent_actor: str | None = Header(default=None),
 ) -> MessageExchange:
