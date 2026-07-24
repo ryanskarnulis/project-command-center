@@ -33,7 +33,11 @@ def list_dependencies(
     task_id: int, db: Session = Depends(get_db)
 ) -> list[TaskDependencyRead]:
     _get_task_or_404(db, task_id)
-    return [dependency_read(db, e) for e in deps_service.list_dependencies(db, task_id)]
+    edges = deps_service.list_dependencies(db, task_id)
+    effective = deps_service.effective_statuses(
+        db, [e.depends_on_task_id for e in edges]
+    )
+    return [dependency_read(db, e, effective) for e in edges]
 
 
 @router.get(
@@ -43,10 +47,9 @@ def list_dependents(
     task_id: int, db: Session = Depends(get_db)
 ) -> list[TaskDependentRead]:
     _get_task_or_404(db, task_id)
-    return [
-        dependent_read(db, e)
-        for e in deps_service.list_dependents(db, task_id)
-    ]
+    edges = deps_service.list_dependents(db, task_id)
+    effective = deps_service.effective_statuses(db, [e.task_id for e in edges])
+    return [dependent_read(db, e, effective) for e in edges]
 
 
 @router.post(

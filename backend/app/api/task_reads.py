@@ -16,18 +16,25 @@ def _rollup_update(
 ) -> dict[str, object]:
     """The ``model_copy`` overrides a roll-up implies.
 
-    Only a task with subtasks overrides its estimate/status; a leaf keeps
-    its stored values, so we touch nothing but the ``has_subtasks`` flag for it.
-    A blocked parent's rolled-up ``done`` is capped to ``in_progress`` so the UI
-    never shows a task as done while it is flagged blocked (see
-    ``tasks.capped_status``).
+    ``workflow_status`` is always set to the effective status
+    (``tasks.capped_status``): a blocked task's ``done`` is capped to
+    ``in_progress`` so the UI never shows a task as done while it is flagged
+    blocked. This applies to leaves too, not only checklist parents — a leaf
+    completed while its blocker was in the trash and then re-blocked on the
+    blocker's restore is stored-``done``-yet-blocked, and must read
+    ``in_progress`` like every other surface (``list_tasks``,
+    ``effective_statuses``). For an unblocked leaf the cap is a no-op (the
+    roll-up equals its stored status). Only a task with subtasks overrides its
+    estimate, so the ``estimated_minutes`` override stays parent-only.
     """
-    update: dict[str, object] = {"has_subtasks": rollup.has_subtasks}
+    update: dict[str, object] = {
+        "has_subtasks": rollup.has_subtasks,
+        "workflow_status": tasks_service.capped_status(
+            rollup.workflow_status, is_blocked
+        ),
+    }
     if rollup.has_subtasks:
         update["estimated_minutes"] = rollup.estimated_minutes
-        update["workflow_status"] = tasks_service.capped_status(
-            rollup.workflow_status, is_blocked
-        )
     return update
 
 

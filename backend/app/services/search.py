@@ -19,6 +19,13 @@ from app.services.common import active
 # for those literals instead of matching wildcards.
 _LIKE_ESCAPE = "\\"
 
+# Task matches are fetched whole (not pre-cut to ``per_kind``) so the effective-
+# status tiebreak can influence *inclusion*, not just ordering within an
+# already-fetched window — otherwise an older open match is dropped under a full
+# page of newer done matches before its status is ever computed. This cap only
+# guards a pathological wildcard; real matches on one user's SQLite file are tiny.
+_TASK_SCAN_CAP = 500
+
 
 def _escape_like(term: str) -> str:
     return (
@@ -81,12 +88,17 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
         .all()
     )
 
-    # Text tier decides inclusion (id desc breaks ties); the state tiebreak is
-    # applied in Python below, because it must run on EFFECTIVE status — a
+    # Inclusion must consider EFFECTIVE status, not just text tier + recency: a
     # checklist parent's stored ``workflow_status`` is never written back (see
     # ``tasks.compute_rollups``), so a SQL ``!= done`` predicate would misrank a
-    # fully-done parent as not-done and a reopened-by-a-child leaf as done. The
-    # tier is selected alongside the row so the Python re-sort stays within tier.
+    # fully-done parent as not-done and a reopened-by-a-child leaf as done — and,
+    # crucially, cutting to ``per_kind`` in SQL before status is known would drop
+    # an older open match sitting behind a full page of newer done matches. So we
+    # fetch the whole matching set (bounded by ``_TASK_SCAN_CAP``), resolve
+    # effective status, sort by (tier, not-done-first, recency), and only then
+    # slice to ``per_kind``. The tier is selected alongside the row so the sort
+    # stays within tier. This mirrors ``tasks.list_tasks``' "read the matching set
+    # whole, slice after filtering" tradeoff.
     task_text_score = _text_tier(Task.title, Task.description, q, prefix, contains)
     task_result = db.execute(
         active(Task)
@@ -98,15 +110,15 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
             )
         )
         .order_by(task_text_score.asc(), Task.id.desc())
-        .limit(per_kind)
+        .limit(_TASK_SCAN_CAP)
     ).all()
     task_rows = [row[0] for row in task_result]
     text_tiers = {row[0].id: row[1] for row in task_result}
 
-    # Resolve blocked-aware, rolled-up status for the (≤ per_kind) matched rows
-    # through the one shared source of truth every other read surface uses. Local
-    # import: task_dependencies imports this package's siblings and a module-level
-    # import would cycle (mirrors ``services/tasks.list_tasks``).
+    # Resolve blocked-aware, rolled-up status for the matched rows (≤
+    # _TASK_SCAN_CAP) through the one shared source of truth every other read
+    # surface uses. Local import: task_dependencies imports this package's siblings
+    # and a module-level import would cycle (mirrors ``services/tasks.list_tasks``).
     from app.services import task_dependencies
 
     effective = task_dependencies.effective_statuses(db, [t.id for t in task_rows])
@@ -114,8 +126,10 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
     def _effective(task: Task) -> TaskWorkflowStatus:
         return effective.get(task.id, task.workflow_status)
 
-    # Re-apply the state tiebreak on effective status, still within text tier:
-    # (tier, not-done-before-done, recency). Stable over the SQL order.
+    # Apply the state tiebreak on effective status, still within text tier:
+    # (tier, not-done-before-done, recency). Now that the full matching set is in
+    # hand, this decides inclusion too — slice to ``per_kind`` only after sorting,
+    # so a not-done match is never crowded out by newer done matches of equal tier.
     task_rows.sort(
         key=lambda t: (
             text_tiers[t.id],
@@ -123,6 +137,7 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
             -t.id,
         )
     )
+    task_rows = task_rows[:per_kind]
 
     # Resolve owning-project names for the task subtitles in one query (no N+1).
     project_ids = {t.project_id for t in task_rows if t.project_id is not None}
