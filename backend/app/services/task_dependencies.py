@@ -71,8 +71,131 @@ def list_dependents(db: Session, task_id: int) -> Sequence[TaskDependency]:
     )
 
 
+def list_dependencies_for(
+    db: Session, task_ids: Iterable[int]
+) -> dict[int, list[TaskDependency]]:
+    """Batched ``list_dependencies``: active edges per task, in one query.
+
+    For callers rendering many tasks' blockers at once (the focus plan's blocked
+    rows), where asking per task is an N+1.
+    """
+    ids = sorted(set(task_ids))
+    if not ids:
+        return {}
+    by_task: dict[int, list[TaskDependency]] = {tid: [] for tid in ids}
+    for chunk in _chunked(ids):
+        edges = (
+            db.execute(
+                active(TaskDependency)
+                .where(TaskDependency.task_id.in_(chunk))
+                .order_by(TaskDependency.id)
+            )
+            .scalars()
+            .all()
+        )
+        for edge in edges:
+            by_task[edge.task_id].append(edge)
+    return by_task
+
+
 def _depends_on_ids(db: Session, task_id: int) -> list[int]:
     return [dep.depends_on_task_id for dep in list_dependencies(db, task_id)]
+
+
+# SQLite's bound-parameter ceiling is 32766 on modern builds but 999 on older
+# ones, and the closure walks feed whole frontiers into an ``IN``. Chunking at
+# 900 keeps the query legal everywhere for the cost of five lines.
+_IN_CHUNK = 900
+
+
+def _chunked(ids: Sequence[int], size: int = _IN_CHUNK) -> Iterable[Sequence[int]]:
+    for start in range(0, len(ids), size):
+        yield ids[start : start + size]
+
+
+def _closure(
+    db: Session, task_ids: Iterable[int], *, reverse: bool
+) -> dict[int, list[int]]:
+    """Adjacency over the transitive closure of ``task_ids``, one query per level.
+
+    ``reverse=False`` follows ``depends_on`` (what a task waits on);
+    ``reverse=True`` follows it backwards (what waits on a task). Either way the
+    walk is frontier-batched — one ``WHERE ... IN (...)`` per *level* rather than
+    one query per node, which is what the per-node ``_depends_on_ids`` loop this
+    replaces did. That turns O(nodes) round trips into O(depth).
+
+    Every walked node gets a key, empty list included, so callers can tell
+    "walked, has no edges" from "never walked". Ordered by edge id, matching
+    ``list_dependencies``, because ``effective_statuses``' resolve loop breaks on
+    the first unfinished blocker.
+
+    Deliberately does NOT filter ``Task.deleted_at``: the walk traverses *through*
+    soft-deleted tasks and they are excluded later, when the closure is loaded via
+    ``active(Task)``. Filtering here would change which nodes reach
+    ``compute_rollups`` — see ``effective_statuses``.
+
+    A ``WITH RECURSIVE`` CTE would collapse the remaining O(depth) to one query,
+    but SQLite's recursive CTE does not terminate on a cyclic graph unless it
+    carries a depth or path column, and a cycle is reachable here (concurrent
+    opposing ``add_dependency`` calls can both pass the cycle check). If you take
+    that route, the depth cap is not optional.
+    """
+    src = TaskDependency.depends_on_task_id if reverse else TaskDependency.task_id
+    dst = TaskDependency.task_id if reverse else TaskDependency.depends_on_task_id
+
+    adjacency: dict[int, list[int]] = {}
+    frontier = set(task_ids)
+    while frontier:
+        for tid in frontier:
+            adjacency.setdefault(tid, [])
+        rows: list[tuple[int, int]] = []
+        ordered = sorted(frontier)
+        for chunk in _chunked(ordered):
+            rows.extend(
+                (int(from_id), int(to_id))
+                for from_id, to_id in db.execute(
+                    select(src, dst)
+                    .where(TaskDependency.deleted_at.is_(None), src.in_(chunk))
+                    .order_by(TaskDependency.id)
+                ).all()
+            )
+        nxt: set[int] = set()
+        for from_id, to_id in rows:
+            adjacency[int(from_id)].append(int(to_id))
+            if int(to_id) not in adjacency:
+                nxt.add(int(to_id))
+        frontier = nxt
+    return adjacency
+
+
+def _dependency_closure(db: Session, task_ids: Iterable[int]) -> dict[int, list[int]]:
+    """``task_id -> [depends_on_task_id]`` over the transitive dependency closure."""
+    return _closure(db, task_ids, reverse=False)
+
+
+def _dependent_closure(db: Session, task_ids: Iterable[int]) -> dict[int, list[int]]:
+    """``blocker_id -> [dependent_id]`` over everything transitively waiting on ``task_ids``."""
+    return _closure(db, task_ids, reverse=True)
+
+
+def _direct_dependencies(
+    db: Session, task_ids: Iterable[int]
+) -> dict[int, list[int]]:
+    """``task_id -> [depends_on_task_id]``, one hop only, in one query."""
+    ordered = sorted(set(task_ids))
+    adjacency: dict[int, list[int]] = {tid: [] for tid in ordered}
+    for chunk in _chunked(ordered):
+        rows = db.execute(
+            select(TaskDependency.task_id, TaskDependency.depends_on_task_id)
+            .where(
+                TaskDependency.deleted_at.is_(None),
+                TaskDependency.task_id.in_(chunk),
+            )
+            .order_by(TaskDependency.id)
+        ).all()
+        for task_id, blocker_id in rows:
+            adjacency[int(task_id)].append(int(blocker_id))
+    return adjacency
 
 
 def _would_cycle(db: Session, task_id: int, depends_on_id: int) -> bool:
@@ -80,20 +203,10 @@ def _would_cycle(db: Session, task_id: int, depends_on_id: int) -> bool:
 
     The edge is safe unless ``depends_on_id`` can already reach ``task_id`` by
     following existing ``depends_on`` edges (then ``task_id`` would transitively
-    depend on itself). DFS from ``depends_on_id``; a visited set bounds the walk
-    even if the stored graph is already corrupt.
+    depend on itself). The closure walk is frontier-batched and its own
+    already-walked set bounds it even if the stored graph is already corrupt.
     """
-    stack = [depends_on_id]
-    visited: set[int] = set()
-    while stack:
-        current = stack.pop()
-        if current == task_id:
-            return True
-        if current in visited:
-            continue
-        visited.add(current)
-        stack.extend(_depends_on_ids(db, current))
-    return False
+    return task_id in _dependency_closure(db, [depends_on_id])
 
 
 def _log_dependency_event(
@@ -213,17 +326,8 @@ def effective_statuses(
     # Gather the transitive dependency closure: demoting a rolled-up-done task
     # needs each of its (transitive) blockers' effective status too, and a blocker
     # may sit outside the requested ids.
-    deps_of: dict[int, list[int]] = {}
-    closure: set[int] = set()
-    frontier = set(ids)
-    while frontier:
-        closure |= frontier
-        nxt: set[int] = set()
-        for tid in frontier:
-            edges = _depends_on_ids(db, tid)
-            deps_of[tid] = edges
-            nxt.update(d for d in edges if d not in closure)
-        frontier = nxt
+    deps_of = _dependency_closure(db, ids)
+    closure = set(deps_of)
 
     tasks = db.execute(active(Task).where(Task.id.in_(closure))).scalars().all()
     rollups = compute_rollups(db, tasks)
@@ -253,8 +357,7 @@ def effective_statuses(
 
 def is_blocked(db: Session, task_id: int) -> bool:
     """True if any active dependency's depended-on task is not effectively done."""
-    statuses = effective_statuses(db, _depends_on_ids(db, task_id))
-    return any(status != TaskWorkflowStatus.done for status in statuses.values())
+    return task_id in blocked_task_ids(db, [task_id])
 
 
 def blocked_task_ids(db: Session, task_ids: Sequence[int]) -> set[int]:
@@ -285,28 +388,6 @@ def blocked_task_ids(db: Session, task_ids: Sequence[int]) -> set[int]:
     }
 
 
-def edges_among_tasks(db: Session, task_ids: Sequence[int]) -> list[TaskDependency]:
-    """Active edges whose *both* endpoints are in ``task_ids`` (one query).
-
-    Scoped to the supplied task set so the planning payload only draws links
-    between tasks it actually renders (a dependency pointing outside the project's
-    not-done set has no bar to attach to). Ordered by id for stability.
-    """
-    ids = set(task_ids)
-    if not ids:
-        return []
-    return list(
-        db.execute(
-            active(TaskDependency)
-            .where(TaskDependency.task_id.in_(ids))
-            .where(TaskDependency.depends_on_task_id.in_(ids))
-            .order_by(TaskDependency.id)
-        )
-        .scalars()
-        .all()
-    )
-
-
 def top_level_blocker_counts(db: Session, task_ids: Sequence[int]) -> dict[int, int]:
     """Top-level blockers in ``task_ids`` mapped to downstream blocked counts.
 
@@ -317,40 +398,55 @@ def top_level_blocker_counts(db: Session, task_ids: Sequence[int]) -> dict[int, 
 
     "Unfinished" is the effective status on both endpoints, resolved in Python
     rather than filtered in SQL — see ``effective_statuses``.
+
+    Both walks are scoped to ``task_ids``. This previously scanned *every* active
+    edge in the database regardless of the argument, so resolving a single task's
+    read model pulled in the whole global dependency graph.
+
+    Soft-deleted endpoints need no SQL filter: ``effective_statuses`` omits them,
+    so ``_unfinished`` reads ``None`` and drops the edge exactly as the old
+    ``deleted_at IS NULL`` joins did.
     """
     requested = set(task_ids)
     if not requested:
         return {}
 
-    dependent = aliased(Task)
-    blocker = aliased(Task)
-    rows = db.execute(
-        select(TaskDependency.task_id, TaskDependency.depends_on_task_id)
-        .join(dependent, dependent.id == TaskDependency.task_id)
-        .join(blocker, blocker.id == TaskDependency.depends_on_task_id)
-        .where(
-            TaskDependency.deleted_at.is_(None),
-            dependent.deleted_at.is_(None),
-            blocker.deleted_at.is_(None),
-        )
-    ).all()
+    # Everything transitively waiting on the requested tasks — the population the
+    # transitive count walks over.
+    downstream = _dependent_closure(db, requested)
+    # One hop upstream is enough to answer "is this task itself waiting on
+    # something unfinished?", which is what disqualifies it from being *top-level*.
+    upstream = _direct_dependencies(db, requested)
+    if not any(downstream.values()) and not any(upstream.values()):
+        # Nothing waits on these tasks and they wait on nothing: no top-level
+        # blockers by definition. Worth the early return — a board with no
+        # dependencies at all is the common case, and this keeps it off the
+        # status-resolution path entirely.
+        return {}
 
     statuses = effective_statuses(
-        db, (int(task_id) for row in rows for task_id in row)
+        db,
+        set(downstream)
+        | {tid for ids in downstream.values() for tid in ids}
+        | {tid for ids in upstream.values() for tid in ids},
     )
 
     def _unfinished(task_id: int) -> bool:
         return statuses.get(task_id) not in (None, TaskWorkflowStatus.done)
 
-    dependencies_by_task: defaultdict[int, set[int]] = defaultdict(set)
     dependents_by_blocker: defaultdict[int, set[int]] = defaultdict(set)
-    for dependent_id, blocker_id in rows:
-        if not _unfinished(int(dependent_id)) or not _unfinished(int(blocker_id)):
+    for blocker_id, dependent_ids in downstream.items():
+        if not _unfinished(blocker_id):
             continue
-        dependencies_by_task[int(dependent_id)].add(int(blocker_id))
-        dependents_by_blocker[int(blocker_id)].add(int(dependent_id))
+        for dependent_id in dependent_ids:
+            if _unfinished(dependent_id):
+                dependents_by_blocker[blocker_id].add(dependent_id)
 
-    blocked_ids = set(dependencies_by_task)
+    blocked_ids = {
+        task_id
+        for task_id, blocker_ids in upstream.items()
+        if _unfinished(task_id) and any(_unfinished(b) for b in blocker_ids)
+    }
     counts: dict[int, int] = {}
     for task_id in requested:
         if task_id in blocked_ids or task_id not in dependents_by_blocker:
