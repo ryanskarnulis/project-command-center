@@ -300,7 +300,13 @@ def restore_task(task_id: int) -> TaskRead:
         task = task_trash.get_deleted_task(db, task_id)
         if task is None:
             raise ToolError(f"No deleted task with id {task_id}")
-        restored = task_trash.restore_task(db, task)
+        try:
+            restored = task_trash.restore_task(db, task)
+        except tasks_service.OccurrenceConflictError as exc:
+            # The date is taken by a live occurrence of the same series. Surfaced
+            # as a tool error so the model can trash/skip that one and retry
+            # rather than silently duplicating the series.
+            raise ToolError(str(exc)) from exc
         db.flush()
         logger.info("tool_task_restored", task_id=restored.id)
         return read_with_blocked(db, restored)

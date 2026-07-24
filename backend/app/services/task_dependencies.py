@@ -168,6 +168,13 @@ def remove_dependency(db: Session, edge: TaskDependency) -> None:
             "dependency_removed",
             'Task "{task}" no longer waits on "{other}"',
         )
+    # Dropping the last blocker of an all-children-done recurring checklist is a
+    # transition into effective completion just as much as completing that blocker
+    # would have been — the series has to roll forward either way. Local import:
+    # task_recurrence builds on this module, so a top-level import would cycle.
+    from app.services import task_recurrence
+
+    task_recurrence.reconcile(db, [edge.task_id])
 
 
 def effective_statuses(

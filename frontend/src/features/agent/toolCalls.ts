@@ -71,6 +71,18 @@ function subjectName(record: ToolCallRecord): string | null {
 
 const quoted = (name: string | null) => (name === null ? '' : ` “${name}”`)
 
+/** True when the task a call returned belongs to a live recurrence series.
+ * Drives undo wording: recurrence makes complete/reopen non-invertible. */
+function isRecurring(record: ToolCallRecord): boolean {
+  const result = parseResult(record)
+  if (result === null) return false
+  return (
+    typeof result.recurrence_id === 'string' &&
+    result.repeat_interval !== null &&
+    result.repeat_interval !== undefined
+  )
+}
+
 /** One human line summarizing a tool call, e.g. `Created task “Fix VPN”`. */
 export function describeToolCall(record: ToolCallRecord): string {
   const name = subjectName(record)
@@ -207,15 +219,39 @@ export function undoFor(record: ToolCallRecord): UndoAction | null {
     }
     case 'complete_task': {
       const id = resultId(record)
-      return id === null
-        ? null
+      if (id === null) return null
+      // Completing a recurring task also spawned its next occurrence, and
+      // reopening deliberately leaves that successor alone (it may already have
+      // its own progress, and nothing here hard-deletes). So this is not an
+      // inverse and must not be labelled as one — say what it actually does.
+      return isRecurring(record)
+        ? {
+            label: 'Reopen (keeps next occurrence)',
+            perform: () => reopenTask(id),
+          }
         : { label: 'Undo (reopen)', perform: () => reopenTask(id) }
     }
     case 'reopen_task': {
       const id = resultId(record)
+      if (id === null) return null
+      // Re-completing a recurring task is safe: the successor is resolved by
+      // (series, due date), so it won't be duplicated.
+      return isRecurring(record)
+        ? {
+            label: 'Complete again (no duplicate occurrence)',
+            perform: () => markTaskDone(id),
+          }
+        : { label: 'Undo (mark done)', perform: () => markTaskDone(id) }
+    }
+    case 'skip_occurrence': {
+      // skip_occurrence returns the NEXT occurrence, so the row to restore is the
+      // one named in the arguments. Restoring a skipped occurrence rewinds the
+      // series onto its date rather than adding a second live row, which makes
+      // this a genuine inverse.
+      const id = argNumber(record, 'task_id')
       return id === null
         ? null
-        : { label: 'Undo (mark done)', perform: () => markTaskDone(id) }
+        : { label: 'Undo (unskip)', perform: () => restoreTask(id) }
     }
     case 'trash_task': {
       // trash_task returns a plain-text confirmation; the id is an argument.

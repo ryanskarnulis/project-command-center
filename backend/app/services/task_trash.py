@@ -9,8 +9,11 @@ from sqlalchemy.orm import Session
 from app.db.models import Task, TaskDependency
 from app.services import projects as projects_service
 from app.services.common import active, deleted, hard_delete, restore
-from app.services.task_recurrence import reschedule_occurrence
-from app.services.tasks import log_task_event
+from app.services.task_recurrence import (
+    find_live_occurrence_on,
+    reschedule_occurrence,
+)
+from app.services.tasks import OccurrenceConflictError, log_task_event
 
 
 def list_deleted_tasks(db: Session, *, limit: int = 50) -> Sequence[Task]:
@@ -90,6 +93,23 @@ def restore_task(db: Session, task: Task) -> Task:
             db.refresh(live)
             log_task_event(db, live, "restored")
             return live
+
+    # Plain restore of a series occurrence: refuse if the date is already taken.
+    # Skipping (or re-completing) after this row was trashed lands a live
+    # replacement on its date, and bringing this one back would leave two active
+    # occurrences of one series due the same day — the invariant the
+    # uq_tasks_active_occurrence index enforces. Restoring is never allowed to be
+    # the write that breaks it; the user trashes or skips the replacement first.
+    if task.recurrence_id is not None and task.due_date is not None:
+        conflict = find_live_occurrence_on(
+            db, task.recurrence_id, task.due_date, exclude_id=task.id
+        )
+        if conflict is not None:
+            raise OccurrenceConflictError(
+                f"This series already has an active occurrence due "
+                f"{task.due_date.isoformat()}. Trash or skip that one first, "
+                f"then restore this."
+            )
 
     # Fallback (non-recurring, or a series with no live occurrence): plain restore.
     # A restored task may point at a since-deleted project; rehome it to General

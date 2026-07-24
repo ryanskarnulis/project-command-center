@@ -69,6 +69,18 @@ class RecurrenceError(ValueError):
     """
 
 
+class OccurrenceConflictError(RecurrenceError):
+    """A write would put two live occurrences of one series on the same due date.
+
+    A series holds at most one active row per ``(recurrence_id, due_date)`` — the
+    invariant behind the ``uq_tasks_active_occurrence`` partial unique index. This
+    is a state conflict, not bad input (restoring a trashed occurrence whose date a
+    replacement has since taken), so the caller surfaces a 409 rather than the 422
+    its ``RecurrenceError`` base gets. It subclasses ``RecurrenceError`` so existing
+    handlers still catch it; handlers that want the 409 check it *first*.
+    """
+
+
 def _default_project_id(db: Session, project_id: int | None) -> int | None:
     """Tasks are always filed: no project means the General default project."""
     if project_id is None:
@@ -503,7 +515,6 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     if effective_repeat is not None and effective_due is None:
         raise RecurrenceError("A recurring task requires a due date")
 
-    prev_workflow = task.workflow_status
     for key, value in control.items():
         setattr(task, key, value)
     task.project_id = _default_project_id(db, task.project_id)
@@ -558,31 +569,18 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
         for row in forwarded:
             log_task_event(db, row, "updated")
 
-    # Completing a recurring task spawns its next occurrence. Only on the
-    # open->done transition (a no-op re-save of a done task must not duplicate);
-    # reopening is a separate path that never deletes. Imported locally:
-    # task_recurrence builds on this module's primitives, so a top-level import
-    # would cycle — completion spawning is the one place the dependency inverts.
+    # Any patch can move this task (or an ancestor, or something waiting on it)
+    # into effective completion: the obvious open->done write, but equally
+    # attaching a repeat_interval to a task that is already done, or setting a due
+    # date that finally makes a recurring task schedulable. Reconciliation answers
+    # "is anything now complete that should have rolled forward?" instead of
+    # inferring it from the transition, and is idempotent, so it is safe to call on
+    # every update. Imported locally: task_recurrence builds on this module's
+    # primitives, so a top-level import would cycle.
     from app.services import task_recurrence
 
-    becoming_done = (
-        control.get("workflow_status") == TaskWorkflowStatus.done
-        and prev_workflow != TaskWorkflowStatus.done
-    )
-    if (
-        becoming_done
-        and task.repeat_interval is not None
-        and task.due_date is not None
-    ):
-        task_recurrence.create_next_occurrence(db, task)
-    elif becoming_done:
-        # Completing a child can finish a recurring checklist ancestor whose own
-        # status is derived and so never spawns directly.
-        task_recurrence.maybe_spawn_recurring_checklist(db, task)
-    if becoming_done:
-        # Completing this task may have been the last unfinished blocker of a
-        # recurring checklist that couldn't spawn while blocked.
-        task_recurrence.spawn_unblocked_recurring_dependents(db, task)
+    db.flush()
+    task_recurrence.reconcile(db, [task.id])
 
     db.flush()
     db.refresh(task)
@@ -591,36 +589,22 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
 
 
 def mark_done(db: Session, task: Task) -> Task:
-    # Mirror the recurrence behaviour of update_task's open->done transition:
-    # POST /tasks/{id}/done is the path the task lists/cards use, so completing a
-    # recurring task here must spawn its next occurrence too. (This endpoint has no
-    # skip flag — skipping is the detail page's PATCH path.) Local import: same
-    # deliberate inversion as update_task.
+    # Mirror update_task's recurrence behaviour: POST /tasks/{id}/done is the path
+    # the task lists/cards use, so completing a recurring task here must roll the
+    # series forward too. (This endpoint has no skip flag — skipping is the detail
+    # page's PATCH path.) Local import: same deliberate inversion as update_task.
     from app.services import task_recurrence
 
     if has_active_children(db, task.id):
         raise DerivedStatusError(
             "This task's status is derived from its subtasks and can't be set directly"
         )
-    becoming_done = task.workflow_status != TaskWorkflowStatus.done
-    if becoming_done:
+    if task.workflow_status != TaskWorkflowStatus.done:
         _assert_not_blocked(db, task.id)
     task.workflow_status = TaskWorkflowStatus.done
     task.project_id = _default_project_id(db, task.project_id)
-    if (
-        becoming_done
-        and task.repeat_interval is not None
-        and task.due_date is not None
-    ):
-        task_recurrence.create_next_occurrence(db, task)
-    elif becoming_done:
-        # Completing a child can finish a recurring checklist ancestor whose own
-        # status is derived and so never spawns directly.
-        task_recurrence.maybe_spawn_recurring_checklist(db, task)
-    if becoming_done:
-        # Completing this task may have been the last unfinished blocker of a
-        # recurring checklist that couldn't spawn while blocked.
-        task_recurrence.spawn_unblocked_recurring_dependents(db, task)
+    db.flush()
+    task_recurrence.reconcile(db, [task.id])
     db.flush()
     db.refresh(task)
     log_task_event(db, task, "completed")
@@ -645,8 +629,21 @@ def soft_delete_task(db: Session, task: Task) -> None:
     # while it still belongs to a project. Restore stays per-task (see
     # task_trash.restore_task): bringing a parent back does not auto-restore
     # children.
+    from app.services import task_recurrence
+
     for child in list_subtasks(db, task.id):
         soft_delete_task(db, child)
     soft_delete(task)
     db.flush()
     log_task_event(db, task, "deleted")
+    # Trashing the last unfinished child completes its parent, and trashing a
+    # blocker unblocks whatever waited on it — both can roll a series forward.
+    # The deleted task itself is gone from reconcile's view (get_task filters
+    # soft deletes), so seed the walk from its parent and its dependents.
+    from app.services import task_dependencies as deps_service
+
+    seeds = [edge.task_id for edge in deps_service.list_dependents(db, task.id)]
+    if task.parent_task_id is not None:
+        seeds.append(task.parent_task_id)
+    if seeds:
+        task_recurrence.reconcile(db, seeds)

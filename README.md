@@ -89,7 +89,13 @@ Key decisions:
   `is_blocking`, and `blocked_task_count` are derived in Python from the active
   edge graph. The service layer refuses cycle-creating edges.
 - **Recurrence** via a shared `recurrence_id` string across a series;
-  scheduling math lives in `services/task_recurrence.py`.
+  scheduling math lives in `services/task_recurrence.py`. Successors are spawned
+  by `task_recurrence.reconcile`, called after every mutation that can move a
+  task into *effective* completion (its own status, its last subtask, its last
+  blocking dependency) — not just on a stored `open -> done` write. A series
+  holds at most one **live** occurrence per due date, enforced by the partial
+  unique index `uq_tasks_active_occurrence`; restoring a trashed occurrence whose
+  date a replacement has taken returns 409 rather than duplicating the series.
 - **Project deletion cascade**: deleting a project soft-deletes exactly its own
   tasks (by `project_id`, not by walking the subtree across projects), each
   stamped with `deleted_with_project_id` so restore can offer to bring them back
@@ -106,9 +112,10 @@ Key decisions:
   `activity_events` remains the audit source of truth for what changed.
 - **`tasks` read-path indexes** back the hot list/read queries: `deleted_at`
   (active-task list, search, and the trash `deleted_at IS NOT NULL` scan) plus
-  single `project_id`, `parent_task_id`, `recurrence_id`. `workflow_status` is
-  deliberately not indexed (effective status rolls up in Python; it is never a
-  SQL filter).
+  single `project_id`, `parent_task_id`, `recurrence_id`, plus the partial unique
+  `uq_tasks_active_occurrence` on `(recurrence_id, due_date)` where the row is
+  live. `workflow_status` is deliberately not indexed (effective status rolls up
+  in Python; it is never a SQL filter).
 
 ## Dashboard workflow
 

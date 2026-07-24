@@ -1742,3 +1742,39 @@ shipped slices:
 - [x] Cross-surface regression matrix + the invariant that `effective_statuses`
       equals `capped_status(rollup, is_blocked)` per task
       (`tests/test_effective_status.py`).
+
+---
+
+## Recurrence lifecycle: centralized reconciliation (2026-07-24)
+> Recurrence hung off the stored `open -> done` write, but "complete" here is derived — so a series stalled whenever a task became *effectively* done through any other door. One reconciliation entry point now answers "is anything now complete that should roll forward?" after every mutation, and a series' live occurrences are unique per due date at the schema level.
+
+- [x] `task_recurrence.reconcile(db, task_ids)` replaces the three ad-hoc spawn
+      hooks; walks up the parent chain and out to dependents, spawning any series
+      head whose `capped_status(rollup, blocked)` is `done`. Idempotent
+      (`services/task_recurrence.py`).
+- [x] Attaching a `repeat_interval` to an already-complete task now starts the
+      series instead of waiting for a `open -> done` transition that may never
+      come (`services/tasks.py`).
+- [x] Removing or trashing the last blocking dependency of an all-children-done
+      recurring checklist spawns its next occurrence — previously only
+      *completing* the blocker did (`services/task_dependencies.py`,
+      `services/tasks.soft_delete_task`).
+- [x] `next_occurrence_date` reads the *effective* status, so a finished
+      recurring checklist (stored `open` forever, by design) stops advertising a
+      date whose occurrence already exists (`api/task_reads.py`).
+- [x] A normally-trashed occurrence no longer wedges its date: "delete this" is
+      not "I decided not to do this", so a re-completion refills the slot. A
+      *skipped* date still stays skipped.
+- [x] Partial unique index `uq_tasks_active_occurrence` on
+      `(recurrence_id, due_date) WHERE deleted_at IS NULL`, with a migration that
+      resolves pre-existing duplicates by soft-deleting the extras into the trash
+      with an audit event — no hard deletes.
+- [x] Restoring a trashed occurrence whose date a live replacement has taken
+      raises `OccurrenceConflictError` → 409 naming the date and the fix, instead
+      of silently producing two active occurrences of one series.
+- [x] Agent undo wording tells the truth: reopening a completed *recurring* task
+      reads "Reopen (keeps next occurrence)" rather than "Undo", and
+      `skip_occurrence` gained a real undo (`features/agent/toolCalls.ts`).
+- [x] Regression coverage for every door into effective completion, series
+      uniqueness, restore conflict, and the duplicate-resolution migration
+      (`tests/test_recurrence.py`, `tests/test_migrations.py`).
