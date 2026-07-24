@@ -182,61 +182,27 @@ def reorder_projects(db: Session, ordered_ids: Sequence[int]) -> Sequence[Projec
     return list_projects(db)
 
 
-def _mark_subtree_deleted_with_project(
-    db: Session, task: Task, project_id: int
-) -> None:
-    """Stamp ``task`` and its whole active subtree with the owning project id.
-
-    Stamped before the cascade soft-delete so ``restore_project`` can bring back
-    exactly the set that the project deletion removed (and ``list_deleted_tasks``
-    can hide it from the standalone Tasks trash section).
-    """
-    from app.services import tasks as tasks_service
-
-    task.deleted_with_project_id = project_id
-    for child in tasks_service.list_subtasks(db, task.id):
-        _mark_subtree_deleted_with_project(db, child, project_id)
-
-
 def soft_delete_project(db: Session, project: Project) -> None:
     if project.is_protected:
         raise ValueError(f'Project "{project.name}" is protected and cannot be deleted')
 
-    # Cascade: a deleted project takes its tasks (and their subtrees) into the
-    # trash with it, instead of rehoming them to General. Restore offers to bring
-    # them back (see restore_project). Tasks already trashed independently keep
-    # their null marker and are left untouched.
-    from app.services import tasks as tasks_service
+    # Cascade by membership: a deleted project takes exactly its own tasks
+    # (``project_id == project.id``) into the trash, each stamped with the project
+    # id so ``restore_project`` can bring back the same set and ``list_deleted_tasks``
+    # can hide them from the standalone Tasks trash. Task hierarchy is deliberately
+    # NOT followed across project boundaries: a child filed under a different,
+    # still-active project stays active — it belongs to that project, and its
+    # parent landing in trash just leaves it an *effective* top-level task (see
+    # ``tasks.is_effective_top_level``). Tasks already trashed independently keep
+    # their null marker and are skipped — they aren't in the active set below.
+    from app.services.tasks import log_task_event
 
-    top_level = db.execute(
-        active(Task).where(
-            Task.project_id == project.id, Task.parent_task_id.is_(None)
-        )
-    ).scalars().all()
-    for task in top_level:
-        _mark_subtree_deleted_with_project(db, task, project.id)
-        tasks_service.soft_delete_task(db, task)
-
-    # Safety sweep: any task still active in this project (e.g. a subtask whose
-    # parent lives in a different project, so the cascade above never reached it).
-    # Same shape as the pass above — stamp the whole subtree, then cascade —
-    # because the invariant is that every row this deletion removes is stamped,
-    # and a swept task's children can sit outside this project (a cross-project
-    # child is supported: create_task only inherits the parent's project when
-    # none is given, and re-parenting never moves it). Stamping them with the
-    # deleted project is what the top-level pass already does to its own
-    # cross-project descendants.
-    #
-    # The row list is read up front, so a task an earlier iteration's cascade
-    # already deleted is skipped rather than soft-deleted twice — soft_delete
-    # re-stamps deleted_at unconditionally and the event log would fire again.
     for task in db.execute(
         active(Task).where(Task.project_id == project.id)
     ).scalars().all():
-        if task.deleted_at is not None:
-            continue
-        _mark_subtree_deleted_with_project(db, task, project.id)
-        tasks_service.soft_delete_task(db, task)
+        task.deleted_with_project_id = project.id
+        soft_delete(task)
+        log_task_event(db, task, "deleted")
 
     db.flush()
     soft_delete(project)
@@ -292,7 +258,15 @@ def restore_project(
     Returns ``(project, restored_task_count)``. Only tasks stamped with this
     project's id at delete time are pulled back — tasks the user trashed
     independently keep their null marker and stay in the trash.
+
+    When ``restore_tasks`` is False the cascade tasks are NOT stranded: their
+    marker is cleared so they move into the standalone Tasks trash, where they
+    stay discoverable and individually restorable (into this now-active project).
+    Otherwise they'd keep pointing at an active project and be filtered out of
+    every trash surface.
     """
+    from app.services.tasks import log_task_event
+
     restore(project)
 
     restored_tasks = 0
@@ -303,7 +277,19 @@ def restore_project(
         for task in tasks:
             restore(task)
             task.deleted_with_project_id = None
+            # Per-task restore event mirrors the per-task "deleted" events the
+            # cascade writes, so an itemized restore is auditable too.
+            log_task_event(db, task, "restored")
             restored_tasks += 1
+    else:
+        # Don't strand the cascade tasks: clearing the marker moves them into the
+        # standalone Tasks trash instead of leaving them pointing at an active
+        # project (where every trash surface filters them out).
+        db.execute(
+            update(Task)
+            .where(Task.deleted_with_project_id == project.id)
+            .values(deleted_with_project_id=None)
+        )
 
     db.flush()
     db.refresh(project)

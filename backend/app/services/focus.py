@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import date
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import Task, TaskPriority, TaskWorkflowStatus
@@ -251,13 +252,20 @@ def get_focus_plan(
     belong to their parent). Blocked tasks (an unfinished dependency) are
     surfaced separately and never scheduled.
     """
+    # Non-deleted task ids (done ones included) so an orphan — a live child whose
+    # parent is soft-deleted — is promoted to top-level here instead of vanishing
+    # from the plan, while a subtask of a merely-completed parent stays nested.
+    active_ids = set(
+        db.execute(select(Task.id).where(Task.deleted_at.is_(None))).scalars()
+    )
     source = [
         task
         for task in tasks_service.list_tasks(db, exclude_done=True)
         # Subtasks are scheduled as part of their parent's work, never as their
         # own day-plan rows (except as stand-ins when the parent doesn't fit —
         # see _pack). Deferred tasks are snoozed out of the plan entirely.
-        if task.parent_task_id is None and not _is_deferred(task, target_date)
+        if tasks_service.is_effective_top_level(task, active_ids)
+        and not _is_deferred(task, target_date)
     ]
     # Resolved once, for the source tasks and their subtasks together: ranking,
     # reasons, packing and the subtask fallback all read status/estimate from here

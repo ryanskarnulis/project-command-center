@@ -123,6 +123,19 @@ def _assert_no_parent_cycle(
         current = ancestor.parent_task_id
 
 
+def is_effective_top_level(task: Task, active_ids: set[int]) -> bool:
+    """True when ``task`` behaves as a top-level task.
+
+    A task is top-level with no parent, *or* when its parent is soft-deleted/gone
+    — i.e. ``parent_task_id`` is not in ``active_ids``, the set of non-deleted task
+    ids. This promotes an orphan (a live child of a trashed parent) so it is still
+    scheduled and listed instead of vanishing, mirroring the frontend
+    ``taskTree`` orphan-promotion rule. ``active_ids`` must include done-but-active
+    parents so a subtask of a merely-completed parent is *not* promoted.
+    """
+    return task.parent_task_id is None or task.parent_task_id not in active_ids
+
+
 def list_subtasks(db: Session, parent_task_id: int) -> Sequence[Task]:
     """Active direct children of a task, ordered by id."""
     return (

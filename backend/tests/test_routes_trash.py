@@ -138,12 +138,22 @@ def test_restore_project_without_tasks_leaves_them_trashed(
     client: TestClient,
 ) -> None:
     pid = client.post("/api/projects", json={"name": "Firewall"}).json()["id"]
-    client.post(f"/api/projects/{pid}/tasks", json={"title": "audit"})
+    tid = client.post(f"/api/projects/{pid}/tasks", json={"title": "audit"}).json()[
+        "id"
+    ]
     assert client.delete(f"/api/projects/{pid}").status_code == 204
 
     restored = client.post(f"/api/projects/{pid}/restore")  # restore_tasks defaults false
     assert restored.json()["restored_task_count"] == 0
+    # The task is still trashed (not active under the project)...
     assert client.get(f"/api/projects/{pid}/tasks").json() == []
+    # ...but no longer stranded: it now shows in the standalone Tasks trash and is
+    # individually restorable back into the now-active project.
+    trash = client.get("/api/trash").json()
+    assert tid in [t["id"] for t in trash["tasks"]]
+    restored_task = client.post(f"/api/tasks/{tid}/restore")
+    assert restored_task.status_code == 200
+    assert restored_task.json()["project_id"] == pid
 
 
 def test_restore_unknown_project_404(client: TestClient) -> None:
