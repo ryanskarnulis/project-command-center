@@ -14,6 +14,7 @@ import {
 } from '../projects/projectDrag'
 import type { ProjectOpenTasksRow } from '../../types/dashboard'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
+import { fireAndForget } from '../../utils/async'
 import { compareTasks } from '../../utils/dates'
 import { projectStatus } from '../../utils/projectStatus'
 import { TaskCard } from '../tasks/TaskCard'
@@ -140,6 +141,10 @@ function DashboardSwimlane({
       if (task.workflow_status === 'done' || target === 'done') {
         completed.reload()
       }
+    } catch {
+      // The caller already surfaces the failure (error toast). Swallow here so
+      // the fire-and-forget drag/click handlers below don't raise an unhandled
+      // rejection.
     } finally {
       setPendingId(null)
     }
@@ -163,7 +168,12 @@ function DashboardSwimlane({
     }
     const patch: TaskUpdate = { project_id: project.project_id }
     if (task.workflow_status !== target) patch.workflow_status = target
-    await onUpdate(task, patch)
+    try {
+      await onUpdate(task, patch)
+    } catch {
+      // The caller already toasts the failure; swallow so the fire-and-forget
+      // cross-lane drop below doesn't raise an unhandled rejection.
+    }
   }
 
   function onDrop(target: TaskWorkflowStatus, event: DragEvent): void {
@@ -199,7 +209,7 @@ function DashboardSwimlane({
         <TaskCard
           task={task}
           onComplete={() => void move(task, 'done')}
-          onUpdate={(patch) => void onUpdate(task, patch)}
+          onUpdate={(patch) => fireAndForget(onUpdate(task, patch))}
           onSetStatus={(target) => void move(task, target)}
         />
       </li>

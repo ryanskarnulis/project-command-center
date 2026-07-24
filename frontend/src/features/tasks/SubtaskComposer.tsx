@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from 'react'
 import type { Task, TaskCreate, TaskPriority } from '../../types/task'
+import { fireAndForget } from '../../utils/async'
 import { parseDurationInput } from '../../utils/duration'
 
 interface SubtaskComposerProps {
@@ -62,7 +63,10 @@ export function SubtaskComposer({
   }
 
   return (
-    <form className="task-subtask-form" onSubmit={(e) => void handleSubmit(e)}>
+    <form
+      className="task-subtask-form"
+      onSubmit={(e) => fireAndForget(handleSubmit(e))}
+    >
       <input
         autoFocus
         value={draft.title}

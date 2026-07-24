@@ -1,6 +1,7 @@
 import { type FormEvent, useMemo, useState } from 'react'
 import type { Project } from '../../../types/project'
 import type { TaskCreate, TaskPriority } from '../../../types/task'
+import { fireAndForget } from '../../../utils/async'
 import { DueDateChip } from '../chips/DueDateChip'
 import { EstimateChip } from '../chips/EstimateChip'
 import { PriorityChip } from '../chips/PriorityChip'
@@ -89,7 +90,10 @@ export function QuickAddBar({ projects, scopeProjectId, onCreate, onMoreOptions 
   }
 
   return (
-    <form className="quick-add" onSubmit={(e) => void handleSubmit(e)}>
+    <form
+      className="quick-add"
+      onSubmit={(e) => fireAndForget(handleSubmit(e))}
+    >
       <div className="quick-add-row">
         <input
           aria-label="Quick add task"

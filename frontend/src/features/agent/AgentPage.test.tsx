@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  createConversation,
+  deleteConversation,
   getConversation,
   listConversations,
   postMessage,
@@ -31,6 +33,8 @@ vi.mock('../../api/projects', () => ({
 }))
 
 const mockList = vi.mocked(listConversations)
+const mockCreate = vi.mocked(createConversation)
+const mockDelete = vi.mocked(deleteConversation)
 const mockGet = vi.mocked(getConversation)
 const mockPost = vi.mocked(postMessage)
 
@@ -108,6 +112,29 @@ describe('AgentPage', () => {
     fireEvent.click(undo)
     await waitFor(() => expect(vi.mocked(deleteTask)).toHaveBeenCalledWith(7))
     expect(await screen.findByText('Undone')).toBeInTheDocument()
+  })
+
+  it('swallows rejected conversation create and delete actions', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mockCreate.mockRejectedValue(new Error('Create failed'))
+    mockDelete.mockRejectedValue(new Error('Delete failed'))
+    renderAt('/agent')
+
+    const createButton = await screen.findByRole('button', {
+      name: 'New conversation',
+    })
+    fireEvent.click(createButton)
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledOnce())
+    expect(screen.getByRole('heading', { name: 'Agent' })).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Delete conversation Water the plants',
+      }),
+    )
+    await waitFor(() => expect(mockDelete).toHaveBeenCalledWith(1))
+    expect(screen.getByText('Water the plants')).toBeInTheDocument()
+    confirmSpy.mockRestore()
   })
 
   it('sends a message, shows progress, then renders the refetched thread', async () => {

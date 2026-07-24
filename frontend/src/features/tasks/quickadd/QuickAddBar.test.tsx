@@ -61,6 +61,18 @@ describe('QuickAddBar', () => {
     expect(input).toHaveValue('')
   })
 
+  it('keeps the draft and becomes interactive again when creation rejects', async () => {
+    const onCreate = () => Promise.reject(new Error('Could not create task'))
+    const { input } = setup({ onCreate })
+    fireEvent.change(input, { target: { value: 'Keep this draft' } })
+    fireEvent.submit(input)
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled(),
+    )
+    expect(input).toHaveValue('Keep this draft')
+  })
+
   it('defaults the project to the page scope when no token is given', async () => {
     const { onCreate, input } = setup({ scopeProjectId: 2 })
     fireEvent.change(input, { target: { value: 'Fix the rack' } })

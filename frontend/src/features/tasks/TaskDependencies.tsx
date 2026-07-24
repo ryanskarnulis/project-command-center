@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { fireAndForget } from '../../utils/async'
 import type { Task } from '../../types/task'
 import { useTaskLinkTo } from './panel/taskPanelContext'
 import { useTaskDependencies } from './useTaskDependencies'
@@ -88,7 +89,7 @@ export function TaskDependencies({ task, tasks }: Props) {
               type="button"
               className="icon-button compact"
               aria-label={`Remove dependency ${d.depends_on_title}`}
-              onClick={() => void remove(d.id)}
+              onClick={() => fireAndForget(remove(d.id))}
             >
               <X size={16} aria-hidden="true" />
             </button>

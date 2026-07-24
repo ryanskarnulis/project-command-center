@@ -2,6 +2,7 @@ import { type DragEvent, useMemo, useState } from 'react'
 import { useToast } from '../../components/ToastContext'
 import type { Project } from '../../types/project'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
+import { fireAndForget } from '../../utils/async'
 import { compareTasks } from '../../utils/dates'
 import { TaskCard } from './TaskCard'
 import { isMoveBlocked } from './taskStatusRules'
@@ -111,7 +112,7 @@ export function KanbanBoard({
           task={task}
           projects={isGlobal ? projects : undefined}
           onComplete={() => void move(task, 'done')}
-          onUpdate={(patch) => void onUpdate(task, patch)}
+          onUpdate={(patch) => fireAndForget(onUpdate(task, patch))}
           onSetStatus={(target) => void move(task, target)}
         />
       </li>

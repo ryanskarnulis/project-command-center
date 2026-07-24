@@ -69,6 +69,25 @@ describe('ToolCallList', () => {
     expect(link).toHaveAttribute('href', '/trash')
   })
 
+  it('keeps undo available when the mutation rejects', async () => {
+    vi.mocked(deleteTask).mockRejectedValue(new Error('Undo failed'))
+    renderList([
+      {
+        tool: 'create_task',
+        arguments: { data: { title: 'Water plants' } },
+        result: JSON.stringify({ id: 7, title: 'Water plants' }),
+        error: null,
+      },
+    ])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo (move to trash)' }))
+    await vi.waitFor(() => expect(vi.mocked(deleteTask)).toHaveBeenCalledWith(7))
+    expect(
+      screen.getByRole('button', { name: 'Undo (move to trash)' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Undone')).not.toBeInTheDocument()
+  })
+
   it('repoints an undone trash back at the restored task', async () => {
     const { restoreTask } = await import('../../api/tasks')
     vi.mocked(restoreTask).mockResolvedValue(undefined as never)

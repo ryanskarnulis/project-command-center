@@ -1,10 +1,29 @@
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { RouterProvider, createMemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
 import { listDependencies, listDependents } from '../../api/taskDependencies'
-import { createUnscopedTask, getSubtasks, getTask, listAllTasks, listCompletedTasks, markTaskDone, reopenTask, updateTask } from '../../api/tasks'
+import {
+  createUnscopedTask,
+  deleteTask,
+  getSubtasks,
+  getTask,
+  listAllTasks,
+  listCompletedTasks,
+  markTaskDone,
+  reopenTask,
+  skipOccurrence,
+  updateTask,
+} from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { TasksPage } from './TasksPage'
@@ -44,8 +63,10 @@ const mockListAllTasks = vi.mocked(listAllTasks)
 const mockListCompletedTasks = vi.mocked(listCompletedTasks)
 const mockListProjects = vi.mocked(listProjects)
 const mockCreateUnscopedTask = vi.mocked(createUnscopedTask)
+const mockDeleteTask = vi.mocked(deleteTask)
 const mockMarkTaskDone = vi.mocked(markTaskDone)
 const mockReopenTask = vi.mocked(reopenTask)
+const mockSkipOccurrence = vi.mocked(skipOccurrence)
 const mockUpdateTask = vi.mocked(updateTask)
 const mockGetTask = vi.mocked(getTask)
 const mockGetSubtasks = vi.mocked(getSubtasks)
@@ -462,6 +483,111 @@ describe('TasksPage', () => {
       ),
     )
     expect(screen.getByLabelText('Quick add task')).toHaveValue('')
+  })
+
+  it('keeps failed list mutations local and skips their follow-up reloads', async () => {
+    const user = userEvent.setup()
+    mockDeleteTask.mockRejectedValue(new Error('Delete failed'))
+    mockMarkTaskDone.mockRejectedValue(new Error('Complete failed'))
+    mockUpdateTask.mockRejectedValue(new Error('Update failed'))
+    renderGlobal()
+    await screen.findByText('Fix the VPN')
+
+    await user.click(screen.getByRole('button', { name: 'Delete Fix the VPN' }))
+    await waitFor(() => expect(mockDeleteTask).toHaveBeenCalledWith(1))
+    expect(mockListAllTasks).toHaveBeenCalledTimes(1)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Mark Fix the VPN done' }),
+    )
+    await waitFor(() => expect(mockMarkTaskDone).toHaveBeenCalledWith(1))
+    expect(mockListAllTasks).toHaveBeenCalledTimes(1)
+
+    await user.click(screen.getByRole('button', { name: 'Priority: medium' }))
+    await user.click(screen.getByRole('button', { name: 'high' }))
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(1, { priority: 'high' }),
+    )
+
+    const taskCard = screen.getByRole('link', { name: 'Fix the VPN' })
+    await user.click(
+      within(taskCard).getByRole('button', { name: 'Status: Open' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'In progress' }))
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(1, {
+        workflow_status: 'in_progress',
+      }),
+    )
+  })
+
+  it('keeps a failed subtask draft open for retry', async () => {
+    const user = userEvent.setup()
+    mockCreateUnscopedTask.mockRejectedValue(new Error('Create failed'))
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.click(screen.getByRole('button', { name: 'Add subtask' }))
+    const titleInput = screen.getByPlaceholderText('Subtask title')
+    await user.type(titleInput, 'Keep this subtask')
+    const composer = titleInput.closest('form') as HTMLFormElement
+    await user.click(within(composer).getByRole('button', { name: 'Add' }))
+
+    await waitFor(() =>
+      expect(mockCreateUnscopedTask).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Keep this subtask' }),
+      ),
+    )
+    expect(screen.getByPlaceholderText('Subtask title')).toHaveValue(
+      'Keep this subtask',
+    )
+  })
+
+  it('swallows a rejected recurring-task skip', async () => {
+    mockListAllTasks.mockResolvedValue([
+      {
+        ...baseTask,
+        repeat_interval: { unit: 'week', every: 1 },
+        recurrence_id: 'series-1',
+      },
+    ])
+    mockSkipOccurrence.mockRejectedValue(new Error('Skip failed'))
+    renderGlobal()
+    await screen.findByText('Fix the VPN')
+
+    const taskCard = screen.getByRole('link', { name: 'Fix the VPN' })
+    fireEvent.click(
+      within(taskCard).getByRole('button', { name: 'Status: Open' }),
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Skip occurrence…' }),
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Skip occurrence' }),
+    )
+
+    await waitFor(() => expect(mockSkipOccurrence).toHaveBeenCalledWith(1))
+    expect(
+      screen.queryByRole('dialog', { name: 'Skip occurrence' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('swallows rejected edits from a completed list card', async () => {
+    const user = userEvent.setup()
+    mockListCompletedTasks.mockResolvedValue([
+      { ...baseTask, workflow_status: 'done' },
+    ])
+    mockUpdateTask.mockRejectedValue(new Error('Update failed'))
+    renderGlobal(['/tasks?status=done'])
+    await screen.findByText('Fix the VPN')
+
+    await user.click(screen.getByRole('button', { name: 'Priority: medium' }))
+    await user.click(screen.getByRole('button', { name: 'high' }))
+
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(1, { priority: 'high' }),
+    )
+    expect(mockListCompletedTasks).toHaveBeenCalledTimes(1)
   })
 
   it('files a modal-created task in the selected project', async () => {

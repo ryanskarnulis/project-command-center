@@ -10,9 +10,15 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDashboard } from '../../api/dashboard'
-import { createProject, listProjects } from '../../api/projects'
+import {
+  createProject,
+  listProjects,
+  reopenProject,
+} from '../../api/projects'
 import {
   createUnscopedTask,
+  getSubtasks,
+  getTask,
   listAllTasks,
   listCompletedTasks,
   markTaskDone,
@@ -35,7 +41,9 @@ vi.mock('../../api/projects', () => ({
 
 vi.mock('../../api/tasks', () => ({
   createUnscopedTask: vi.fn(),
+  getSubtasks: vi.fn(),
   getTask: vi.fn(),
+  getTaskSeries: vi.fn(),
   listAllTasks: vi.fn(),
   listCompletedTasks: vi.fn(),
   markTaskDone: vi.fn(),
@@ -43,9 +51,19 @@ vi.mock('../../api/tasks', () => ({
   updateTask: vi.fn(),
 }))
 
+vi.mock('../../api/taskDependencies', () => ({
+  addDependency: vi.fn(),
+  listDependencies: vi.fn(() => Promise.resolve([])),
+  listDependents: vi.fn(() => Promise.resolve([])),
+  removeDependency: vi.fn(),
+}))
+
 const mockGetDashboard = vi.mocked(getDashboard)
 const mockCreateProject = vi.mocked(createProject)
+const mockReopenProject = vi.mocked(reopenProject)
 const mockCreateUnscopedTask = vi.mocked(createUnscopedTask)
+const mockGetSubtasks = vi.mocked(getSubtasks)
+const mockGetTask = vi.mocked(getTask)
 const mockListProjects = vi.mocked(listProjects)
 const mockListAllTasks = vi.mocked(listAllTasks)
 const mockListCompletedTasks = vi.mocked(listCompletedTasks)
@@ -146,6 +164,8 @@ describe('DashboardPage', () => {
     mockListAllTasks.mockResolvedValue(tasks)
     mockListProjects.mockResolvedValue([])
     mockListCompletedTasks.mockResolvedValue([doneTask])
+    mockGetSubtasks.mockResolvedValue([])
+    mockGetTask.mockResolvedValue(baseTask)
     mockMarkTaskDone.mockResolvedValue({ ...baseTask, workflow_status: 'done' })
     mockUpdateTask.mockResolvedValue(baseTask)
   })
@@ -275,6 +295,75 @@ describe('DashboardPage', () => {
         workflow_status: 'in_progress',
       }),
     )
+  })
+
+  it('clears pending state when a same-lane status mutation rejects', async () => {
+    mockMarkTaskDone.mockRejectedValue(new Error('Could not move task'))
+    renderPage()
+    await screen.findByRole('heading', { name: 'Project board' })
+    const portal = lane('Customer Portal')
+
+    fireEvent.click(
+      within(portal).getByRole('button', {
+        name: 'Mark Fix login flow done',
+      }),
+    )
+
+    await waitFor(() =>
+      expect(mockMarkTaskDone).toHaveBeenCalledWith(1),
+    )
+    await waitFor(() =>
+      expect(screen.getByText('Fix login flow').closest('li')).toHaveAttribute(
+        'draggable',
+        'true',
+      ),
+    )
+  })
+
+  it('swallows rejected cross-lane drops and card chip edits', async () => {
+    mockUpdateTask.mockRejectedValue(new Error('Could not save task'))
+    renderPage()
+    await screen.findByRole('heading', { name: 'Project board' })
+
+    const openColumn = within(lane('Customer Portal')).getByRole('region', {
+      name: 'Customer Portal Open',
+    })
+    fireEvent.drop(openColumn, {
+      dataTransfer: { getData: () => '3', types: ['text/plain'] },
+    })
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(3, { project_id: 1 }),
+    )
+
+    const taskCard = screen.getByRole('link', { name: 'Fix login flow' })
+    fireEvent.click(
+      within(taskCard).getByRole('button', { name: 'Priority: high' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'urgent' }))
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(1, { priority: 'urgent' }),
+    )
+  })
+
+  it('swallows a rejected closed-project reopen', async () => {
+    mockListProjects.mockResolvedValue([
+      {
+        id: 8,
+        name: 'Closed work',
+        description: null,
+        system_key: null,
+        sort_order: 0,
+        is_protected: false,
+        closed_at: '2026-07-01T00:00:00Z',
+        created_at: '2026-06-01T00:00:00Z',
+        updated_at: '2026-07-01T00:00:00Z',
+      },
+    ])
+    mockReopenProject.mockRejectedValue(new Error('Could not reopen project'))
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reopen' }))
+    await waitFor(() => expect(mockReopenProject).toHaveBeenCalledWith(8))
   })
 
   it('creates a project from the board heading and reloads the board', async () => {

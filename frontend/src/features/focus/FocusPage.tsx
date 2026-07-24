@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { markTaskDone, skipOccurrence, updateTask } from '../../api/tasks'
 import { useToast } from '../../components/ToastContext'
+import { fireAndForget } from '../../utils/async'
 import type { TaskPriority, TaskWorkflowStatus } from '../../types/task'
 import { SkipOccurrenceConfirm } from '../tasks/SkipOccurrenceConfirm'
 import type {
@@ -594,7 +595,7 @@ export function FocusPage() {
       <SkipOccurrenceConfirm
         taskTitle={skipTarget?.title ?? null}
         onCancel={() => setSkipTarget(null)}
-        onConfirm={() => void confirmSkip()}
+        onConfirm={() => fireAndForget(confirmSkip())}
       />
     </main>
     </TaskPanelProvider>
