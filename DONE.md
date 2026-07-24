@@ -1718,3 +1718,27 @@ shipped slices:
       stamps written only after success.
 - [x] Backend CI runs pytest on both Python 3.11 and 3.14; Ruff and strict mypy
       run on the production 3.11 floor.
+
+---
+
+## Effective-status unification across read surfaces (2026-07-24)
+> One authoritative effective status (stored → rolled-up → dependency-capped) now drives every read surface, closing four ways the same task could read `done` in one place and `in_progress`/`open` in another.
+
+- [x] Task read model caps a blocked task's rolled-up `done` to `in_progress`
+      for leaves too, not only checklist parents — a leaf completed while its
+      blocker sat in the trash and then re-blocked on restore no longer reads
+      `done`-and-`blocked` at once (`api/task_reads.py`).
+- [x] Dependency edge reads report the depended-on/dependent task's *effective*
+      status (rolled-up, blocked-aware) instead of the raw stored column, so a
+      fully-done checklist parent no longer shows as a "pending" blocker;
+      resolved once per list endpoint to avoid an N+1 (`api/dependency_reads.py`,
+      `api/routes_task_dependencies.py`, `tools/registry.py`).
+- [x] Search resolves effective status over the whole matching set before the
+      `per_kind` cut, so an older open exact match is no longer dropped behind a
+      full page of newer completed matches (`services/search.py`).
+- [x] Dashboard open counts apply the same dependency cap as the task list, so
+      overview totals and drill-down lists agree on blocked-but-rolled-up-done
+      tasks (`services/dashboard.py`).
+- [x] Cross-surface regression matrix + the invariant that `effective_statuses`
+      equals `capped_status(rollup, is_blocked)` per task
+      (`tests/test_effective_status.py`).

@@ -186,10 +186,13 @@ def effective_statuses(
        an unfinished (transitive) dependency. A checklist parent's completion is
        *derived* from its children and so never passes through the blocked-gate
        that leaf completion does; without this, finishing a blocked parent's
-       children would silently satisfy anything waiting on the parent. A leaf can
-       never be simultaneously done and blocked (leaf completion is gated, and a
-       finished task can't gain a dependency — see ``add_dependency``), so the cap
-       only ever bites checklist parents, exactly the target.
+       children would silently satisfy anything waiting on the parent. Leaves are
+       usually kept out of this case by the completion gate and the
+       ``add_dependency`` guard, but not always: a leaf completed while its
+       blocker sat in the trash (so it read as not-blocked) becomes
+       stored-``done``-and-blocked again once the blocker is restored, and the cap
+       correctly demotes it here too. The cap therefore applies uniformly to
+       leaves and checklist parents alike.
 
     The dependency graph is a DAG (``add_dependency`` rejects cycles); the visited
     memo bounds the walk even against a corrupt graph. Every dependency check

@@ -314,14 +314,23 @@ def list_dependencies(task_id: int) -> TaskDependenciesRead:
     """Both directions of a task's dependency graph: what it waits on (depends_on) and what waits on it (dependents)."""
     with tool_session("list_dependencies") as db:
         _task_or_error(db, task_id)
+        depends_on_edges = deps_service.list_dependencies(db, task_id)
+        dependent_edges = deps_service.list_dependents(db, task_id)
+        # One batched effective-status resolve per direction (no N+1 per edge).
+        depends_on_effective = deps_service.effective_statuses(
+            db, [e.depends_on_task_id for e in depends_on_edges]
+        )
+        dependent_effective = deps_service.effective_statuses(
+            db, [e.task_id for e in dependent_edges]
+        )
         return TaskDependenciesRead(
             depends_on=[
-                dependency_read(db, e)
-                for e in deps_service.list_dependencies(db, task_id)
+                dependency_read(db, e, depends_on_effective)
+                for e in depends_on_edges
             ],
             dependents=[
-                dependent_read(db, e)
-                for e in deps_service.list_dependents(db, task_id)
+                dependent_read(db, e, dependent_effective)
+                for e in dependent_edges
             ],
         )
 
