@@ -92,6 +92,22 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
         Index("ix_tasks_project_id", "project_id"),
         Index("ix_tasks_parent_task_id", "parent_task_id"),
         Index("ix_tasks_recurrence_id", "recurrence_id"),
+        # A recurring series holds at most ONE live occurrence per due date. The
+        # service layer guards this (task_recurrence.find_live_occurrence_on), but
+        # the invariant is load-bearing enough to belong in the schema: the paths
+        # that can breach it — a re-completion racing a skip, or restoring a
+        # trashed occurrence whose date a replacement has taken — are exactly the
+        # ones an application-level check gets wrong. Partial, so soft-deleted
+        # history (the whole point of the trash) and non-recurring tasks are
+        # exempt.
+        Index(
+            "uq_tasks_active_occurrence",
+            "recurrence_id",
+            "due_date",
+            unique=True,
+            sqlite_where=text("recurrence_id IS NOT NULL AND deleted_at IS NULL"),
+            postgresql_where=text("recurrence_id IS NOT NULL AND deleted_at IS NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

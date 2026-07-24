@@ -175,6 +175,63 @@ describe('undoFor', () => {
     expect(action?.label).toBe('Undo (reopen)')
   })
 
+  it('does not call a recurring completion an undo', () => {
+    // The successor spawned by the completion survives the reopen, so the
+    // operation is not an inverse and must not be sold as one.
+    const action = undoFor(
+      record({
+        tool: 'complete_task',
+        result: JSON.stringify({
+          id: 3,
+          recurrence_id: 'r1',
+          repeat_interval: { unit: 'week', every: 1 },
+        }),
+      }),
+    )
+    expect(action?.label).toBe('Reopen (keeps next occurrence)')
+  })
+
+  it('labels re-completing a recurring task as duplicate-free', () => {
+    const action = undoFor(
+      record({
+        tool: 'reopen_task',
+        result: JSON.stringify({
+          id: 3,
+          recurrence_id: 'r1',
+          repeat_interval: { unit: 'week', every: 1 },
+        }),
+      }),
+    )
+    expect(action?.label).toBe('Complete again (no duplicate occurrence)')
+  })
+
+  it('keeps plain undo wording for a task whose series was stopped', () => {
+    // recurrence_id outlives a stopped series; repeat_interval is what makes it live.
+    const action = undoFor(
+      record({
+        tool: 'complete_task',
+        result: JSON.stringify({ id: 3, recurrence_id: 'r1', repeat_interval: null }),
+      }),
+    )
+    expect(action?.label).toBe('Undo (reopen)')
+  })
+
+  it('unskips a skipped occurrence using the argument id', async () => {
+    // skip_occurrence returns the NEXT occurrence, so the id to restore is the
+    // one that was skipped — from the arguments, not the result.
+    const action = undoFor(
+      record({
+        tool: 'skip_occurrence',
+        arguments: { task_id: 11 },
+        result: JSON.stringify({ id: 12 }),
+      }),
+    )
+    expect(action?.label).toBe('Undo (unskip)')
+    const { restoreTask } = await import('../../api/tasks')
+    await action?.perform()
+    expect(vi.mocked(restoreTask)).toHaveBeenCalledWith(11)
+  })
+
   it('offers no undo for failed calls, reads, or unreadable results', () => {
     expect(
       undoFor(record({ tool: 'create_task', error: 'boom', result: null })),
@@ -182,5 +239,9 @@ describe('undoFor', () => {
     expect(undoFor(record({ tool: 'list_tasks', result: '[]' }))).toBeNull()
     expect(undoFor(record({ tool: 'create_task', result: 'not json' }))).toBeNull()
     expect(undoFor(record({ tool: 'update_task', result: '{"id": 1}' }))).toBeNull()
+    // stop_recurrence clears the interval across the whole series: no inverse.
+    expect(
+      undoFor(record({ tool: 'stop_recurrence', result: '{"id": 1}' })),
+    ).toBeNull()
   })
 })

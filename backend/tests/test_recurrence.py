@@ -61,6 +61,23 @@ def _series(db: Session, recurrence_id: str) -> Sequence[Task]:
     )
 
 
+def _effective(db: Session, task: Task) -> TaskWorkflowStatus:
+    """The task's effective status, the way every read surface resolves it."""
+    return tasks_service.capped_status(
+        tasks_service.get_rollup(db, task).workflow_status,
+        deps_service.is_blocked(db, task.id),
+    )
+
+
+def _next_date(db: Session, task: Task) -> date | None:
+    return task_recurrence.next_occurrence_date(task, _effective(db, task))
+
+
+def _live_series(db: Session, recurrence_id: str) -> list[Task]:
+    """The series' active rows only, oldest first — the uniqueness surface."""
+    return [t for t in task_recurrence.get_series(db, recurrence_id) if t.deleted_at is None]
+
+
 def _active_count(db: Session) -> int:
     return len(
         db.execute(select(Task).where(Task.deleted_at.is_(None))).scalars().all()
@@ -325,28 +342,66 @@ def test_skip_past_skipped_next_date_returns_live_beyond(
     ]
 
 
-def test_restore_trashed_occurrence_after_skip_replaced_it(
+def test_restore_trashed_occurrence_after_skip_replaced_it_conflicts(
     db_session: Session,
 ) -> None:
-    # Documents the accepted interaction from the "create a new live row" choice:
-    # skipping onto a trashed date makes a live replacement, and later restoring the
-    # trashed row brings it back in place — two live rows share the date. Not data
-    # loss; completion idempotency stays deterministic (ordered by id).
+    # Skipping onto a trashed date makes a live replacement there. Restoring the
+    # trashed row would then put two live occurrences of one series on 06-08, so it
+    # is refused: restore is never the write that breaks the uniqueness invariant.
     recurrence_id, first, second = _two_live_occurrences(db_session)
     tasks_service.soft_delete_task(db_session, second)
     db_session.commit()
     replacement = task_recurrence.skip_occurrence(db_session, first)
     db_session.commit()
 
-    task_trash.restore_task(db_session, second)
-    db_session.commit()
+    with pytest.raises(tasks_service.OccurrenceConflictError):
+        task_trash.restore_task(db_session, second)
+    db_session.rollback()
 
     live_on_0608 = [
         t
         for t in _series(db_session, recurrence_id)
-        if t.due_date == date(2026, 6, 8)
+        if t.due_date == date(2026, 6, 8) and t.deleted_at is None
     ]
-    assert {t.id for t in live_on_0608} == {second.id, replacement.id}
+    assert [t.id for t in live_on_0608] == [replacement.id]
+    assert second.deleted_at is not None  # still in the trash, still restorable
+
+
+def test_restore_conflict_resolves_after_trashing_the_replacement(
+    db_session: Session,
+) -> None:
+    # The escape hatch the error message names: trash the live replacement, then the
+    # restore goes through and the series is back to one live row on the date.
+    recurrence_id, first, second = _two_live_occurrences(db_session)
+    tasks_service.soft_delete_task(db_session, second)
+    db_session.commit()
+    replacement = task_recurrence.skip_occurrence(db_session, first)
+    db_session.commit()
+    tasks_service.soft_delete_task(db_session, replacement)
+    db_session.commit()
+
+    restored = task_trash.restore_task(db_session, second)
+    db_session.commit()
+
+    assert restored.id == second.id
+    assert [t.id for t in _series(db_session, recurrence_id) if t.deleted_at is None] == [
+        second.id
+    ]
+
+
+def test_restore_route_returns_409_on_occurrence_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    _recurrence_id, first, second = _two_live_occurrences(db_session)
+    tasks_service.soft_delete_task(db_session, second)
+    db_session.commit()
+    task_recurrence.skip_occurrence(db_session, first)
+    db_session.commit()
+
+    response = client.post(f"/api/tasks/{second.id}/restore")
+
+    assert response.status_code == 409
+    assert "2026-06-08" in response.json()["detail"]
 
 
 # --- next_occurrence_date on the read payload (Slice 2) ---------------------
@@ -359,13 +414,13 @@ def test_next_occurrence_date_advances_open_recurring(db_session: Session) -> No
     )
     db_session.commit()
 
-    assert task_recurrence.next_occurrence_date(task) == date(2026, 6, 8)
+    assert _next_date(db_session, task) == date(2026, 6, 8)
 
 
 def test_next_occurrence_date_none_without_interval(db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
 
-    assert task_recurrence.next_occurrence_date(task) is None
+    assert _next_date(db_session, task) is None
 
 
 def test_next_occurrence_date_none_when_done(db_session: Session) -> None:
@@ -380,7 +435,7 @@ def test_next_occurrence_date_none_when_done(db_session: Session) -> None:
     )
     db_session.commit()
 
-    assert task_recurrence.next_occurrence_date(task) is None
+    assert _next_date(db_session, task) is None
 
 
 def test_task_read_exposes_next_occurrence_date(db_session: Session) -> None:
@@ -1368,3 +1423,324 @@ def test_series_shows_normally_deleted_occurrence_again_once_restored(
     db_session.commit()
 
     assert task.id in {t.id for t in task_recurrence.get_series(db_session, recurrence_id)}
+
+
+# --- Reconciliation: every transition into effective completion ---------------
+#
+# Recurrence used to hang off the stored open->done write, so a series stalled
+# whenever a task became *effectively* complete some other way. These cover each
+# door, and the active-series uniqueness that the fixes lean on.
+
+
+def test_attaching_recurrence_to_a_done_task_spawns_successor(
+    db_session: Session,
+) -> None:
+    # Door 1: the task is already done when the interval is attached. There may
+    # never be another open->done transition, so waiting for one stalls forever.
+    task = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.mark_done(db_session, task)
+    db_session.commit()
+
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+
+    recurrence_id = task.recurrence_id
+    assert recurrence_id is not None
+    series = _series(db_session, recurrence_id)
+    assert [t.due_date for t in series] == [date(2026, 6, 1), date(2026, 6, 8)]
+    assert task.workflow_status == TaskWorkflowStatus.done
+    assert _effective(db_session, task) == TaskWorkflowStatus.done
+    # The done head advertises no "next": its successor is already a visible row.
+    assert _next_date(db_session, task) is None
+    assert series[-1].workflow_status == TaskWorkflowStatus.open
+
+
+def test_attaching_recurrence_to_a_done_task_without_due_date_still_422s(
+    db_session: Session,
+) -> None:
+    # The reconciliation hook doesn't loosen the precondition: no due date, no series.
+    task = _make_task(db_session, due=None)
+    tasks_service.mark_done(db_session, task)
+    db_session.commit()
+
+    with pytest.raises(tasks_service.RecurrenceError):
+        tasks_service.update_task(
+            db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+        )
+
+
+def test_finished_recurring_checklist_advertises_no_next_date(
+    db_session: Session,
+) -> None:
+    # Door 2's read-side half: a checklist parent's status is derived, so it stays
+    # stored-open forever. Reading the stored value made it advertise 06-08 while
+    # the 06-08 occurrence already existed — two rows claiming the same date.
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session, n=1)
+    tasks_service.mark_done(db_session, children[0])
+    db_session.commit()
+
+    assert parent.workflow_status == TaskWorkflowStatus.open  # stored, derived
+    assert _effective(db_session, parent) == TaskWorkflowStatus.done
+    assert _next_date(db_session, parent) is None
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
+        date(2026, 6, 1),
+        date(2026, 6, 8),
+    ]
+
+
+def test_task_read_hides_next_date_for_finished_checklist(
+    db_session: Session,
+) -> None:
+    from app.api.task_reads import read_with_blocked, reads_with_blocked
+
+    parent, children, _recurrence_id = _recurring_parent_with_children(db_session, n=1)
+    tasks_service.mark_done(db_session, children[0])
+    db_session.commit()
+
+    assert read_with_blocked(db_session, parent).next_occurrence_date is None
+    # The list path resolves it the same way (no divergence between surfaces).
+    assert reads_with_blocked(db_session, [parent])[0].next_occurrence_date is None
+
+
+def test_removing_last_blocker_spawns_recurring_checklist(
+    db_session: Session,
+) -> None:
+    # Door 3: the checklist finished while blocked, so it couldn't spawn. Completing
+    # the blocker was already handled; *removing* the edge is the same transition
+    # into effective completion and must roll the series forward too.
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session, n=1)
+    blocker = tasks_service.create_task(
+        db_session, project_id=parent.project_id, title="blocker"
+    )
+    db_session.commit()
+    edge = deps_service.add_dependency(
+        db_session, task_id=parent.id, depends_on_id=blocker.id
+    )
+    db_session.commit()
+    tasks_service.mark_done(db_session, children[0])
+    db_session.commit()
+    # Blocked: done roll-up is capped, and nothing spawned.
+    assert _effective(db_session, parent) == TaskWorkflowStatus.in_progress
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [date(2026, 6, 1)]
+
+    deps_service.remove_dependency(db_session, edge)
+    db_session.commit()
+
+    assert _effective(db_session, parent) == TaskWorkflowStatus.done
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
+        date(2026, 6, 1),
+        date(2026, 6, 8),
+    ]
+
+
+def test_removing_a_non_final_blocker_spawns_nothing(db_session: Session) -> None:
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session, n=1)
+    first = tasks_service.create_task(
+        db_session, project_id=parent.project_id, title="b1"
+    )
+    second = tasks_service.create_task(
+        db_session, project_id=parent.project_id, title="b2"
+    )
+    db_session.commit()
+    edge = deps_service.add_dependency(
+        db_session, task_id=parent.id, depends_on_id=first.id
+    )
+    deps_service.add_dependency(db_session, task_id=parent.id, depends_on_id=second.id)
+    db_session.commit()
+    tasks_service.mark_done(db_session, children[0])
+    db_session.commit()
+
+    deps_service.remove_dependency(db_session, edge)
+    db_session.commit()
+
+    assert _effective(db_session, parent) == TaskWorkflowStatus.in_progress
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [date(2026, 6, 1)]
+
+
+def test_trashing_last_blocker_spawns_recurring_checklist(
+    db_session: Session,
+) -> None:
+    # Same door as removing the edge: the blocker leaving via the trash unblocks the
+    # checklist just as effectively.
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session, n=1)
+    blocker = tasks_service.create_task(
+        db_session, project_id=parent.project_id, title="blocker"
+    )
+    db_session.commit()
+    deps_service.add_dependency(db_session, task_id=parent.id, depends_on_id=blocker.id)
+    db_session.commit()
+    tasks_service.mark_done(db_session, children[0])
+    db_session.commit()
+
+    tasks_service.soft_delete_task(db_session, blocker)
+    db_session.commit()
+
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
+        date(2026, 6, 1),
+        date(2026, 6, 8),
+    ]
+
+
+def test_trashing_last_open_child_spawns_recurring_checklist(
+    db_session: Session,
+) -> None:
+    # Removing the remaining work is a completion too: one child done, the other
+    # trashed leaves a subtree that rolls up done.
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session, n=2)
+    tasks_service.mark_done(db_session, children[0])
+    db_session.commit()
+
+    tasks_service.soft_delete_task(db_session, children[1])
+    db_session.commit()
+
+    assert _effective(db_session, parent) == TaskWorkflowStatus.done
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
+        date(2026, 6, 1),
+        date(2026, 6, 8),
+    ]
+
+
+def test_recompleting_after_trashing_successor_creates_replacement(
+    db_session: Session,
+) -> None:
+    # A normally-trashed occurrence must not wedge its date: "delete this" is not
+    # "I decided not to do this", so the slot is vacant and a re-completion refills
+    # it. The trashed row stays in the trash.
+    task, successor, recurrence_id = _weekly_leaf_with_successor(db_session)
+    tasks_service.soft_delete_task(db_session, successor)
+    db_session.commit()
+
+    tasks_service.reopen_task(db_session, task)
+    db_session.commit()
+    tasks_service.mark_done(db_session, task)
+    db_session.commit()
+
+    live = _live_series(db_session, recurrence_id)
+    assert [t.due_date for t in live] == [date(2026, 6, 1), date(2026, 6, 8)]
+    replacement = live[-1]
+    assert replacement.id != successor.id
+    assert successor.deleted_at is not None and successor.skipped_at is None
+
+
+def test_recompleting_after_skipping_successor_does_not_revive_the_date(
+    db_session: Session,
+) -> None:
+    # The other half of the same rule: a *skipped* date stays skipped. The user said
+    # that occurrence didn't happen; re-completing must not re-add it.
+    task, successor, recurrence_id = _weekly_leaf_with_successor(db_session)
+    task_recurrence.skip_occurrence(db_session, successor)  # spawns 06-15
+    db_session.commit()
+
+    tasks_service.reopen_task(db_session, task)
+    db_session.commit()
+    tasks_service.mark_done(db_session, task)
+    db_session.commit()
+
+    assert [t.due_date for t in _live_series(db_session, recurrence_id)] == [
+        date(2026, 6, 1),
+        date(2026, 6, 15),
+    ]
+
+
+def test_reconcile_is_idempotent(db_session: Session) -> None:
+    # Reconciliation runs after every mutation, so re-running it must never add a row.
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session, n=1)
+    tasks_service.mark_done(db_session, children[0])
+    db_session.commit()
+    before = [t.id for t in _series(db_session, recurrence_id)]
+
+    task_recurrence.reconcile(db_session, [children[0].id, parent.id])
+    task_recurrence.reconcile(db_session, [parent.id])
+    db_session.commit()
+
+    assert [t.id for t in _series(db_session, recurrence_id)] == before
+
+
+def test_reconcile_spawns_at_most_once_across_dependency_diamond(
+    db_session: Session,
+) -> None:
+    # A recurring checklist reachable from a completed blocker by two paths spawns
+    # once: reconcile walks dependents transitively, and the diamond re-reaches the
+    # head from both arms.
+    head, children, recurrence_id = _recurring_parent_with_children(db_session, n=1)
+    left = tasks_service.create_task(db_session, project_id=None, title="left")
+    right = tasks_service.create_task(db_session, project_id=None, title="right")
+    root = tasks_service.create_task(db_session, project_id=None, title="root")
+    db_session.commit()
+    for blocker in (left, right):
+        deps_service.add_dependency(
+            db_session, task_id=head.id, depends_on_id=blocker.id
+        )
+        deps_service.add_dependency(
+            db_session, task_id=blocker.id, depends_on_id=root.id
+        )
+    db_session.commit()
+    tasks_service.mark_done(db_session, children[0])
+    db_session.commit()
+    # Effectively done but blocked by both arms: the series is still one row.
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [date(2026, 6, 1)]
+
+    tasks_service.mark_done(db_session, root)
+    db_session.commit()
+    tasks_service.mark_done(db_session, left)
+    db_session.commit()
+    # Completing the second arm unblocks the head, reached via left and via right.
+    tasks_service.mark_done(db_session, right)
+    db_session.commit()
+
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
+        date(2026, 6, 1),
+        date(2026, 6, 8),
+    ]
+
+
+def test_active_occurrence_uniqueness_is_enforced_by_the_database(
+    db_session: Session,
+) -> None:
+    # The service guards this, but the invariant is in the schema too: the paths that
+    # can breach it are exactly the ones an app-level check gets wrong.
+    from sqlalchemy.exc import IntegrityError
+
+    task, _successor, recurrence_id = _weekly_leaf_with_successor(db_session)
+    db_session.add(
+        Task(
+            project_id=task.project_id,
+            title="twin",
+            recurrence_id=recurrence_id,
+            due_date=date(2026, 6, 8),
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+    db_session.rollback()
+
+
+def test_soft_deleted_rows_are_exempt_from_uniqueness(db_session: Session) -> None:
+    # Trash history is the whole point of soft deletes: many trashed rows may share
+    # a date, which is why the index is partial.
+    task, successor, recurrence_id = _weekly_leaf_with_successor(db_session)
+    tasks_service.soft_delete_task(db_session, successor)
+    db_session.commit()
+    tasks_service.reopen_task(db_session, task)
+    db_session.commit()
+    replacement = tasks_service.mark_done(db_session, task) and _live_series(
+        db_session, recurrence_id
+    )[-1]
+    tasks_service.soft_delete_task(db_session, replacement)
+    db_session.commit()
+
+    trashed_on_0608 = [
+        t
+        for t in db_session.execute(
+            select(Task).where(
+                Task.recurrence_id == recurrence_id,
+                Task.due_date == date(2026, 6, 8),
+                Task.deleted_at.is_not(None),
+            )
+        )
+        .scalars()
+        .all()
+    ]
+    assert len(trashed_on_0608) == 2

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from calendar import monthrange
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
 from typing import Any
 
@@ -42,18 +42,26 @@ def _next_due_date(due_date: date, interval: Mapping[str, Any]) -> date:
     raise ValueError(f"Unknown recurrence unit: {unit!r}")
 
 
-def next_occurrence_date(task: Task) -> date | None:
+def next_occurrence_date(
+    task: Task, effective_status: TaskWorkflowStatus
+) -> date | None:
     """When this recurring task repeats next, or ``None`` if it never will.
 
     Derived for the read payload so the UI can show "next <date>" beside the
-    repeat badge without re-implementing the interval math in TypeScript. Only an
-    open recurring task with a due date has a next occurrence — a done task has
-    already spawned its successor as a separate row, and a task without a due date
-    or interval isn't scheduled.
+    repeat badge without re-implementing the interval math in TypeScript. Only a
+    recurring task with a due date that is *not yet effectively done* has a next
+    occurrence: once it is done its successor already exists as its own row, so
+    advertising the date again would point at a task the user can already see.
+
+    ``effective_status`` — not the stored one — because a checklist parent's
+    status is derived: it stays stored-``open`` forever while its rolled-up state
+    goes ``done``, and reading the stored value made such a parent advertise a
+    date whose occurrence had already been spawned. Callers resolve it with
+    ``capped_status`` (they already compute the rollups for the same payload).
     """
     if task.repeat_interval is None or task.due_date is None:
         return None
-    if task.workflow_status == TaskWorkflowStatus.done:
+    if effective_status is TaskWorkflowStatus.done:
         return None
     return _next_due_date(task.due_date, task.repeat_interval)
 
@@ -89,20 +97,48 @@ def _clone_subtask_tree(
         _clone_subtask_tree(db, child, clone.id, due_date)
 
 
-def _find_occurrence_on(db: Session, recurrence_id: str, due_date: date) -> Task | None:
-    """The series' existing occurrence due on ``due_date``, or ``None``.
+def find_live_occurrence_on(
+    db: Session, recurrence_id: str, due_date: date, *, exclude_id: int | None = None
+) -> Task | None:
+    """The series' *active* occurrence due on ``due_date``, or ``None``.
 
-    Deliberately does not filter ``deleted_at``: a skipped occurrence is
-    soft-deleted but still *happened* as a scheduling decision, and respawning its
-    date would re-add work the user explicitly said they didn't do. Same reasoning
-    as ``get_series``. An active row wins over a soft-deleted one on the same date
-    so callers get the live occurrence when both exist.
+    The uniqueness key for a series: at most one live row per
+    ``(recurrence_id, due_date)``, enforced in the database by the partial unique
+    index ``uq_tasks_active_occurrence`` and guarded here so callers get a clean
+    error instead of an IntegrityError. ``exclude_id`` lets a restore ask "is the
+    slot taken by someone *else*".
+    """
+    stmt = select(Task).where(
+        Task.recurrence_id == recurrence_id,
+        Task.due_date == due_date,
+        Task.deleted_at.is_(None),
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(Task.id != exclude_id)
+    return db.execute(stmt.order_by(Task.id.asc())).scalars().first()
+
+
+def _find_skipped_occurrence_on(
+    db: Session, recurrence_id: str, due_date: date
+) -> Task | None:
+    """The series' *skipped* occurrence due on ``due_date``, or ``None``.
+
+    A skipped row is soft-deleted but still *happened* as a scheduling decision:
+    respawning its date would re-add work the user explicitly said they didn't do,
+    so it blocks the slot even though it isn't live. A *normally trashed* row is
+    not the same statement — "delete this" is not "I decided not to do this" — and
+    deliberately does not block: its date stays available for a replacement, and
+    restoring it later is what raises ``OccurrenceConflictError``.
     """
     return (
         db.execute(
             select(Task)
-            .where(Task.recurrence_id == recurrence_id, Task.due_date == due_date)
-            .order_by(Task.deleted_at.is_not(None), Task.id.asc())
+            .where(
+                Task.recurrence_id == recurrence_id,
+                Task.due_date == due_date,
+                Task.skipped_at.is_not(None),
+            )
+            .order_by(Task.id.asc())
         )
         .scalars()
         .first()
@@ -118,15 +154,19 @@ def create_next_occurrence(db: Session, task: Task) -> Task:
     out-of-scope note). The caller guarantees ``repeat_interval`` and ``due_date``
     are set.
 
-    Idempotent on ``(recurrence_id, next due date)``: if that occurrence already
-    exists it is returned as-is rather than inserted again. Completion is not a
-    once-only event — reopening a done occurrence and re-completing it makes the
-    open->done transition a second time, and a checklist's roll-up re-derives to
-    done whenever its last child is reopened and re-completed. Both spawn paths
-    land here, so the guard lives here rather than in each caller. Reopening
-    deliberately leaves an already-spawned successor alone (no hard deletes, and
-    the successor may have its own progress); this guard is what makes the
-    re-completion a no-op instead of a duplicate.
+    Idempotent on ``(recurrence_id, next due date)``: if a *live* occurrence is
+    already on that date it is returned as-is rather than inserted again.
+    Completion is not a once-only event — ``reconcile`` runs after every mutation
+    that can move a task into effective completion, and re-completing or
+    re-deriving a done roll-up lands here again. The guard lives here rather than
+    in each caller. Reopening deliberately leaves an already-spawned successor
+    alone (no hard deletes, and the successor may have its own progress); this
+    guard is what makes the re-completion a no-op instead of a duplicate.
+
+    A *skipped* row on the date also blocks (the user said that occurrence didn't
+    happen), and is returned so the caller can see the series is already past this
+    date. A *normally trashed* row does not block: the date is vacant and gets a
+    fresh live occurrence.
 
     If the recurring task is a checklist parent, its whole active subtree is
     cloned fresh under the new occurrence so a multi-step routine ("weekly release
@@ -136,7 +176,9 @@ def create_next_occurrence(db: Session, task: Task) -> Task:
     assert task.due_date is not None
     next_due = _next_due_date(task.due_date, task.repeat_interval)
     if task.recurrence_id is not None:
-        existing = _find_occurrence_on(db, task.recurrence_id, next_due)
+        existing = find_live_occurrence_on(
+            db, task.recurrence_id, next_due
+        ) or _find_skipped_occurrence_on(db, task.recurrence_id, next_due)
         if existing is not None:
             return existing
     return _insert_occurrence(db, task, next_due)
@@ -173,123 +215,87 @@ def _insert_occurrence(db: Session, task: Task, due_date: date) -> Task:
 def _next_live_occurrence(db: Session, task: Task) -> Task:
     """The live occurrence a skip rolls forward to, guaranteeing one on the wire.
 
-    ``create_next_occurrence``'s idempotency guard returns whatever
-    ``_find_occurrence_on`` finds on the next date — including a *soft-deleted*
-    row. That's right for re-completion (don't respawn), but wrong for a skip: the
-    caller expects the next occurrence to be a live, actionable row. So skip needs
-    its own roll-forward that always lands a live occurrence on the correct date:
+    ``create_next_occurrence`` may return a *skipped* row on the next date (right
+    for re-completion: don't respawn what the user declined), but a skip's caller
+    expects a live, actionable row. So skip has its own roll-forward:
 
     - Empty date, or a date whose only row is *normally trashed* → insert a fresh
-      live occurrence there (the trashed row stays in the trash; a later restore of
-      it may leave two live rows on the date, which is accepted).
+      live occurrence there. The trashed row stays in the trash; restoring it later
+      raises ``OccurrenceConflictError`` rather than producing two live rows.
     - Date already holds a *live* row → return it (no duplicate).
-    - Date holds a *skipped* row (``skipped_at`` set) → honor that earlier skip and
-      advance to the following date. The live successor spawned when that date was
-      skipped normally sits just beyond it, so this returns that existing live row.
-
-    ``_find_occurrence_on`` is left untouched, so the completion/idempotency path
-    keeps its no-duplicate, no-data-loss behavior.
+    - Date holds a *skipped* row → honor that earlier skip and advance past it.
     """
     assert task.repeat_interval is not None
     assert task.due_date is not None
     current_due = task.due_date
     while True:
         next_due = _next_due_date(current_due, task.repeat_interval)
-        existing = (
-            _find_occurrence_on(db, task.recurrence_id, next_due)
-            if task.recurrence_id is not None
-            else None
-        )
-        if existing is None:
+        if task.recurrence_id is None:
             return _insert_occurrence(db, task, next_due)
-        if existing.deleted_at is None:
-            return existing
-        if existing.skipped_at is not None:
+        live = find_live_occurrence_on(db, task.recurrence_id, next_due)
+        if live is not None:
+            return live
+        if _find_skipped_occurrence_on(db, task.recurrence_id, next_due) is not None:
             # Explicitly skipped date: don't revive it — advance past it.
             current_due = next_due
             continue
-        # Normally-trashed row on this date: land a fresh live occurrence here.
         return _insert_occurrence(db, task, next_due)
 
 
-def maybe_spawn_recurring_checklist(db: Session, completed_child: Task) -> None:
-    """Advance the series when completing a child finishes a recurring checklist.
+def reconcile(db: Session, task_ids: Iterable[int]) -> list[Task]:
+    """Spawn the successors of every series that is now effectively complete.
 
-    A checklist parent's status is derived (read-only), so it never makes the
-    stored open->done transition that spawns the next occurrence. Instead, when a
-    child completes we walk up to the nearest recurring ancestor and, if its whole
-    subtree now rolls up to done, spawn that ancestor's next occurrence. The last
-    child to complete is the only one that makes the subtree done, so this fires
-    once. Only the nearest recurring ancestor spawns — a series-within-a-series
+    The single recurrence entry point. Recurrence used to hang off the stored
+    ``open -> done`` transition, but "complete" in this app is *derived* —
+    ``capped_status(roll-up, blocked)`` — and a task enters that state through
+    doors that are not status writes: its last child completing, its last blocking
+    dependency being removed or trashed, or a ``repeat_interval`` being attached to
+    something already done. Each of those used to leave the series stalled. So
+    every mutation that can change effective completion calls this with the ids it
+    touched, and the answer is recomputed rather than inferred from the transition.
+
+    Walks outward from each id: up the parent chain (a child's completion is its
+    ancestors' completion) and, from any task that is now effectively done, out to
+    its dependents (satisfying a blocker can complete the thing it blocked, and
+    that can cascade). ``seen`` bounds the walk over cycles and diamonds; ancestor
+    climbing stops at the nearest recurring ancestor so a series-within-a-series
     can't double-fire.
+
+    Idempotent: spawning goes through ``create_next_occurrence``, which is a no-op
+    when the next date is already taken. Returns the occurrences that exist for the
+    reconciled series, newest work first for the caller that wants to report one.
     """
-    visited: set[int] = set()
-    current_id = completed_child.parent_task_id
-    while current_id is not None and current_id not in visited:
-        visited.add(current_id)
-        ancestor = get_task(db, current_id)
-        if ancestor is None:
-            return
-        if ancestor.repeat_interval is not None and ancestor.due_date is not None:
-            # Local import: task_dependencies builds on tasks, which this module
-            # already depends on — a top-level import would cycle.
-            from app.services import task_dependencies as deps_service
-
-            if (
-                get_rollup(db, ancestor).workflow_status == TaskWorkflowStatus.done
-                and not deps_service.is_blocked(db, ancestor.id)
-            ):
-                create_next_occurrence(db, ancestor)
-            # A blocked recurring parent doesn't spawn here; completing its
-            # blocker later drives the deferred spawn via
-            # spawn_unblocked_recurring_dependents.
-            return
-        current_id = ancestor.parent_task_id
-
-
-def spawn_unblocked_recurring_dependents(db: Session, completed: Task) -> None:
-    """Spawn recurrences that a just-completed blocker has now unblocked.
-
-    A recurring checklist parent whose children were all completed while it was
-    still blocked by an unfinished dependency does *not* spawn its next occurrence
-    at child-completion time (see ``maybe_spawn_recurring_checklist``). Completing
-    that blocker is what should roll the series forward, so on every completion we
-    walk the dependents of ``completed`` and, for each one that is now effectively
-    done and no longer blocked, spawn it.
-
-    Propagates transitively: finishing a task can make a non-recurring dependent
-    effectively done too, which in turn unblocks *its* recurring dependents. The
-    ``seen`` set bounds the walk; ``create_next_occurrence`` is idempotent on
-    ``(recurrence_id, next due date)`` so a dependent reached by more than one path
-    spawns at most once.
-    """
+    # Local imports: both modules build on this one's dependencies — a top-level
+    # import would cycle (same deliberate inversion as tasks.py's).
     from app.services import task_dependencies as deps_service
+    from app.services import tasks as tasks_service
 
-    queue = [completed.id]
+    spawned: list[Task] = []
+    queue = list(task_ids)
     seen: set[int] = set()
     while queue:
         current_id = queue.pop()
+        if current_id in seen:
+            continue
+        seen.add(current_id)
+        task = get_task(db, current_id)
+        if task is None:  # missing or soft-deleted: nothing to reconcile
+            continue
+        is_series_head = task.repeat_interval is not None and task.due_date is not None
+        if task.parent_task_id is not None and not is_series_head:
+            queue.append(task.parent_task_id)
+        effective = tasks_service.capped_status(
+            get_rollup(db, task).workflow_status,
+            deps_service.is_blocked(db, current_id),
+        )
+        if effective is not TaskWorkflowStatus.done:
+            continue
+        if is_series_head:
+            spawned.append(create_next_occurrence(db, task))
+        # Now a satisfied blocker: whatever waited on it may have just completed.
         for edge in deps_service.list_dependents(db, current_id):
-            dependent_id = edge.task_id
-            if dependent_id in seen:
-                continue
-            dependent = get_task(db, dependent_id)
-            if dependent is None:
-                continue
-            if deps_service.is_blocked(db, dependent_id):
-                continue
-            if get_rollup(db, dependent).workflow_status != TaskWorkflowStatus.done:
-                continue
-            # Now effectively done and unblocked. Spawn if it's a recurring series
-            # head, and propagate: it just became a satisfied blocker for its own
-            # downstream.
-            seen.add(dependent_id)
-            if (
-                dependent.repeat_interval is not None
-                and dependent.due_date is not None
-            ):
-                create_next_occurrence(db, dependent)
-            queue.append(dependent_id)
+            queue.append(edge.task_id)
+    return spawned
 
 
 def skip_occurrence(db: Session, task: Task) -> Task:

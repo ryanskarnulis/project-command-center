@@ -279,7 +279,14 @@ def restore_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No deleted task with that id",
         )
-    restored = task_trash.restore_task(db, task)
+    try:
+        restored = task_trash.restore_task(db, task)
+    except tasks_service.OccurrenceConflictError as exc:
+        # A state conflict, not bad input: the date this occurrence wants is taken
+        # by a live sibling. 409, not the 422 its RecurrenceError base would get.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     db.commit()
     db.refresh(restored)
     logger.info("task_restored", task_id=restored.id)

@@ -36,6 +36,17 @@ const KIND_NOUN: Record<TrashKind, string> = {
   tasks: 'task',
 }
 
+/** The failure line for a restore. Prefers the API's `detail` over the generic
+ * "API error 409": a refused restore says *why* (a recurring occurrence whose
+ * due date is already taken by a live sibling) and what to do about it. */
+function restoreErrorMessage(e: unknown): string {
+  if (e instanceof ApiError) {
+    const detail = (e.body as { detail?: unknown } | null)?.detail
+    if (typeof detail === 'string') return detail
+  }
+  return e instanceof Error ? e.message : 'Failed to restore item'
+}
+
 const RESTORE: Record<TrashKind, (id: number) => Promise<unknown>> = {
   projects: restoreProject,
   tasks: restoreTask,
@@ -108,7 +119,7 @@ export function useTrash(): UseTrash {
         setNotice(buildNotice(result))
         reload()
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Failed to restore item')
+        setError(restoreErrorMessage(e))
       }
     },
     [reload],
@@ -134,7 +145,7 @@ export function useTrash(): UseTrash {
         )
         reload()
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Failed to restore item')
+        setError(restoreErrorMessage(e))
       }
     },
     [reload],
@@ -183,7 +194,7 @@ export function useTrash(): UseTrash {
           // Skip it rather than reporting the whole batch as broken (BUG-11).
           if (e instanceof ApiError && e.status === 404) continue
           failed = true
-          setError(e instanceof Error ? e.message : 'Failed to restore items')
+          setError(restoreErrorMessage(e))
           break
         }
       }
