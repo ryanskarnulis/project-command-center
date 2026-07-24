@@ -1703,3 +1703,18 @@ shipped slices:
       `.command-search`, transcript down the same inline-ask path as typed
       text, voice-initiated asks spoken, typed Enter silent; eval harness
       re-run green (6/6 twice — voice adds no prompt-visible change) (#60)
+
+---
+
+## Reliability alignment — Focus, bootstrap, Python floor (2026-07-23)
+
+- [x] Focus sessions that cross midnight keep valid `HH:MM` clocks and expose
+      explicit start/end day offsets; the UI labels next-day times with their
+      derived date. "Until end of day" remains same-day and validates an end
+      that is not later than the start before making an API request.
+- [x] `main.sh` and `test.sh` share dependency fingerprinting: backend
+      `pyproject.toml`/`requirements.lock` and frontend
+      `package.json`/`package-lock.json` changes trigger a reinstall, with
+      stamps written only after success.
+- [x] Backend CI runs pytest on both Python 3.11 and 3.14; Ruff and strict mypy
+      run on the production 3.11 floor.

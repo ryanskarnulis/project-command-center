@@ -10,6 +10,9 @@ export interface ScheduledBlock {
   project_id: number | null
   start_time: string // HH:MM
   end_time: string // HH:MM
+  // Whole local calendar days after FocusPlan.date.
+  start_day_offset: number
+  end_day_offset: number
   estimated_minutes: number
   // True when the duration was assumed (task had no estimate). The UI marks
   // these so it doesn't pretend the task is sized.

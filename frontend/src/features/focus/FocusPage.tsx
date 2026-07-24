@@ -24,7 +24,7 @@ import type {
   ScheduledBlock,
 } from '../../types/focus'
 import { formatDuration } from '../../utils/duration'
-import { formatDueDate } from '../../utils/dates'
+import { addDaysISO, formatDueDate } from '../../utils/dates'
 import { TaskPanelProvider } from '../tasks/panel/TaskPanelProvider'
 import { useTaskLinkTo } from '../tasks/panel/taskPanelContext'
 import { DEFAULT_START_TIME, useFocusPlan } from './useFocusPlan'
@@ -86,6 +86,11 @@ function useNowMinutes(): number {
 function parseTime(value: string): number {
   const [hours, minutes] = value.split(':')
   return Number(hours) * 60 + Number(minutes)
+}
+
+function formatBlockTime(planDate: string, time: string, dayOffset: number): string {
+  if (dayOffset === 0) return time
+  return `${formatDueDate(addDaysISO(planDate, dayOffset))} · ${time}`
 }
 
 function PriorityPill({ priority }: { priority: TaskPriority }) {
@@ -242,8 +247,8 @@ function ScheduledRow({
   return (
     <li className={past ? 'focus-block focus-block-past' : 'focus-block'}>
       <div className="focus-block-time" aria-hidden="true">
-        <strong>{block.start_time}</strong>
-        <span>{block.end_time}</span>
+        <strong>{formatBlockTime(planDate, block.start_time, block.start_day_offset)}</strong>
+        <span>{formatBlockTime(planDate, block.end_time, block.end_day_offset)}</span>
       </div>
       <div className="focus-block-body">
         <div className="focus-block-head">
@@ -391,6 +396,7 @@ export function FocusPage() {
     plan,
     loading,
     error,
+    windowError,
     date,
     startTime,
     availableMinutes,
@@ -430,7 +436,10 @@ export function FocusPage() {
   // just above it; everything before it is dimmed as already elapsed.
   const nowIndex =
     viewingToday && plan
-      ? plan.scheduled.findIndex((block) => parseTime(block.end_time) > nowMinutes)
+      ? plan.scheduled.findIndex(
+          (block) =>
+            block.end_day_offset * 24 * 60 + parseTime(block.end_time) > nowMinutes,
+        )
       : -1
   const nowLabel = `${String(Math.floor(nowMinutes / 60)).padStart(2, '0')}:${String(
     nowMinutes % 60,
@@ -493,21 +502,31 @@ export function FocusPage() {
             <span>End of day</span>
             <input
               type="time"
+              aria-label="End of day"
               value={endOfDay}
+              aria-invalid={windowError ? 'true' : undefined}
+              aria-describedby={windowError ? 'focus-window-error' : undefined}
               onChange={(event) => setEndOfDay(event.target.value)}
             />
+            {windowError && (
+              <span id="focus-window-error" role="alert" className="focus-control-error">
+                {windowError}
+              </span>
+            )}
           </label>
         )}
       </div>
 
-      {loading && <div className="page-loading">Preparing your focus session…</div>}
+      {loading && !windowError && (
+        <div className="page-loading">Preparing your focus session…</div>
+      )}
       {error && (
         <p role="alert" className="error">
           {error}
         </p>
       )}
 
-      {!loading && !error && plan && (
+      {!loading && !error && !windowError && plan && (
         <>
           <p className="focus-summary">
             <strong>{formatDuration(plan.used_minutes)}</strong> planned of{' '}

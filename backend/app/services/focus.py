@@ -113,9 +113,11 @@ def _is_deferred(task: Task, target_date: date) -> bool:
     return task.deferred_until is not None and task.deferred_until > target_date
 
 
-def _format_time(minutes_from_midnight: int) -> str:
-    hours, minutes = divmod(minutes_from_midnight, 60)
-    return f"{hours:02d}:{minutes:02d}"
+def _format_time(minutes_from_midnight: int) -> tuple[str, int]:
+    """Return a valid local clock time and its day offset from the plan date."""
+    day_offset, clock_minutes = divmod(minutes_from_midnight, 24 * 60)
+    hours, minutes = divmod(clock_minutes, 60)
+    return f"{hours:02d}:{minutes:02d}", day_offset
 
 
 def _parse_time(value: str) -> int:
@@ -181,13 +183,17 @@ def _pack(
         reason = _reason(task, target_date, rollups)
         if parent is not None:
             reason = f"part of {parent.title} · {reason}"
+        block_start_time, start_day_offset = _format_time(block_start)
+        block_end_time, end_day_offset = _format_time(start_minutes + used)
         blocks.append(
             ScheduledBlock(
                 task_id=task.id,
                 title=task.title,
                 project_id=task.project_id,
-                start_time=_format_time(block_start),
-                end_time=_format_time(start_minutes + used),
+                start_time=block_start_time,
+                end_time=block_end_time,
+                start_day_offset=start_day_offset,
+                end_day_offset=end_day_offset,
                 estimated_minutes=minutes,
                 estimate_assumed=assumed,
                 priority=task.priority,

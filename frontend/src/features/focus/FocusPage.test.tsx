@@ -75,6 +75,8 @@ function scheduledBlock(overrides: Partial<ScheduledBlock> = {}): ScheduledBlock
     project_id: 1,
     start_time: '09:00',
     end_time: '09:30',
+    start_day_offset: 0,
+    end_day_offset: 0,
     estimated_minutes: 30,
     estimate_assumed: false,
     priority: 'high',
@@ -105,6 +107,7 @@ function makePlan(overrides: Partial<FocusPlan> = {}): FocusPlan {
 describe('FocusPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
   })
 
   afterEach(() => {
@@ -122,6 +125,8 @@ describe('FocusPage', () => {
             project_id: 1,
             start_time: '09:00',
             end_time: '09:30',
+            start_day_offset: 0,
+            end_day_offset: 0,
             estimated_minutes: 30,
             estimate_assumed: true,
             priority: 'high',
@@ -149,6 +154,75 @@ describe('FocusPage', () => {
     expect(screen.getByText('in-progress · due today · high priority')).toBeInTheDocument()
     expect(screen.getByText('assumed')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Timeline' })).toBeInTheDocument()
+  })
+
+  it('renders next-day block clocks with the derived calendar date', async () => {
+    mockGetFocusPlan.mockResolvedValue(
+      makePlan({
+        scheduled: [
+          scheduledBlock({
+            start_time: '23:00',
+            end_time: '05:00',
+            start_day_offset: 0,
+            end_day_offset: 1,
+            estimated_minutes: 360,
+          }),
+        ],
+      }),
+    )
+
+    render(
+      <MemoryRouter>
+        <FocusPage />
+      </MemoryRouter>,
+    )
+
+    await screen.findByRole('link', { name: 'Draft launch checklist' })
+    expect(screen.getByText('23:00')).toBeInTheDocument()
+    expect(screen.getByText('Jun 21 · 05:00')).toBeInTheDocument()
+    expect(screen.queryByText('29:00')).not.toBeInTheDocument()
+  })
+
+  it('validates a same-day end before requesting another plan', async () => {
+    mockGetFocusPlan.mockResolvedValue(makePlan())
+
+    render(
+      <MemoryRouter>
+        <FocusPage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockGetFocusPlan).toHaveBeenCalled())
+    fireEvent.change(screen.getByLabelText('Start time'), {
+      target: { value: '18:00' },
+    })
+    await waitFor(() =>
+      expect(mockGetFocusPlan).toHaveBeenLastCalledWith(
+        expect.objectContaining({ startTime: '18:00' }),
+      ),
+    )
+    mockGetFocusPlan.mockClear()
+
+    fireEvent.change(screen.getByLabelText('Capacity'), {
+      target: { value: 'until_end' },
+    })
+
+    expect(
+      await screen.findByText('End of day must be later than start time.'),
+    ).toHaveAttribute('role', 'alert')
+    expect(screen.getByLabelText('End of day')).toHaveAttribute('aria-invalid', 'true')
+    expect(mockGetFocusPlan).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText('End of day'), {
+      target: { value: '19:00' },
+    })
+    await waitFor(() =>
+      expect(mockGetFocusPlan).toHaveBeenCalledWith({
+        date: expect.any(String),
+        startTime: '18:00',
+        availableMinutes: 60,
+      }),
+    )
   })
 
   it('opens the peek panel over the plan when a row is clicked', async () => {
@@ -179,6 +253,8 @@ describe('FocusPage', () => {
             project_id: null,
             start_time: '09:00',
             end_time: '10:00',
+            start_day_offset: 0,
+            end_day_offset: 0,
             estimated_minutes: 60,
             estimate_assumed: false,
             priority: 'medium',

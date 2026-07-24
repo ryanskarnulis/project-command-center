@@ -28,8 +28,12 @@ class ScheduledBlock(BaseModel):
     task_id: int
     title: str
     project_id: int | None
-    start_time: str  # HH:MM, local clock time within the planned day
-    end_time: str  # HH:MM
+    start_time: str  # HH:MM, local clock time
+    end_time: str  # HH:MM, local clock time
+    # Whole local calendar days after FocusPlan.date. Fixed-duration sessions
+    # may cross midnight, but the 1440-minute capacity cap keeps these at 0 or 1.
+    start_day_offset: int
+    end_day_offset: int
     estimated_minutes: int
     # True when the duration was assumed (task had no estimate) rather than taken
     # from the task — the UI marks these so it doesn't pretend the task is sized.

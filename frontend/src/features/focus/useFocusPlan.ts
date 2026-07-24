@@ -73,6 +73,7 @@ interface UseFocusPlan {
   plan: FocusPlan | null
   loading: boolean
   error: string | null
+  windowError: string | null
   date: string
   startTime: string
   /** The resolved capacity actually sent to the API, whatever the mode. */
@@ -101,17 +102,20 @@ export function useFocusPlan(): UseFocusPlan {
   // Bumped by refetch() to force a reload without changing the controls.
   const [reloadToken, setReloadToken] = useState(0)
 
+  const endOfDayMinutes = parseTime(endOfDay) - parseTime(startTime)
+  const windowError =
+    capacityMode === 'until_end' && endOfDayMinutes <= 0
+      ? 'End of day must be later than start time.'
+      : null
   const availableMinutes =
     capacityMode === 'until_end'
-      ? Math.min(
-          Math.max(parseTime(endOfDay) - parseTime(startTime), MIN_AVAILABLE_MINUTES),
-          MAX_AVAILABLE_MINUTES,
-        )
+      ? Math.min(Math.max(endOfDayMinutes, MIN_AVAILABLE_MINUTES), MAX_AVAILABLE_MINUTES)
       : capacityMinutes
 
   const requestKey = JSON.stringify([date, startTime, availableMinutes, reloadToken])
 
   useEffect(() => {
+    if (windowError) return
     let active = true
     getFocusPlan({ date, startTime, availableMinutes })
       .then((result) => {
@@ -134,7 +138,7 @@ export function useFocusPlan(): UseFocusPlan {
     return () => {
       active = false
     }
-  }, [date, startTime, availableMinutes, requestKey])
+  }, [date, startTime, availableMinutes, requestKey, windowError])
 
   const setCapacityMinutes = useCallback((minutes: number) => {
     const next = Number.isInteger(minutes) && minutes > 0 ? minutes : DEFAULT_AVAILABLE_MINUTES
@@ -163,6 +167,7 @@ export function useFocusPlan(): UseFocusPlan {
     plan,
     loading: loadedKey !== requestKey,
     error,
+    windowError,
     date,
     startTime,
     availableMinutes,
