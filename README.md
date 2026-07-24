@@ -78,17 +78,26 @@ Key decisions:
   `409`). Deleting a parent cascade-soft-deletes the subtree; restore is
   per-task. A parent's estimate and status **roll up from its subtasks**
   (derived in `services/tasks.compute_rollups`, never stored); direct status
-  writes on such a parent return `409`.
+  writes on such a parent return `409`. A subtask may be filed in a different
+  project than its parent; membership (`project_id`), not hierarchy, decides
+  what a project deletion takes (below). A live task whose parent is soft-deleted
+  is an **orphan** and is treated as *effective top-level*
+  (`services/tasks.is_effective_top_level`) — scheduled and listed rather than
+  hidden.
 - **Dependencies** are `A depends_on B` edges in `task_dependencies` (B must be
   done before A starts). "Blocked" is never stored — `is_blocked`,
   `is_blocking`, and `blocked_task_count` are derived in Python from the active
   edge graph. The service layer refuses cycle-creating edges.
 - **Recurrence** via a shared `recurrence_id` string across a series;
   scheduling math lives in `services/task_recurrence.py`.
-- **Project deletion cascade**: deleting a project soft-deletes its tasks,
-  stamped with `deleted_with_project_id` so restore can offer to bring them
-  back together. A protected `General` project is seeded (system key
-  `general`).
+- **Project deletion cascade**: deleting a project soft-deletes exactly its own
+  tasks (by `project_id`, not by walking the subtree across projects), each
+  stamped with `deleted_with_project_id` so restore can offer to bring them back
+  together. A subtask filed under a *different, still-active* project stays
+  active. Restoring the project **with** tasks brings the stamped set back (one
+  audit event per task); restoring **without** tasks clears the marker so those
+  tasks fall into the standalone Tasks trash instead of being stranded. A
+  protected `General` project is seeded (system key `general`).
 - **Agent conversations** persist as `conversations` (soft-deletable,
   auto-titled from the first user message) and immutable
   `conversation_messages`. The assistant turn stores the loop's tool

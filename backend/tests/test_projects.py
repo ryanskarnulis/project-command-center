@@ -100,7 +100,12 @@ def test_soft_delete_project_cascades_tasks(db_session: Session) -> None:
     assert projects_service.get_project(db_session, project.id) is None
 
 
-def test_restore_project_with_and_without_tasks(db_session: Session) -> None:
+def test_restore_project_without_tasks_surfaces_them_as_standalone_trash(
+    db_session: Session,
+) -> None:
+    # Declining "bring back tasks" must not strand them: the cascade marker is
+    # cleared so they move into the standalone Tasks trash, still individually
+    # restorable into the now-active project.
     project = projects_service.create_project(db_session, name="Firewall")
     parent = tasks_service.create_task(
         db_session, project_id=project.id, title="audit rules"
@@ -112,22 +117,49 @@ def test_restore_project_with_and_without_tasks(db_session: Session) -> None:
     projects_service.soft_delete_project(db_session, project)
     db_session.commit()
 
-    # Decline: only the project shell returns; tasks stay in trash.
-    restored, count = projects_service.restore_project(
+    _, count = projects_service.restore_project(
         db_session, project, restore_tasks=False
     )
     db_session.commit()
+
     assert count == 0
     db_session.refresh(parent)
+    db_session.refresh(child)
+    # Still trashed, but now unstamped -> visible in the standalone Tasks trash.
     assert parent.deleted_at is not None
+    assert child.deleted_at is not None
+    assert parent.deleted_with_project_id is None
+    assert child.deleted_with_project_id is None
+    standalone_ids = [t.id for t in task_trash_service.list_deleted_tasks(db_session)]
+    assert parent.id in standalone_ids
+    assert child.id in standalone_ids
 
-    # Re-delete, then restore WITH tasks: the whole subtree comes back, marker cleared.
+    # And each restores individually back into the now-active project.
+    restored_parent = task_trash_service.restore_task(db_session, parent)
+    db_session.commit()
+    assert restored_parent.deleted_at is None
+    assert restored_parent.project_id == project.id
+
+
+def test_restore_project_with_tasks_brings_back_the_subtree(
+    db_session: Session,
+) -> None:
+    project = projects_service.create_project(db_session, name="Firewall")
+    parent = tasks_service.create_task(
+        db_session, project_id=project.id, title="audit rules"
+    )
+    child = tasks_service.create_task(
+        db_session, project_id=project.id, title="child", parent_task_id=parent.id
+    )
+    db_session.commit()
     projects_service.soft_delete_project(db_session, project)
     db_session.commit()
-    restored, count = projects_service.restore_project(
+
+    _, count = projects_service.restore_project(
         db_session, project, restore_tasks=True
     )
     db_session.commit()
+
     assert count == 2
     db_session.refresh(parent)
     db_session.refresh(child)
@@ -135,6 +167,40 @@ def test_restore_project_with_and_without_tasks(db_session: Session) -> None:
     assert child.deleted_at is None
     assert parent.deleted_with_project_id is None
     assert child.deleted_with_project_id is None
+
+
+def test_restore_project_with_tasks_logs_a_restored_event_per_task(
+    db_session: Session,
+) -> None:
+    # Restore is itemized like delete: each cascade task gets its own "restored"
+    # event, so the audit trail isn't just a single project-level row.
+    project = projects_service.create_project(db_session, name="Firewall")
+    parent = tasks_service.create_task(
+        db_session, project_id=project.id, title="audit rules"
+    )
+    child = tasks_service.create_task(
+        db_session, project_id=project.id, title="child", parent_task_id=parent.id
+    )
+    db_session.commit()
+    projects_service.soft_delete_project(db_session, project)
+    db_session.commit()
+
+    projects_service.restore_project(db_session, project, restore_tasks=True)
+    db_session.commit()
+
+    for task_id in (parent.id, child.id):
+        events = (
+            db_session.execute(
+                select(ActivityEvent).where(
+                    ActivityEvent.entity_type == "task",
+                    ActivityEvent.entity_id == task_id,
+                    ActivityEvent.action == "restored",
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(events) == 1, f"task {task_id} logged {len(events)} restored events"
 
 
 def test_restore_project_skips_independently_trashed_tasks(
@@ -165,29 +231,30 @@ def test_restore_project_skips_independently_trashed_tasks(
     assert independent.deleted_at is not None
 
 
-def test_cross_project_subtree_round_trips_through_the_safety_sweep(
+def test_trashing_a_project_leaves_a_childs_foreign_descendant_active(
     db_session: Session,
 ) -> None:
-    # A child may sit in a different project than its parent (create_task only
-    # inherits the parent's project when none is given). Such a child is reached
-    # by the safety sweep, not the top-level pass — and its own descendants must
-    # still be stamped, or they stay trashed when the project is restored.
+    # Cascade follows project membership, not hierarchy. A child may sit in a
+    # different project than its parent (create_task only inherits the parent's
+    # project when none is given). Trashing project B takes only B's own tasks; a
+    # descendant filed under active project A stays active even though its parent
+    # chain runs through B.
     project_a = projects_service.create_project(db_session, name="Alpha")
     project_b = projects_service.create_project(db_session, name="Bravo")
     parent = tasks_service.create_task(
         db_session, project_id=project_a.id, title="lives in A"
     )
-    swept = tasks_service.create_task(
+    child_in_b = tasks_service.create_task(
         db_session,
         project_id=project_b.id,
         title="child in B",
         parent_task_id=parent.id,
     )
-    grandchild = tasks_service.create_task(
+    grandchild_in_a = tasks_service.create_task(
         db_session,
         project_id=project_a.id,
         title="grandchild back in A",
-        parent_task_id=swept.id,
+        parent_task_id=child_in_b.id,
     )
     db_session.commit()
 
@@ -195,51 +262,48 @@ def test_cross_project_subtree_round_trips_through_the_safety_sweep(
     db_session.commit()
 
     db_session.refresh(parent)
-    db_session.refresh(swept)
-    db_session.refresh(grandchild)
-    # The swept task AND its cross-project descendant go down stamped together.
-    assert swept.deleted_at is not None
-    assert grandchild.deleted_at is not None
-    assert swept.deleted_with_project_id == project_b.id
-    assert grandchild.deleted_with_project_id == project_b.id
-    # The parent lives in another project and is untouched.
+    db_session.refresh(child_in_b)
+    db_session.refresh(grandchild_in_a)
+    # Only B's own task is trashed and stamped.
+    assert child_in_b.deleted_at is not None
+    assert child_in_b.deleted_with_project_id == project_b.id
+    # The parent (A) and the grandchild (A) stay active — membership wins.
     assert parent.deleted_at is None
+    assert grandchild_in_a.deleted_at is None
+    assert grandchild_in_a.deleted_with_project_id is None
 
     _, count = projects_service.restore_project(
         db_session, project_b, restore_tasks=True
     )
     db_session.commit()
 
-    assert count == 2
-    db_session.refresh(swept)
-    db_session.refresh(grandchild)
-    assert swept.deleted_at is None
-    assert grandchild.deleted_at is None
-    assert swept.deleted_with_project_id is None
-    assert grandchild.deleted_with_project_id is None
+    assert count == 1
+    db_session.refresh(child_in_b)
+    assert child_in_b.deleted_at is None
+    assert child_in_b.deleted_with_project_id is None
 
 
-def test_swept_subtree_is_hidden_from_the_standalone_task_trash(
+def test_membership_trashed_task_is_hidden_from_the_standalone_task_trash(
     db_session: Session,
 ) -> None:
-    # A stamped row belongs to the project's trash entry; surfacing it loose in
-    # the Tasks trash is what made the missing subtree user-visible.
+    # A stamped row belongs to the project's trash entry, not the loose Tasks
+    # trash. Its foreign-project descendant, left active, isn't in trash at all.
     project_a = projects_service.create_project(db_session, name="Alpha")
     project_b = projects_service.create_project(db_session, name="Bravo")
     parent = tasks_service.create_task(
         db_session, project_id=project_a.id, title="lives in A"
     )
-    swept = tasks_service.create_task(
+    child_in_b = tasks_service.create_task(
         db_session,
         project_id=project_b.id,
         title="child in B",
         parent_task_id=parent.id,
     )
-    grandchild = tasks_service.create_task(
+    grandchild_in_a = tasks_service.create_task(
         db_session,
         project_id=project_a.id,
         title="grandchild back in A",
-        parent_task_id=swept.id,
+        parent_task_id=child_in_b.id,
     )
     db_session.commit()
 
@@ -247,45 +311,36 @@ def test_swept_subtree_is_hidden_from_the_standalone_task_trash(
     db_session.commit()
 
     trashed_ids = [t.id for t in task_trash_service.list_deleted_tasks(db_session)]
-    assert swept.id not in trashed_ids
-    assert grandchild.id not in trashed_ids
+    assert child_in_b.id not in trashed_ids
+    db_session.refresh(grandchild_in_a)
+    assert grandchild_in_a.deleted_at is None  # still active, never in trash
     assert (
-        projects_service.count_tasks_deleted_with_project(db_session, project_b.id) == 2
+        projects_service.count_tasks_deleted_with_project(db_session, project_b.id) == 1
     )
 
 
-def test_safety_sweep_deletes_each_task_once(db_session: Session) -> None:
-    # The sweep reads its rows up front, so a task an earlier iteration's cascade
-    # already deleted must be skipped: soft_delete re-stamps deleted_at
-    # unconditionally and the event log would fire a second time.
-    project_a = projects_service.create_project(db_session, name="Alpha")
-    project_b = projects_service.create_project(db_session, name="Bravo")
+def test_membership_cascade_deletes_each_task_once(db_session: Session) -> None:
+    # The membership query returns each of the project's tasks exactly once, so a
+    # parent and its same-project child are each soft-deleted (and logged) once.
+    project = projects_service.create_project(db_session, name="Bravo")
     parent = tasks_service.create_task(
-        db_session, project_id=project_a.id, title="lives in A"
+        db_session, project_id=project.id, title="parent in B"
     )
-    swept = tasks_service.create_task(
+    child = tasks_service.create_task(
         db_session,
-        project_id=project_b.id,
+        project_id=project.id,
         title="child in B",
         parent_task_id=parent.id,
     )
-    # Also in B, and under `swept` — so the sweep query returns both of them.
-    descendant = tasks_service.create_task(
-        db_session,
-        project_id=project_b.id,
-        title="descendant also in B",
-        parent_task_id=swept.id,
-    )
     db_session.commit()
 
-    projects_service.soft_delete_project(db_session, project_b)
+    projects_service.soft_delete_project(db_session, project)
     db_session.commit()
 
-    db_session.refresh(descendant)
-    assert descendant.deleted_with_project_id == project_b.id
-    deleted_at_after_sweep = descendant.deleted_at
+    db_session.refresh(child)
+    assert child.deleted_with_project_id == project.id
 
-    for task_id in (swept.id, descendant.id):
+    for task_id in (parent.id, child.id):
         events = (
             db_session.execute(
                 select(ActivityEvent).where(
@@ -298,10 +353,6 @@ def test_safety_sweep_deletes_each_task_once(db_session: Session) -> None:
             .all()
         )
         assert len(events) == 1, f"task {task_id} logged {len(events)} deleted events"
-
-    # And its trash timestamp was not moved by a second delete.
-    db_session.refresh(descendant)
-    assert descendant.deleted_at == deleted_at_after_sweep
 
 
 def test_soft_delete_project_refuses_general(db_session: Session) -> None:

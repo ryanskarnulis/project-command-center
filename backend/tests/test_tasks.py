@@ -270,6 +270,16 @@ def test_list_subtasks_returns_active_children(db_session: Session) -> None:
     assert [c.id for c in children] == [child_a.id, child_b.id]
 
 
+def test_is_effective_top_level_promotes_orphans() -> None:
+    root = Task(title="root", parent_task_id=None)
+    child = Task(title="child", parent_task_id=10)
+    # Parent present in the active set -> a genuine subtask, not top-level.
+    assert tasks_service.is_effective_top_level(root, {10}) is True
+    assert tasks_service.is_effective_top_level(child, {10}) is False
+    # Parent absent (soft-deleted/gone) -> promoted to effective top-level.
+    assert tasks_service.is_effective_top_level(child, set()) is True
+
+
 def test_cycle_guard_rejects_self_parent(db_session: Session) -> None:
     task = tasks_service.create_task(db_session, project_id=None, title="loner")
     db_session.commit()

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.models import TaskPriority, TaskWorkflowStatus
 from app.schemas.focus import DueSignal
 from app.services import task_dependencies as deps_service
+from app.services import task_trash as task_trash_service
 from app.services import tasks as tasks_service
 from app.services import focus as focus_service
 
@@ -64,6 +65,54 @@ def test_subtasks_are_excluded_from_the_plan(db_session: Session) -> None:
 
     scheduled_ids = [b.task_id for b in plan.scheduled]
     assert parent in scheduled_ids
+    assert subtask.id not in scheduled_ids
+    assert subtask.id not in [o.task_id for o in plan.overflow]
+
+
+def test_orphan_of_a_trashed_parent_is_planned_as_top_level(
+    db_session: Session,
+) -> None:
+    # Trashing a parent cascades the child; restoring only the child leaves it
+    # active with parent_task_id still pointing at a trashed row. It must be
+    # planned as an effective top-level task instead of vanishing from the plan.
+    parent_id = _task(db_session, "parent")
+    child = tasks_service.create_task(
+        db_session, project_id=None, title="orphan child", parent_task_id=parent_id
+    )
+    db_session.commit()
+
+    parent = tasks_service.get_task(db_session, parent_id)
+    assert parent is not None
+    tasks_service.soft_delete_task(db_session, parent)  # cascades the child
+    db_session.commit()
+    task_trash_service.restore_task(db_session, child)  # bring back only the child
+    db_session.commit()
+
+    db_session.refresh(child)
+    assert child.deleted_at is None
+    assert child.parent_task_id == parent_id  # parent is still trashed
+
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
+    scheduled_ids = [b.task_id for b in plan.scheduled]
+    assert child.id in scheduled_ids
+    assert parent_id not in scheduled_ids  # the trashed parent is gone
+
+
+def test_subtask_of_a_merely_completed_parent_stays_nested(
+    db_session: Session,
+) -> None:
+    # An active-but-done parent still owns its subtask: the child must NOT be
+    # promoted to a top-level plan row (only a *trashed* parent orphans it).
+    parent_id = _task(
+        db_session, "done parent", workflow_status=TaskWorkflowStatus.done
+    )
+    subtask = tasks_service.create_task(
+        db_session, project_id=None, title="nested", parent_task_id=parent_id
+    )
+    db_session.commit()
+
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
+    scheduled_ids = [b.task_id for b in plan.scheduled]
     assert subtask.id not in scheduled_ids
     assert subtask.id not in [o.task_id for o in plan.overflow]
 
