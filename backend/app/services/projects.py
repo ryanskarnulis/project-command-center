@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import date
 from typing import Any
 
 from sqlalchemy import func, select, update
@@ -272,6 +273,39 @@ def count_tasks_deleted_with_project(db: Session, project_id: int) -> int:
     )
 
 
+def _assert_no_occurrence_conflicts(db: Session, tasks: Sequence[Task]) -> None:
+    """Raise ``OccurrenceConflictError`` if restoring ``tasks`` would double-book a series.
+
+    Two ways the batch can break the one-live-occurrence-per-(series, date)
+    invariant: a live sibling outside the batch already holds the date, or two
+    trashed rows in the batch itself want the same slot (the partial unique index
+    only covers active rows, so the trash can hold both).
+    """
+    from app.services.task_recurrence import find_live_occurrence_on
+    from app.services.tasks import OccurrenceConflictError
+
+    claimed: set[tuple[str, date]] = set()
+    for task in tasks:
+        if task.recurrence_id is None or task.due_date is None:
+            continue
+        slot = (task.recurrence_id, task.due_date)
+        conflict = (
+            slot in claimed
+            or find_live_occurrence_on(
+                db, task.recurrence_id, task.due_date, exclude_id=task.id
+            )
+            is not None
+        )
+        if conflict:
+            raise OccurrenceConflictError(
+                f'Task {task.id} "{task.title}" cannot be restored: its series '
+                f"already has an active occurrence due "
+                f"{task.due_date.isoformat()}. Trash or skip that one first, then "
+                f"restore the project (or restore it without its tasks)."
+            )
+        claimed.add(slot)
+
+
 def restore_project(
     db: Session, project: Project, *, restore_tasks: bool = False
 ) -> tuple[Project, int]:
@@ -286,16 +320,29 @@ def restore_project(
     stay discoverable and individually restorable (into this now-active project).
     Otherwise they'd keep pointing at an active project and be filtered out of
     every trash surface.
+
+    Raises ``OccurrenceConflictError`` (nothing written) when ``restore_tasks`` is
+    True and a cascade task is a series occurrence whose date is already held by a
+    live sibling.
     """
     from app.services.tasks import log_task_event
+
+    tasks: Sequence[Task] = ()
+    if restore_tasks:
+        tasks = db.execute(
+            deleted(Task).where(Task.deleted_with_project_id == project.id)
+        ).scalars().all()
+        # Same invariant standalone task restore enforces (``task_trash.restore_task``):
+        # a restored occurrence must not land on a date a live sibling of its series
+        # already holds. Checked for the whole batch *before* any write so a conflict
+        # is an actionable domain error instead of the partial unique index raising a
+        # raw IntegrityError mid-flush, and so the restore stays atomic.
+        _assert_no_occurrence_conflicts(db, tasks)
 
     restore(project)
 
     restored_tasks = 0
     if restore_tasks:
-        tasks = db.execute(
-            deleted(Task).where(Task.deleted_with_project_id == project.id)
-        ).scalars().all()
         for task in tasks:
             restore(task)
             task.deleted_with_project_id = None
