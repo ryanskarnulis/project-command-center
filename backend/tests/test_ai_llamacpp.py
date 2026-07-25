@@ -226,3 +226,37 @@ def test_network_failure_raises_request_error() -> None:
 def test_invalid_wire_body_raises_response_error() -> None:
     with pytest.raises(ProviderResponseError, match="wire validation"):
         _provider_returning({"object": "chat.completion", "choices": []}).chat(_USER)
+
+
+def _timeout_extensions_for(timeout: float) -> dict[str, float | None]:
+    """Run one chat with ``timeout`` and report the request's timeout phases."""
+    seen: list[dict[str, float | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.extensions["timeout"])
+        return httpx.Response(200, json=_completion_body({"role": "assistant", "content": "ok"}))
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = LlamaCppProvider("http://llm.test/v1", "gemma-4-12b", client=client)
+    provider.chat(_USER, timeout=timeout)
+    return seen[0]
+
+
+def test_per_call_timeout_caps_every_phase_including_connect() -> None:
+    # A deadline-capped call must not spend ten seconds connecting when only a
+    # fraction of the agent's run budget is left (issue #95).
+    assert _timeout_extensions_for(0.05) == {
+        "connect": 0.05,
+        "read": 0.05,
+        "write": 0.05,
+        "pool": 0.05,
+    }
+
+
+def test_per_call_timeout_keeps_connect_cap_when_budget_is_large() -> None:
+    assert _timeout_extensions_for(120.0) == {
+        "connect": 10.0,
+        "read": 120.0,
+        "write": 120.0,
+        "pool": 120.0,
+    }
