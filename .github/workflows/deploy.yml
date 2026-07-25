@@ -24,7 +24,15 @@ jobs:
         run: |
           cd "$HOME/deploy/project-command-center"
           # Refuse to deploy over local edits — the clone must stay pristine.
-          git diff --quiet && git diff --cached --quiet || { echo "deploy clone is dirty"; exit 1; }
+          # `git diff`/`--cached` only see tracked paths, so untracked files
+          # (which land in the build context and can block future checkouts)
+          # have to be caught too. Ignored paths (.env, data/) stay exempt.
+          dirty=$(git status --porcelain --untracked-files=normal)
+          if [ -n "$dirty" ]; then
+            echo "deploy clone is dirty — refusing to deploy. Offending paths:"
+            echo "$dirty"
+            exit 1
+          fi
           before=$(git rev-parse HEAD)
           git fetch origin main
           # Only deploy the commit this CI run actually verified. CI runs for
