@@ -455,6 +455,45 @@ def test_post_message_is_rate_limited(
     assert "Retry-After" in second.headers
 
 
+def test_rate_limited_first_message_leaves_the_conversation_usable(
+    client: TestClient,
+    tool_db: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The inline ask creates a conversation, then posts its first message. When
+    that post is rejected (429), the empty conversation stays retrievable and
+    still accepts a message — the client's contract is to claim and retry into
+    it rather than orphan it (issue #147)."""
+    monkeypatch.setattr(get_settings(), "agent_messages_per_min", 1)
+    _use_loop(ScriptedProvider([text_turn("ok"), text_turn("later")]))
+    warmup_id = client.post("/api/agent/conversations", json={}).json()["id"]
+    assert (
+        client.post(
+            f"/api/agent/conversations/{warmup_id}/messages", json={"content": "one"}
+        ).status_code
+        == 200
+    )
+
+    claimed_id = client.post("/api/agent/conversations", json={}).json()["id"]
+    rejected = client.post(
+        f"/api/agent/conversations/{claimed_id}/messages", json={"content": "two"}
+    )
+    assert rejected.status_code == 429
+
+    detail = client.get(f"/api/agent/conversations/{claimed_id}")
+    assert detail.status_code == 200
+    assert detail.json()["messages"] == []
+
+    monkeypatch.setattr(get_settings(), "agent_messages_per_min", 100)
+    retried = client.post(
+        f"/api/agent/conversations/{claimed_id}/messages", json={"content": "two"}
+    )
+    assert retried.status_code == 200
+    assert (
+        len(client.get(f"/api/agent/conversations/{claimed_id}").json()["messages"]) == 2
+    )
+
+
 def test_second_message_while_a_run_is_in_progress_gets_409(
     client: TestClient,
     tool_db: sessionmaker[Session],

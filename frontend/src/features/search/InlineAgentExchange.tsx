@@ -17,6 +17,13 @@ interface InlineAgentExchangeProps {
  * grows a second copy of message rendering.
  */
 export function InlineAgentExchange({ state, onContinue }: InlineAgentExchangeProps) {
+  // A failed send can still have created the conversation; offering the same
+  // "Continue in Agent" affordance is how the user inspects or deletes it
+  // instead of it being silently orphaned.
+  const continueId =
+    state.phase === 'done' || (state.phase === 'error' && state.conversationId !== null)
+      ? state.conversationId
+      : null
   return (
     <Card
       as="div"
@@ -44,12 +51,12 @@ export function InlineAgentExchange({ state, onContinue }: InlineAgentExchangePr
           </>
         )}
       </ul>
-      {state.phase === 'done' && (
+      {continueId !== null && (
         <div className="command-search-exchange-footer">
           <button
             type="button"
             className="command-search-continue"
-            onClick={() => onContinue(state.conversationId)}
+            onClick={() => onContinue(continueId)}
           >
             Continue in Agent
             <ArrowRight size={15} aria-hidden="true" />
