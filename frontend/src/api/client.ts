@@ -31,16 +31,39 @@ export async function apiClient(
   options?: ApiOptions,
 ): Promise<Response> {
   const { timeoutMs = DEFAULT_TIMEOUT_MS, ...init } = options ?? {}
-  // A caller-provided signal wins (it already owns cancellation).
-  const signal = init.signal ?? AbortSignal.timeout(timeoutMs)
+  // Caller cancellation and the deadline both stay live: whichever fires first
+  // aborts the request. (Composed by hand rather than with `AbortSignal.any`,
+  // which jsdom doesn't implement.)
+  const callerSignal = init.signal ?? null
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+  const onCallerAbort = (): void => {
+    controller.abort(callerSignal?.reason)
+  }
+  if (callerSignal) {
+    if (callerSignal.aborted) onCallerAbort()
+    else callerSignal.addEventListener('abort', onCallerAbort, { once: true })
+  }
+
   let response: Response
   try {
-    response = await fetch(`${BASE_URL}${path}`, { ...init, signal })
+    response = await fetch(`${BASE_URL}${path}`, {
+      ...init,
+      signal: controller.signal,
+    })
   } catch (e: unknown) {
-    if (e instanceof DOMException && e.name === 'TimeoutError') {
+    // Only the deadline maps to ApiTimeoutError; a caller abort stays an abort.
+    if (timedOut && !callerSignal?.aborted) {
       throw new ApiTimeoutError(timeoutMs)
     }
     throw e
+  } finally {
+    clearTimeout(timer)
+    callerSignal?.removeEventListener('abort', onCallerAbort)
   }
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => null)
