@@ -10,17 +10,26 @@
  * recognized text, or null when voice is unavailable (no speech service →
  * 503, speech backend down → 502). The caller feeds the text into the same
  * agent pipeline as typed input — voice never gets its own path.
+ *
+ * Never rejects: an offline backend, DNS/proxy loss, or a malformed response
+ * body is an availability failure, not a programmer error, and the vendored
+ * MicButton relies on the null to leave 'working'/'transcribing'. A rejection
+ * escaping here strands the mic in a state the user can't tap out of.
  */
 export async function transcribe(
   audio: Blob,
   filename = 'clip.webm',
 ): Promise<string | null> {
-  const form = new FormData()
-  // The filename extension tells the speech backend the container format
-  // (webm from MediaRecorder push-to-talk, wav from the hands-free VAD).
-  form.append('audio', audio, filename)
-  const res = await fetch('/api/voice/transcribe', { method: 'POST', body: form })
-  if (!res.ok) return null
-  const data = (await res.json()) as { text: string }
-  return data.text
+  try {
+    const form = new FormData()
+    // The filename extension tells the speech backend the container format
+    // (webm from MediaRecorder push-to-talk, wav from the hands-free VAD).
+    form.append('audio', audio, filename)
+    const res = await fetch('/api/voice/transcribe', { method: 'POST', body: form })
+    if (!res.ok) return null
+    const data = (await res.json()) as { text?: unknown }
+    return typeof data.text === 'string' ? data.text : null
+  } catch {
+    return null
+  }
 }
