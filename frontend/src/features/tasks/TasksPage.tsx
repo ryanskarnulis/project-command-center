@@ -86,16 +86,22 @@ export function TasksPage() {
   }
 
   // Route a board move to the right endpoint: Done uses the recurrence-safe
-  // done endpoint, leaving Done uses reopen (→ open), everything else is a PATCH.
+  // done endpoint, Done → Open uses reopen, everything else (including
+  // Done → In progress) is a single PATCH.
   async function handleSetStatus(t: Task, target: TaskWorkflowStatus) {
     if (target === 'done') {
       await markDone(t.id)
       reloadCompleted()
     } else if (t.workflow_status === 'done') {
-      await reopen(t.id)
       if (target === 'in_progress') {
+        // One write, not reopen-then-patch: splitting it left the task Open
+        // when the second request failed. (#148)
         await update(t.id, { workflow_status: 'in_progress' })
+        // The card leaves the Done column, which is served by the completed
+        // archive — reopen() pruned it locally, a PATCH needs a refetch.
+        reloadCompleted()
       } else {
+        await reopen(t.id)
         reload()
       }
     } else {
