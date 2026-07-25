@@ -1783,3 +1783,90 @@ def test_trashing_recurring_parent_does_not_spawn_successor(
     assert child.deleted_at is not None
     # Nothing live is left in the series — in particular no 2026-08-01 occurrence.
     assert list(_series(db_session, recurrence_id)) == []
+
+
+# --- Project deletion across project boundaries (issue #94) -----------------
+
+
+def test_project_delete_spawns_successor_for_cross_project_child(
+    db_session: Session,
+) -> None:
+    # Cross-project hierarchy is supported: a recurring parent in B can hold an
+    # open child filed under A. Deleting A takes that child to the trash, which
+    # leaves the parent effectively done — the series must roll forward.
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session, n=1)
+    other = projects_service.create_project(db_session, name="Elsewhere")
+    outside_child = tasks_service.create_task(
+        db_session,
+        project_id=other.id,
+        parent_task_id=parent.id,
+        title="filed elsewhere",
+    )
+    db_session.commit()
+    tasks_service.mark_done(db_session, children[0])
+    db_session.commit()
+    # The open cross-project child holds the series open.
+    assert _effective(db_session, parent) is not TaskWorkflowStatus.done
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
+        date(2026, 6, 1)
+    ]
+
+    projects_service.soft_delete_project(db_session, other)
+    db_session.commit()
+
+    db_session.refresh(outside_child)
+    assert outside_child.deleted_at is not None
+    assert _effective(db_session, parent) is TaskWorkflowStatus.done
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
+        date(2026, 6, 1),
+        date(2026, 6, 8),
+    ]
+
+
+def test_project_delete_spawns_successor_for_cross_project_blocker(
+    db_session: Session,
+) -> None:
+    # Same gap on the dependency edge: the last unfinished blocker lives in the
+    # deleted project, so deleting that project unblocks the recurring task in B.
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session, n=1)
+    other = projects_service.create_project(db_session, name="Blockers")
+    blocker = tasks_service.create_task(
+        db_session, project_id=other.id, title="external blocker"
+    )
+    db_session.commit()
+    deps_service.add_dependency(db_session, task_id=parent.id, depends_on_id=blocker.id)
+    db_session.commit()
+    tasks_service.mark_done(db_session, children[0])
+    db_session.commit()
+    # Rolled up done but blocked: no successor yet.
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
+        date(2026, 6, 1)
+    ]
+
+    projects_service.soft_delete_project(db_session, other)
+    db_session.commit()
+
+    db_session.refresh(blocker)
+    assert blocker.deleted_at is not None
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
+        date(2026, 6, 1),
+        date(2026, 6, 8),
+    ]
+
+
+def test_project_delete_does_not_advance_series_inside_the_project(
+    db_session: Session,
+) -> None:
+    # The counterpart guard: a series wholly inside the deleted project is on its
+    # way to the trash and must not spawn a successor.
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session, n=1)
+    assert parent.project_id is not None
+    project = projects_service.get_project(db_session, parent.project_id)
+    assert project is not None
+    tasks_service.mark_done(db_session, children[0])
+    db_session.commit()
+
+    projects_service.soft_delete_project(db_session, project)
+    db_session.commit()
+
+    assert list(_series(db_session, recurrence_id)) == []

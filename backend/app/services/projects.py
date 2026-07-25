@@ -195,16 +195,38 @@ def soft_delete_project(db: Session, project: Project) -> None:
     # parent landing in trash just leaves it an *effective* top-level task (see
     # ``tasks.is_effective_top_level``). Tasks already trashed independently keep
     # their null marker and are skipped — they aren't in the active set below.
+    from app.services import task_dependencies as deps_service
+    from app.services import task_recurrence
     from app.services.tasks import log_task_event
 
+    deleted_ids: set[int] = set()
+    seeds: list[int] = []
     for task in db.execute(
         active(Task).where(Task.project_id == project.id)
     ).scalars().all():
         task.deleted_with_project_id = project.id
         soft_delete(task)
         log_task_event(db, task, "deleted")
+        deleted_ids.add(task.id)
+        # Seed reconciliation from the edges that survive this delete: the
+        # trashed task is gone from reconcile's view, so walk from its parent
+        # and its dependents.
+        seeds.extend(edge.task_id for edge in deps_service.list_dependents(db, task.id))
+        if task.parent_task_id is not None:
+            seeds.append(task.parent_task_id)
 
     db.flush()
+    # Cross-project hierarchy and dependency edges are supported, so trashing
+    # this project's tasks can complete a recurring task that lives elsewhere —
+    # its last open child or last unfinished blocker just went to the trash.
+    # Mirror tasks.soft_delete_task: reconcile once, after the whole batch, and
+    # only from seeds *outside* the deleted set (series inside this project must
+    # not advance on their way to the trash).
+    external = [task_id for task_id in seeds if task_id not in deleted_ids]
+    if external:
+        task_recurrence.reconcile(db, external)
+        db.flush()
+
     soft_delete(project)
     db.flush()
     activity.record_event(
