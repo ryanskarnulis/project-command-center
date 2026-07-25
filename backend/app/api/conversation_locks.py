@@ -65,6 +65,24 @@ def _reset() -> None:
 
 
 @contextmanager
+def _held(conversation_id: int, wait_seconds: float, detail: str) -> Iterator[None]:
+    lock = _checkout(conversation_id)
+    if not lock.acquire(timeout=wait_seconds):
+        _checkin(conversation_id)
+        logger.warning(
+            "conversation_run_busy",
+            conversation_id=conversation_id,
+            waited_seconds=wait_seconds,
+        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+    try:
+        yield
+    finally:
+        lock.release()
+        _checkin(conversation_id)
+
+
+@contextmanager
 def conversation_run_lock(
     conversation_id: int, *, wait_seconds: float
 ) -> Iterator[None]:
@@ -74,20 +92,27 @@ def conversation_run_lock(
     finishes; if that takes longer than ``wait_seconds`` the request is rejected
     with 409 rather than piling up behind a stalled run.
     """
-    lock = _checkout(conversation_id)
-    if not lock.acquire(timeout=wait_seconds):
-        _checkin(conversation_id)
-        logger.warning(
-            "conversation_run_busy",
-            conversation_id=conversation_id,
-            waited_seconds=wait_seconds,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="a run is already in progress for this conversation",
-        )
-    try:
+    with _held(
+        conversation_id,
+        wait_seconds,
+        "a run is already in progress for this conversation",
+    ):
         yield
-    finally:
-        lock.release()
-        _checkin(conversation_id)
+
+
+@contextmanager
+def conversation_idle_lock(conversation_id: int) -> Iterator[None]:
+    """Hold the same lock, but only if it is free *right now* — else 409 (#149).
+
+    Deletion takes the run lock so it cannot interleave with a run: a run either
+    finished (delete proceeds) or is in flight (delete is rejected immediately
+    rather than waiting out a multi-minute model call). This is what keeps a run
+    from committing its assistant turn — and its tool-call trajectory — into a
+    thread that was soft-deleted mid-run.
+    """
+    with _held(
+        conversation_id,
+        0,
+        "a run is in progress for this conversation; try again when it finishes",
+    ):
+        yield

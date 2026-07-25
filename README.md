@@ -185,6 +185,10 @@ per client IP (`AGENT_MESSAGES_PER_MIN`, default 10).
 
 Runs on one conversation are serialized: a second message that arrives mid-run
 waits for the first to finish (so it sees the reply in history) or gets a 409.
+Deleting a conversation takes the same lock and is rejected with a 409 while a
+run is in flight, rather than waiting one out — so a run can never commit its
+reply and tool-call trajectory into a thread that was deleted mid-run. The Agent
+page disables that conversation's delete control while a send is pending.
 Each request is bounded by `AGENT_RUN_BUDGET_SECONDS` (default 240) — the loop
 stops once it passes, caps each provider call at the time left, and refuses to
 start any further tool call, so nothing is ever started past the deadline. A
