@@ -286,6 +286,9 @@ def get_focus_plan(
 
     blocked: list[BlockedTask] = []
     schedulable: list[Task] = []
+    blocking_by_task = _unfinished_dependencies_for(
+        db, [task.id for task in source if task.id in blocked_ids]
+    )
     for task in source:
         if task.id in blocked_ids:
             blocked.append(
@@ -295,7 +298,7 @@ def get_focus_plan(
                     project_id=task.project_id,
                     priority=task.priority,
                     due_date=task.due_date,
-                    blocking_tasks=_unfinished_dependencies(db, task.id),
+                    blocking_tasks=blocking_by_task.get(task.id, []),
                 )
             )
         else:
@@ -325,30 +328,47 @@ def get_focus_plan(
     )
 
 
-def _unfinished_dependencies(db: Session, task_id: int) -> list[BlockingTask]:
-    """Active dependencies of ``task_id`` whose target is not yet done.
+def _unfinished_dependencies_for(
+    db: Session, task_ids: Sequence[int]
+) -> dict[int, list[BlockingTask]]:
+    """Per task, its active dependencies whose target is not yet done.
 
-    Returns the blocker's title + workflow status (not just the id) so the UI can
+    Returns each blocker's title + workflow status (not just the id) so the UI can
     render a self-explanatory blocked row. The status reported is the *effective*
     one (``deps_service.effective_statuses``), matching both the decision that the
     blocker is unfinished and the status the task detail page shows.
+
+    Batched over the whole blocked set — one edge query, one status resolution,
+    one blocker fetch. Asking per task cost a ``list_dependencies`` plus a full
+    ``effective_statuses`` plus a ``get_task`` per unfinished blocker, for every
+    blocked row in the plan.
     """
-    edges = deps_service.list_dependencies(db, task_id)
-    statuses = deps_service.effective_statuses(
-        db, (dep.depends_on_task_id for dep in edges)
-    )
-    unfinished: list[BlockingTask] = []
-    for dep in edges:
-        status = statuses.get(dep.depends_on_task_id)
-        if status is None or status == TaskWorkflowStatus.done:
-            continue
-        depended = tasks_service.get_task(db, dep.depends_on_task_id)
-        if depended is not None:
-            unfinished.append(
-                BlockingTask(
-                    task_id=depended.id,
-                    title=depended.title,
-                    workflow_status=status,
+    if not task_ids:
+        return {}
+    edges_by_task = deps_service.list_dependencies_for(db, task_ids)
+    blocker_ids = {
+        edge.depends_on_task_id
+        for edges in edges_by_task.values()
+        for edge in edges
+    }
+    statuses = deps_service.effective_statuses(db, blocker_ids)
+    blockers = tasks_service.get_tasks(db, blocker_ids)
+
+    result: dict[int, list[BlockingTask]] = {}
+    for task_id, edges in edges_by_task.items():
+        unfinished: list[BlockingTask] = []
+        for edge in edges:
+            status = statuses.get(edge.depends_on_task_id)
+            if status is None or status == TaskWorkflowStatus.done:
+                continue
+            depended = blockers.get(edge.depends_on_task_id)
+            if depended is not None:
+                unfinished.append(
+                    BlockingTask(
+                        task_id=depended.id,
+                        title=depended.title,
+                        workflow_status=status,
+                    )
                 )
-            )
-    return unfinished
+        result[task_id] = unfinished
+    return result

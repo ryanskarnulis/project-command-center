@@ -1,14 +1,19 @@
-from collections.abc import Generator
+import threading
+from collections.abc import Callable, Generator, Iterator
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool, StaticPool
 
 from app.api import conversation_locks, rate_limit
 from app.db.models import Base
-from app.db.session import enable_sqlite_fk_enforcement, get_db
+from app.db.session import engine as app_engine
+from app.db.session import enable_sqlite_fk_enforcement, get_db, get_db_write
 from app.main import app
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -54,12 +59,189 @@ def db_session(test_engine: Engine) -> Generator[Session, None, None]:
         db.close()
 
 
+@pytest.fixture(autouse=True)
+def _no_accidental_real_database() -> Generator[None, None, None]:
+    """Fail loudly if a test ever opens the application engine.
+
+    Every DB dependency is meant to be overridden onto a test engine. Miss one —
+    ``get_db_write`` was added and only ``get_db`` was overridden — and the route
+    silently falls through to ``app.db.session.engine``, which points at the real
+    ``data/app.db``. That reads as a pile of confusing 404s while the test suite
+    quietly writes rows into the developer's database. Cheap tripwire, and the
+    failure names itself.
+    """
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError(
+            "a test opened the application database engine — a DB dependency is "
+            "not overridden onto the test engine (see the client fixtures)"
+        )
+
+    event.listen(app_engine, "connect", refuse)
+    try:
+        yield
+    finally:
+        event.remove(app_engine, "connect", refuse)
+
+
+def _override_db(session: Session) -> Generator[Session, None, None]:
+    yield session
+
+
 @pytest.fixture
 def client(db_session: Session) -> Generator[TestClient, None, None]:
     def override_get_db() -> Generator[Session, None, None]:
         yield db_session
 
+    # Both dependencies, always. A write route left on the real ``get_db_write``
+    # reaches the application engine and the developer's database file.
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_db_write] = override_get_db
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+# --- Concurrency + query-budget fixtures -------------------------------------
+#
+# ``test_engine`` above is ``:memory:`` + StaticPool: ONE shared DBAPI connection
+# for the whole test, and ``client`` hands the test's own session back for every
+# request. That is fine for behaviour tests and useless for concurrency ones —
+# two "concurrent" sessions on it are literally the same transaction, so no race
+# is reproducible. The fixtures below mirror production instead: a real file, WAL,
+# and NullPool (a fresh connection per checkout).
+
+
+@pytest.fixture
+def file_engine(tmp_path: Path) -> Generator[Engine, None, None]:
+    """File-backed WAL SQLite with production topology, for real concurrency tests."""
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'concurrency.db'}",
+        connect_args={"check_same_thread": False},
+        poolclass=NullPool,
+    )
+    enable_sqlite_fk_enforcement(engine)
+    Base.metadata.create_all(bind=engine)
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture
+def session_factory(file_engine: Engine) -> sessionmaker[Session]:
+    """Independent sessions on ``file_engine`` — each gets its own connection."""
+    return sessionmaker(autocommit=False, autoflush=False, bind=file_engine)
+
+
+@pytest.fixture
+def file_client(
+    file_engine: Engine, session_factory: sessionmaker[Session]
+) -> Generator[TestClient, None, None]:
+    """TestClient over ``file_engine`` with a NEW session per request.
+
+    Unlike ``client``, which yields the test's own session back every time, this
+    reproduces the real per-request session lifecycle — required before any
+    HTTP-level concurrency assertion means anything.
+    """
+
+    def override_get_db() -> Generator[Session, None, None]:
+        db = session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    def override_get_db_write() -> Generator[Session, None, None]:
+        conn = file_engine.connect()
+        conn.info["begin_statement"] = "BEGIN IMMEDIATE"
+        db = session_factory(bind=conn)
+        try:
+            yield db
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+            conn.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_db_write] = override_get_db_write
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+Outcome = tuple[Any, BaseException | None]
+
+
+@pytest.fixture
+def race() -> Callable[..., tuple[Outcome, Outcome]]:
+    """Run two callables in threads that rendezvous on a shared barrier.
+
+    Each callable takes the ``threading.Barrier``; it does its read phase, calls
+    ``barrier.wait()``, then does its write phase — which is what makes the
+    interleaving deterministic instead of hopeful. Returns ``(result, exception)``
+    per thread so the *test* decides which outcome is acceptable, rather than the
+    race deciding for it.
+    """
+
+    def _run(
+        first: Callable[[threading.Barrier], Any],
+        second: Callable[[threading.Barrier], Any],
+        *,
+        timeout: float = 10.0,
+    ) -> tuple[Outcome, Outcome]:
+        barrier = threading.Barrier(2, timeout=timeout)
+        outcomes: list[Outcome] = [(None, None), (None, None)]
+
+        def invoke(index: int, fn: Callable[[threading.Barrier], Any]) -> None:
+            try:
+                outcomes[index] = (fn(barrier), None)
+            except BaseException as exc:  # noqa: BLE001 - reported, not swallowed
+                outcomes[index] = (None, exc)
+
+        threads = [
+            threading.Thread(target=invoke, args=(0, first)),
+            threading.Thread(target=invoke, args=(1, second)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout)
+            assert not thread.is_alive(), "race thread deadlocked"
+        return outcomes[0], outcomes[1]
+
+    return _run
+
+
+@pytest.fixture
+def count_queries() -> Callable[[Engine], Any]:
+    """Record every statement an engine executes, for query-budget assertions.
+
+    Usage::
+
+        with count_queries(engine) as statements:
+            ...
+        assert len(statements) <= 12
+    """
+
+    @contextmanager
+    def _counter(engine: Engine) -> Iterator[list[str]]:
+        statements: list[str] = []
+
+        def record(
+            _conn: object,
+            _cursor: object,
+            statement: str,
+            _parameters: object,
+            _context: object,
+            _executemany: bool,
+        ) -> None:
+            statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            yield statements
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+
+    return _counter

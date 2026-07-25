@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date
 from typing import Any
 from uuid import uuid4
@@ -421,6 +421,19 @@ def get_task(db: Session, task_id: int) -> Task | None:
     return db.execute(
         active(Task).where(Task.id == task_id)
     ).scalar_one_or_none()
+
+
+def get_tasks(db: Session, task_ids: Iterable[int]) -> dict[int, Task]:
+    """Active tasks by id, in one query. Missing/soft-deleted ids are absent.
+
+    The batched ``get_task``, for callers resolving a set of ids they already
+    hold — rendering blocker rows, say — instead of one round trip apiece.
+    """
+    ids = sorted(set(task_ids))
+    if not ids:
+        return {}
+    rows = db.execute(active(Task).where(Task.id.in_(ids))).scalars().all()
+    return {task.id: task for task in rows}
 
 
 def create_task(

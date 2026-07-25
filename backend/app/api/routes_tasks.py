@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.guards import trashed_row_or_error
 from app.api.task_reads import read_with_blocked, reads_with_blocked
 from app.db.models import Task, TaskWorkflowStatus
-from app.db.session import get_db
+from app.db.session import get_db, get_db_write
 from app.schemas.tasks import (
     TaskCreate,
     TaskRead,
@@ -94,7 +94,7 @@ def list_all_tasks(
 
 
 @router.post("/tasks", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
-def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db)) -> TaskRead:
+def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db_write)) -> TaskRead:
     if data.project_id is not None:
         _ensure_project(db, data.project_id)
     try:
@@ -123,7 +123,7 @@ def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db)) -> Tas
     status_code=status.HTTP_201_CREATED,
 )
 def create_task(
-    project_id: int, data: TaskCreate, db: Session = Depends(get_db)
+    project_id: int, data: TaskCreate, db: Session = Depends(get_db_write)
 ) -> TaskRead:
     _ensure_project(db, project_id)
     # The path project_id is authoritative here; any ``data.project_id`` is ignored.
@@ -161,7 +161,7 @@ def list_subtasks(task_id: int, db: Session = Depends(get_db)) -> list[TaskRead]
 
 @router.patch("/tasks/{task_id}", response_model=TaskRead)
 def update_task(
-    task_id: int, data: TaskUpdate, db: Session = Depends(get_db)
+    task_id: int, data: TaskUpdate, db: Session = Depends(get_db_write)
 ) -> TaskRead:
     task = _get_task_or_404(db, task_id)
     fields = data.model_dump(exclude_unset=True)
@@ -188,7 +188,7 @@ def update_task(
 
 
 @router.post("/tasks/{task_id}/done", response_model=TaskRead)
-def mark_task_done(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
+def mark_task_done(task_id: int, db: Session = Depends(get_db_write)) -> TaskRead:
     task = _get_task_or_404(db, task_id)
     try:
         updated = tasks_service.mark_done(db, task)
@@ -203,7 +203,7 @@ def mark_task_done(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
 
 
 @router.post("/tasks/{task_id}/skip", response_model=TaskRead)
-def skip_occurrence(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
+def skip_occurrence(task_id: int, db: Session = Depends(get_db_write)) -> TaskRead:
     """Skip a recurring occurrence: soft-delete it, return the next occurrence."""
     task = _get_task_or_404(db, task_id)
     try:
@@ -235,7 +235,7 @@ def get_task_series(task_id: int, db: Session = Depends(get_db)) -> TaskSeries:
 
 
 @router.post("/tasks/{task_id}/stop-recurrence", response_model=TaskRead)
-def stop_recurrence(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
+def stop_recurrence(task_id: int, db: Session = Depends(get_db_write)) -> TaskRead:
     """Stop a series from spawning further occurrences (clears repeat_interval)."""
     task = _get_task_or_404(db, task_id)
     try:
@@ -249,7 +249,7 @@ def stop_recurrence(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
 
 
 @router.post("/tasks/{task_id}/reopen", response_model=TaskRead)
-def reopen_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
+def reopen_task(task_id: int, db: Session = Depends(get_db_write)) -> TaskRead:
     task = _get_task_or_404(db, task_id)
     try:
         updated = tasks_service.reopen_task(db, task)
@@ -264,7 +264,7 @@ def reopen_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
 
 
 @router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_task(task_id: int, db: Session = Depends(get_db)) -> None:
+def delete_task(task_id: int, db: Session = Depends(get_db_write)) -> None:
     task = _get_task_or_404(db, task_id)
     tasks_service.soft_delete_task(db, task)
     db.commit()
@@ -272,7 +272,7 @@ def delete_task(task_id: int, db: Session = Depends(get_db)) -> None:
 
 
 @router.post("/tasks/{task_id}/restore", response_model=TaskRead)
-def restore_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
+def restore_task(task_id: int, db: Session = Depends(get_db_write)) -> TaskRead:
     task = task_trash.get_deleted_task(db, task_id)
     if task is None:
         raise HTTPException(
@@ -297,7 +297,7 @@ def restore_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     "/tasks/{task_id}/purge",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-def purge_task(task_id: int, db: Session = Depends(get_db)) -> None:
+def purge_task(task_id: int, db: Session = Depends(get_db_write)) -> None:
     task = trashed_row_or_error(
         task_trash.get_deleted_task(db, task_id),
         lambda: tasks_service.get_task(db, task_id),
