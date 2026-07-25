@@ -644,19 +644,41 @@ def soft_delete_task(db: Session, task: Task) -> None:
     # children.
     from app.services import task_recurrence
 
+    deleted: set[int] = set()
+    seeds: list[int] = []
+    _soft_delete_subtree(db, task, deleted, seeds)
+    # Reconcile once, after the whole subtree is in the trash, and only from
+    # seeds *outside* it. Reconciling mid-cascade let a child's deletion see its
+    # still-active recurring parent as (transiently) effectively done and spawn a
+    # successor the user never asked for — the parent was on its way to trash.
+    # Nodes inside the subtree are gone, so their series must not advance;
+    # skip/complete stay the explicit ways to roll a series forward.
+    external = [task_id for task_id in seeds if task_id not in deleted]
+    if external:
+        task_recurrence.reconcile(db, external)
+
+
+def _soft_delete_subtree(
+    db: Session, task: Task, deleted: set[int], seeds: list[int]
+) -> None:
+    """Soft-delete ``task`` and its descendants depth-first, collecting seeds.
+
+    Records every deleted id in ``deleted`` and every candidate reconciliation
+    seed (parents and dependents) in ``seeds``; the caller reconciles what is
+    left once the cascade is complete. Trashing the last unfinished child
+    completes its parent, and trashing a blocker unblocks whatever waited on it —
+    both can roll a series forward, but only for tasks that survive the delete.
+    """
+    from app.services import task_dependencies as deps_service
+
     for child in list_subtasks(db, task.id):
-        soft_delete_task(db, child)
+        _soft_delete_subtree(db, child, deleted, seeds)
     soft_delete(task)
     db.flush()
     log_task_event(db, task, "deleted")
-    # Trashing the last unfinished child completes its parent, and trashing a
-    # blocker unblocks whatever waited on it — both can roll a series forward.
+    deleted.add(task.id)
     # The deleted task itself is gone from reconcile's view (get_task filters
     # soft deletes), so seed the walk from its parent and its dependents.
-    from app.services import task_dependencies as deps_service
-
-    seeds = [edge.task_id for edge in deps_service.list_dependents(db, task.id)]
+    seeds.extend(edge.task_id for edge in deps_service.list_dependents(db, task.id))
     if task.parent_task_id is not None:
         seeds.append(task.parent_task_id)
-    if seeds:
-        task_recurrence.reconcile(db, seeds)
