@@ -14,6 +14,7 @@ from app.db.models import (
 )
 from app.services import activity
 from app.services.common import active, soft_delete
+from app.services.integrity import violates_unique_columns
 from app.services.tasks import compute_rollups, get_task
 
 
@@ -264,7 +265,12 @@ def add_dependency(
         # but a caller on the read session would otherwise surface the driver
         # error as a 500 rather than the 409 the duplicate deserves. Only the
         # active-edge index means "duplicate"; anything else is a real fault.
-        if "uq_task_dependencies_active_edge" not in str(exc.orig):
+        # SQLite reports the constrained columns rather than the partial index
+        # name, so `(task_id, depends_on_task_id)` is how
+        # `uq_task_dependencies_active_edge` identifies itself.
+        if not violates_unique_columns(
+            exc, "task_dependencies", ("task_id", "depends_on_task_id")
+        ):
             raise
         raise DuplicateDependencyError("That dependency already exists") from exc
     db.refresh(edge)
