@@ -37,6 +37,7 @@ logger = structlog.get_logger(__name__)
 _TEMPERATURE = 1.0
 _TOP_P = 0.95
 _TOP_K = 64
+_CONNECT_TIMEOUT_SECONDS = 10.0
 
 
 class ProviderError(Exception):
@@ -176,7 +177,9 @@ class LlamaCppProvider:
         # a cold load through llama-swap is ~100 s before the first byte
         # (docs/agent-design.md, "Runtime"), and warm calls never get near it.
         self._client = client or httpx.Client(
-            timeout=httpx.Timeout(timeout_seconds, connect=10.0)
+            timeout=httpx.Timeout(
+                timeout_seconds, connect=min(_CONNECT_TIMEOUT_SECONDS, timeout_seconds)
+            )
         )
 
     def close(self) -> None:
@@ -276,12 +279,14 @@ class LlamaCppProvider:
             tools=len(payload.get("tools", ())),
             structured="response_format" in payload,
         )
-        # Per-call read-timeout override (keep the client's short connect cap);
-        # httpx.USE_CLIENT_DEFAULT falls back to the timeout set at construction.
+        # Per-call timeout override: every phase — connect included — is capped
+        # at the caller's remaining budget, so the request cannot outlive the
+        # agent's wall-clock deadline. httpx.USE_CLIENT_DEFAULT falls back to
+        # the timeout set at construction.
         request_timeout: Any = (
             httpx.USE_CLIENT_DEFAULT
             if timeout is None
-            else httpx.Timeout(timeout, connect=10.0)
+            else httpx.Timeout(timeout, connect=min(_CONNECT_TIMEOUT_SECONDS, timeout))
         )
         started = time.monotonic()
         try:
