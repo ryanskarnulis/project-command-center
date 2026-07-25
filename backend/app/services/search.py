@@ -24,6 +24,8 @@ _LIKE_ESCAPE = "\\"
 # already-fetched window — otherwise an older open match is dropped under a full
 # page of newer done matches before its status is ever computed. This cap only
 # guards a pathological wildcard; real matches on one user's SQLite file are tiny.
+# It applies per stored-status bucket (see ``search``), so at most 2x this many
+# rows are ever materialised.
 _TASK_SCAN_CAP = 500
 
 
@@ -99,8 +101,20 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
     # slice to ``per_kind``. The tier is selected alongside the row so the sort
     # stays within tier. This mirrors ``tasks.list_tasks``' "read the matching set
     # whole, slice after filtering" tradeoff.
+    #
+    # The cap itself has to respect that ordering, though: a single capped scan
+    # ordered by (tier, id desc) hands Python only the newest _TASK_SCAN_CAP
+    # matches, so a full cap's worth of newer *done* matches evicts an older open
+    # one before its status is ever computed. We therefore scan two disjoint
+    # buckets — stored-done and stored-not-done — each capped independently, and
+    # merge them. Every stored-not-done match then reaches the relevance sort
+    # regardless of how many done matches exist, which is the case the guarantee
+    # is about. (Residual: a stored-done row that resolves to effectively
+    # not-done can still be cut by _TASK_SCAN_CAP newer stored-done rows of the
+    # same tier. Closing that would require resolving effective status for the
+    # unbounded matching set, which is exactly what the cap exists to prevent.)
     task_text_score = _text_tier(Task.title, Task.description, q, prefix, contains)
-    task_result = db.execute(
+    matching = (
         active(Task)
         .add_columns(task_text_score.label("text_tier"))
         .where(
@@ -110,12 +124,22 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
             )
         )
         .order_by(task_text_score.asc(), Task.id.desc())
-        .limit(_TASK_SCAN_CAP)
-    ).all()
+    )
+    task_result = [
+        row
+        for stored_done in (False, True)
+        for row in db.execute(
+            matching.where(
+                (Task.workflow_status == TaskWorkflowStatus.done)
+                if stored_done
+                else (Task.workflow_status != TaskWorkflowStatus.done)
+            ).limit(_TASK_SCAN_CAP)
+        ).all()
+    ]
     task_rows = [row[0] for row in task_result]
     text_tiers = {row[0].id: row[1] for row in task_result}
 
-    # Resolve blocked-aware, rolled-up status for the matched rows (≤
+    # Resolve blocked-aware, rolled-up status for the matched rows (≤ 2 *
     # _TASK_SCAN_CAP) through the one shared source of truth every other read
     # surface uses. Local import: task_dependencies imports this package's siblings
     # and a module-level import would cycle (mirrors ``services/tasks.list_tasks``).

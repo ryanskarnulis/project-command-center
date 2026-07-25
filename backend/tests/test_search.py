@@ -230,6 +230,32 @@ def test_search_reports_effective_open_for_reopened_leaf(
     assert match.workflow_status != TaskWorkflowStatus.done
 
 
+def test_search_keeps_open_match_past_the_scan_cap(db_session: Session) -> None:
+    """An open match survives a full scan cap's worth of newer done matches.
+
+    The scan guard must not decide inclusion ahead of the state tiebreak: with
+    ``_TASK_SCAN_CAP`` newer done tasks sharing the exact title, the older open
+    one still has to reach the relevance sort (and lead it).
+    """
+    project = projects_service.create_project(db_session, name="P")
+    open_task = tasks_service.create_task(
+        db_session, project_id=project.id, title="shared search term"
+    )
+    for _ in range(search_service._TASK_SCAN_CAP):
+        tasks_service.create_task(
+            db_session,
+            project_id=project.id,
+            title="shared search term",
+            workflow_status=TaskWorkflowStatus.done,
+        )
+    db_session.commit()
+
+    results = search_service.search(db_session, "shared search term")
+
+    assert open_task.id in [t.id for t in results.tasks]
+    assert results.tasks[0].id == open_task.id
+
+
 def test_search_route_happy_path(client: TestClient, db_session: Session) -> None:
     _seed(db_session)
 
