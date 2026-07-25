@@ -15,6 +15,15 @@ the registry doesn't know. Domain rejections from the service layer ("task 7
 is blocked", "not found") are not corrections: they are fed back as ordinary
 tool results for the model to react to within the iteration budget, matching
 the MCP server's behavior.
+
+Time is bounded at both boundaries: the deadline is checked before every
+provider call *and* before every tool dispatch, so no call is ever *started*
+past the deadline (#108). Tool bodies are synchronous and not preemptible, so
+the guarantee is "nothing starts late", not "nothing runs late": a run's true
+ceiling is the deadline plus the duration of at most one already-running tool
+call. Tools are in-process service-layer calls against local SQLite, so that
+overshoot is small and bounded in practice; the budget should leave headroom
+for it rather than being sized flush against the proxy timeout.
 """
 
 from __future__ import annotations
@@ -52,6 +61,10 @@ LOOP_ACTOR = "agent:loop"
 # values fall back to the default rather than erroring, so a caller can never
 # stamp an arbitrary identity into the audit trail.
 DELEGATE_ACTORS = frozenset({"agent:conductor"})
+
+# Recorded (and fed back) for a tool call the run's deadline passed before we
+# could start it — the call never reached the registry or the service layer.
+_SKIPPED_ERROR = "not run: the agent run's time budget was exhausted before this call"
 
 
 def resolve_actor(header_value: str | None) -> str:
@@ -225,8 +238,11 @@ class AgentLoop:
         header by :func:`resolve_actor`.
 
         ``deadline`` is an absolute :func:`time.monotonic` value: once it passes
-        the loop stops before the next provider call and each provider call is
-        capped at the time remaining, so a run can never outlive its budget.
+        the loop stops before the next provider call *and* before the next tool
+        dispatch, and each provider call is capped at the time remaining, so
+        nothing is ever started past the deadline. A synchronous tool already
+        in flight is not interrupted, so a run's ceiling is the deadline plus
+        at most one tool call's duration (see the module docstring).
         A provider failure or a crossed deadline raises :class:`AgentRunFailed`
         carrying the partial trajectory — the caller persists it, then surfaces
         the error. ``None`` means no time bound (the default, used by tests).
@@ -305,7 +321,16 @@ class AgentLoop:
                 return self._finish("completed", result.content, records, iteration, messages)
             messages.append(result.to_message())
             schema_error_this_turn = False
-            for call in result.tool_calls:
+            for index, call in enumerate(result.tool_calls):
+                if deadline is not None and time.monotonic() >= deadline:
+                    # Out of time before *starting* this call. Record the calls
+                    # we refused (truthful trajectory: they never touched the
+                    # service layer) and stop — a mutating tool must not begin
+                    # after the request budget is already spent.
+                    self._skip_remaining(
+                        result.tool_calls[index:], records, messages
+                    )
+                    raise self._out_of_time(records, iteration, messages)
                 record, feedback, schema_error = self._dispatch(call, actor)
                 records.append(record)
                 messages.append(tool_result_message(call.id, feedback))
@@ -315,6 +340,30 @@ class AgentLoop:
                 if corrections > self._max_corrections:
                     return self._finish("correction_limit", None, records, iteration, messages)
         return self._finish("max_iterations", None, records, iterations, messages)
+
+    @staticmethod
+    def _skip_remaining(
+        calls: Sequence[ToolCall],
+        records: list[ToolCallRecord],
+        messages: list[dict[str, Any]],
+    ) -> None:
+        """Record calls the deadline stopped us from starting, and answer them.
+
+        Each undispatched call still gets a ``role: tool`` message so the
+        transcript stays well-formed (every tool call has its result) for the
+        persisted trajectory and any later turn built on this history.
+        """
+        for call in calls:
+            record = ToolCallRecord(
+                tool=call.name,
+                arguments=call.arguments,
+                error=_SKIPPED_ERROR,
+            )
+            records.append(record)
+            messages.append(tool_result_message(call.id, f"Error: {_SKIPPED_ERROR}"))
+            logger.warning(
+                "agent_tool_call_skipped", tool=call.name, reason="deadline_exceeded"
+            )
 
     def _dispatch(self, call: ToolCall, actor: str) -> tuple[ToolCallRecord, str, bool]:
         """Run one tool call as ``actor``.

@@ -247,6 +247,73 @@ def test_deadline_caps_the_provider_call_timeout(
     assert passed_timeout is not None and 0.0 < passed_timeout <= 30.0
 
 
+def _fake_clock(
+    monkeypatch: pytest.MonkeyPatch, readings: list[float]
+) -> None:
+    """Make ``loop.time.monotonic`` return ``readings`` in order (last sticks)."""
+    remaining = list(readings)
+
+    def monotonic() -> float:
+        return remaining.pop(0) if len(remaining) > 1 else remaining[0]
+
+    monkeypatch.setattr("app.ai.loop.time.monotonic", monotonic)
+
+
+def test_deadline_expiring_before_dispatch_skips_the_tool_call(
+    tool_db: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The provider answers in time but the deadline passes before dispatch:
+    the tool never runs, and the run ends timed_out → 504 (#108)."""
+    provider = ScriptedProvider([_calls(("create_task", {"data": {"title": "Too late"}}))])
+    # Readings: iteration check, provider-timeout, then past the deadline.
+    _fake_clock(monkeypatch, [0.0, 0.0, 100.0])
+
+    with pytest.raises(AgentRunFailed) as exc_info:
+        AgentLoop(provider).run("Make a task", deadline=10.0)
+
+    failed = exc_info.value
+    assert failed.http_status == 504
+    assert failed.result.stop_reason == "timed_out"
+    skipped = failed.result.tool_calls
+    assert [r.tool for r in skipped] == ["create_task"]
+    assert skipped[0].result is None
+    assert skipped[0].error is not None and "time budget" in skipped[0].error
+    # The transcript still answers the call, and nothing reached the DB.
+    assert failed.result.messages[-1]["role"] == "tool"
+    with tool_db() as db:
+        assert db.execute(select(Task)).scalars().all() == []
+
+
+def test_batch_stops_at_the_call_that_would_cross_the_deadline(
+    tool_db: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A three-call batch that crosses the deadline runs only the calls that
+    started in time; the rest are recorded as not run (#108)."""
+    provider = ScriptedProvider(
+        [
+            _calls(
+                ("create_task", {"data": {"title": "First"}}),
+                ("create_task", {"data": {"title": "Second"}}),
+                ("create_task", {"data": {"title": "Third"}}),
+            )
+        ]
+    )
+    # Readings: iteration check, provider-timeout, call 1 in time, then expired.
+    _fake_clock(monkeypatch, [0.0, 0.0, 0.0, 100.0])
+
+    with pytest.raises(AgentRunFailed) as exc_info:
+        AgentLoop(provider).run("Make three tasks", deadline=10.0)
+
+    result = exc_info.value.result
+    assert result.stop_reason == "timed_out"
+    assert [r.error is None for r in result.tool_calls] == [True, False, False]
+    assert all("time budget" in str(r.error) for r in result.tool_calls[1:])
+    # Every tool call got a role:tool message, so the transcript stays valid.
+    assert sum(1 for m in result.messages if m["role"] == "tool") == 3
+    with tool_db() as db:
+        assert db.execute(select(Task.title)).scalars().all() == ["First"]
+
+
 def test_tool_session_reuses_a_bound_request_id(
     tool_db: sessionmaker[Session],
 ) -> None:

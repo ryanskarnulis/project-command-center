@@ -121,7 +121,11 @@ def post_message(
     second concurrent message waits for the first to finish — so it reads
     history that includes the first reply — or gets 409 if the wait exceeds the
     run budget. The single deadline covers both the wait and the run, keeping
-    the whole request under the proxy timeout. The 404 check happens on the
+    the whole request under the proxy timeout — with one caveat: the loop never
+    *starts* a provider or tool call past the deadline, but a synchronous tool
+    already in flight runs to completion, so the request can overshoot the
+    budget by at most one tool call's duration (see ``AgentLoop``). Size
+    ``agent_run_budget_seconds`` with headroom for that. The 404 check happens on the
     read session (``reader``) before the wait; no write transaction may be open
     while waiting, or the two locks invert (see below).
 
