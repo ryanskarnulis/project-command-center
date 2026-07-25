@@ -205,8 +205,11 @@ text, biased toward PCC's task/project vocabulary) and `POST /api/voice/speak`
 (text → mp3, the fleet house voice). Both are rate-limited per client IP
 (`VOICE_REQUESTS_PER_MIN`, default 30). Configure with `SPEECH_BASE_URL` /
 `TTS_BASE_URL` / `STT_MODEL` / `TTS_MODEL` / `TTS_VOICE` (defaults in
-`app/config.py`); leave `SPEECH_BASE_URL` unset to run voiceless — the voice
-endpoints answer 503 and nothing else changes.
+`app/config.py`); leave `SPEECH_BASE_URL` unset **or empty** to run voiceless —
+the voice endpoints answer 503 and nothing else changes. Voice is off by
+default in the docker deployment too: `docker-compose.yml` substitutes no URL
+of its own, so it stays voiceless until you set `SPEECH_BASE_URL` /
+`TTS_BASE_URL` in `.env` (the values to uncomment are in `.env.example`).
 
 The chat panel (`frontend/src/features/agent/`, the **Agent** nav entry)
 drives that API: conversations in a sidebar, the thread with every tool call
