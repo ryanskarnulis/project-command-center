@@ -98,6 +98,18 @@ const mockListTasks = vi.mocked(listTasks)
 const mockListCompleted = vi.mocked(listCompletedTasks)
 const mockGetProjectActivity = vi.mocked(getProjectActivity)
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  // Attach a no-op catch so an intentionally rejected deferred is never unhandled.
+  promise.catch(() => undefined)
+  return { promise, resolve, reject }
+}
+
 function renderDetail() {
   return render(
     <MemoryRouter initialEntries={['/projects/7']}>
@@ -148,6 +160,77 @@ describe('ProjectDetailPage', () => {
         expect.objectContaining({ name: 'Edge Firewall' }),
       ),
     )
+  })
+
+  it('does not let a stale PATCH response revert a newer inline edit', async () => {
+    const user = userEvent.setup()
+    const nameResponse = deferred<Project>()
+    const descriptionResponse = deferred<Project>()
+    mockUpdateProject
+      .mockReturnValueOnce(nameResponse.promise)
+      .mockReturnValueOnce(descriptionResponse.promise)
+    renderDetail()
+
+    const name = await screen.findByLabelText('Project name')
+    await waitFor(() => expect(name).toHaveValue('Firewall'))
+    const description = screen.getByLabelText('Project description')
+
+    // PATCH A: rename, response delayed.
+    await user.clear(name)
+    await user.type(name, 'Edge Firewall')
+    await user.tab()
+    // PATCH B: new description, response delivered first.
+    await user.clear(description)
+    await user.type(description, 'Perimeter hardening')
+    await user.tab()
+    await waitFor(() => expect(mockUpdateProject).toHaveBeenCalledTimes(2))
+
+    descriptionResponse.resolve({
+      ...project,
+      name: 'Edge Firewall',
+      description: 'Perimeter hardening',
+    })
+    await waitFor(() => expect(description).toHaveValue('Perimeter hardening'))
+
+    // The older rename response carries the pre-edit description; it must not land.
+    nameResponse.resolve({ ...project, name: 'Edge Firewall' })
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument())
+    expect(description).toHaveValue('Perimeter hardening')
+    expect(name).toHaveValue('Edge Firewall')
+  })
+
+  it('ignores a stale PATCH failure so the newest write keeps the save line', async () => {
+    const user = userEvent.setup()
+    const nameResponse = deferred<Project>()
+    const descriptionResponse = deferred<Project>()
+    mockUpdateProject
+      .mockReturnValueOnce(nameResponse.promise)
+      .mockReturnValueOnce(descriptionResponse.promise)
+    renderDetail()
+
+    const name = await screen.findByLabelText('Project name')
+    await waitFor(() => expect(name).toHaveValue('Firewall'))
+    const description = screen.getByLabelText('Project description')
+
+    await user.clear(name)
+    await user.type(name, 'Edge Firewall')
+    await user.tab()
+    await user.clear(description)
+    await user.type(description, 'Perimeter hardening')
+    await user.tab()
+    await waitFor(() => expect(mockUpdateProject).toHaveBeenCalledTimes(2))
+
+    descriptionResponse.resolve({
+      ...project,
+      name: 'Edge Firewall',
+      description: 'Perimeter hardening',
+    })
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument())
+
+    nameResponse.reject(new Error('boom'))
+    await nameResponse.promise.catch(() => undefined)
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument())
+    expect(screen.queryByText('boom')).not.toBeInTheDocument()
   })
 
   it('does not save when the name is cleared to blank', async () => {

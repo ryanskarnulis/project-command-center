@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useState } from 'react'
+import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '../../api/client'
 import {
@@ -127,16 +127,32 @@ export function ProjectDetailPage() {
       activeProjectDraft.description !== loadedProjectDraft.description)
   useBeforeUnload(dirty)
 
+  // Monotonic id of the most recently *started* project write. PATCH returns a
+  // full project snapshot, so overlapping inline edits that resolve out of
+  // order could otherwise let an older response revert a newer field; only the
+  // newest write may publish its snapshot or its save state.
+  const latestRequestId = useRef(0)
+
+  /** Publish a snapshot from a non-PATCH write (close/reopen), retiring any in-flight PATCH. */
+  function publishProject(updated: Project) {
+    latestRequestId.current += 1
+    setProject(updated)
+    setActivityKey((k) => k + 1)
+  }
+
   async function savePatch(data: ProjectUpdate) {
     if (!project) return
+    const requestId = ++latestRequestId.current
     setSaveState('saving')
     setSaveError(null)
     try {
       const updated = await updateProject(project.id, data)
+      if (requestId !== latestRequestId.current) return
       setProject(updated)
       setSaveState('saved')
       setActivityKey((k) => k + 1)
     } catch (e: unknown) {
+      if (requestId !== latestRequestId.current) return
       setSaveState('error')
       setSaveError(e instanceof Error ? e.message : 'Failed to save project')
     }
@@ -182,8 +198,7 @@ export function ProjectDetailPage() {
     const updated = await withToast(closeProject(project.id), {
       success: 'Project closed',
     })
-    setProject(updated)
-    setActivityKey((k) => k + 1)
+    publishProject(updated)
   }
 
   async function handleReopenProject(): Promise<void> {
@@ -191,8 +206,7 @@ export function ProjectDetailPage() {
     const updated = await withToast(reopenProject(project.id), {
       success: 'Project reopened',
     })
-    setProject(updated)
-    setActivityKey((k) => k + 1)
+    publishProject(updated)
   }
 
   async function handleCompleteTask(t: Task): Promise<void> {
