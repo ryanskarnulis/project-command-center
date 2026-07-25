@@ -186,8 +186,11 @@ per client IP (`AGENT_MESSAGES_PER_MIN`, default 10).
 Runs on one conversation are serialized: a second message that arrives mid-run
 waits for the first to finish (so it sees the reply in history) or gets a 409.
 Each request is bounded by `AGENT_RUN_BUDGET_SECONDS` (default 240) — the loop
-stops once it passes and caps each provider call at the time left, so a run
-can't outlive its budget. That budget is the tightest ceiling on the agent path
+stops once it passes, caps each provider call at the time left, and refuses to
+start any further tool call, so nothing is ever started past the deadline. A
+synchronous tool already in flight isn't interrupted, so a run can overshoot by
+at most one tool call (in-process SQLite work — milliseconds, not minutes); the
+60 s gap to nginx below is that headroom. That budget is the tightest ceiling on the agent path
 and stays below nginx's `proxy_read_timeout` (300 s), which stays below the
 frontend abort (330 s), so the backend always returns a clean error first. When
 a run fails or times out, the endpoint still persists a truthful assistant turn
