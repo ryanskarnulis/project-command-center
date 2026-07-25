@@ -603,6 +603,30 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     if effective_repeat is not None and effective_due is None:
         raise RecurrenceError("A recurring task requires a due date")
 
+    # Moving an occurrence onto a date a live sibling already holds would break the
+    # same invariant restore guards (uq_tasks_active_occurrence). Checked before the
+    # attribute loop so a rejected edit leaves the task untouched, instead of letting
+    # db.flush() below raise a raw IntegrityError that escapes as a generic 409 and
+    # an agent-side internal_error. Local import: same deliberate inversion as below.
+    if (
+        "due_date" in control
+        and effective_due is not None
+        and effective_due != task.due_date
+        and task.recurrence_id is not None
+        and task.deleted_at is None
+    ):
+        from app.services import task_recurrence as _recurrence
+
+        conflict = _recurrence.find_live_occurrence_on(
+            db, task.recurrence_id, effective_due, exclude_id=task.id
+        )
+        if conflict is not None:
+            raise OccurrenceConflictError(
+                f"This series already has an active occurrence due "
+                f"{effective_due.isoformat()}. Pick another date, or trash or skip "
+                f"that occurrence first."
+            )
+
     for key, value in control.items():
         setattr(task, key, value)
     task.project_id = _default_project_id(db, task.project_id)
