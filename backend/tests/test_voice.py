@@ -170,6 +170,14 @@ def test_factory_returns_none_when_unconfigured(
     assert speech_client_from_settings() is None
 
 
+def test_factory_returns_none_for_empty_speech_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Deployments opt out with an empty value — a compose .env cannot "unset".
+    monkeypatch.setattr(get_settings(), "speech_base_url", "")
+    assert speech_client_from_settings() is None
+
+
 def test_factory_builds_split_clients(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(get_settings(), "speech_base_url", "http://speech:8400/v1")
     monkeypatch.setattr(get_settings(), "tts_base_url", "http://kokoro:8410/v1")
