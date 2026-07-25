@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createConversation, postMessage } from '../../api/agent'
+import { ApiError } from '../../api/client'
 import { search } from '../../api/search'
 import type { Conversation, MessageExchange } from '../../types/agent'
 import type { SearchResults } from '../../types/search'
@@ -188,6 +189,25 @@ describe('CommandSearch', () => {
       expect(screen.getByTestId('location')).toHaveTextContent('/agent/5'),
     )
     expect(screen.queryByText('Here is your plan.')).not.toBeInTheDocument()
+  })
+
+  it('offers Continue in Agent for the conversation a failed ask created', async () => {
+    // Issue #147: creation succeeded, the first message was rate limited — the
+    // conversation must stay reachable instead of being silently orphaned.
+    mockSearch.mockResolvedValue({ projects: [], tasks: [] })
+    mockCreateConversation.mockResolvedValue(CONVERSATION)
+    mockPostMessage.mockRejectedValue(new ApiError(429, null))
+    const user = userEvent.setup()
+    renderBar()
+
+    await user.type(getInput(), 'plan my day')
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Rate limited/)
+    await user.click(screen.getByRole('button', { name: /Continue in Agent/ }))
+    await waitFor(() =>
+      expect(screen.getByTestId('location')).toHaveTextContent('/agent/5'),
+    )
   })
 
   it('clicking the ask affordance posts to the agent', async () => {
