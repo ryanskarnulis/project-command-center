@@ -1744,3 +1744,42 @@ def test_soft_deleted_rows_are_exempt_from_uniqueness(db_session: Session) -> No
         .all()
     ]
     assert len(trashed_on_0608) == 2
+
+
+def test_trashing_recurring_parent_does_not_spawn_successor(
+    db_session: Session,
+) -> None:
+    # BUG-96: a stored-done parent reopened by a later child keeps its stored
+    # status done. The cascade deleted that child first and reconciled the
+    # still-active parent, which then rolled up done and spawned an occurrence —
+    # mid-delete. Deleting a subtree must never advance the series; skipping and
+    # completing stay the explicit ways to do that.
+    task = _make_task(db_session, due=date(2026, 7, 25))
+    tasks_service.mark_done(db_session, task)
+    db_session.commit()
+    child = tasks_service.create_task(
+        db_session,
+        project_id=task.project_id,
+        title="new work",
+        parent_task_id=task.id,
+    )
+    db_session.commit()
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    recurrence_id = task.recurrence_id
+    assert recurrence_id is not None
+    # The open child holds the series: no successor yet.
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
+        date(2026, 7, 25)
+    ]
+
+    tasks_service.soft_delete_task(db_session, task)
+    db_session.commit()
+
+    assert task.deleted_at is not None
+    db_session.refresh(child)
+    assert child.deleted_at is not None
+    # Nothing live is left in the series — in particular no 2026-08-01 occurrence.
+    assert list(_series(db_session, recurrence_id)) == []
