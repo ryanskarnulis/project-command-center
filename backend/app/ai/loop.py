@@ -134,15 +134,27 @@ def build_system_prompt(today: date) -> str:
     )
 
 _StopReason = Literal[
-    "completed", "max_iterations", "correction_limit", "provider_error", "timed_out"
+    "completed",
+    "max_iterations",
+    "correction_limit",
+    "provider_error",
+    "timed_out",
+    "internal_error",
 ]
 
 # HTTP status the route surfaces for each failure stop reason: a provider fault
-# is an upstream 502; exhausting the time budget is a 504.
+# is an upstream 502; exhausting the time budget is a 504; an unexpected
+# exception (a bug, a DB failure) is our own 500.
 _FAILURE_STATUS: dict[_StopReason, int] = {
     "provider_error": 502,
     "timed_out": 504,
+    "internal_error": 500,
 }
+
+# Recorded (and fed back) for a call whose dispatch blew up unexpectedly. The
+# call may or may not have reached the service layer, so the record claims
+# neither success nor a clean rejection (#103).
+_INTERNAL_ERROR = "internal error: the tool call failed unexpectedly"
 
 
 class ChatProvider(Protocol):
@@ -191,7 +203,7 @@ class AgentRunFailed(Exception):
     before the failure — so the caller can persist a truthful record of what
     happened (see ``routes_agent.post_message``) before surfacing the error.
     ``http_status`` is what the route returns to the client (502 provider, 504
-    timeout).
+    timeout, 500 unexpected internal failure).
     """
 
     def __init__(
@@ -251,7 +263,21 @@ class AgentLoop:
         if "request_id" not in structlog.contextvars.get_contextvars():
             bindings["request_id"] = uuid.uuid4().hex[:8]
         with structlog.contextvars.bound_contextvars(**bindings):
-            return self._run(user_message, history, actor, deadline)
+            try:
+                return self._run(user_message, history, actor, deadline)
+            except AgentRunFailed:
+                raise
+            except Exception as exc:
+                # Backstop: anything unexpected that escaped the per-call guard
+                # still leaves the boundary as a typed failure, so the caller
+                # never sees a raw exception (#103). No trajectory survives this
+                # path — the per-call guard is what carries the records.
+                logger.exception(
+                    "agent_run_crashed",
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+                raise self._internal_failed(exc, [], 0, []) from exc
 
     def _run(
         self,
@@ -331,7 +357,17 @@ class AgentLoop:
                         result.tool_calls[index:], records, messages
                     )
                     raise self._out_of_time(records, iteration, messages)
-                record, feedback, schema_error = self._dispatch(call, actor)
+                try:
+                    record, feedback, schema_error = self._dispatch(call, actor)
+                except Exception as exc:
+                    # A bug or an infrastructure failure (e.g. an SQLite
+                    # OperationalError), not something the model can correct.
+                    # End the run with a truthful partial trajectory — including
+                    # this call — so the caller can persist it (#103).
+                    self._record_internal_error(call, records, messages, exc)
+                    raise self._internal_failed(
+                        exc, records, iteration, messages
+                    ) from exc
                 records.append(record)
                 messages.append(tool_result_message(call.id, feedback))
                 schema_error_this_turn = schema_error_this_turn or schema_error
@@ -365,13 +401,40 @@ class AgentLoop:
                 "agent_tool_call_skipped", tool=call.name, reason="deadline_exceeded"
             )
 
+    @staticmethod
+    def _record_internal_error(
+        call: ToolCall,
+        records: list[ToolCallRecord],
+        messages: list[dict[str, Any]],
+        exc: BaseException,
+    ) -> None:
+        """Record (and answer) the call whose dispatch raised unexpectedly.
+
+        The transcript stays well-formed — every tool call keeps a paired
+        ``role: tool`` message — and the exception is logged with the run's
+        bound request id.
+        """
+        records.append(
+            ToolCallRecord(
+                tool=call.name, arguments=call.arguments, error=_INTERNAL_ERROR
+            )
+        )
+        messages.append(tool_result_message(call.id, f"Error: {_INTERNAL_ERROR}"))
+        logger.exception(
+            "agent_tool_call_crashed",
+            tool=call.name,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+
     def _dispatch(self, call: ToolCall, actor: str) -> tuple[ToolCallRecord, str, bool]:
         """Run one tool call as ``actor``.
 
         Returns the record, the feedback text for the model's ``role: tool``
         message, and whether the failure was schema-level (counts against the
-        correction budget). Unexpected exceptions (bugs, DB failures)
-        propagate — the loop only self-corrects what the model can fix.
+        correction budget). Unexpected exceptions (bugs, DB failures) propagate
+        to the caller — the loop only self-corrects what the model can fix —
+        where they end the run as an ``internal_error`` failure (see ``_run``).
         """
         record = ToolCallRecord(tool=call.name, arguments=call.arguments)
         schema_error = False
@@ -439,6 +502,22 @@ class AgentLoop:
         messages: list[dict[str, Any]],
     ) -> AgentRunFailed:
         return cls._failed("provider_error", f"agent run failed: {exc}", records, iterations, messages)
+
+    @classmethod
+    def _internal_failed(
+        cls,
+        exc: BaseException,
+        records: list[ToolCallRecord],
+        iterations: int,
+        messages: list[dict[str, Any]],
+    ) -> AgentRunFailed:
+        return cls._failed(
+            "internal_error",
+            f"agent run failed unexpectedly: {type(exc).__name__}: {exc}",
+            records,
+            iterations,
+            messages,
+        )
 
     @staticmethod
     def _failed(

@@ -17,6 +17,7 @@ from datetime import date
 import pytest
 import structlog
 from sqlalchemy import Engine, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai import loop as loop_module
@@ -312,6 +313,90 @@ def test_batch_stops_at_the_call_that_would_cross_the_deadline(
     assert sum(1 for m in result.messages if m["role"] == "tool") == 3
     with tool_db() as db:
         assert db.execute(select(Task.title)).scalars().all() == ["First"]
+
+
+def _raise_on_tool(
+    monkeypatch: pytest.MonkeyPatch, tool: str, exc: Exception
+) -> None:
+    """Make registry dispatch of ``tool`` blow up, leaving other tools alone."""
+    real = registry.call_tool
+
+    def call_tool(name: str, arguments: dict[str, object], *, actor: str) -> object:
+        if name == tool:
+            raise exc
+        return real(name, arguments, actor=actor)
+
+    monkeypatch.setattr(registry, "call_tool", call_tool)
+
+
+def test_unexpected_tool_exception_fails_the_run_with_the_partial_trajectory(
+    tool_db: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One tool completes, the next one's dispatch raises RuntimeError: the run
+    ends as AgentRunFailed/internal_error → 500 carrying both records (#103)."""
+    provider = ScriptedProvider(
+        [
+            _calls(("create_task", {"data": {"title": "Ran fine"}})),
+            _calls(("complete_task", {"task_id": 1})),
+            _text("never reached"),
+        ]
+    )
+    _raise_on_tool(monkeypatch, "complete_task", RuntimeError("disk on fire"))
+
+    with pytest.raises(AgentRunFailed) as exc_info:
+        AgentLoop(provider).run("Create then complete a task")
+
+    failed = exc_info.value
+    assert failed.http_status == 500
+    assert failed.result.stop_reason == "internal_error"
+    assert failed.result.reply is None
+    assert [r.tool for r in failed.result.tool_calls] == ["create_task", "complete_task"]
+    assert failed.result.tool_calls[0].error is None
+    crashed = failed.result.tool_calls[1]
+    assert crashed.result is None
+    assert crashed.error is not None and "internal error" in crashed.error
+    # The transcript stays well-formed: both calls have a role:tool answer.
+    assert sum(1 for m in failed.result.messages if m["role"] == "tool") == 2
+    # The first tool's write stays committed (undoable via trash).
+    with tool_db() as db:
+        assert db.execute(select(Task.title)).scalars().all() == ["Ran fine"]
+    # The provider was never asked for another turn.
+    assert len(provider.requests) == 2
+
+
+def test_database_failure_during_dispatch_becomes_an_internal_error(
+    tool_db: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An OperationalError (e.g. the SQLite lock case) is an internal_error,
+    not a raw exception escaping the loop boundary (#103)."""
+    provider = ScriptedProvider([_calls(("list_projects", {}))])
+    _raise_on_tool(
+        monkeypatch, "list_projects", OperationalError("SELECT 1", {}, Exception("locked"))
+    )
+
+    with pytest.raises(AgentRunFailed) as exc_info:
+        AgentLoop(provider).run("List projects")
+
+    assert exc_info.value.http_status == 500
+    assert exc_info.value.result.stop_reason == "internal_error"
+
+
+def test_domain_and_schema_errors_keep_their_existing_behavior(
+    tool_db: sessionmaker[Session],
+) -> None:
+    """A domain rejection is still fed back (not internal_error), and the run
+    can recover and finish normally."""
+    provider = ScriptedProvider(
+        [
+            _calls(("complete_task", {"task_id": 999})),
+            _text("That task doesn't exist."),
+        ]
+    )
+    result = AgentLoop(provider).run("Complete task 999")
+
+    assert result.stop_reason == "completed"
+    assert result.tool_calls[0].error is not None
+    assert "internal error" not in result.tool_calls[0].error
 
 
 def test_tool_session_reuses_a_bound_request_id(

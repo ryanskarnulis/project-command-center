@@ -12,6 +12,7 @@ from collections.abc import Generator
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai.loop import LOOP_ACTOR, AgentLoop, AgentRunResult, ToolCallRecord
@@ -21,7 +22,7 @@ from app.config import get_settings
 from app.db.models import ActivityEvent, Task
 from app.main import app
 from app.services import conversations as conversations_service
-from app.tools import runtime
+from app.tools import registry, runtime
 from tests.scripted_provider import ScriptedProvider, text_turn, tool_calls_turn
 
 
@@ -244,6 +245,59 @@ def test_provider_failure_mid_run_records_the_tools_that_already_ran(
     assert assistant["content"] is None
     assert [c["tool"] for c in assistant["tool_calls"]] == ["create_task"]
     assert assistant["tool_calls"][0]["error"] is None
+
+
+def test_unexpected_tool_exception_is_500_with_the_partial_trajectory(
+    client: TestClient,
+    tool_db: sessionmaker[Session],
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A tool completes, then the next dispatch dies with an OperationalError:
+    the route answers 500 (not an unhandled crash) and the user turn is paired
+    with an internal_error assistant turn carrying both calls (#103)."""
+    real = registry.call_tool
+
+    def call_tool(name: str, arguments: dict[str, object], *, actor: str) -> object:
+        if name == "complete_task":
+            raise OperationalError("UPDATE tasks", {}, Exception("database is locked"))
+        return real(name, arguments, actor=actor)
+
+    monkeypatch.setattr(registry, "call_tool", call_tool)
+    _use_loop(
+        ScriptedProvider(
+            [
+                tool_calls_turn(("create_task", {"data": {"title": "Committed"}})),
+                tool_calls_turn(("complete_task", {"task_id": 1})),
+                text_turn("never reached"),
+            ]
+        )
+    )
+    conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
+
+    response = client.post(
+        f"/api/agent/conversations/{conversation_id}/messages",
+        json={"content": "Create a task and complete it"},
+        # The failure must be a typed HTTP error, not an exception escaping the app.
+    )
+    assert response.status_code == 500
+
+    # The task the first call created stays committed and undoable.
+    assert db_session.execute(select(Task.title)).scalars().all() == ["Committed"]
+
+    messages = client.get(f"/api/agent/conversations/{conversation_id}").json()[
+        "messages"
+    ]
+    assert [m["role"] for m in messages] == ["user", "assistant"]
+    assistant = messages[1]
+    assert assistant["stop_reason"] == "internal_error"
+    assert assistant["content"] is None
+    assert [c["tool"] for c in assistant["tool_calls"]] == [
+        "create_task",
+        "complete_task",
+    ]
+    assert assistant["tool_calls"][0]["error"] is None
+    assert "internal error" in assistant["tool_calls"][1]["error"]
 
 
 def test_run_over_budget_is_504_with_a_timed_out_turn(
