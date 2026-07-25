@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SpeechEvents, Vad } from './vad'
 import { MicButton } from './MicButton'
+import { playText } from './tts'
 
 // The vendored MicButton talks to the browser through vad/tts/wav; jsdom has
 // none of the audio machinery, so those seams are stubbed and only the STT
@@ -14,9 +15,13 @@ const resume = vi.hoisted(() => vi.fn())
 const destroy = vi.hoisted(() => vi.fn())
 
 vi.mock('./vad', () => ({ createVad }))
-vi.mock('./tts', () => ({
+// tts is real apart from unlockAudio (jsdom has no media playback and the
+// unlock is a pure user-gesture side effect): issue #97 is about audioIdle()
+// staying resolvable when the TTS fetch fails, which only the real module
+// exercises.
+vi.mock('./tts', async () => ({
+  ...(await vi.importActual<typeof import('./tts')>('./tts')),
   unlockAudio: vi.fn(),
-  audioIdle: vi.fn(() => Promise.resolve()),
 }))
 vi.mock('./wav', () => ({ encodeWav: () => new Blob(['wav']) }))
 
@@ -113,5 +118,45 @@ describe('MicButton STT transport failures', () => {
     expect(screen.getByRole('button')).toHaveClass('mic-idle')
     expect(screen.getByRole('button')).not.toBeDisabled()
     expect(onTranscript).not.toHaveBeenCalled()
+  })
+})
+
+describe('MicButton TTS transport failures', () => {
+  it('hands-free: a rejected speak fetch still returns the mic to listening', async () => {
+    const user = userEvent.setup()
+    let events: SpeechEvents | undefined
+    createVad.mockImplementation(async (e: SpeechEvents) => {
+      events = e
+      return vad
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        if (String(input).includes('/api/voice/speak')) {
+          return Promise.reject(new TypeError('Failed to fetch'))
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ text: 'add milk' }),
+        } as Response)
+      }),
+    )
+    // The typed/voice reply path: fire-and-forget playText, then audioIdle().
+    const onTranscript = vi.fn(() => {
+      void playText('sure, added it')
+    })
+
+    render(<MicButton onTranscript={onTranscript} disabled={false} />)
+    await user.click(screen.getByRole('button'))
+    await waitFor(() => expect(screen.getByRole('button')).toHaveClass('mic-listening'))
+    resume.mockClear()
+
+    events?.onSpeechEnd(new Float32Array(16))
+
+    await waitFor(() => expect(onTranscript).toHaveBeenCalledWith('add milk'))
+    // Not wedged in 'working' with the VAD paused.
+    await waitFor(() => expect(screen.getByRole('button')).toHaveClass('mic-listening'))
+    expect(resume).toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
