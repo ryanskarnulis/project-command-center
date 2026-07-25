@@ -1204,6 +1204,86 @@ def test_checklist_clones_grandchildren(db_session: Session) -> None:
     assert leaf_clones[0].workflow_status == TaskWorkflowStatus.open
 
 
+def test_checklist_clone_preserves_dependency_edges(db_session: Session) -> None:
+    # Issue #163: the successor's cloned subtasks used to lose every dependency
+    # edge, so a checklist's ordering silently stopped being enforced after the
+    # first occurrence.
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session)
+    build, deploy = children
+    tasks_service.update_task(db_session, build, {"title": "Build"})
+    tasks_service.update_task(db_session, deploy, {"title": "Deploy"})
+    deps_service.add_dependency(db_session, deploy.id, build.id)
+    db_session.commit()
+    project_id = parent.project_id
+    assert project_id is not None
+    before = activity_service.list_events(db_session, project_id, limit=500)
+    last_event_id = before[0].id if before else 0
+
+    tasks_service.mark_done(db_session, build)
+    db_session.commit()
+    tasks_service.mark_done(db_session, deploy)
+    db_session.commit()
+
+    occurrence = _series(db_session, recurrence_id)[-1]
+    clones = {c.title: c for c in tasks_service.list_subtasks(db_session, occurrence.id)}
+    assert sorted(clones) == ["Build", "Deploy"]
+    clone_build, clone_deploy = clones["Build"], clones["Deploy"]
+
+    # The edge is recreated with BOTH endpoints remapped onto the clones — it must
+    # not point back at the completed occurrence's rows.
+    edges = deps_service.list_dependencies(db_session, clone_deploy.id)
+    assert [e.depends_on_task_id for e in edges] == [clone_build.id]
+    assert deps_service.list_dependencies(db_session, clone_build.id) == []
+
+    # ...and it actually blocks: the cloned Deploy is gated until its cloned Build
+    # is done, exactly as the source occurrence was.
+    assert deps_service.is_blocked(db_session, clone_deploy.id) is True
+    with pytest.raises(tasks_service.BlockedTaskError):
+        tasks_service.mark_done(db_session, clone_deploy)
+    tasks_service.mark_done(db_session, clone_build)
+    db_session.commit()
+    assert deps_service.is_blocked(db_session, clone_deploy.id) is False
+
+    # The clone's edge is audited like any other dependency add, on the dependent
+    # task's project feed.
+    added = [
+        e
+        for e in activity_service.list_events(db_session, project_id, limit=500)
+        if e.id > last_event_id and e.action == "dependency_added"
+    ]
+    assert len(added) == 1
+    assert added[0].entity_type == "task"
+    assert added[0].entity_id == clone_deploy.id
+    assert added[0].summary == 'Task "Deploy" now waits on "Build"'
+
+
+def test_checklist_clone_drops_edges_leaving_the_subtree(db_session: Session) -> None:
+    # Documented judgement call (issue #163): an edge with one endpoint outside the
+    # cloned subtree belongs to this cadence and is deliberately NOT recreated —
+    # re-pointing it would chain every future occurrence to the previous one's rows
+    # or to a spent one-off blocker.
+    parent, children, recurrence_id = _recurring_parent_with_children(db_session)
+    child = children[0]
+    outsider = tasks_service.create_task(
+        db_session, project_id=parent.project_id, title="one-off blocker"
+    )
+    deps_service.add_dependency(db_session, child.id, outsider.id)
+    db_session.commit()
+
+    tasks_service.mark_done(db_session, outsider)
+    db_session.commit()
+    for c in children:
+        tasks_service.mark_done(db_session, c)
+        db_session.commit()
+
+    occurrence = _series(db_session, recurrence_id)[-1]
+    clones = tasks_service.list_subtasks(db_session, occurrence.id)
+    assert len(clones) == 2
+    for clone in clones:
+        assert deps_service.list_dependencies(db_session, clone.id) == []
+        assert deps_service.is_blocked(db_session, clone.id) is False
+
+
 def test_recurring_parent_direct_mark_done_still_rejected(
     db_session: Session,
 ) -> None:
