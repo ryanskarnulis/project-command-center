@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.guards import trashed_row_or_error
@@ -23,6 +23,12 @@ from app.services import projects as projects_service
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+# Activity is a bounded recent feed over an append-only log. Same cap as trash
+# (1..200) so the HTTP surface stays consistent; unbounded reads of the audit
+# log are not a supported request shape.
+DEFAULT_ACTIVITY_LIMIT = 50
+MAX_ACTIVITY_LIMIT = 200
 
 
 def _get_or_404(db: Session, project_id: int) -> Project:
@@ -172,7 +178,9 @@ def purge_project(project_id: int, db: Session = Depends(get_db_write)) -> None:
 
 @router.get("/{project_id}/activity", response_model=list[ActivityEventRead])
 def list_activity(
-    project_id: int, limit: int = 50, db: Session = Depends(get_db)
+    project_id: int,
+    limit: int = Query(default=DEFAULT_ACTIVITY_LIMIT, ge=1, le=MAX_ACTIVITY_LIMIT),
+    db: Session = Depends(get_db),
 ) -> Sequence[ActivityEvent]:
     _get_or_404(db, project_id)
     return activity_service.list_events(db, project_id, limit=limit)

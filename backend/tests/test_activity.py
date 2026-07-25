@@ -103,3 +103,20 @@ def test_activity_route_returns_events_and_404(client: TestClient) -> None:
     assert any(e["action"] == "created" and e["entity_type"] == "project" for e in body)
 
     assert client.get("/api/projects/9999/activity").status_code == 404
+
+
+def test_activity_route_rejects_out_of_range_limits(client: TestClient) -> None:
+    project_id = client.post("/api/projects", json={"name": "Bounded"}).json()["id"]
+
+    for bad_limit in (0, -1, 201, 100000):
+        resp = client.get(f"/api/projects/{project_id}/activity?limit={bad_limit}")
+        assert resp.status_code == 422, bad_limit
+
+
+def test_activity_route_accepts_limits_within_bounds(client: TestClient) -> None:
+    project_id = client.post("/api/projects", json={"name": "Bounded ok"}).json()["id"]
+
+    for good_limit in (1, 200):
+        resp = client.get(f"/api/projects/{project_id}/activity?limit={good_limit}")
+        assert resp.status_code == 200, good_limit
+        assert len(resp.json()) <= good_limit
