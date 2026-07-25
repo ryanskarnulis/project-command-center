@@ -19,6 +19,7 @@ import { compareTasks } from '../../utils/dates'
 import { projectStatus } from '../../utils/projectStatus'
 import { TaskCard } from '../tasks/TaskCard'
 import { isMoveBlocked } from '../tasks/taskStatusRules'
+import { isEffectiveTopLevel } from '../tasks/taskTree'
 import { useCompletedTasks } from '../tasks/useCompletedTasks'
 import {
   matchesDashboardSignal,
@@ -88,9 +89,7 @@ function DashboardSwimlane({
   // The header count describes what the columns render: root tasks. Subtasks
   // are called out separately rather than folded into "open tasks" — a header
   // larger than the visible cards reads as a wrong count.
-  const openRootCount = activeTasks.filter(
-    (task) => task.parent_task_id === null,
-  ).length
+  const openRootCount = activeTasks.filter(isEffectiveTopLevel).length
   const subtaskCount = activeTasks.length - openRootCount
 
   const quiet = signal ? visibleTasks.length === 0 : openRootCount === 0
@@ -112,7 +111,7 @@ function DashboardSwimlane({
   const completedTasks = useMemo(
     () =>
       completed.tasks
-        .filter((task) => task.parent_task_id === null)
+        .filter(isEffectiveTopLevel)
         .sort(compareTasks),
     [completed.tasks],
   )
@@ -363,7 +362,7 @@ export function DashboardSwimlaneBoard({
   const boardTasksById = useMemo(() => {
     const map = new Map<number, Task>()
     for (const task of tasks) {
-      if (task.parent_task_id === null) map.set(task.id, task)
+      if (isEffectiveTopLevel(task)) map.set(task.id, task)
     }
     return map
   }, [tasks])
@@ -429,7 +428,7 @@ export function DashboardSwimlaneBoard({
           (task) => task.project_id === project.project_id,
         )
         const visibleTasks = activeTasks
-          .filter((task) => task.parent_task_id === null)
+          .filter(isEffectiveTopLevel)
           .filter((task) => matchesDashboardSignal(task, signal))
         return (
           <DashboardSwimlane

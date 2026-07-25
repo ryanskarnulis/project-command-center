@@ -42,6 +42,12 @@ export interface Task {
   // `estimated_minutes` and `workflow_status` carry rolled-up values and are
   // read-only (set them by editing the subtasks instead).
   has_subtasks: boolean
+  // Derived server-side: true when the task behaves as a root — no parent, or a
+  // parent that is trashed/purged (an orphan is promoted). Flat surfaces filter
+  // roots on this rather than `parent_task_id === null`. Optional only so
+  // locally-constructed tasks stay assignable; the API always sends it. Read it
+  // through `isEffectiveTopLevel` (features/tasks/taskTree), never directly.
+  is_effective_top_level?: boolean
 }
 
 /** A recurrence series: every occurrence sharing a `recurrence_id`. */

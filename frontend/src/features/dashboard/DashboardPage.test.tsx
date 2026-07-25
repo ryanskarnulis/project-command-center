@@ -211,6 +211,44 @@ describe('DashboardPage', () => {
     expect(screen.queryByText('Workload')).not.toBeInTheDocument()
   })
 
+  it('lanes an orphaned subtask instead of collapsing it away (#93)', async () => {
+    // Deleting a project trashes its tasks but leaves a child filed elsewhere
+    // active; the server marks that child is_effective_top_level, so the lane
+    // must render it as a card (and count it as a root, which also stops the
+    // lane from reading as quiet and collapsing the only path to it).
+    const orphan: Task = {
+      ...baseTask,
+      id: 20,
+      project_id: 3,
+      parent_task_id: 99,
+      is_effective_top_level: true,
+      title: 'Orphaned by a deleted project',
+      due_date: null,
+      is_blocking: false,
+      blocked_task_count: 0,
+    }
+    const subtask: Task = {
+      ...orphan,
+      id: 21,
+      parent_task_id: 20,
+      is_effective_top_level: false,
+      title: 'A genuine subtask',
+    }
+    mockListAllTasks.mockResolvedValue([...tasks, orphan, subtask])
+    renderPage()
+    await screen.findByRole('heading', { name: 'Project board' })
+
+    const quiet = lane('Quiet Project')
+    // Counted as a root, so the lane is not "quiet" and stays expanded.
+    expect(
+      within(quiet).getByRole('region', { name: 'Quiet Project Open' }),
+    ).toBeInTheDocument()
+    expect(
+      within(quiet).getByText('Orphaned by a deleted project'),
+    ).toBeInTheDocument()
+    expect(within(quiet).queryByText('A genuine subtask')).not.toBeInTheDocument()
+  })
+
   it('collapses quiet projects and expands them on demand', async () => {
     renderPage()
     await screen.findByRole('heading', { name: 'Project board' })

@@ -433,6 +433,42 @@ describe('TasksPage', () => {
     )
   })
 
+  it('keeps an orphaned subtask on the board and in its done archive (#93)', async () => {
+    // A live child whose parent was trashed (e.g. with its project) is an
+    // effective root — the server says so via is_effective_top_level, and the
+    // board must show it rather than filter it out with the real subtasks.
+    const user = userEvent.setup()
+    mockListAllTasks.mockResolvedValue([
+      baseTask,
+      { ...baseTask, id: 2, parent_task_id: 1, title: 'Rotate the keys' },
+      {
+        ...baseTask,
+        id: 3,
+        parent_task_id: 99,
+        is_effective_top_level: true,
+        title: 'Orphaned by a deleted project',
+      },
+    ])
+    mockListCompletedTasks.mockResolvedValue([
+      {
+        ...baseTask,
+        id: 4,
+        parent_task_id: 99,
+        is_effective_top_level: true,
+        workflow_status: 'done',
+        title: 'Orphaned and finished',
+      },
+    ])
+    renderGlobal()
+
+    await screen.findByText('Fix the VPN')
+    await user.click(screen.getByRole('button', { name: 'Board' }))
+
+    expect(screen.getByText('Orphaned by a deleted project')).toBeInTheDocument()
+    expect(await screen.findByText('Orphaned and finished')).toBeInTheDocument()
+    expect(screen.queryByText('Rotate the keys')).not.toBeInTheDocument()
+  })
+
   it('creates a subtask with the parent_task_id when Add subtask is used', async () => {
     const user = userEvent.setup()
     mockCreateUnscopedTask.mockResolvedValue({

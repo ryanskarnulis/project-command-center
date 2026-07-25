@@ -5,8 +5,8 @@ from datetime import date
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select, update
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement, or_, select, update
+from sqlalchemy.orm import Session, aliased
 
 from app.db.models import (
     Task,
@@ -146,6 +146,46 @@ def is_effective_top_level(task: Task, active_ids: set[int]) -> bool:
     parents so a subtask of a merely-completed parent is *not* promoted.
     """
     return task.parent_task_id is None or task.parent_task_id not in active_ids
+
+
+def effective_top_level_clause() -> ColumnElement[bool]:
+    """SQL mirror of :func:`is_effective_top_level`, for ``WHERE`` filtering.
+
+    A row qualifies with no parent, or when no *active* task row carries its
+    ``parent_task_id`` (trashed or purged parent). Expressed as a correlated
+    ``NOT EXISTS`` on an alias so it stays one query — resolving the parent set in
+    Python would be an N+1 on every list read.
+    """
+    parent = aliased(Task)
+    return or_(
+        Task.parent_task_id.is_(None),
+        ~select(parent.id)
+        .where(parent.id == Task.parent_task_id, parent.deleted_at.is_(None))
+        .exists(),
+    )
+
+
+def effective_top_level_ids(db: Session, tasks: Sequence[Task]) -> set[int]:
+    """Ids of ``tasks`` that are effectively top-level, resolved in one query.
+
+    The batched :func:`is_effective_top_level`: looks up every distinct non-null
+    parent id at once and keeps the tasks whose parent is absent from the active
+    set. Read-model helpers use this so the wire format carries the same
+    promotion rule the service and the frontend boards apply.
+    """
+    parent_ids = {t.parent_task_id for t in tasks if t.parent_task_id is not None}
+    active_parent_ids: set[int] = set()
+    if parent_ids:
+        active_parent_ids = set(
+            db.execute(
+                select(Task.id).where(
+                    Task.id.in_(parent_ids), Task.deleted_at.is_(None)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return {t.id for t in tasks if is_effective_top_level(t, active_parent_ids)}
 
 
 def list_subtasks(db: Session, parent_task_id: int) -> Sequence[Task]:
@@ -379,7 +419,11 @@ def list_tasks(
     if project_id is not None:
         query = query.where(Task.project_id == project_id)
     if top_level_only:
-        query = query.where(Task.parent_task_id.is_(None))
+        # Effective roots, not raw nullness: a live child whose parent is trashed
+        # or purged is promoted (``is_effective_top_level``), so it keeps showing
+        # up on boards and in top-level tool reads instead of vanishing with its
+        # parent. Filtered in SQL to avoid an N+1 and to keep paging exact.
+        query = query.where(effective_top_level_clause())
     if not filtering:
         if offset:
             query = query.offset(offset)
