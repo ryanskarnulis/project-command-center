@@ -80,3 +80,28 @@ def test_buckets_are_independent(stub_settings: None) -> None:
 
     # Bucket "b" keeps its own independent counter.
     assert client.get("/b").status_code == 200
+
+
+class _DegenerateSettings:
+    """A limit Settings now rejects, to prove the limiter still degrades safely."""
+
+    rate_limit_test_per_min = 0
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_degenerate_limit_returns_429_not_indexerror(
+    monkeypatch: pytest.MonkeyPatch, limit: int
+) -> None:
+    """Issue #165: an empty deque used to raise IndexError on the 429 path."""
+    settings = _DegenerateSettings()
+    settings.rate_limit_test_per_min = limit
+    monkeypatch.setattr(rate_limit, "get_settings", lambda: settings)
+    rate_limit._reset()
+
+    client = TestClient(_app_with_limited_route("degenerate", "/degenerate"))
+
+    resp = client.get("/degenerate")
+
+    assert resp.status_code == 429
+    assert int(resp.headers["Retry-After"]) >= 1
+    rate_limit._reset()

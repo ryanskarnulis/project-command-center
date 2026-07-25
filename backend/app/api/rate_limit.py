@@ -61,7 +61,13 @@ def rate_limit(
                 hits.popleft()
 
             if len(hits) >= limit:
-                retry_after = max(1, int(hits[0] + window_seconds - now) + 1)
+                # ``hits`` is normally non-empty here (a positive limit was
+                # reached), but a degenerate limit (<= 0) trips this branch with
+                # an empty deque. Settings rejects those via ``Field(gt=0)``;
+                # this fallback keeps the limiter returning a controlled 429
+                # instead of an IndexError if one ever reaches it anyway.
+                oldest = hits[0] if hits else now
+                retry_after = max(1, int(oldest + window_seconds - now) + 1)
                 logger.warning(
                     "rate_limited",
                     bucket=bucket,
