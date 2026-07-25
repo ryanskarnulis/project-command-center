@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Task, TaskWorkflowStatus
 from app.services.common import soft_delete
+from app.services.integrity import violates_unique_columns
 from app.services.tasks import (
     OccurrenceConflictError,
     RecurrenceError,
@@ -198,7 +199,11 @@ def create_next_occurrence(db: Session, task: Task) -> Task:
     try:
         occurrence = _insert_occurrence(db, task, next_due)
     except IntegrityError as exc:
-        if "uq_tasks_active_occurrence" not in str(exc.orig):
+        # SQLite names the constrained columns, not the partial index, so the
+        # `(recurrence_id, due_date)` tuple is how `uq_tasks_active_occurrence`
+        # identifies itself. We just attempted exactly that insert, so a
+        # uniqueness failure on those columns can only be this index.
+        if not violates_unique_columns(exc, "tasks", ("recurrence_id", "due_date")):
             raise
         savepoint.rollback()
         winner = find_live_occurrence_on(db, task.recurrence_id, next_due)
