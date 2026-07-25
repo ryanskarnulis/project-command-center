@@ -166,9 +166,15 @@ def create_next_occurrence(db: Session, task: Task) -> Task:
     alone (no hard deletes, and the successor may have its own progress); this
     guard is what makes the re-completion a no-op instead of a duplicate.
 
-    A *skipped* row on the date also blocks (the user said that occurrence didn't
-    happen), and is returned so the caller can see the series is already past this
-    date. A *normally trashed* row does not block: the date is vacant and gets a
+    A *skipped* row on the date is never revived (the user said that occurrence
+    didn't happen) — the series rolls **forward past it** to the first date that
+    holds neither a live nor a skipped row, and lands the successor there.
+    Returning the skipped row instead used to stall the series: with two
+    consecutive skips, restoring the earlier one rewinds the live occurrence onto
+    it (see ``task_trash.restore_task``) and completion then stopped dead on the
+    remaining skip, leaving the series with nothing live. Rolling forward stays
+    idempotent — a later date already holding a live row is returned as-is. A
+    *normally trashed* row does not block at all: that date is vacant and gets a
     fresh live occurrence.
 
     If the recurring task is a checklist parent, its whole active subtree is
@@ -177,15 +183,20 @@ def create_next_occurrence(db: Session, task: Task) -> Task:
     """
     assert task.repeat_interval is not None
     assert task.due_date is not None
-    next_due = _next_due_date(task.due_date, task.repeat_interval)
     if task.recurrence_id is None:
+        next_due = _next_due_date(task.due_date, task.repeat_interval)
         return _insert_occurrence(db, task, next_due)
 
-    existing = find_live_occurrence_on(
-        db, task.recurrence_id, next_due
-    ) or _find_skipped_occurrence_on(db, task.recurrence_id, next_due)
-    if existing is not None:
-        return existing
+    current_due = task.due_date
+    while True:
+        next_due = _next_due_date(current_due, task.repeat_interval)
+        live = find_live_occurrence_on(db, task.recurrence_id, next_due)
+        if live is not None:
+            return live
+        if _find_skipped_occurrence_on(db, task.recurrence_id, next_due) is None:
+            break
+        # Explicitly skipped date: don't revive it — advance past it.
+        current_due = next_due
 
     # The guard above is a read, and two writers can both pass it — completing the
     # same recurring task twice at once, or the web UI racing the agent. Writers
@@ -246,36 +257,6 @@ def _insert_occurrence(db: Session, task: Task, due_date: date) -> Task:
     log_task_event(db, occurrence, "created")
     _clone_subtask_tree(db, task, occurrence.id, occurrence.due_date)
     return occurrence
-
-
-def _next_live_occurrence(db: Session, task: Task) -> Task:
-    """The live occurrence a skip rolls forward to, guaranteeing one on the wire.
-
-    ``create_next_occurrence`` may return a *skipped* row on the next date (right
-    for re-completion: don't respawn what the user declined), but a skip's caller
-    expects a live, actionable row. So skip has its own roll-forward:
-
-    - Empty date, or a date whose only row is *normally trashed* → insert a fresh
-      live occurrence there. The trashed row stays in the trash; restoring it later
-      raises ``OccurrenceConflictError`` rather than producing two live rows.
-    - Date already holds a *live* row → return it (no duplicate).
-    - Date holds a *skipped* row → honor that earlier skip and advance past it.
-    """
-    assert task.repeat_interval is not None
-    assert task.due_date is not None
-    current_due = task.due_date
-    while True:
-        next_due = _next_due_date(current_due, task.repeat_interval)
-        if task.recurrence_id is None:
-            return _insert_occurrence(db, task, next_due)
-        live = find_live_occurrence_on(db, task.recurrence_id, next_due)
-        if live is not None:
-            return live
-        if _find_skipped_occurrence_on(db, task.recurrence_id, next_due) is not None:
-            # Explicitly skipped date: don't revive it — advance past it.
-            current_due = next_due
-            continue
-        return _insert_occurrence(db, task, next_due)
 
 
 def reconcile(db: Session, task_ids: Iterable[int]) -> list[Task]:
@@ -349,7 +330,10 @@ def skip_occurrence(db: Session, task: Task) -> Task:
         raise RecurrenceError(
             "Only a recurring task with a due date can be skipped"
         )
-    next_occurrence = _next_live_occurrence(db, task)
+    # Skip and completion roll forward by the same rule — advance past explicitly
+    # skipped dates, reuse a live row already sitting on the target date, otherwise
+    # insert one — so both always hand back a live, actionable occurrence.
+    next_occurrence = create_next_occurrence(db, task)
     # Cascade the skip across the occurrence's subtree. The next occurrence is
     # cloned first (above), so the children can now go to trash with the parent:
     # otherwise a checklist occurrence's subtasks stay active pointing at a

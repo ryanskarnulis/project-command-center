@@ -791,6 +791,48 @@ def test_restore_skipped_occurrence_unskips_without_duplicating(
     assert after[-1].workflow_status == TaskWorkflowStatus.open
 
 
+def test_restore_earlier_of_consecutive_skips_keeps_the_series_moving(
+    db_session: Session,
+) -> None:
+    # Regression (#144): two consecutive skips, then restore the *earlier* one.
+    # Restore rewinds the live occurrence (01-03) onto the un-skipped date (01-01),
+    # so completing it lands on 01-02 — a date the user explicitly skipped.
+    # Completion must roll forward past that skip instead of stopping on it, or the
+    # series is left with no live, actionable occurrence at all.
+    task = _make_task(db_session, due=date(2026, 1, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "day", "every": 1}}
+    )
+    db_session.commit()
+    recurrence_id = task.recurrence_id
+    assert recurrence_id is not None
+
+    second = task_recurrence.skip_occurrence(db_session, task)  # 01-01 skipped
+    db_session.commit()
+    assert second.due_date == date(2026, 1, 2)
+    third = task_recurrence.skip_occurrence(db_session, second)  # 01-02 skipped
+    db_session.commit()
+    assert third.due_date == date(2026, 1, 3)
+
+    restored = task_trash.restore_task(db_session, task)
+    db_session.commit()
+    assert restored.due_date == date(2026, 1, 1)
+    assert _series(db_session, recurrence_id) == [restored]
+
+    tasks_service.mark_done(db_session, restored)
+    db_session.commit()
+
+    # The 01-02 skip is honored (still soft-deleted, never revived) and exactly one
+    # live actionable occurrence exists beyond it.
+    live = _series(db_session, recurrence_id)
+    assert [(t.due_date, t.workflow_status) for t in live] == [
+        (date(2026, 1, 1), TaskWorkflowStatus.done),
+        (date(2026, 1, 3), TaskWorkflowStatus.open),
+    ]
+    assert second.deleted_at is not None and second.skipped_at is not None
+    assert all(t.due_date != date(2026, 1, 2) for t in live)
+
+
 def test_restore_skipped_checklist_resets_subtasks(db_session: Session) -> None:
     # A recurring checklist: complete all children (spawns the next occurrence with
     # a fresh subtree), skip that occurrence, then restore it. The live occurrence
