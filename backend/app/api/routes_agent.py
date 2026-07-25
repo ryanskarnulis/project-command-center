@@ -111,6 +111,7 @@ def post_message(
     conversation_id: int,
     data: MessageCreate,
     db: Session = Depends(get_db_write),
+    reader: Session = Depends(get_db),
     loop: AgentLoop = Depends(get_agent_loop),
     x_agent_actor: str | None = Header(default=None),
 ) -> MessageExchange:
@@ -120,7 +121,9 @@ def post_message(
     second concurrent message waits for the first to finish — so it reads
     history that includes the first reply — or gets 409 if the wait exceeds the
     run budget. The single deadline covers both the wait and the run, keeping
-    the whole request under the proxy timeout.
+    the whole request under the proxy timeout. The 404 check happens on the
+    read session (``reader``) before the wait; no write transaction may be open
+    while waiting, or the two locks invert (see below).
 
     The user message is committed *before* the loop runs: the loop's tool calls
     open their own sessions (write lock contention otherwise), and a failure
@@ -134,12 +137,18 @@ def post_message(
     run's mutations to itself in the audit trail; an absent or unrecognized
     value falls back to the loop's default identity (see ``resolve_actor``).
     """
-    conversation = _get_or_404(db, conversation_id)
+    _get_or_404(reader, conversation_id)
     actor = resolve_actor(x_agent_actor)
     budget = get_settings().agent_run_budget_seconds
     deadline = time.monotonic() + budget
 
     with conversation_run_lock(conversation_id, wait_seconds=budget):
+        # First statement on the write session, so BEGIN IMMEDIATE — and the
+        # SQLite write lock — is taken *inside* the conversation lock. Doing the
+        # existence check on ``db`` instead would hold the write lock across the
+        # wait above, and the holder's tool writes would then deadlock on us
+        # until busy_timeout (#91).
+        conversation = _get_or_404(db, conversation_id)
         history = conversations_service.history_for_loop(db, conversation.id)
         user_message = conversations_service.append_user_message(
             db, conversation, data.content
