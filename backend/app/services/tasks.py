@@ -534,6 +534,18 @@ def create_task(
     db.flush()
     db.refresh(task)
     log_task_event(db, task, "created")
+
+    # Creating a task can complete something: a subtask created already-done under
+    # a recurring parent whose other children are done flips that parent's rolled-up
+    # status to done without any status write. Seeding the new task is enough —
+    # reconcile climbs the parent chain itself — and the walk stops immediately for
+    # the overwhelmingly common open, top-level create. Local import: same
+    # deliberate inversion as update_task's.
+    from app.services import task_recurrence
+
+    task_recurrence.reconcile(db, [task.id])
+    db.flush()
+    db.refresh(task)
     return task
 
 
@@ -546,6 +558,16 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     new_parent_id = control.get("parent_task_id")
     if new_parent_id is not None:
         _assert_no_parent_cycle(db, task.id, new_parent_id)
+
+    # Remembered before the attribute loop overwrites it: reparenting changes the
+    # roll-up of *both* endpoints, and the old parent is unreachable from the moved
+    # task afterwards. Moving the last open child away can leave the old parent a
+    # newly (and only derivedly) done recurring leaf.
+    previous_parent_id = (
+        task.parent_task_id
+        if "parent_task_id" in control and control["parent_task_id"] != task.parent_task_id
+        else None
+    )
 
     # A parent's status is derived from its subtasks (read-only); reject a direct
     # workflow-status change rather than silently dropping it.
@@ -646,7 +668,10 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     from app.services import task_recurrence
 
     db.flush()
-    task_recurrence.reconcile(db, [task.id])
+    seeds = [task.id]
+    if previous_parent_id is not None:
+        seeds.append(previous_parent_id)
+    task_recurrence.reconcile(db, seeds)
 
     db.flush()
     db.refresh(task)
