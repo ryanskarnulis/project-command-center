@@ -707,6 +707,51 @@ describe('TasksPage', () => {
     expect(await screen.findByText('Task is blocked')).toBeInTheDocument()
   })
 
+  it('labels and filters a task whose project is closed (#133)', async () => {
+    const user = userEvent.setup()
+    const closedProject: Project = {
+      ...baseProject,
+      id: 7,
+      name: 'Archived Migration',
+      closed_at: '2026-06-15T10:00:00Z',
+    }
+    // The page must ask for closed projects; closing one leaves its tasks open.
+    mockListProjects.mockResolvedValue([baseProject, closedProject])
+    mockListAllTasks.mockResolvedValue([
+      { ...baseTask, id: 5, title: 'Left behind', project_id: 7 },
+      { ...baseTask, id: 6, title: 'Still open', project_id: 42 },
+    ])
+    renderGlobal()
+
+    await screen.findByText('Left behind')
+    expect(mockListProjects).toHaveBeenCalledWith(true)
+    const card = screen.getByRole('link', { name: 'Left behind' })
+    expect(within(card).getByText('Archived Migration')).toBeInTheDocument()
+
+    // The closed project is selectable in the filter and narrows the list.
+    await user.selectOptions(screen.getByLabelText('Filter by project'), '7')
+    expect(screen.getByText('Left behind')).toBeInTheDocument()
+    expect(screen.queryByText('Still open')).not.toBeInTheDocument()
+  })
+
+  it('omits closed projects from the create modal picker (#133)', async () => {
+    const closedProject: Project = {
+      ...baseProject,
+      id: 7,
+      name: 'Archived Migration',
+      closed_at: '2026-06-15T10:00:00Z',
+    }
+    mockListProjects.mockResolvedValue([baseProject, closedProject])
+    renderGlobal(['/tasks?new=1'])
+
+    const modal = await screen.findByRole('dialog', { name: 'Add task' })
+    const picker = within(modal).getByLabelText('Project')
+    await waitFor(() =>
+      expect(within(picker).getByText('Infra')).toBeInTheDocument(),
+    )
+    expect(within(picker).queryByText('Archived Migration')).toBeNull()
+  })
+
   it('keeps the peek panel open when switching to the board view', async () => {
     const user = userEvent.setup()
     const { router } = renderGlobal(['/tasks?task=1'])

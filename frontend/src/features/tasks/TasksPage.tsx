@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Columns3, List } from 'lucide-react'
 import { listProjects } from '../../api/projects'
@@ -59,8 +59,18 @@ export function TasksPage() {
     useState<Partial<TaskCreate> | null>(null)
 
   useEffect(() => {
-    listProjects().then(setProjects).catch(() => {})
+    // Closing a project leaves its unfinished tasks active, so the global list
+    // still shows them — it needs the closed projects too or those tasks lose
+    // their name, sort key, and filter option (#133).
+    listProjects(true).then(setProjects).catch(() => {})
   }, [])
+
+  // Closed projects identify existing tasks but are not filing targets: they
+  // stay out of quick-add's #project tokens and the create modal's picker.
+  const openProjects = useMemo(
+    () => projects.filter((p) => !p.closed_at),
+    [projects],
+  )
 
   const [activityKey, setActivityKey] = useState(0)
   const bumpActivity = () => setActivityKey((k) => k + 1)
@@ -122,7 +132,7 @@ export function TasksPage() {
 
       <div className="task-toolbar">
         <QuickAddBar
-          projects={projects}
+          projects={openProjects}
           scopeProjectId={id}
           onCreate={quickCreate}
           onMoreOptions={setDraftModalDefaults}
@@ -223,7 +233,7 @@ export function TasksPage() {
           mode="create"
           defaults={isGlobal ? undefined : { project_id: id }}
           tasks={tasks}
-          projects={projects}
+          projects={openProjects}
           onClose={() => updateTaskQuery({ addingTask: false })}
           onSave={async (data) => {
             await create(data)
@@ -243,7 +253,7 @@ export function TasksPage() {
               : draftModalDefaults
           }
           tasks={tasks}
-          projects={projects}
+          projects={openProjects}
           onClose={() => setDraftModalDefaults(null)}
           onSave={async (data) => {
             await create(data)
