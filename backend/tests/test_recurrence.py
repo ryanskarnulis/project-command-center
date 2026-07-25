@@ -1912,3 +1912,98 @@ def test_project_delete_does_not_advance_series_inside_the_project(
     db_session.commit()
 
     assert list(_series(db_session, recurrence_id)) == []
+
+
+# --- Mutation seeds for reconciliation (issue #145) --------------------------
+
+
+def test_creating_an_already_done_only_child_spawns_successor(
+    db_session: Session,
+) -> None:
+    # Creating a subtask can complete its parent: an already-done only child makes
+    # a recurring parent's roll-up done with no status write anywhere, so create
+    # has to reconcile too.
+    parent = _make_task(db_session, due=date(2026, 6, 1))
+    tasks_service.update_task(
+        db_session, parent, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    recurrence_id = parent.recurrence_id
+    assert recurrence_id is not None
+
+    tasks_service.create_task(
+        db_session,
+        project_id=parent.project_id,
+        parent_task_id=parent.id,
+        title="already handled",
+        workflow_status=TaskWorkflowStatus.done,
+    )
+    db_session.commit()
+
+    assert _effective(db_session, parent) == TaskWorkflowStatus.done
+    assert [t.due_date for t in _live_series(db_session, recurrence_id)] == [
+        date(2026, 6, 1),
+        date(2026, 6, 8),
+    ]
+
+
+def test_moving_last_open_child_away_spawns_successor_for_old_parent(
+    db_session: Session,
+) -> None:
+    # Reparenting changes the roll-up of both endpoints. The moved child is
+    # reconciled; the *old* parent — now a childless recurring leaf that is stored
+    # done — is only reachable from the pre-patch parent id.
+    old_parent = _make_task(db_session, due=date(2026, 6, 1))
+    child = tasks_service.create_task(
+        db_session,
+        project_id=old_parent.project_id,
+        parent_task_id=old_parent.id,
+        title="the only work",
+    )
+    new_parent = tasks_service.create_task(
+        db_session, project_id=old_parent.project_id, title="somewhere else"
+    )
+    db_session.commit()
+    # The parent's own row is done; only the open child keeps its roll-up open.
+    old_parent.workflow_status = TaskWorkflowStatus.done
+    db_session.flush()
+    tasks_service.update_task(
+        db_session, old_parent, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    recurrence_id = old_parent.recurrence_id
+    assert recurrence_id is not None
+    assert _effective(db_session, old_parent) == TaskWorkflowStatus.open
+
+    tasks_service.update_task(db_session, child, {"parent_task_id": new_parent.id})
+    db_session.commit()
+
+    assert _effective(db_session, old_parent) == TaskWorkflowStatus.done
+    assert [t.due_date for t in _live_series(db_session, recurrence_id)] == [
+        date(2026, 6, 1),
+        date(2026, 6, 8),
+    ]
+
+
+def test_restoring_completed_occurrence_whose_successor_was_purged_respawns(
+    db_session: Session,
+) -> None:
+    # Restore puts a row back into every derived computation it was absent from.
+    # With the successor purged, the restored done occurrence is the series' only
+    # live row and must roll forward again.
+    task, successor, recurrence_id = _weekly_leaf_with_successor(db_session)
+    tasks_service.soft_delete_task(db_session, task)
+    tasks_service.soft_delete_task(db_session, successor)
+    db_session.commit()
+    task_trash.purge_task(db_session, successor)
+    db_session.commit()
+    assert _live_series(db_session, recurrence_id) == []
+
+    restored = task_trash.restore_task(db_session, task)
+    db_session.commit()
+
+    assert restored.workflow_status == TaskWorkflowStatus.done
+    assert [t.due_date for t in _live_series(db_session, recurrence_id)] == [
+        date(2026, 6, 1),
+        date(2026, 6, 8),
+    ]

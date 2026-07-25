@@ -11,6 +11,7 @@ from app.services import projects as projects_service
 from app.services.common import active, deleted, hard_delete, restore
 from app.services.task_recurrence import (
     find_live_occurrence_on,
+    reconcile,
     reschedule_occurrence,
 )
 from app.services.tasks import OccurrenceConflictError, log_task_event
@@ -90,6 +91,8 @@ def restore_task(db: Session, task: Task) -> Task:
             reschedule_occurrence(db, live, task.due_date)
             purge_task(db, task)
             db.flush()
+            reconcile(db, [live.id])
+            db.flush()
             db.refresh(live)
             log_task_event(db, live, "restored")
             return live
@@ -126,6 +129,14 @@ def restore_task(db: Session, task: Task) -> Task:
     # while it's active again.
     task.skipped_at = None
     restore(task)
+    db.flush()
+    # A restore brings a row back into every derived computation it was absent
+    # from: a done occurrence returning to a series whose successor was purged is
+    # immediately an effectively-done recurring task with nothing following it,
+    # and a restored done child can complete an ancestor's roll-up. Seeding the
+    # restored id covers both — reconcile climbs the parent chain and fans out to
+    # dependents itself. Idempotent, so restoring an open task is a cheap no-op.
+    reconcile(db, [task.id])
     db.flush()
     db.refresh(task)
     log_task_event(db, task, "restored")
