@@ -4,6 +4,7 @@ import type { Project } from '../../types/project'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { KanbanBoard } from './KanbanBoard'
 import { isActive, matchesFilters, type Filters } from './taskFilters'
+import { isEffectiveTopLevel } from './taskTree'
 
 interface TaskBoardViewProps {
   tasks: Task[]
@@ -41,17 +42,19 @@ export function TaskBoardView({
     [filters],
   )
   // The board is a flat layout with no nesting affordance, so it shows only
-  // root tasks — subtasks (parent_task_id !== null) are excluded entirely.
+  // root tasks — subtasks are excluded entirely. "Root" is the effective rule
+  // (isEffectiveTopLevel): a live child whose parent was trashed is promoted,
+  // so it stays on the board instead of disappearing with its parent.
   const boardActive = useMemo(() => {
     const source = isActive(boardFilters)
       ? tasks.filter((t) => matchesFilters(t, boardFilters))
       : tasks
-    return source.filter((t) => t.parent_task_id === null)
+    return source.filter(isEffectiveTopLevel)
   }, [tasks, boardFilters])
   const boardDone = useMemo(
     () =>
       completedTasks.filter(
-        (t) => matchesFilters(t, boardFilters) && t.parent_task_id === null,
+        (t) => matchesFilters(t, boardFilters) && isEffectiveTopLevel(t),
       ),
     [completedTasks, boardFilters],
   )

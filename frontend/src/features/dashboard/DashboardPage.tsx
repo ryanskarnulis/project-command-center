@@ -15,6 +15,7 @@ import { fireAndForget } from '../../utils/async'
 import { useTaskRefresh } from '../tasks/taskRefreshContext'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { TaskFormModal } from '../tasks/TaskFormModal'
+import { isEffectiveTopLevel } from '../tasks/taskTree'
 import { TaskPanelProvider } from '../tasks/panel/TaskPanelProvider'
 import { DashboardSignalStrip } from './DashboardSignalStrip'
 import { DashboardSwimlaneBoard } from './DashboardSwimlaneBoard'
@@ -48,13 +49,15 @@ export function DashboardPage() {
   )
 
   // Signal counts cover exactly what the board can surface: root tasks filed
-  // in a currently-shown (non-closed) project. Unfiled tasks live on /tasks,
+  // in a currently-shown (non-closed) project. "Root" is the effective rule
+  // (isEffectiveTopLevel), matching the lanes — an orphan promoted by its
+  // parent's deletion is a card, so it must be counted as one. Unfiled tasks live on /tasks,
   // and closed-project tasks live in no lane — neither belongs in a signal.
   const boardTasks = useMemo(
     () =>
       tasks.filter(
         (task) =>
-          task.parent_task_id === null &&
+          isEffectiveTopLevel(task) &&
           task.project_id !== null &&
           laneProjectIds.has(task.project_id),
       ),

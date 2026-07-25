@@ -2,12 +2,14 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from sqlalchemy import Engine
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import Task, TaskPriority, TaskWorkflowStatus
 from app.services import dashboard as dashboard_service
 from app.services import projects as projects_service
 from app.services import tasks as tasks_service
+from app.tools import registry, runtime
 
 
 def test_task_create_markdone_softdelete(db_session: Session) -> None:
@@ -865,3 +867,122 @@ def test_offset_past_the_filtered_end_is_empty_not_a_wrapped_page(
     assert (
         tasks_service.list_tasks(db_session, exclude_done=True, limit=2, offset=5) == []
     )
+
+
+# --- Effective top-level orphans (issue #93) ---------------------------------
+#
+# A live child whose parent is trashed/purged is promoted to an *effective* root
+# (``tasks.is_effective_top_level``). The cross-project case is the one that
+# reaches a user: deleting project A trashes A's tasks but deliberately leaves a
+# child filed in project B active, so B now owns a parentless task. Every
+# top-level surface — the service filter, the read model the boards derive from,
+# and the agent's ``list_tasks`` tool — must show it rather than hide it.
+
+
+def _cross_project_orphan(db: Session) -> tuple[Task, int]:
+    """Child C in project B whose parent P went to the trash with project A."""
+    proj_a = projects_service.create_project(db, name="Alpha")
+    proj_b = projects_service.create_project(db, name="Beta")
+    db.commit()
+    parent = tasks_service.create_task(db, project_id=proj_a.id, title="parent P")
+    db.commit()
+    child = tasks_service.create_task(
+        db, project_id=proj_b.id, title="child C", parent_task_id=parent.id
+    )
+    db.commit()
+
+    # Membership-only cascade: P is trashed, C stays active but parentless.
+    projects_service.soft_delete_project(db, proj_a)
+    db.commit()
+    assert tasks_service.get_task(db, parent.id) is None
+    assert tasks_service.get_task(db, child.id) is not None
+    return child, proj_b.id
+
+
+def test_top_level_only_includes_a_cross_project_orphan(db_session: Session) -> None:
+    child, proj_b_id = _cross_project_orphan(db_session)
+
+    scoped = tasks_service.list_tasks(
+        db_session, project_id=proj_b_id, top_level_only=True
+    )
+    assert child.id in {t.id for t in scoped}
+    globally = tasks_service.list_tasks(db_session, top_level_only=True)
+    assert child.id in {t.id for t in globally}
+
+
+def test_top_level_only_still_excludes_a_live_parents_child(
+    db_session: Session,
+) -> None:
+    """Promotion is about a *missing* parent, not a merely completed one."""
+    parent = tasks_service.create_task(db_session, project_id=None, title="parent")
+    db_session.commit()
+    child = tasks_service.create_task(
+        db_session, project_id=None, title="child", parent_task_id=parent.id
+    )
+    db_session.commit()
+    assert child.id not in {
+        t.id for t in tasks_service.list_tasks(db_session, top_level_only=True)
+    }
+
+    # Completing the child rolls the parent up to done — but the parent row is
+    # still active, so the child stays a subtask rather than being promoted.
+    tasks_service.mark_done(db_session, child)
+    db_session.commit()
+    assert child.id not in {
+        t.id for t in tasks_service.list_tasks(db_session, top_level_only=True)
+    }
+
+
+def test_read_model_flags_orphan_as_effective_top_level(
+    db_session: Session, client: TestClient
+) -> None:
+    """The flag the board/dashboard derivations filter on rides the wire."""
+    child, proj_b_id = _cross_project_orphan(db_session)
+
+    listed = client.get(f"/api/projects/{proj_b_id}/tasks").json()
+    row = next(t for t in listed if t["id"] == child.id)
+    assert row["parent_task_id"] is not None  # still points at the trashed parent
+    assert row["is_effective_top_level"] is True
+
+    detail = client.get(f"/api/tasks/{child.id}").json()
+    assert detail["is_effective_top_level"] is True
+
+    # A genuine subtask on the same payload is not promoted. (It hangs off a
+    # fresh live parent, not the orphan: the cycle guard walks ancestors and
+    # refuses to parent anything under a task whose own parent is gone.)
+    live_parent = tasks_service.create_task(
+        db_session, project_id=proj_b_id, title="live parent"
+    )
+    db_session.commit()
+    sub = tasks_service.create_task(
+        db_session,
+        project_id=proj_b_id,
+        title="real subtask",
+        parent_task_id=live_parent.id,
+    )
+    db_session.commit()
+    listed = client.get(f"/api/projects/{proj_b_id}/tasks").json()
+    sub_row = next(t for t in listed if t["id"] == sub.id)
+    assert sub_row["is_effective_top_level"] is False
+
+
+def test_agent_tool_top_level_only_returns_the_orphan(
+    db_session: Session,
+    test_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    child, proj_b_id = _cross_project_orphan(db_session)
+    # The in-memory engine hands out one connection (StaticPool); release the
+    # test session's transaction so the tool's own session can open one.
+    db_session.close()
+    factory: sessionmaker[Session] = sessionmaker(
+        autocommit=False, autoflush=False, bind=test_engine
+    )
+    monkeypatch.setattr(runtime, "session_factory", factory)
+
+    result = registry.call_tool(
+        "list_tasks",
+        {"project_id": proj_b_id, "top_level_only": True},
+        actor="agent",
+    )
+    assert child.id in {t.id for t in result}

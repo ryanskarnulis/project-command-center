@@ -67,9 +67,11 @@ def read_with_blocked(db: Session, task: Task) -> TaskRead:
     blocker_counts = deps_service.top_level_blocker_counts(db, [task.id])
     is_blocked = deps_service.is_blocked(db, task.id)
     rollup_update = _rollup_update(tasks_service.get_rollup(db, task), is_blocked)
+    top_level = tasks_service.effective_top_level_ids(db, [task])
     return TaskRead.model_validate(task).model_copy(
         update={
             "is_blocked": is_blocked,
+            "is_effective_top_level": task.id in top_level,
             **_next_occurrence_update(task, rollup_update),
             **_blocking_update(blocker_counts.get(task.id, 0)),
             **rollup_update,
@@ -83,6 +85,8 @@ def reads_with_blocked(db: Session, tasks: Sequence[Task]) -> list[TaskRead]:
     blocked = deps_service.blocked_task_ids(db, task_ids)
     blocker_counts = deps_service.top_level_blocker_counts(db, task_ids)
     rollups = tasks_service.compute_rollups(db, tasks)
+    # One batched parent lookup for the whole page (no N+1).
+    top_level = tasks_service.effective_top_level_ids(db, tasks)
     reads: list[TaskRead] = []
     for t in tasks:
         rollup_update = _rollup_update(rollups[t.id], t.id in blocked)
@@ -90,6 +94,7 @@ def reads_with_blocked(db: Session, tasks: Sequence[Task]) -> list[TaskRead]:
             TaskRead.model_validate(t).model_copy(
                 update={
                     "is_blocked": t.id in blocked,
+                    "is_effective_top_level": t.id in top_level,
                     **_next_occurrence_update(t, rollup_update),
                     **_blocking_update(blocker_counts.get(t.id, 0)),
                     **rollup_update,

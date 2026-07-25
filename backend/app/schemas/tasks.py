@@ -122,6 +122,14 @@ class TaskRead(BaseModel):
     # ``estimated_minutes`` and ``workflow_status`` above carry the rolled-up values
     # and are read-only in the UI. Defaults to False for the same reason as above.
     has_subtasks: bool = False
+    # Derived (not stored): true when the task behaves as a root
+    # (``tasks.is_effective_top_level``) — no parent, *or* a parent that is
+    # trashed/purged, which promotes the orphan. Flat surfaces (Kanban board,
+    # dashboard lanes) key their root filter off this instead of
+    # ``parent_task_id is None``, so a promoted orphan stays reachable. Defaults
+    # to True so an ORM task lacking the attribute serializes cleanly; list and
+    # detail routes populate it.
+    is_effective_top_level: bool = True
 
 
 class TaskSeries(BaseModel):
