@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.loop import AgentLoop, AgentRunFailed, resolve_actor
 from app.ai.providers.llamacpp import provider_from_settings
-from app.api.conversation_locks import conversation_run_lock
+from app.api.conversation_locks import conversation_idle_lock, conversation_run_lock
 from app.api.rate_limit import rate_limit
 from app.config import get_settings
 from app.db.models import Conversation
@@ -94,9 +94,22 @@ def get_conversation(
     "/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_conversation(conversation_id: int, db: Session = Depends(get_db_write)) -> None:
-    conversation = _get_or_404(db, conversation_id)
-    conversations_service.soft_delete_conversation(db, conversation)
-    db.commit()
+    """Soft-delete an idle conversation; **409** while a run is in flight (#149).
+
+    Deletion takes the conversation's run lock, so it is serialized against
+    ``post_message`` instead of racing it. Without that, a DELETE landing after
+    the user turn committed would soft-delete the thread while the model was
+    still generating; the run would then commit its assistant turn — and its
+    tool-call trajectory or failure record — into a thread the caller can no
+    longer read (GET → 404). The lock is taken with a zero wait: a run can take
+    minutes, and blocking the DELETE that long is worse than telling the caller
+    to retry. The write session is touched only inside the lock, keeping the
+    conversation-lock-then-SQLite-write-lock order of #91.
+    """
+    with conversation_idle_lock(conversation_id):
+        conversation = _get_or_404(db, conversation_id)
+        conversations_service.soft_delete_conversation(db, conversation)
+        db.commit()
     logger.info("conversation_deleted", conversation_id=conversation_id)
 
 

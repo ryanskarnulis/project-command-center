@@ -152,6 +152,14 @@ export function AgentPage() {
                   type="button"
                   className="agent-conversation-delete"
                   aria-label={`Delete conversation ${conversation.title ?? conversation.id}`}
+                  // The server rejects a delete during that conversation's run
+                  // with 409 (#149); don't offer the action we know will fail.
+                  disabled={sending && conversation.id === activeId}
+                  title={
+                    sending && conversation.id === activeId
+                      ? 'The agent is working — you can delete this once it finishes'
+                      : undefined
+                  }
                   onClick={() =>
                     fireAndForget(
                       removeConversation(conversation.id, conversation.title),

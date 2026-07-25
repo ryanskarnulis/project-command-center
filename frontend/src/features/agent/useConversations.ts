@@ -59,7 +59,16 @@ export function useConversations(): UseConversations {
 
   const remove = useCallback(
     async (id: number) => {
-      await deleteConversation(id)
+      // The API rejects a delete while that conversation has a run in flight
+      // (409, #149) — surface it instead of failing silently, and rethrow so the
+      // caller doesn't treat the conversation as gone.
+      try {
+        await deleteConversation(id)
+        setError(null)
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Failed to delete conversation')
+        throw e
+      }
       await refresh()
     },
     [refresh],
