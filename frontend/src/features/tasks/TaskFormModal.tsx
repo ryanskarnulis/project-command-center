@@ -111,13 +111,15 @@ export function TaskFormModal(props: Props) {
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!title.trim()) return
-    setSaving(true)
     setError(null)
+    // Validate before flipping `saving` — an early return here used to leave
+    // Save disabled forever until the modal was remounted (issue #100).
     const estimatedMinutes = parseDurationInput(estimateDraft)
     if (estimatedMinutes === undefined) {
       setError('Use something like 30m, 2h, or 1 day')
       return
     }
+    setSaving(true)
     try {
       if (isEdit && existingTask) {
         await props.onSave(existingTask.id, {
