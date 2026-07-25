@@ -117,9 +117,18 @@ def _assert_no_parent_cycle(
     prospective parent's ancestor chain; if ``task_id`` appears, the edge would
     close a cycle. The visited set is a belt-and-suspenders guard against
     pre-existing corruption.
+
+    The *directly named* parent must exist and be active — a bad reference is a
+    caller error. Further up the chain, a missing/trashed ancestor terminates the
+    walk exactly like ``parent_task_id IS NULL`` does: the task is an effective
+    top-level orphan (see ``is_effective_top_level``) and giving it a subtask can
+    close no cycle. (Issue #128)
     """
     if task_id is not None and new_parent_id == task_id:
         raise TaskCycleError("A task cannot be its own parent")
+
+    if get_task(db, new_parent_id) is None:
+        raise TaskCycleError("Parent task does not exist")
 
     visited: set[int] = set()
     current: int | None = new_parent_id
@@ -131,7 +140,7 @@ def _assert_no_parent_cycle(
         visited.add(current)
         ancestor = get_task(db, current)
         if ancestor is None:
-            raise TaskCycleError("Parent task does not exist")
+            break
         current = ancestor.parent_task_id
 
 
