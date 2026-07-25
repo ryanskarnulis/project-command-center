@@ -10,7 +10,9 @@ model) is ever required.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from collections.abc import Generator
 
 import httpx
@@ -288,3 +290,61 @@ def test_voice_endpoints_are_rate_limited(
     throttled = voice_client.post("/api/voice/speak", json={"text": "two"})
     assert throttled.status_code == 429
     assert "Retry-After" in throttled.headers
+
+
+# --- concurrency --------------------------------------------------------------
+
+
+class BlockingSpeechClient:
+    """A ``SpeechClient`` stand-in whose transcribe blocks the calling thread.
+
+    Stands in for a slow (or cold-starting) upstream whisper server without
+    needing one: what matters is that the block happens off the event loop.
+    """
+
+    def __init__(self, delay: float) -> None:
+        self.delay = delay
+
+    def transcribe(self, data: bytes, filename: str = "audio.webm") -> str:
+        time.sleep(self.delay)
+        return "slow transcript"
+
+
+async def test_transcribe_does_not_block_the_event_loop() -> None:
+    """A slow STT round trip must not stall unrelated coroutines.
+
+    A background coroutine ticks every 5 ms for the whole request; before the
+    threadpool offload one of those ticks swallowed the entire 250 ms
+    synchronous speech call, so the largest gap between ticks exceeded it.
+    """
+    blocking = BlockingSpeechClient(delay=0.25)
+    app.dependency_overrides[routes_voice.get_speech_client] = lambda: blocking
+    gaps: list[float] = []
+
+    async def ticker() -> None:
+        last = time.perf_counter()
+        while True:
+            await asyncio.sleep(0.005)
+            now = time.perf_counter()
+            gaps.append(now - last)
+            last = now
+
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            beat = asyncio.create_task(ticker())
+            response = await client.post(
+                "/api/voice/transcribe",
+                files={"audio": ("clip.webm", b"opus-bytes", "audio/webm")},
+            )
+            beat.cancel()
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"text": "slow transcript"}
+    assert gaps, "the ticker never ran"
+    # Generous bound: no single tick may have waited out the 250 ms STT call.
+    assert max(gaps) < 0.15, f"event loop was blocked for {max(gaps):.3f}s"
