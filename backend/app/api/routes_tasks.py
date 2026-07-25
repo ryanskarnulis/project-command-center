@@ -178,6 +178,12 @@ def update_task(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
+    except tasks_service.OccurrenceConflictError as exc:
+        # Caught before its RecurrenceError base: an occupied occurrence date is a
+        # state conflict (409), not bad input (422). Mirrors the restore route.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except tasks_service.RecurrenceError as exc:
         raise _recurrence_422(exc) from exc
 
