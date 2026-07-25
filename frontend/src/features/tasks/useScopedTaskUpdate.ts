@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { updateTask } from '../../api/tasks'
 import type { EditScope, Task, TaskUpdate } from '../../types/task'
 
@@ -44,16 +44,23 @@ export function useScopedTaskUpdate(
   // A scopable edit to a recurring task is parked here until the user picks a
   // scope in EditScopeModal; choosing replays it with the chosen edit_scope.
   const [pendingScopePatch, setPendingScopePatch] = useState<TaskUpdate | null>(null)
+  // Monotonic id of the most recently *started* PATCH. Overlapping inline edits
+  // can resolve out of order; only the newest write may publish its snapshot or
+  // its save state, so a slow older response can never revert newer fields.
+  const latestRequestId = useRef(0)
 
   async function applyPatch(patch: TaskUpdate) {
     if (!task) return
+    const requestId = ++latestRequestId.current
     setSaveState('saving')
     setSaveError(null)
     try {
       const updated = await updateTask(task.id, patch)
+      if (requestId !== latestRequestId.current) return
       onSaved(updated)
       setSaveState('saved')
     } catch (e: unknown) {
+      if (requestId !== latestRequestId.current) return
       setSaveState('error')
       setSaveError(e instanceof Error ? e.message : 'Failed to save task')
     }
