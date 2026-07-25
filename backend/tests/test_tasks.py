@@ -947,9 +947,7 @@ def test_read_model_flags_orphan_as_effective_top_level(
     detail = client.get(f"/api/tasks/{child.id}").json()
     assert detail["is_effective_top_level"] is True
 
-    # A genuine subtask on the same payload is not promoted. (It hangs off a
-    # fresh live parent, not the orphan: the cycle guard walks ancestors and
-    # refuses to parent anything under a task whose own parent is gone.)
+    # A genuine subtask on the same payload is not promoted.
     live_parent = tasks_service.create_task(
         db_session, project_id=proj_b_id, title="live parent"
     )
@@ -986,3 +984,86 @@ def test_agent_tool_top_level_only_returns_the_orphan(
         actor="agent",
     )
     assert child.id in {t.id for t in result}
+
+
+# --- Subtasks under an effective top-level orphan (issue #128) ----------------
+
+
+def test_subtask_can_be_created_under_a_cross_project_orphan(
+    db_session: Session,
+) -> None:
+    """An effective root is first-class on write too, not just on read.
+
+    The ancestor walk used to hit the orphan's trashed parent and reject the
+    edge as a nonexistent-parent reference; a missing ancestor now terminates
+    the chain just like ``parent_task_id IS NULL``.
+    """
+    child, proj_b_id = _cross_project_orphan(db_session)
+
+    sub = tasks_service.create_task(
+        db_session,
+        project_id=proj_b_id,
+        title="sub of orphan",
+        parent_task_id=child.id,
+    )
+    db_session.commit()
+    assert sub.parent_task_id == child.id
+    assert {t.id for t in tasks_service.list_subtasks(db_session, child.id)} == {sub.id}
+
+    # Re-parenting an existing task under the orphan works the same way.
+    mover = tasks_service.create_task(db_session, project_id=proj_b_id, title="mover")
+    db_session.commit()
+    tasks_service.update_task(db_session, mover, {"parent_task_id": child.id})
+    db_session.commit()
+    assert mover.parent_task_id == child.id
+
+
+def test_cycle_guard_still_rejects_a_cycle_below_an_orphan(
+    db_session: Session,
+) -> None:
+    """Terminating at a missing ancestor must not disarm the cycle check."""
+    child, proj_b_id = _cross_project_orphan(db_session)
+    sub = tasks_service.create_task(
+        db_session,
+        project_id=proj_b_id,
+        title="sub of orphan",
+        parent_task_id=child.id,
+    )
+    db_session.commit()
+
+    # child -> sub already; making child a child of sub would close the cycle.
+    with pytest.raises(tasks_service.TaskCycleError):
+        tasks_service.update_task(db_session, child, {"parent_task_id": sub.id})
+
+
+def test_cycle_guard_still_rejects_a_bogus_parent_id(db_session: Session) -> None:
+    """A directly nonexistent parent is a bad reference, not a terminated chain."""
+    with pytest.raises(tasks_service.TaskCycleError):
+        tasks_service.create_task(
+            db_session,
+            project_id=None,
+            title="orphaned by typo",
+            parent_task_id=999999,
+        )
+
+    task = tasks_service.create_task(db_session, project_id=None, title="loner")
+    db_session.commit()
+    with pytest.raises(tasks_service.TaskCycleError):
+        tasks_service.update_task(db_session, task, {"parent_task_id": 999999})
+
+
+def test_trashed_parent_id_is_also_rejected_as_a_direct_reference(
+    db_session: Session,
+) -> None:
+    """The orphan is reachable; its trashed parent is not."""
+    child, proj_b_id = _cross_project_orphan(db_session)
+    trashed_parent_id = child.parent_task_id
+    assert trashed_parent_id is not None
+
+    with pytest.raises(tasks_service.TaskCycleError):
+        tasks_service.create_task(
+            db_session,
+            project_id=proj_b_id,
+            title="sub of a trashed task",
+            parent_task_id=trashed_parent_id,
+        )
