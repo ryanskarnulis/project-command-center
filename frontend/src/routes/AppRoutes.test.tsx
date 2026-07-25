@@ -27,6 +27,10 @@ vi.mock('../features/trash/TrashPage', () => ({
   TrashPage: () => <main>Trash page</main>,
 }))
 
+vi.mock('../features/agent/AgentPage', () => ({
+  AgentPage: () => <main>Agent page</main>,
+}))
+
 function renderRoute(path: string) {
   const router = createMemoryRouter(routes, { initialEntries: [path] })
   return render(<RouterProvider router={router} />)
@@ -82,5 +86,45 @@ describe('AppRoutes', () => {
     expect(await screen.findByText('Tasks page')).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/tasks')
     expect(router.state.location.search).toBe('?task=7')
+  })
+
+  describe('dynamic id validation', () => {
+    const validRoutes: Array<[string, string]> = [
+      ['/projects/12', 'Project detail page'],
+      ['/projects/12/tasks', 'Tasks page'],
+      ['/agent/12', 'Agent page'],
+    ]
+
+    it.each(validRoutes)('renders %s for a valid positive id', async (path, text) => {
+      renderRoute(path)
+      expect(await screen.findByText(text)).toBeInTheDocument()
+    })
+
+    const invalidIds = ['nope', '0', '-1', '1.5', '1e3', '%20', 'null', 'undefined']
+    const guardedPaths = (id: string) => [
+      `/projects/${id}`,
+      `/projects/${id}/tasks`,
+      `/agent/${id}`,
+      `/tasks/${id}`,
+    ]
+
+    it.each(invalidIds)('renders Not Found for malformed id %s on every id route', async (id) => {
+      for (const path of guardedPaths(id)) {
+        const { unmount } = renderRoute(path)
+        expect(
+          await screen.findByRole('heading', { name: 'Page not found' }),
+        ).toBeInTheDocument()
+        unmount()
+      }
+    })
+
+    it('does not redirect a malformed /tasks/:taskId deep link onto the task list', async () => {
+      const router = createMemoryRouter(routes, { initialEntries: ['/tasks/nope'] })
+      render(<RouterProvider router={router} />)
+
+      expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeInTheDocument()
+      expect(router.state.location.pathname).toBe('/tasks/nope')
+      expect(screen.queryByText('Tasks page')).not.toBeInTheDocument()
+    })
   })
 })

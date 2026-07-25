@@ -9,6 +9,7 @@ import { TasksPage } from '../features/tasks/TasksPage'
 import { FocusPage } from '../features/focus/FocusPage'
 import { TrashPage } from '../features/trash/TrashPage'
 import { AppLayout } from './AppLayout'
+import { RequireRouteId } from './RequireRouteId'
 
 export const routes = [
   {
@@ -20,12 +21,40 @@ export const routes = [
       { path: '/focus', element: <FocusPage /> },
       { path: '/today', element: <Navigate to="/focus" replace /> },
       { path: '/tasks', element: <TasksPage /> },
-      { path: '/tasks/:taskId', element: <TaskDetailRedirect /> },
+      {
+        path: '/tasks/:taskId',
+        element: (
+          <RequireRouteId param="taskId">
+            <TaskDetailRedirect />
+          </RequireRouteId>
+        ),
+      },
       { path: '/projects', element: <Navigate to="/dashboard" replace /> },
-      { path: '/projects/:projectId', element: <ProjectDetailPage /> },
-      { path: '/projects/:projectId/tasks', element: <TasksPage /> },
+      {
+        path: '/projects/:projectId',
+        element: (
+          <RequireRouteId param="projectId">
+            <ProjectDetailPage />
+          </RequireRouteId>
+        ),
+      },
+      {
+        path: '/projects/:projectId/tasks',
+        element: (
+          <RequireRouteId param="projectId">
+            <TasksPage />
+          </RequireRouteId>
+        ),
+      },
       { path: '/agent', element: <AgentPage /> },
-      { path: '/agent/:conversationId', element: <AgentPage /> },
+      {
+        path: '/agent/:conversationId',
+        element: (
+          <RequireRouteId param="conversationId">
+            <AgentPage />
+          </RequireRouteId>
+        ),
+      },
       { path: '/trash', element: <TrashPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],
