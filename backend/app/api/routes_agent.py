@@ -134,8 +134,11 @@ def post_message(
     must not swallow what the user said. On failure the loop raises
     ``AgentRunFailed`` carrying the tool calls that *did* run; we persist that
     partial trajectory as a truthful assistant turn (``content`` null, a
-    ``provider_error``/``timed_out`` stop reason) before surfacing the error, so
-    the conversation always reflects what actually happened.
+    ``provider_error``/``timed_out``/``internal_error`` stop reason) before
+    surfacing the error, so the conversation always reflects what actually
+    happened — including when a tool dispatch fails unexpectedly (#103), which
+    the loop converts into an ``internal_error`` 500 rather than letting the
+    raw exception leave the user turn unpaired.
 
     ``X-Agent-Actor`` lets a trusted delegate caller (conductor) attribute the
     run's mutations to itself in the audit trail; an absent or unrecognized
