@@ -497,9 +497,15 @@ def restore_project(
         project = projects_service.get_deleted_project(db, project_id)
         if project is None:
             raise ToolError(f"No deleted project with id {project_id}")
-        restored, restored_task_count = projects_service.restore_project(
-            db, project, restore_tasks=restore_tasks
-        )
+        try:
+            restored, restored_task_count = projects_service.restore_project(
+                db, project, restore_tasks=restore_tasks
+            )
+        except tasks_service.OccurrenceConflictError as exc:
+            # A cascade task's occurrence date is held by a live sibling. Surfaced
+            # as a tool error (this path isn't wrapped by _TASK_DOMAIN_ERRORS) so
+            # the model can trash/skip that one, or restore without tasks, and retry.
+            raise ToolError(str(exc)) from exc
         db.flush()
         logger.info(
             "tool_project_restored",

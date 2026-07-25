@@ -19,6 +19,7 @@ from app.schemas.projects import (
 from app.schemas.trash import ProjectRestoreResult
 from app.services import activity as activity_service
 from app.services import projects as projects_service
+from app.services import tasks as tasks_service
 
 logger = structlog.get_logger(__name__)
 
@@ -139,9 +140,17 @@ def restore_project(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No deleted project with that id",
         )
-    restored, restored_task_count = projects_service.restore_project(
-        db, project, restore_tasks=restore_tasks
-    )
+    try:
+        restored, restored_task_count = projects_service.restore_project(
+            db, project, restore_tasks=restore_tasks
+        )
+    except tasks_service.OccurrenceConflictError as exc:
+        # A state conflict, not bad input: a cascade task's occurrence date is
+        # taken by a live sibling. 409 with the actionable detail, rather than the
+        # generic integrity 409 the raw IntegrityError used to produce.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     db.commit()
     db.refresh(restored)
     logger.info(
