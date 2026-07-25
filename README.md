@@ -294,11 +294,20 @@ docker compose up --build     # backend + frontend
 ```
 
 The dashboard is **host-only by default** (`http://127.0.0.1:8100`), matching the
-`API_HOST`/`DEV_HOST` posture. To expose it on the LAN, set `FRONTEND_BIND=0.0.0.0`
-in `.env` (optionally `FRONTEND_PORT`; 8100 is PCC's slot in the workspace port
-registry — see `../gateway/README.md`). The workspace gateway proxies
-`tasks.$HOMELAB_DOMAIN` here. The backend itself publishes no host port; it is
-reachable only via nginx and the compose network.
+`API_HOST`/`DEV_HOST` posture. `.env.example` leaves `FRONTEND_BIND` commented
+out so a fresh `cp .env.example .env` inherits the compose fallback of
+`127.0.0.1`.
+
+**LAN exposure is opt-in.** Uncomment `FRONTEND_BIND=0.0.0.0` in `.env`
+(optionally set `FRONTEND_PORT`; 8100 is PCC's slot in the workspace port
+registry — see `../gateway/README.md`) when you want the dashboard reachable
+from other devices, e.g. behind the workspace gateway proxying
+`tasks.$HOMELAB_DOMAIN` here. Do this only on a trusted LAN: **the dashboard is
+unauthenticated**, so anything that can reach the published port has full
+read/write access to your projects and tasks.
+
+The backend itself publishes no host port; it is reachable only via nginx and
+the compose network.
 
 **Data & backups.** SQLite lives on the bind-mounted `./data` volume
 (`app.db` + WAL sidecars survive restarts). `./scripts/backup_db.sh` is still the
