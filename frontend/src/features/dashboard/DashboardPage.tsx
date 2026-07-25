@@ -77,7 +77,8 @@ export function DashboardPage() {
   const unfiledOpenCount = tasks.filter((t) => t.project_id === null).length
 
   // Route a lane move to the right endpoint: Done uses the recurrence-safe
-  // done endpoint, leaving Done reopens (→ open), everything else is a PATCH.
+  // done endpoint, Done → Open reopens, everything else (including
+  // Done → In progress) is a single PATCH.
   async function handleSetStatus(
     task: Task,
     target: TaskWorkflowStatus,
@@ -85,11 +86,12 @@ export function DashboardPage() {
     const mutation = async () => {
       if (target === 'done') {
         await markTaskDone(task.id)
-      } else if (task.workflow_status === 'done') {
+      } else if (task.workflow_status === 'done' && target !== 'in_progress') {
         await reopenTask(task.id)
-        if (target === 'in_progress') {
-          await updateTask(task.id, { workflow_status: 'in_progress' })
-        }
+      } else if (task.workflow_status === 'done') {
+        // Done → In progress is a single atomic PATCH; the old
+        // reopen-then-patch pair could half-commit as Open. (#148)
+        await updateTask(task.id, { workflow_status: 'in_progress' })
       } else {
         await updateTask(task.id, { workflow_status: target })
       }

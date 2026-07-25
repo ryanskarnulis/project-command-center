@@ -22,6 +22,7 @@ import {
   listAllTasks,
   listCompletedTasks,
   markTaskDone,
+  reopenTask,
   updateTask,
 } from '../../api/tasks'
 import type { DashboardOverview } from '../../types/dashboard'
@@ -68,6 +69,7 @@ const mockListProjects = vi.mocked(listProjects)
 const mockListAllTasks = vi.mocked(listAllTasks)
 const mockListCompletedTasks = vi.mocked(listCompletedTasks)
 const mockMarkTaskDone = vi.mocked(markTaskDone)
+const mockReopenTask = vi.mocked(reopenTask)
 const mockUpdateTask = vi.mocked(updateTask)
 
 function localDateOffset(days: number): string {
@@ -537,5 +539,55 @@ describe('DashboardPage', () => {
     )
     await waitFor(() => expect(mockMarkTaskDone).toHaveBeenCalledWith(1))
     expect(mockUpdateTask).not.toHaveBeenCalled()
+  })
+
+  it('moves a done card to In progress with one atomic PATCH (#148)', async () => {
+    renderPage()
+    await screen.findByRole('heading', { name: 'Project board' })
+    const portal = lane('Customer Portal')
+    await userEvent.click(
+      within(portal).getByRole('button', { name: 'Show done' }),
+    )
+    await within(portal).findByText('Archive old invoices')
+
+    await userEvent.click(
+      within(portal).getByRole('button', { name: 'Status: Done' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'In progress' }))
+
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(9, {
+        workflow_status: 'in_progress',
+      }),
+    )
+    // No reopen leg to half-commit the task as Open.
+    expect(mockReopenTask).not.toHaveBeenCalled()
+  })
+
+  it('leaves a done card done when the in-progress write rejects (#148)', async () => {
+    mockUpdateTask.mockRejectedValue(new Error('Could not move task'))
+    renderPage()
+    await screen.findByRole('heading', { name: 'Project board' })
+    const portal = lane('Customer Portal')
+    await userEvent.click(
+      within(portal).getByRole('button', { name: 'Show done' }),
+    )
+    await within(portal).findByText('Archive old invoices')
+
+    await userEvent.click(
+      within(portal).getByRole('button', { name: 'Status: Done' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'In progress' }))
+
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(9, {
+        workflow_status: 'in_progress',
+      }),
+    )
+    // Nothing committed: the card is still in the done archive, not Open.
+    expect(mockReopenTask).not.toHaveBeenCalled()
+    expect(
+      within(portal).getByRole('button', { name: 'Status: Done' }),
+    ).toBeInTheDocument()
   })
 })

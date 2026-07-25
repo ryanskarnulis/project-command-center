@@ -685,7 +685,7 @@ describe('TasksPage', () => {
     expect(new URLSearchParams(router.state.location.search).get('task')).toBeNull()
   })
 
-  it('does not patch the status when reopening a done card fails', async () => {
+  it('moves a done card to In progress with one atomic PATCH (#148)', async () => {
     const user = userEvent.setup()
     const doneTask = {
       ...baseTask,
@@ -694,17 +694,41 @@ describe('TasksPage', () => {
       workflow_status: 'done' as const,
     }
     mockListCompletedTasks.mockResolvedValue([doneTask])
-    mockReopenTask.mockRejectedValue(new Error('Task is blocked'))
     renderGlobal(['/tasks?view=board'])
 
     await screen.findByText('A done task')
     await user.click(screen.getByRole('button', { name: 'Status: Done' }))
     await user.click(screen.getByRole('button', { name: 'In progress' }))
 
-    await waitFor(() => expect(mockReopenTask).toHaveBeenCalledWith(2))
-    // The reopen was refused, so the follow-up in-progress PATCH must not run.
-    expect(mockUpdateTask).not.toHaveBeenCalled()
-    expect(await screen.findByText('Task is blocked')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(2, { workflow_status: 'in_progress' }),
+    )
+    // Reopen-then-patch could half-commit as Open; the transition is one write.
+    expect(mockReopenTask).not.toHaveBeenCalled()
+  })
+
+  it('leaves a done card done when the in-progress write rejects (#148)', async () => {
+    const user = userEvent.setup()
+    const doneTask = {
+      ...baseTask,
+      id: 2,
+      title: 'A done task',
+      workflow_status: 'done' as const,
+    }
+    mockListCompletedTasks.mockResolvedValue([doneTask])
+    mockUpdateTask.mockRejectedValue(new Error('Task is blocked'))
+    renderGlobal(['/tasks?view=board'])
+
+    await screen.findByText('A done task')
+    await user.click(screen.getByRole('button', { name: 'Status: Done' }))
+    await user.click(screen.getByRole('button', { name: 'In progress' }))
+
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(2, { workflow_status: 'in_progress' }),
+    )
+    // Nothing was committed: no reopen ran, so the task is still Done.
+    expect(mockReopenTask).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Status: Done' })).toBeInTheDocument()
   })
 
   it('labels and filters a task whose project is closed (#133)', async () => {
