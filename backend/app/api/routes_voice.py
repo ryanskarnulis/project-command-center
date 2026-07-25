@@ -15,6 +15,7 @@ from collections.abc import Generator
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, field_validator
+from starlette.concurrency import run_in_threadpool
 
 from app.ai.speech import SpeechClient, SpeechError, speech_client_from_settings
 from app.api.rate_limit import rate_limit
@@ -70,11 +71,17 @@ async def transcribe(
     """STT proxy: browser audio in, plain text out.
 
     The client feeds the text into the same agent pipeline as typed input;
-    this endpoint itself reads and writes nothing."""
+    this endpoint itself reads and writes nothing.
+
+    ``SpeechClient.transcribe`` is synchronous httpx and can block for the
+    full upstream timeout, so it runs in a worker thread — an in-flight STT
+    round trip must not stall the event loop for every other request."""
     client = _require(speech)
     data = await audio.read()
     try:
-        text = client.transcribe(data, filename=audio.filename or "audio.webm")
+        text = await run_in_threadpool(
+            client.transcribe, data, filename=audio.filename or "audio.webm"
+        )
     except SpeechError as exc:
         logger.error("voice_transcribe_failed", error=str(exc))
         raise HTTPException(
