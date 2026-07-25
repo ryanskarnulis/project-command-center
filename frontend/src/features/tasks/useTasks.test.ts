@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createUnscopedTask, listAllTasks } from '../../api/tasks'
+import { createUnscopedTask, listAllTasks, listTasks } from '../../api/tasks'
 import type { Task } from '../../types/task'
 import { useTasks } from './useTasks'
 
@@ -17,6 +17,7 @@ vi.mock('../../api/tasks', () => ({
 
 const mockCreateUnscopedTask = vi.mocked(createUnscopedTask)
 const mockListAllTasks = vi.mocked(listAllTasks)
+const mockListTasks = vi.mocked(listTasks)
 
 describe('useTasks', () => {
   beforeEach(() => {
@@ -62,5 +63,55 @@ describe('useTasks', () => {
 
     await waitFor(() => expect(result.current.refreshing).toBe(false))
     expect(result.current.loading).toBe(false)
+  })
+
+  it('drops the previous project’s tasks while a new project request is in flight', async () => {
+    const projectOneTask = { id: 1, title: 'Project 1 task', project_id: 1 } as Task
+    let resolveProjectTwo!: (tasks: Task[]) => void
+    mockListTasks.mockImplementation((projectId: number) =>
+      projectId === 1
+        ? Promise.resolve([projectOneTask])
+        : new Promise<Task[]>((resolve) => (resolveProjectTwo = resolve)),
+    )
+
+    const { result, rerender } = renderHook(({ id }: { id: number }) => useTasks(id), {
+      initialProps: { id: 1 },
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.tasks).toEqual([projectOneTask])
+
+    rerender({ id: 2 })
+
+    // Project 1's rows must not render (or be mutable) under project 2 while
+    // its request is still pending.
+    expect(result.current.tasks).toEqual([])
+    expect(result.current.loading).toBe(true)
+
+    const projectTwoTask = { id: 2, title: 'Project 2 task', project_id: 2 } as Task
+    await act(async () => {
+      resolveProjectTwo([projectTwoTask])
+    })
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.tasks).toEqual([projectTwoTask])
+  })
+
+  it('keeps stale tasks hidden when the new project request fails', async () => {
+    const projectOneTask = { id: 1, title: 'Project 1 task', project_id: 1 } as Task
+    mockListTasks.mockImplementation((projectId: number) =>
+      projectId === 1
+        ? Promise.resolve([projectOneTask])
+        : Promise.reject(new Error('boom')),
+    )
+
+    const { result, rerender } = renderHook(({ id }: { id: number }) => useTasks(id), {
+      initialProps: { id: 1 },
+    })
+    await waitFor(() => expect(result.current.tasks).toEqual([projectOneTask]))
+
+    rerender({ id: 2 })
+
+    await waitFor(() => expect(result.current.error).toBe('boom'))
+    expect(result.current.tasks).toEqual([])
   })
 })

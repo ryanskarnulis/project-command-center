@@ -16,9 +16,13 @@ import { useTaskRefresh } from './taskRefreshContext'
 
 interface UseTasks {
   tasks: Task[]
-  /** True only during the initial load; a background refetch uses `refreshing`. */
+  /**
+   * True during the initial load and whenever the project scope changes (no
+   * data for the new scope yet); a same-scope background refetch uses
+   * `refreshing` instead.
+   */
   loading: boolean
-  /** True while a reload/cross-page refetch is in flight after the first load. */
+  /** True while a same-scope reload/refetch is in flight after the first load. */
   refreshing: boolean
   error: string | null
   create: (data: TaskCreate) => Promise<void>
@@ -29,8 +33,16 @@ interface UseTasks {
   reload: () => void
 }
 
+/** Tasks as loaded, tagged with the scope (project id, or undefined for all). */
+interface LoadedTasks {
+  scope: number | undefined
+  tasks: Task[]
+}
+
+const NO_TASKS: Task[] = []
+
 export function useTasks(projectId?: number): UseTasks {
-  const [tasks, setTasks] = useState<Task[]>([])
+  const [loaded, setLoaded] = useState<LoadedTasks | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -39,20 +51,34 @@ export function useTasks(projectId?: number): UseTasks {
   const { refresh: refreshTrashCount } = useTrashCount()
   // Sidebar drag-to-file changes tasks outside this hook — refetch off it too.
   const { version: taskRefreshVersion } = useTaskRefresh()
-  // Once the first load resolves we never flip `loading` back on — subsequent
-  // refetches surface through `refreshing` so the list doesn't flash a spinner.
-  const hasLoaded = useRef(false)
+  // Mirrors `loaded` so the effect can tell a same-scope background refetch
+  // (keep the list, flip `refreshing`) from a scope change (show `loading`).
+  const loadedScope = useRef<LoadedTasks | null>(null)
+
+  // Rows from another project must never be rendered — or mutated — under the
+  // current scope, so anything loaded for a different scope is derived away.
+  const tasks = loaded !== null && loaded.scope === projectId ? loaded.tasks : NO_TASKS
 
   const reload = useCallback(() => setRefreshKey((k) => k + 1), [])
 
   useEffect(() => {
     let active = true
-    if (hasLoaded.current) setRefreshing(true)
+    const sameScope = loadedScope.current !== null && loadedScope.current.scope === projectId
+    if (sameScope) {
+      setRefreshing(true)
+    } else {
+      // A new scope has no data yet: fall back to the initial-load treatment
+      // rather than leaving the previous project's error on screen.
+      setLoading(true)
+      setError(null)
+    }
     const request = projectId === undefined ? listAllTasks() : listTasks(projectId)
     request
       .then((data) => {
         if (!active) return
-        setTasks(data)
+        const next = { scope: projectId, tasks: data }
+        loadedScope.current = next
+        setLoaded(next)
         setError(null)
       })
       .catch((e: unknown) => {
@@ -62,7 +88,6 @@ export function useTasks(projectId?: number): UseTasks {
       })
       .finally(() => {
         if (!active) return
-        hasLoaded.current = true
         setLoading(false)
         setRefreshing(false)
       })
