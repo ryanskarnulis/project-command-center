@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from app.schemas.common import MutationModel
 from app.schemas.projects import ProjectRead
 from app.schemas.tasks import TaskRead
 
@@ -34,7 +35,7 @@ class ProjectRestoreResult(BaseModel):
     restored_task_count: int
 
 
-class PurgeSelectedRequest(BaseModel):
+class PurgeSelectedRequest(MutationModel):
     """Which trashed rows ``POST /api/trash/purge`` should permanently remove.
 
     Ids not in trash are skipped rather than rejected: purging a parent task takes

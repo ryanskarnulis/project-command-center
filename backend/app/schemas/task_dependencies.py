@@ -3,9 +3,10 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from app.db.models import TaskWorkflowStatus
+from app.schemas.common import MutationModel
 
 
-class TaskDependencyCreate(BaseModel):
+class TaskDependencyCreate(MutationModel):
     depends_on_task_id: int
 
 

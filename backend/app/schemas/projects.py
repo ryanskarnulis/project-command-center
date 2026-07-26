@@ -3,19 +3,24 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from app.schemas.common import NonBlankStr, OptionalStrippedStr, UTCDateTime
+from app.schemas.common import (
+    MutationModel,
+    NonBlankStr,
+    OptionalStrippedStr,
+    UTCDateTime,
+)
 
 # ``ProjectUpdate`` columns backed by NOT-NULL DB columns: an explicit ``null`` on
 # any of these must be a 422, never a silent NOT-NULL violation.
 _PROJECT_UPDATE_NON_NULLABLE_FIELDS = ("name",)
 
 
-class ProjectCreate(BaseModel):
+class ProjectCreate(MutationModel):
     name: NonBlankStr
     description: OptionalStrippedStr = None
 
 
-class ProjectUpdate(BaseModel):
+class ProjectUpdate(MutationModel):
     name: NonBlankStr | None = None
     description: OptionalStrippedStr = None
 
@@ -32,7 +37,7 @@ class ProjectUpdate(BaseModel):
         return self
 
 
-class ProjectOrderUpdate(BaseModel):
+class ProjectOrderUpdate(MutationModel):
     """Full manual order: every active project id, in display order."""
 
     project_ids: list[int]

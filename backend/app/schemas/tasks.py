@@ -6,13 +6,18 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.db.models import TaskPriority, TaskWorkflowStatus
-from app.schemas.common import NonBlankStr, OptionalStrippedStr, UTCDateTime
+from app.schemas.common import (
+    MutationModel,
+    NonBlankStr,
+    OptionalStrippedStr,
+    UTCDateTime,
+)
 
 # A duration estimate, when present, must be a positive whole number of minutes.
 PositiveMinutes = Annotated[int, Field(gt=0)]
 
 
-class RepeatInterval(BaseModel):
+class RepeatInterval(MutationModel):
     """A task recurrence cadence, e.g. ``{"unit": "week", "every": 2}``.
 
     Both fields are always required (no defaults), so a partial payload is a 422
@@ -24,7 +29,7 @@ class RepeatInterval(BaseModel):
     every: Annotated[int, Field(ge=1, le=12)]
 
 
-class TaskCreate(BaseModel):
+class TaskCreate(MutationModel):
     title: NonBlankStr
     description: OptionalStrippedStr = None
     workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open
@@ -50,7 +55,7 @@ _TASK_UPDATE_NON_NULLABLE_FIELDS = (
 )
 
 
-class TaskUpdate(BaseModel):
+class TaskUpdate(MutationModel):
     title: NonBlankStr | None = None
     description: OptionalStrippedStr = None
     workflow_status: TaskWorkflowStatus | None = None

@@ -3,9 +3,36 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from pydantic import AfterValidator, BeforeValidator, StringConstraints
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    StringConstraints,
+)
 
 MAX_INBOX_RAW_TEXT_LENGTH = 8_000
+
+
+class MutationModel(BaseModel):
+    """Base for every model that carries *input* into the service layer.
+
+    Pydantic's default ``extra="ignore"`` silently drops unknown keys, so a typo
+    (``prioirty``) or a stale client field validated cleanly, the route applied
+    defaults or an empty field map, and the write path still reported success —
+    a PATCH could log an ``updated`` activity event for a change that never
+    happened (#164). ``extra="forbid"`` turns that into a structured 422 (or a
+    Pydantic ``ValidationError`` the agent loop feeds back for self-correction)
+    *before* the service layer is entered.
+
+    Deliberately scoped to mutation inputs: read/response models keep the
+    permissive default, so serializing an ORM row or accepting an extra field
+    from an upstream provider payload is unaffected. This changes nothing about
+    omit-vs-null PATCH semantics — routes still use
+    ``model_dump(exclude_unset=True)``, and an omitted field stays omitted.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
 
 def _blank_to_none(value: Any) -> Any:
