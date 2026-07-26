@@ -274,6 +274,64 @@ describe('TrashPage', () => {
     confirm.mockRestore()
   })
 
+  it('names the cascade-deleted tasks in the single-project purge confirm', async () => {
+    // BUG #184: purging a project destroys the tasks archived with it, so the
+    // confirm (and the notice) must say so instead of naming only the project.
+    const user = userEvent.setup()
+    mockGetTrash.mockReset()
+    mockGetTrash
+      .mockResolvedValueOnce({
+        projects: [{ ...trash.projects[0], archived_task_count: 2 }],
+        tasks: [],
+      })
+      .mockResolvedValue({ projects: [], tasks: [] })
+    mockPurgeProject.mockResolvedValue(undefined)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderPage()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Delete project Firewall forever' }),
+    )
+
+    expect(confirm).toHaveBeenCalledWith(
+      'Permanently delete “Firewall” and the 2 tasks archived with it? This cannot be undone.',
+    )
+    expect(mockPurgeProject).toHaveBeenCalledWith(1)
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /Permanently deleted .*Firewall.* and 2 tasks./,
+    )
+    confirm.mockRestore()
+  })
+
+  it('counts cascade-deleted tasks in the bulk project purge confirm', async () => {
+    const user = userEvent.setup()
+    mockGetTrash.mockReset()
+    mockGetTrash
+      .mockResolvedValueOnce({
+        projects: [{ ...trash.projects[0], archived_task_count: 2 }],
+        tasks: [],
+      })
+      .mockResolvedValue({ projects: [], tasks: [] })
+    mockPurgeSelected.mockResolvedValue({ projects: 1, tasks: 2 })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderPage()
+
+    await screen.findByText('Firewall')
+    await user.click(screen.getByRole('checkbox', { name: 'Select project Firewall' }))
+    await user.click(screen.getByRole('button', { name: 'Delete selected' }))
+
+    expect(confirm).toHaveBeenCalledWith(
+      'Permanently delete 3 items (1 project and 2 archived tasks)? This cannot be undone.',
+    )
+    expect(mockPurgeSelected).toHaveBeenCalledWith({ project_ids: [1], task_ids: [] })
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /Permanently deleted 1 project. 2 archived tasks went with it./,
+    )
+    confirm.mockRestore()
+  })
+
   it('does not purge when the user cancels the confirm', async () => {
     const user = userEvent.setup()
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)

@@ -26,7 +26,12 @@ interface UseTrash {
   restoreProjectById: (id: number, name: string, archivedTaskCount: number) => Promise<void>
   restoreTaskById: (id: number, title: string) => Promise<void>
   restoreAll: (kind: TrashKind, items: RestoreItem[]) => Promise<void>
-  purgeById: (kind: TrashKind, id: number, label: string) => Promise<void>
+  purgeById: (
+    kind: TrashKind,
+    id: number,
+    label: string,
+    cascadeTaskCount?: number,
+  ) => Promise<void>
   purgeAll: (kind: TrashKind, ids: number[]) => Promise<void>
   emptyTrashAll: () => Promise<void>
 }
@@ -213,12 +218,19 @@ export function useTrash(): UseTrash {
   )
 
   const purgeById = useCallback(
-    async (kind: TrashKind, id: number, label: string) => {
+    async (kind: TrashKind, id: number, label: string, cascadeTaskCount = 0) => {
       setError(null)
       setNotice(null)
       try {
         await PURGE[kind](id)
-        setNotice(`Permanently deleted “${label}”.`)
+        // Purging a project also destroys the tasks archived with it; the
+        // single-item purge route returns no counts, so name the scope the UI
+        // already knows about (BUG #184).
+        setNotice(
+          cascadeTaskCount > 0
+            ? `Permanently deleted “${label}” and ${cascadeTaskCount} task${cascadeTaskCount === 1 ? '' : 's'}.`
+            : `Permanently deleted “${label}”.`,
+        )
         reload()
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Failed to delete item')
@@ -244,7 +256,16 @@ export function useTrash(): UseTrash {
         const deleted = result[kind]
         if (deleted > 0) {
           const noun = KIND_NOUN[kind]
-          setNotice(`Permanently deleted ${deleted} ${noun}${deleted === 1 ? '' : 's'}.`)
+          const parts = [
+            `Permanently deleted ${deleted} ${noun}${deleted === 1 ? '' : 's'}.`,
+          ]
+          // A project purge cascades into the tasks archived with it; the server
+          // now reports those rows, so the notice names them too (BUG #184).
+          if (kind === 'projects' && result.tasks > 0)
+            parts.push(
+              `${result.tasks} archived task${result.tasks === 1 ? '' : 's'} went with ${deleted === 1 ? 'it' : 'them'}.`,
+            )
+          setNotice(parts.join(' '))
         }
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Failed to delete items')
