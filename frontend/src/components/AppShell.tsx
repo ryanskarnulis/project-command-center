@@ -34,7 +34,7 @@ function navClass({ isActive }: { isActive: boolean }) {
 export function AppShell({ children }: AppShellProps) {
   const { count: trashCount } = useTrashCount()
   const gateway = gatewayUrl()
-  const brandIcon = <img src="/web.png" alt="" width={26} height={26} />
+  const brandIcon = <img src="/web.png" alt="" width={32} height={32} />
 
   return (
     <div className="app-shell">

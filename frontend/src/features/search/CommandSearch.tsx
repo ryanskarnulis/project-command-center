@@ -295,7 +295,7 @@ export function CommandSearch() {
               className="command-search-ask"
               onClick={() => void submitAsk()}
             >
-              <GlitchMark size={16} />
+              <GlitchMark size={20} />
               <span className="command-search-result-text">
                 <span className="command-search-result-title">
                   Ask the agent: “{trimmed}”
