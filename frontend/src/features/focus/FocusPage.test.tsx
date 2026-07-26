@@ -575,4 +575,96 @@ describe('FocusPage', () => {
     ).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /Didn.t fit \(1\)/ })).toBeInTheDocument()
   })
+
+  // The "now" divider and the elapsed dimming are derived from the local clock,
+  // so each case pins system time inside the plan's own day (2026-06-20).
+  describe('now marker placement', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    function atLocalTime(hours: number, minutes: number): void {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      vi.setSystemTime(new Date(2026, 5, 20, hours, minutes, 0))
+    }
+
+    async function renderTimeline(): Promise<HTMLElement[]> {
+      mockGetFocusPlan.mockResolvedValue(
+        makePlan({
+          scheduled: [
+            scheduledBlock({ task_id: 1, title: 'Morning block', start_time: '09:00', end_time: '09:30' }),
+            scheduledBlock({ task_id: 2, title: 'Afternoon block', start_time: '13:00', end_time: '13:30' }),
+          ],
+        }),
+      )
+      render(
+        <MemoryRouter>
+          <FocusPage />
+        </MemoryRouter>,
+      )
+      await screen.findByRole('link', { name: 'Morning block' })
+      const timeline = document.querySelector('.focus-timeline')
+      if (!timeline) throw new Error('timeline not rendered')
+      return Array.from(timeline.children) as HTMLElement[]
+    }
+
+    /** Row shape as ['marker' | 'block:<past?>'] in document order. */
+    function shape(rows: HTMLElement[]): string[] {
+      return rows.map((row) => {
+        if (row.classList.contains('focus-now-marker')) return 'marker'
+        return row.classList.contains('focus-block-past') ? 'block:past' : 'block:current'
+      })
+    }
+
+    it('puts the marker above every block before the first one starts', async () => {
+      atLocalTime(8, 0)
+      expect(shape(await renderTimeline())).toEqual([
+        'marker',
+        'block:current',
+        'block:current',
+      ])
+    })
+
+    it('puts the marker above the block currently running', async () => {
+      atLocalTime(9, 15)
+      expect(shape(await renderTimeline())).toEqual([
+        'marker',
+        'block:current',
+        'block:current',
+      ])
+    })
+
+    it('puts the marker in the gap between two blocks', async () => {
+      atLocalTime(11, 0)
+      expect(shape(await renderTimeline())).toEqual([
+        'block:past',
+        'marker',
+        'block:current',
+      ])
+    })
+
+    it('marks every block elapsed and terminates the timeline once the day is over', async () => {
+      atLocalTime(18, 0)
+      expect(shape(await renderTimeline())).toEqual([
+        'block:past',
+        'block:past',
+        'marker',
+      ])
+      expect(screen.getByLabelText('Now, 18:00')).toBeInTheDocument()
+    })
+
+    it('renders no marker or dimming when viewing another day', async () => {
+      atLocalTime(18, 0)
+      await renderTimeline()
+      // Switching the Day control off today disables the clock overlay entirely.
+      fireEvent.change(screen.getByLabelText('Day'), { target: { value: '2026-06-21' } })
+      await waitFor(() =>
+        expect(document.querySelector('.focus-now-marker')).not.toBeInTheDocument(),
+      )
+      const rows = Array.from(
+        document.querySelectorAll('.focus-timeline > li'),
+      ) as HTMLElement[]
+      expect(shape(rows)).toEqual(['block:current', 'block:current'])
+    })
+  })
 })
