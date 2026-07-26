@@ -34,7 +34,10 @@ def get_trash(
                 update={
                     "archived_task_count": projects_service.count_tasks_deleted_with_project(
                         db, p.id
-                    )
+                    ),
+                    "purge_task_count": projects_service.count_tasks_purged_with_project(
+                        db, p.id
+                    ),
                 }
             )
             for p in deleted_projects

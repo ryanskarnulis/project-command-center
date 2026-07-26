@@ -715,3 +715,80 @@ def test_purge_selected_audits_only_the_rows_it_actually_removes(
 
     assert _actions_for(db_session, "task", doomed)[-1] == "purged"
     assert _actions_for(db_session, "task", spared) == ["created", "deleted"]
+
+
+def test_purge_project_spares_a_trashed_child_owned_by_another_project(
+    client: TestClient, db_session: Session
+) -> None:
+    """BUG #189: a project purge must not reach into another project's trash.
+
+    Task hierarchies may cross projects. Purging A used to walk P's soft-deleted
+    subtree without checking membership, so C — owned by the still-active B and
+    trashed on its own — was permanently destroyed, and the reported count said
+    so while the project's confirm figure did not.
+    """
+    a = client.post("/api/projects", json={"name": "Project A"}).json()["id"]
+    b = client.post("/api/projects", json={"name": "Project B"}).json()["id"]
+    parent = client.post(f"/api/projects/{a}/tasks", json={"title": "P"}).json()["id"]
+    child = client.post(
+        f"/api/projects/{b}/tasks", json={"title": "C", "parent_task_id": parent}
+    ).json()["id"]
+
+    client.delete(f"/api/projects/{a}")  # cascades to P, leaves C active
+    db_session.expire_all()
+    still_active = db_session.get(Task, child)
+    assert still_active is not None and still_active.deleted_at is None
+    client.delete(f"/api/tasks/{child}")  # C trashed independently, under B
+    db_session.expire_all()
+    standalone = db_session.get(Task, child)
+    assert standalone is not None and standalone.deleted_with_project_id is None
+
+    entry = next(
+        p for p in client.get("/api/trash").json()["projects"] if p["id"] == a
+    )
+    # The confirm figure names exactly what the purge destroys: P only.
+    assert entry["archived_task_count"] == 1
+    assert entry["purge_task_count"] == 1
+
+    result = client.post("/api/trash/purge", json={"project_ids": [a], "task_ids": []})
+    assert result.status_code == 200
+    assert result.json() == {"projects": 1, "tasks": 1}
+
+    db_session.expire_all()
+    assert db_session.get(Project, a) is None
+    assert db_session.get(Task, parent) is None
+    surviving = db_session.get(Task, child)
+    assert surviving is not None
+    assert surviving.project_id == b  # still B's
+    assert surviving.parent_task_id is None  # detached to satisfy the FK
+    assert surviving.deleted_at is not None  # still in trash...
+
+    # ...and still individually restorable from B's task trash.
+    assert client.post(f"/api/tasks/{child}/restore").status_code == 200
+    db_session.expire_all()
+    restored = db_session.get(Task, child)
+    assert restored is not None
+    assert restored.deleted_at is None
+    assert restored.project_id == b
+
+
+def test_purge_task_spares_a_trashed_child_owned_by_another_project(
+    client: TestClient, db_session: Session
+) -> None:
+    """Same membership rule on the direct task-purge path (BUG #189)."""
+    a = client.post("/api/projects", json={"name": "Project A"}).json()["id"]
+    b = client.post("/api/projects", json={"name": "Project B"}).json()["id"]
+    parent = client.post(f"/api/projects/{a}/tasks", json={"title": "P"}).json()["id"]
+    child = client.post(
+        f"/api/projects/{b}/tasks", json={"title": "C", "parent_task_id": parent}
+    ).json()["id"]
+
+    client.delete(f"/api/tasks/{parent}")  # cascade-soft-deletes C too
+    assert client.delete(f"/api/tasks/{parent}/purge").status_code == 204
+
+    db_session.expire_all()
+    assert db_session.get(Task, parent) is None
+    surviving = db_session.get(Task, child)
+    assert surviving is not None
+    assert surviving.parent_task_id is None
+    assert surviving.deleted_at is not None

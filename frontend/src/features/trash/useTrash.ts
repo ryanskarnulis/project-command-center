@@ -16,6 +16,8 @@ export interface RestoreItem {
   label: string
   /** For projects: tasks cascade-deleted with it, offered for restore. */
   archivedTaskCount?: number
+  /** For projects: every trashed task it owns — what a purge really destroys. */
+  purgeTaskCount?: number
 }
 
 interface UseTrash {
@@ -218,17 +220,17 @@ export function useTrash(): UseTrash {
   )
 
   const purgeById = useCallback(
-    async (kind: TrashKind, id: number, label: string, cascadeTaskCount = 0) => {
+    async (kind: TrashKind, id: number, label: string, purgeTaskCount = 0) => {
       setError(null)
       setNotice(null)
       try {
         await PURGE[kind](id)
-        // Purging a project also destroys the tasks archived with it; the
+        // Purging a project also destroys every trashed task it owns; the
         // single-item purge route returns no counts, so name the scope the UI
-        // already knows about (BUG #184).
+        // already knows about (BUG #184, #189).
         setNotice(
-          cascadeTaskCount > 0
-            ? `Permanently deleted “${label}” and ${cascadeTaskCount} task${cascadeTaskCount === 1 ? '' : 's'}.`
+          purgeTaskCount > 0
+            ? `Permanently deleted “${label}” and ${purgeTaskCount} task${purgeTaskCount === 1 ? '' : 's'}.`
             : `Permanently deleted “${label}”.`,
         )
         reload()

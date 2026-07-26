@@ -48,6 +48,7 @@ const trash: Trash = {
       updated_at: '2026-06-01T17:00:00Z',
       deleted_at: DELETED_AT,
       archived_task_count: 0,
+      purge_task_count: 0,
     },
   ],
   tasks: [
@@ -274,14 +275,17 @@ describe('TrashPage', () => {
     confirm.mockRestore()
   })
 
-  it('names the cascade-deleted tasks in the single-project purge confirm', async () => {
-    // BUG #184: purging a project destroys the tasks archived with it, so the
-    // confirm (and the notice) must say so instead of naming only the project.
+  it('names every trashed task it owns in the single-project purge confirm', async () => {
+    // BUG #184 / #189: purging a project destroys every trashed task it owns —
+    // archived-with-it plus independently trashed — so the confirm (and the
+    // notice) must say so instead of naming only the project.
     const user = userEvent.setup()
     mockGetTrash.mockReset()
     mockGetTrash
       .mockResolvedValueOnce({
-        projects: [{ ...trash.projects[0], archived_task_count: 2 }],
+        projects: [
+          { ...trash.projects[0], archived_task_count: 1, purge_task_count: 2 },
+        ],
         tasks: [],
       })
       .mockResolvedValue({ projects: [], tasks: [] })
@@ -295,7 +299,7 @@ describe('TrashPage', () => {
     )
 
     expect(confirm).toHaveBeenCalledWith(
-      'Permanently delete “Firewall” and the 2 tasks archived with it? This cannot be undone.',
+      'Permanently delete “Firewall” and the 2 trashed tasks it owns? This cannot be undone.',
     )
     expect(mockPurgeProject).toHaveBeenCalledWith(1)
     expect(await screen.findByRole('status')).toHaveTextContent(
@@ -304,12 +308,14 @@ describe('TrashPage', () => {
     confirm.mockRestore()
   })
 
-  it('counts cascade-deleted tasks in the bulk project purge confirm', async () => {
+  it('counts every owned trashed task in the bulk project purge confirm', async () => {
     const user = userEvent.setup()
     mockGetTrash.mockReset()
     mockGetTrash
       .mockResolvedValueOnce({
-        projects: [{ ...trash.projects[0], archived_task_count: 2 }],
+        projects: [
+          { ...trash.projects[0], archived_task_count: 1, purge_task_count: 2 },
+        ],
         tasks: [],
       })
       .mockResolvedValue({ projects: [], tasks: [] })
@@ -323,7 +329,7 @@ describe('TrashPage', () => {
     await user.click(screen.getByRole('button', { name: 'Delete selected' }))
 
     expect(confirm).toHaveBeenCalledWith(
-      'Permanently delete 3 items (1 project and 2 archived tasks)? This cannot be undone.',
+      'Permanently delete 3 items (1 project and 2 trashed tasks)? This cannot be undone.',
     )
     expect(mockPurgeSelected).toHaveBeenCalledWith({ project_ids: [1], task_ids: [] })
     expect(await screen.findByRole('status')).toHaveTextContent(

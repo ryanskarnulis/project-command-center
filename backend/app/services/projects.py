@@ -273,6 +273,29 @@ def count_tasks_deleted_with_project(db: Session, project_id: int) -> int:
     )
 
 
+def count_tasks_purged_with_project(db: Session, project_id: int) -> int:
+    """How many task rows purging this project would permanently destroy.
+
+    Every trashed task the project still owns — not just the ones cascade-deleted
+    with it (``count_tasks_deleted_with_project``, which answers the *restore*
+    question). ``purge_project`` purges each of them, and their subtree walks stay
+    inside this project, so this is exactly the set that disappears. The
+    purge confirm needs this number; using the restore count there understated an
+    irreversible delete (BUG #189).
+    """
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(Task)
+            .where(
+                Task.deleted_at.is_not(None),
+                Task.project_id == project_id,
+            )
+        )
+        or 0
+    )
+
+
 def _assert_no_occurrence_conflicts(db: Session, tasks: Sequence[Task]) -> None:
     """Raise ``OccurrenceConflictError`` if restoring ``tasks`` would double-book a series.
 
@@ -402,6 +425,11 @@ def purge_project(db: Session, project: Project) -> None:
     cleared) and any ``tasks.deleted_with_project_id`` still pointing here — are
     nulled.
     ``hard_delete``'s guard enforces the project is already in trash. Caller commits.
+
+    The reach stops at this project's own rows: ``purge_task``'s subtree walk is
+    project-scoped, so a trashed task owned by another project that merely hangs
+    off one of these tasks is detached, not destroyed (BUG #189). It stays
+    individually restorable from its own project's trash.
     """
     from app.services import task_trash  # local: avoid circular import
 
