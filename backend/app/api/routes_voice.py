@@ -19,6 +19,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.ai.speech import SpeechClient, SpeechError, speech_client_from_settings
 from app.api.rate_limit import rate_limit
+from app.schemas.common import MutationModel
 
 logger = structlog.get_logger(__name__)
 
@@ -48,7 +49,7 @@ def _require(speech: SpeechClient | None) -> SpeechClient:
     return speech
 
 
-class SpeakRequest(BaseModel):
+class SpeakRequest(MutationModel):
     text: str
 
     @field_validator("text")

@@ -5,7 +5,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from app.db.models import ConversationRole
-from app.schemas.common import NonBlankStr, UTCDateTime
+from app.schemas.common import MutationModel, NonBlankStr, UTCDateTime
 
 # Cap on one chat turn. Generous for typed input while bounding what a run
 # feeds the local model's context window.
@@ -19,7 +19,7 @@ AgentMessageText = Annotated[
 ]
 
 
-class ConversationCreate(BaseModel):
+class ConversationCreate(MutationModel):
     # Optional: an untitled conversation is titled from its first user message.
     title: NonBlankStr | None = None
 
@@ -34,7 +34,7 @@ class ConversationRead(BaseModel):
     updated_at: UTCDateTime
 
 
-class MessageCreate(BaseModel):
+class MessageCreate(MutationModel):
     content: AgentMessageText
 
 
