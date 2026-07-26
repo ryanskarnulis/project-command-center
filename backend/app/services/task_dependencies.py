@@ -212,7 +212,7 @@ def _would_cycle(db: Session, task_id: int, depends_on_id: int) -> bool:
 
 
 def _log_dependency_event(
-    db: Session, task: Task, other: Task, action: str, summary: str
+    db: Session, task: Task, other_title: str, action: str, summary: str
 ) -> None:
     """Record a dependency change on the dependent task's project feed.
 
@@ -227,8 +227,23 @@ def _log_dependency_event(
         entity_type="task",
         entity_id=task.id,
         action=action,
-        summary=summary.format(task=task.title, other=other.title),
+        summary=summary.format(task=task.title, other=other_title),
     )
+
+
+# The title shown for an endpoint that has been trashed. Matches the read path's
+# placeholder in ``api/dependency_reads.py`` so the feed reads the same as the UI.
+DELETED_TASK_TITLE = "(deleted task)"
+
+
+def _task_including_deleted(db: Session, task_id: int) -> Task | None:
+    """Look up a task without the soft-delete filter.
+
+    Deliberately bypasses ``active``: removing a dependency whose blocker (or
+    dependent) sits in the trash is a reachable, supported operation, and the
+    audit event has to name the endpoints regardless of their delete state.
+    """
+    return db.execute(select(Task).where(Task.id == task_id)).scalar_one_or_none()
 
 
 def add_dependency(
@@ -275,7 +290,11 @@ def add_dependency(
         raise DuplicateDependencyError("That dependency already exists") from exc
     db.refresh(edge)
     _log_dependency_event(
-        db, task, depended, "dependency_added", 'Task "{task}" now waits on "{other}"'
+        db,
+        task,
+        depended.title,
+        "dependency_added",
+        'Task "{task}" now waits on "{other}"',
     )
     return edge
 
@@ -289,13 +308,16 @@ def get_dependency(db: Session, dependency_id: int) -> TaskDependency | None:
 def remove_dependency(db: Session, edge: TaskDependency) -> None:
     soft_delete(edge)
     db.flush()
-    task = get_task(db, edge.task_id)
-    depended = get_task(db, edge.depends_on_task_id)
-    if task is not None and depended is not None:
+    # Both endpoints are looked up including soft-deleted rows: the edge removal
+    # commits either way, so suppressing the event when a trashed blocker fails an
+    # ``active`` lookup would leave a mutation with no audit trail.
+    task = _task_including_deleted(db, edge.task_id)
+    depended = _task_including_deleted(db, edge.depends_on_task_id)
+    if task is not None:
         _log_dependency_event(
             db,
             task,
-            depended,
+            depended.title if depended is not None else DELETED_TASK_TITLE,
             "dependency_removed",
             'Task "{task}" no longer waits on "{other}"',
         )
