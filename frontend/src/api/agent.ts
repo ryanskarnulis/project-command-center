@@ -12,8 +12,14 @@ import type {
 // rather than the browser aborting a still-valid run.
 const AGENT_RUN_TIMEOUT_MS = 330_000
 
-export async function listConversations(): Promise<Conversation[]> {
-  const res = await apiClient('/api/agent/conversations')
+export async function listConversations(
+  params: { limit?: number; offset?: number } = {},
+): Promise<Conversation[]> {
+  const query = new URLSearchParams()
+  if (params.limit !== undefined) query.set('limit', String(params.limit))
+  if (params.offset !== undefined) query.set('offset', String(params.offset))
+  const suffix = query.toString() === '' ? '' : `?${query.toString()}`
+  const res = await apiClient(`/api/agent/conversations${suffix}`)
   return (await res.json()) as Conversation[]
 }
 

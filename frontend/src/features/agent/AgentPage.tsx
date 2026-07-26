@@ -33,8 +33,11 @@ export function AgentPage() {
   const {
     conversations,
     loading: listLoading,
+    loadingMore,
+    hasMore,
     error: listError,
     refresh,
+    loadMore,
     create,
     remove,
   } = useConversations()
@@ -172,6 +175,19 @@ export function AgentPage() {
             </li>
           ))}
         </ul>
+
+        {/* The list is paged (#193): every older conversation stays reachable
+            rather than falling off the end of the first page. */}
+        {hasMore && (
+          <button
+            type="button"
+            className="agent-load-more"
+            onClick={() => fireAndForget(loadMore())}
+            disabled={loadingMore}
+          >
+            {loadingMore ? 'Loading…' : 'Load older conversations'}
+          </button>
+        )}
       </aside>
 
       <section className="agent-thread" aria-label="Agent chat">
