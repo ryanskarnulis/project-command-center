@@ -102,6 +102,12 @@ export function TaskFormModal(props: Props) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // A task with active subtasks derives its status and estimate from them; the
+  // backend rejects a PATCH that carries either field (409). Disable both
+  // controls and leave the fields out of the payload so the rest of the form
+  // stays editable — mirrors TaskDetailView/TaskCard. (issue #191)
+  const derivedFromSubtasks = existingTask?.has_subtasks === true
+
   const blockedParents = useMemo(
     () => (existingTask ? descendantIds(existingTask, tasks) : new Set<number>()),
     [existingTask, tasks]
@@ -125,12 +131,16 @@ export function TaskFormModal(props: Props) {
         await props.onSave(existingTask.id, {
           title: title.trim(),
           description: description.trim() || null,
-          workflow_status: workflowStatus,
           priority,
           due_date: dueDate || null,
           project_id: projectId === '' ? null : Number(projectId),
           parent_task_id: parentId === '' ? null : Number(parentId),
-          estimated_minutes: estimatedMinutes,
+          ...(derivedFromSubtasks
+            ? {}
+            : {
+                workflow_status: workflowStatus,
+                estimated_minutes: estimatedMinutes,
+              }),
         })
       } else {
         await (props as CreateMode).onSave({
@@ -171,6 +181,7 @@ export function TaskFormModal(props: Props) {
             <select
               id="tf-workflow-status"
               value={workflowStatus}
+              disabled={derivedFromSubtasks}
               onChange={(e) => setWorkflowStatus(e.target.value as TaskWorkflowStatus)}
             >
               {WORKFLOW_STATUSES.map((s) => (
@@ -207,8 +218,12 @@ export function TaskFormModal(props: Props) {
           id="tf-estimate"
           placeholder="30m, 2h, 1 day"
           value={estimateDraft}
+          disabled={derivedFromSubtasks}
           onChange={(e) => setEstimateDraft(e.target.value)}
         />
+        {derivedFromSubtasks && (
+          <p>Status and estimate are rolled up from this task's subtasks.</p>
+        )}
 
         {error && <p role="alert">{error}</p>}
 

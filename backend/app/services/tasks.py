@@ -47,11 +47,27 @@ class TaskCycleError(ValueError):
     """
 
 
-class DerivedStatusError(ValueError):
+class DerivedFieldError(ValueError):
+    """A write was attempted against a field a task derives from its subtasks.
+
+    A task with active subtasks rolls both its status and its estimate up from
+    them, so neither can be set directly. The caller surfaces a 409.
+    """
+
+
+class DerivedStatusError(DerivedFieldError):
     """A status-changing write was attempted on a task whose status is derived.
 
     A task with subtasks rolls its progress up from them, so it can't be
     marked open/in-progress/done directly. The caller surfaces a 409.
+    """
+
+
+class DerivedEstimateError(DerivedFieldError):
+    """An estimate write was attempted on a task whose estimate is derived.
+
+    A task with subtasks sums its estimate from them, so it can't be set
+    directly. The caller surfaces a 409.
     """
 
 
@@ -569,15 +585,21 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
         else None
     )
 
-    # A parent's status is derived from its subtasks (read-only); reject a direct
-    # workflow-status change rather than silently dropping it.
-    if (
-        "workflow_status" in control
-        and control["workflow_status"] != task.workflow_status
-        and has_active_children(db, task.id)
-    ):
-        raise DerivedStatusError(
-            "This task's status is derived from its subtasks and can't be set directly"
+    # A parent's status *and* estimate are derived from its subtasks (read-only);
+    # reject a direct write to either rather than silently dropping it. The check is
+    # on the key's presence, not on a diff against the stored column: a parent's
+    # stored value is not what it reads as, so a request that happens to match the
+    # hidden column is still a write the caller can't see — and it would resurface
+    # as the parent's real state once the last child is trashed or reparented.
+    # (issue #191)
+    derived_keys = {"workflow_status", "estimated_minutes"} & control.keys()
+    if derived_keys and has_active_children(db, task.id):
+        if "workflow_status" in derived_keys:
+            raise DerivedStatusError(
+                "This task's status is derived from its subtasks and can't be set directly"
+            )
+        raise DerivedEstimateError(
+            "This task's estimate is derived from its subtasks and can't be set directly"
         )
 
     # A blocked task (waiting on an unfinished dependency) can't be completed.
