@@ -308,6 +308,58 @@ describe('ProjectDetailPage', () => {
     expect(screen.getByLabelText('Project name')).toHaveValue('Perimeter')
   })
 
+  it('does not show the previous project’s done count while the new one loads', async () => {
+    const user = userEvent.setup()
+    const otherProject: Project = { ...project, id: 8, name: 'Perimeter', description: 'Other' }
+    mockGetProject.mockImplementation(async (pid: number) => (pid === 8 ? otherProject : project))
+    mockListTasks.mockImplementation(async (pid?: number) =>
+      pid === 8 ? [{ ...task, id: 9, project_id: 8, title: 'Swap the switch' }] : [task],
+    )
+    const doneA = Array.from({ length: 8 }, (_, i) => ({ ...task, id: 100 + i }))
+    const completedB = deferred<Task[]>()
+    mockListCompleted.mockImplementation((pid?: number) =>
+      pid === 8 ? completedB.promise : Promise.resolve(doneA),
+    )
+    renderDetailWithSwitcher()
+
+    expect(await screen.findByText('1 open · 8 done')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('link', { name: 'Open project 8' }))
+    await waitFor(() => expect(screen.getByLabelText('Project name')).toHaveValue('Perimeter'))
+
+    // B's completed request is still pending: A's 8 must not carry over.
+    expect(screen.getByText('1 open · 0 done')).toBeInTheDocument()
+
+    completedB.resolve([{ ...task, id: 200, project_id: 8 }])
+    expect(await screen.findByText('1 open · 1 done')).toBeInTheDocument()
+  })
+
+  it('does not keep a stale done count when the new project’s request fails', async () => {
+    const user = userEvent.setup()
+    const otherProject: Project = { ...project, id: 8, name: 'Perimeter', description: 'Other' }
+    mockGetProject.mockImplementation(async (pid: number) => (pid === 8 ? otherProject : project))
+    mockListTasks.mockImplementation(async (pid?: number) =>
+      pid === 8 ? [{ ...task, id: 9, project_id: 8, title: 'Swap the switch' }] : [task],
+    )
+    const doneA = Array.from({ length: 8 }, (_, i) => ({ ...task, id: 100 + i }))
+    const completedB = deferred<Task[]>()
+    mockListCompleted.mockImplementation((pid?: number) =>
+      pid === 8 ? completedB.promise : Promise.resolve(doneA),
+    )
+    renderDetailWithSwitcher()
+
+    expect(await screen.findByText('1 open · 8 done')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('link', { name: 'Open project 8' }))
+    await waitFor(() => expect(screen.getByLabelText('Project name')).toHaveValue('Perimeter'))
+
+    completedB.reject(new Error('boom'))
+    await completedB.promise.catch(() => undefined)
+    // Best-effort failure: the count stays at zero rather than reverting to A's.
+    await waitFor(() => expect(screen.getByText('1 open · 0 done')).toBeInTheDocument())
+    expect(screen.queryByText('1 open · 8 done')).not.toBeInTheDocument()
+  })
+
   it('does not save when the name is cleared to blank', async () => {
     const user = userEvent.setup()
     renderDetail()
