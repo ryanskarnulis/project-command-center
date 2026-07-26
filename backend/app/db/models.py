@@ -149,6 +149,20 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     deleted_with_project_id: Mapped[int | None] = mapped_column(
         ForeignKey("projects.id"), default=None
     )
+    # Set when a task is cascade-soft-deleted because an ANCESTOR task was
+    # trashed (services/tasks.soft_delete_task). Holds the id of the root the
+    # user/agent actually trashed — flat, not one level up — so
+    # ``task_trash.restore_task_subtree`` can bring back exactly the set that one
+    # delete removed and leave descendants that were already in the trash
+    # beforehand where they are. Cleared on any restore. Null = trashed on its
+    # own (or active).
+    #
+    # Deliberately a plain Integer, not a ForeignKey: purging destroys rows, and
+    # an FK would either block or cascade in ways the purge traversal (which is
+    # project-scoped, see ``task_trash._deleted_subtree_depth_first``) doesn't
+    # control. A marker left pointing at a purged id is inert — the subtree
+    # restore only ever reads it while walking down from a live trashed root.
+    deleted_with_task_id: Mapped[int | None] = mapped_column(default=None)
     # Set when this occurrence was SKIPPED (services/task_recurrence.skip_occurrence)
     # rather than trashed normally. Both paths set ``deleted_at``; only this marker
     # tells them apart, and ``restore_task`` branches on it: a skip restores by

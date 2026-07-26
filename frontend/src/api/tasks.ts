@@ -116,8 +116,14 @@ export async function deleteTask(id: number): Promise<void> {
   await apiClient(`/api/tasks/${id}`, { method: 'DELETE' })
 }
 
-export async function restoreTask(id: number): Promise<Task> {
-  const res = await apiClient(`/api/tasks/${id}/restore`, { method: 'POST' })
+/** Restore a trashed task. With `restoreSubtasks`, also restores exactly the
+ * subtasks that were cascade-trashed with it (the inverse of one delete). */
+export async function restoreTask(
+  id: number,
+  restoreSubtasks = false,
+): Promise<Task> {
+  const query = restoreSubtasks ? '?restore_subtasks=true' : ''
+  const res = await apiClient(`/api/tasks/${id}/restore${query}`, { method: 'POST' })
   return (await res.json()) as Task
 }
 

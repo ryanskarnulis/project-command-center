@@ -255,10 +255,17 @@ export function undoFor(record: ToolCallRecord): UndoAction | null {
     }
     case 'trash_task': {
       // trash_task returns a plain-text confirmation; the id is an argument.
+      // The delete cascaded over the subtree, so a root-only restore would not
+      // be an undo at all (BUG #192) — restore the subtasks this call trashed
+      // too. Subtasks already in the trash beforehand are left alone by the
+      // service, so this reverses exactly one delete.
       const id = argNumber(record, 'task_id')
       return id === null
         ? null
-        : { label: 'Undo (restore)', perform: () => restoreTask(id) }
+        : {
+            label: 'Undo (restore with subtasks)',
+            perform: () => restoreTask(id, true),
+          }
     }
     case 'trash_project': {
       const id = argNumber(record, 'project_id')

@@ -285,24 +285,40 @@ def reopen_task(task_id: EntityId) -> TaskRead:
 
 @_tool
 def trash_task(task_id: EntityId) -> str:
-    """Move a task (and its subtasks) to the trash. Undo with restore_task."""
+    """Move a task to the trash, together with all of its subtasks.
+
+    Undo with restore_task(task_id, restore_subtasks=True), which brings back
+    the same set. Plain restore_task(task_id) returns only this task and leaves
+    its subtasks in the trash.
+    """
     with tool_session("trash_task") as db:
         task = _task_or_error(db, task_id)
         title = task.title
         tasks_service.soft_delete_task(db, task)
         logger.info("tool_task_trashed", task_id=task_id)
-        return f'Task {task_id} "{title}" moved to trash (undo with restore_task)'
+        return (
+            f'Task {task_id} "{title}" and its subtasks moved to trash '
+            f"(undo with restore_task({task_id}, restore_subtasks=True))"
+        )
 
 
 @_tool
-def restore_task(task_id: EntityId) -> TaskRead:
-    """Restore a trashed task (see list_trash for what is restorable)."""
+def restore_task(task_id: EntityId, restore_subtasks: bool = False) -> TaskRead:
+    """Restore a trashed task (see list_trash for what is restorable).
+
+    Set restore_subtasks=True to also restore the subtasks that were trashed
+    together with this task — that is the exact undo of a trash_task call.
+    Subtasks the user had trashed separately beforehand stay in the trash.
+    """
     with tool_session("restore_task") as db:
         task = task_trash.get_deleted_task(db, task_id)
         if task is None:
             raise ToolError(f"No deleted task with id {task_id}")
         try:
-            restored = task_trash.restore_task(db, task)
+            if restore_subtasks:
+                restored, _ = task_trash.restore_task_subtree(db, task)
+            else:
+                restored = task_trash.restore_task(db, task)
         except tasks_service.OccurrenceConflictError as exc:
             # The date is taken by a live occurrence of the same series. Surfaced
             # as a tool error so the model can trash/skip that one and retry

@@ -763,14 +763,17 @@ def reopen_task(db: Session, task: Task) -> Task:
 def soft_delete_task(db: Session, task: Task) -> None:
     # Cascade: deleting a parent removes its whole subtree. Children are
     # soft-deleted depth-first first, so each still logs its own "deleted" event
-    # while it still belongs to a project. Restore stays per-task (see
-    # task_trash.restore_task): bringing a parent back does not auto-restore
-    # children.
+    # while it still belongs to a project. Every descendant this cascade removes
+    # is stamped with the root's id (``deleted_with_task_id``) so the delete can
+    # be reversed as one unit by ``task_trash.restore_task_subtree`` without
+    # sweeping in descendants that were already in the trash before this call.
+    # ``task_trash.restore_task`` stays per-task: restoring a parent on its own
+    # still does not bring its children back.
     from app.services import task_recurrence
 
     deleted: set[int] = set()
     seeds: list[int] = []
-    _soft_delete_subtree(db, task, deleted, seeds)
+    _soft_delete_subtree(db, task, deleted, seeds, root_id=task.id)
     # Reconcile once, after the whole subtree is in the trash, and only from
     # seeds *outside* it. Reconciling mid-cascade let a child's deletion see its
     # still-active recurring parent as (transiently) effectively done and spawn a
@@ -783,7 +786,7 @@ def soft_delete_task(db: Session, task: Task) -> None:
 
 
 def _soft_delete_subtree(
-    db: Session, task: Task, deleted: set[int], seeds: list[int]
+    db: Session, task: Task, deleted: set[int], seeds: list[int], *, root_id: int
 ) -> None:
     """Soft-delete ``task`` and its descendants depth-first, collecting seeds.
 
@@ -792,11 +795,18 @@ def _soft_delete_subtree(
     left once the cascade is complete. Trashing the last unfinished child
     completes its parent, and trashing a blocker unblocks whatever waited on it —
     both can roll a series forward, but only for tasks that survive the delete.
+
+    Descendants (never the root itself) are stamped ``deleted_with_task_id =
+    root_id``: they were removed *by* this delete, not chosen individually, and
+    that marker is the only thing that later distinguishes them from tasks that
+    were already sitting in the trash under the same parent.
     """
     from app.services import task_dependencies as deps_service
 
     for child in list_subtasks(db, task.id):
-        _soft_delete_subtree(db, child, deleted, seeds)
+        _soft_delete_subtree(db, child, deleted, seeds, root_id=root_id)
+    if task.id != root_id:
+        task.deleted_with_task_id = root_id
     soft_delete(task)
     db.flush()
     log_task_event(db, task, "deleted")
