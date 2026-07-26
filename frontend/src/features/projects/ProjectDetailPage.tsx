@@ -55,6 +55,9 @@ export function ProjectDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
+  // Project the save status belongs to; the status is hidden once the route
+  // moves to another project so a write for the old id can't label the new one.
+  const [saveProjectId, setSaveProjectId] = useState<number | null>(null)
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(EMPTY_PROJECT_DRAFT)
   const [activityKey, setActivityKey] = useState(0)
   // Bumped after a peek-panel mutation so the task list refetches behind it.
@@ -63,6 +66,13 @@ export function ProjectDetailPage() {
   const { refresh: refreshTrashCount } = useTrashCount()
   // Board drags can change tasks outside this page — refetch off the bump too.
   const { version: taskRefreshVersion } = useTaskRefresh()
+
+  // Monotonic id of the most recently *started* project write. PATCH returns a
+  // full project snapshot, so overlapping inline edits that resolve out of
+  // order could otherwise let an older response revert a newer field; only the
+  // newest write may publish its snapshot or its save state. Navigating to
+  // another project retires the generation too (see the loader's cleanup).
+  const latestRequestId = useRef(0)
 
   useEffect(() => {
     let active = true
@@ -82,7 +92,14 @@ export function ProjectDetailPage() {
           setLoadedProjectId(id)
         }
       })
-    return () => { active = false }
+    return () => {
+      active = false
+      // Only `:projectId` changes on a project→project navigation, so the
+      // component (and `latestRequestId`) is reused. Retire the write
+      // generation here so a PATCH started for the old id can never publish
+      // its snapshot or its error into the new project's state.
+      latestRequestId.current += 1
+    }
   }, [id, navigate])
 
   // Load the project's open tasks separately so a task-fetch failure leaves the
@@ -127,12 +144,6 @@ export function ProjectDetailPage() {
       activeProjectDraft.description !== loadedProjectDraft.description)
   useBeforeUnload(dirty)
 
-  // Monotonic id of the most recently *started* project write. PATCH returns a
-  // full project snapshot, so overlapping inline edits that resolve out of
-  // order could otherwise let an older response revert a newer field; only the
-  // newest write may publish its snapshot or its save state.
-  const latestRequestId = useRef(0)
-
   /** Publish a snapshot from a non-PATCH write (close/reopen), retiring any in-flight PATCH. */
   function publishProject(updated: Project) {
     latestRequestId.current += 1
@@ -142,11 +153,13 @@ export function ProjectDetailPage() {
 
   async function savePatch(data: ProjectUpdate) {
     if (!project) return
+    const targetId = project.id
     const requestId = ++latestRequestId.current
+    setSaveProjectId(targetId)
     setSaveState('saving')
     setSaveError(null)
     try {
-      const updated = await updateProject(project.id, data)
+      const updated = await updateProject(targetId, data)
       if (requestId !== latestRequestId.current) return
       setProject(updated)
       setSaveState('saved')
@@ -162,6 +175,7 @@ export function ProjectDetailPage() {
     if (!project) return
     const next = nameDraft.trim()
     if (!next) {
+      setSaveProjectId(project.id)
       setSaveState('error')
       setSaveError('Name is required')
       return
@@ -241,11 +255,13 @@ export function ProjectDetailPage() {
   const tasksLoading = tasksLoadedProjectId !== id
   const stats = buildProjectStats(currentTasks, doneCount)
   const taskTree = buildTaskTree(currentTasks)
-  const saveLabel = saveState === 'saving'
+  const currentSaveState = saveProjectId === id ? saveState : 'idle'
+  const currentSaveError = saveProjectId === id ? saveError : null
+  const saveLabel = currentSaveState === 'saving'
     ? 'Saving…'
-    : saveState === 'saved'
+    : currentSaveState === 'saved'
       ? 'Saved'
-      : saveState === 'error'
+      : currentSaveState === 'error'
         ? 'Could not save'
         : ''
 
@@ -264,8 +280,8 @@ export function ProjectDetailPage() {
         <div className="task-detail-actions">
           {saveLabel && (
             <span
-              className={saveState === 'error' ? 'save-state error' : 'save-state'}
-              role={saveState === 'error' ? 'alert' : 'status'}
+              className={currentSaveState === 'error' ? 'save-state error' : 'save-state'}
+              role={currentSaveState === 'error' ? 'alert' : 'status'}
             >
               {saveLabel}
             </span>
@@ -316,7 +332,7 @@ export function ProjectDetailPage() {
             <span style={{ width: `${Math.round(stats.progress * 100)}%` }} />
           </div>
         )}
-        {saveError && <p role="alert" className="error">{saveError}</p>}
+        {currentSaveError && <p role="alert" className="error">{currentSaveError}</p>}
       </section>
 
       <ProjectTabs projectId={project.id} />
