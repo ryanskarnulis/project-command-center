@@ -42,6 +42,20 @@ main.agent-page {
   font-size: 0.85rem;
 }
 
+.agent-load-more {
+  align-self: stretch;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.agent-load-more:disabled {
+  opacity: 0.6;
+}
+
 .agent-conversation-list {
   list-style: none;
   margin: 0;

@@ -26,13 +26,23 @@ logger = structlog.get_logger(__name__)
 MAX_DERIVED_TITLE_LENGTH = 60
 
 
-def list_conversations(db: Session, *, limit: int = 50) -> Sequence[Conversation]:
-    """Active conversations, most recently touched first."""
+def list_conversations(
+    db: Session, *, limit: int = 50, offset: int = 0
+) -> Sequence[Conversation]:
+    """A window of active conversations, most recently touched first.
+
+    The ordering is total (``updated_at`` desc, then ``id`` desc), so
+    successive ``offset`` windows over an unchanged list have no duplicates
+    and no gaps. A new turn bumps a conversation's ``updated_at`` and reorders
+    the list, so a paging client should re-read from ``offset=0`` after a
+    write rather than stitching a stale window onto a fresh page.
+    """
     return (
         db.execute(
             active(Conversation)
             .order_by(Conversation.updated_at.desc(), Conversation.id.desc())
             .limit(limit)
+            .offset(offset)
         )
         .scalars()
         .all()

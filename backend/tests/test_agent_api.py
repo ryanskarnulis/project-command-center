@@ -130,6 +130,37 @@ def test_conversation_crud_over_api(client: TestClient) -> None:
     )
 
 
+def test_conversation_list_pages_past_the_default_limit(client: TestClient) -> None:
+    """Beyond one page every conversation stays reachable via limit/offset (#193)."""
+    ids = [
+        client.post("/api/agent/conversations", json={"title": f"c{i}"}).json()["id"]
+        for i in range(55)
+    ]
+
+    first = client.get("/api/agent/conversations").json()
+    assert len(first) == 50  # the default page
+
+    second = client.get(
+        "/api/agent/conversations", params={"limit": 50, "offset": 50}
+    ).json()
+    assert len(second) == 5
+
+    paged = [c["id"] for c in first] + [c["id"] for c in second]
+    # No duplicates, no gaps, newest first — the oldest conversation is reachable.
+    assert paged == sorted(ids, reverse=True)
+    assert paged[-1] == ids[0]
+
+
+def test_conversation_list_limit_is_bounded(client: TestClient) -> None:
+    assert (
+        client.get("/api/agent/conversations", params={"limit": 501}).status_code == 422
+    )
+    assert client.get("/api/agent/conversations", params={"limit": 0}).status_code == 422
+    assert (
+        client.get("/api/agent/conversations", params={"offset": -1}).status_code == 422
+    )
+
+
 def test_post_message_runs_loop_and_persists_exchange(
     client: TestClient, tool_db: sessionmaker[Session], db_session: Session
 ) -> None:

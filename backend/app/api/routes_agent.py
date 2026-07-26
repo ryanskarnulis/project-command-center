@@ -13,7 +13,7 @@ import time
 from collections.abc import Generator, Sequence
 
 import structlog
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.ai.loop import AgentLoop, AgentRunFailed, resolve_actor
@@ -57,9 +57,21 @@ def _get_or_404(db: Session, conversation_id: int) -> Conversation:
     return conversation
 
 
+# The sidebar's page size, and the ceiling on one request. The sidebar grows
+# its window by DEFAULT_CONVERSATION_LIMIT per "Load more", re-reading from
+# offset 0 so a reordered list can't produce duplicates or gaps; the cap keeps
+# the read bounded no matter what a client asks for.
+DEFAULT_CONVERSATION_LIMIT = 50
+MAX_CONVERSATION_LIMIT = 500
+
+
 @router.get("/conversations", response_model=list[ConversationRead])
-def list_conversations(db: Session = Depends(get_db)) -> Sequence[Conversation]:
-    return conversations_service.list_conversations(db)
+def list_conversations(
+    limit: int = Query(default=DEFAULT_CONVERSATION_LIMIT, ge=1, le=MAX_CONVERSATION_LIMIT),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> Sequence[Conversation]:
+    return conversations_service.list_conversations(db, limit=limit, offset=offset)
 
 
 @router.post(

@@ -187,6 +187,42 @@ describe('AgentPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('reaches conversations past the first page via load more (#193)', async () => {
+    // 51 active conversations, newest first — one more than a server page.
+    const all = Array.from({ length: 51 }, (_, index) => ({
+      id: 51 - index,
+      title: `Conversation ${51 - index}`,
+      created_at: detail.created_at,
+      updated_at: detail.updated_at,
+    }))
+    mockList.mockImplementation(async (params) =>
+      all.slice(params?.offset ?? 0, (params?.offset ?? 0) + (params?.limit ?? 50)),
+    )
+
+    renderAt('/agent')
+    expect(await screen.findByText('Conversation 51')).toBeInTheDocument()
+    // The oldest one falls outside the first page.
+    expect(screen.queryByText('Conversation 1')).not.toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Load older conversations' }),
+    )
+
+    expect(await screen.findByText('Conversation 1')).toBeInTheDocument()
+    // Every conversation is listed exactly once — no duplicates, no gaps.
+    const titles = screen
+      .getAllByRole('button', { name: /^Conversation \d+/ })
+      .map((button) => button.textContent)
+    expect(titles).toHaveLength(51)
+    expect(new Set(titles).size).toBe(51)
+    // The list is exhausted, so the affordance goes away.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: /Load older conversations/ }),
+      ).not.toBeInTheDocument(),
+    )
+  })
+
   it('surfaces a rate-limit rejection and reloads the thread', async () => {
     const { ApiError } = await import('../../api/client')
     mockPost.mockRejectedValue(new ApiError(429, { detail: 'rate limit exceeded' }))
