@@ -2,10 +2,10 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.models import Task, TaskPriority, TaskWorkflowStatus
+from app.db.models import ActivityEvent, Task, TaskPriority, TaskWorkflowStatus
 from app.services import dashboard as dashboard_service
 from app.services import projects as projects_service
 from app.services import tasks as tasks_service
@@ -766,6 +766,123 @@ def test_parent_read_exposes_rolled_up_values(client: TestClient) -> None:
     assert body["has_subtasks"] is True
     assert body["estimated_minutes"] == 60
     assert body["workflow_status"] == "in_progress"
+
+
+# --- Derived fields are read-only on a parent (issue #191) -------------------
+
+
+def _derived_parent(db: Session) -> Task:
+    """A parent whose effective status/estimate differ from its stored columns."""
+    parent = tasks_service.create_task(db, project_id=None, title="parent")
+    _subtask(
+        db,
+        parent.id,
+        title="child",
+        estimated_minutes=30,
+        workflow_status=TaskWorkflowStatus.done,
+    )
+    db.commit()
+    rollup = tasks_service.get_rollup(db, parent)
+    assert rollup.workflow_status == TaskWorkflowStatus.done
+    assert rollup.estimated_minutes == 30
+    assert parent.workflow_status == TaskWorkflowStatus.open  # stored, hidden
+    return parent
+
+
+def test_estimate_write_on_derived_parent_rejected(db_session: Session) -> None:
+    parent = _derived_parent(db_session)
+
+    with pytest.raises(tasks_service.DerivedEstimateError):
+        tasks_service.update_task(db_session, parent, {"estimated_minutes": 90})
+
+    db_session.rollback()
+    db_session.refresh(parent)
+    assert parent.estimated_minutes is None
+
+
+def test_status_equal_to_stored_column_on_derived_parent_rejected(
+    db_session: Session,
+) -> None:
+    """The stored column isn't what the parent reads as, so "no change" is a write.
+
+    Left accepted, the hidden ``open`` would resurface as the parent's real
+    status once the last child is trashed.
+    """
+    parent = _derived_parent(db_session)
+
+    with pytest.raises(tasks_service.DerivedStatusError):
+        tasks_service.update_task(
+            db_session, parent, {"workflow_status": TaskWorkflowStatus.open}
+        )
+
+
+def test_rejected_derived_patch_writes_no_activity_event(
+    client: TestClient, db_session: Session
+) -> None:
+    parent = _derived_parent(db_session)
+    before = db_session.scalar(select(func.count()).select_from(ActivityEvent))
+
+    assert (
+        client.patch(
+            f"/api/tasks/{parent.id}", json={"estimated_minutes": 90}
+        ).status_code
+        == 409
+    )
+    assert (
+        client.patch(
+            f"/api/tasks/{parent.id}", json={"workflow_status": "open"}
+        ).status_code
+        == 409
+    )
+
+    db_session.expire_all()
+    after = db_session.scalar(select(func.count()).select_from(ActivityEvent))
+    assert after == before
+    stored = db_session.get(Task, parent.id)
+    assert stored is not None
+    assert stored.estimated_minutes is None
+
+
+def test_non_derived_edits_on_a_parent_still_work(
+    client: TestClient, db_session: Session
+) -> None:
+    parent = _derived_parent(db_session)
+
+    patched = client.patch(
+        f"/api/tasks/{parent.id}",
+        json={"title": "renamed", "priority": "high"},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["title"] == "renamed"
+    assert patched.json()["priority"] == "high"
+
+
+def test_agent_tool_rejects_derived_field_writes(
+    db_session: Session,
+    test_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = _derived_parent(db_session)
+    parent_id = parent.id
+    # StaticPool hands out one connection; release it for the tool's session.
+    db_session.close()
+    factory: sessionmaker[Session] = sessionmaker(
+        autocommit=False, autoflush=False, bind=test_engine
+    )
+    monkeypatch.setattr(runtime, "session_factory", factory)
+
+    with pytest.raises(registry.ToolError):
+        registry.call_tool(
+            "update_task",
+            {"task_id": parent_id, "changes": {"estimated_minutes": 90}},
+            actor="agent",
+        )
+    with pytest.raises(registry.ToolError):
+        registry.call_tool(
+            "update_task",
+            {"task_id": parent_id, "changes": {"workflow_status": "open"}},
+            actor="agent",
+        )
 
 
 def _titled(db: Session, title: str, *, done: bool = False) -> Task:

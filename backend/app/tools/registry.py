@@ -149,7 +149,7 @@ _AvailableMinutes = Annotated[int, Field(ge=15, le=1440)]
 # surfaced as tool errors so the model can read the reason and self-correct.
 _TASK_DOMAIN_ERRORS = (
     tasks_service.TaskCycleError,
-    tasks_service.DerivedStatusError,
+    tasks_service.DerivedFieldError,
     tasks_service.BlockedTaskError,
     tasks_service.RecurrenceError,
 )
@@ -237,8 +237,8 @@ def create_task(data: TaskCreate) -> TaskRead:
 def update_task(task_id: EntityId, changes: TaskUpdate) -> TaskRead:
     """Partially update a task; only the fields present in `changes` are touched.
 
-    A parent's workflow_status is derived from its subtasks and cannot be set
-    directly; a blocked task cannot be marked done. Recurring tasks accept
+    A parent's workflow_status and estimated_minutes are derived from its subtasks
+    and cannot be set directly; a blocked task cannot be marked done. Recurring tasks accept
     edit_scope "this" (default) or "future".
     """
     with tool_session("update_task") as db:
