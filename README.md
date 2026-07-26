@@ -190,7 +190,8 @@ Deleting a conversation takes the same lock and is rejected with a 409 while a
 run is in flight, rather than waiting one out — so a run can never commit its
 reply and tool-call trajectory into a thread that was deleted mid-run. The Agent
 page disables that conversation's delete control while a send is pending.
-Each request is bounded by `AGENT_RUN_BUDGET_SECONDS` (default 240) — the loop
+Each request is bounded by `AGENT_RUN_BUDGET_SECONDS` (default 240; must be a
+positive, finite number — it cannot be disabled) — the loop
 stops once it passes, caps each provider call at the time left, and refuses to
 start any further tool call, so nothing is ever started past the deadline. A
 synchronous tool already in flight isn't interrupted, so a run can overshoot by

@@ -83,7 +83,11 @@ class Settings(BaseSettings):
     # stays below the frontend's AGENT_RUN_TIMEOUT_MS — so the backend always
     # returns a clean error before the proxy or the browser gives up
     # (backend 240 s < nginx 300 s < frontend 330 s).
-    agent_run_budget_seconds: float = 240.0
+    # Must be positive and finite: it is passed straight to a lock timeout, where
+    # 0 means "never wait", -1 means "wait forever" (defeating this ceiling), and
+    # anything below -1 raises ValueError at request time. inf/nan are rejected
+    # for the same reason — bad config must fail at startup, not per request.
+    agent_run_budget_seconds: float = Field(default=240.0, gt=0, allow_inf_nan=False)
 
     # Explicit CORS allow-list (the local Vite dev server).
     cors_origins: list[str] = [

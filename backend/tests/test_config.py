@@ -99,3 +99,30 @@ def test_positive_rate_limits_are_accepted(
     settings = Settings()
 
     assert getattr(settings, env_var.lower()) == 1
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "-2", "-240.5", "inf", "-inf", "nan"])
+def test_invalid_agent_run_budget_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, value: str
+) -> None:
+    """Issue #172: the budget is a lock timeout and a wall-clock deadline.
+
+    0 times out instantly, -1 waits forever (defeating the ceiling), < -1 raises
+    ValueError at request time, and inf/nan disable the deadline. All must fail
+    at the settings boundary instead.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AGENT_RUN_BUDGET_SECONDS", value)
+
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+@pytest.mark.parametrize("value", ["0.05", "240", "600.5"])
+def test_positive_agent_run_budget_is_accepted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, value: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AGENT_RUN_BUDGET_SECONDS", value)
+
+    assert Settings().agent_run_budget_seconds == float(value)
