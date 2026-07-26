@@ -106,6 +106,42 @@ async def test_task_lifecycle_with_agent_attribution(
         assert all(e["actor"] == "agent:mcp" for e in events["result"])
 
 
+async def test_restore_task_can_undo_a_whole_trash_cascade(
+    _mcp_db: sessionmaker[Session],
+) -> None:
+    """BUG #192: restore_task(restore_subtasks=True) is the real inverse of trash_task."""
+    async with mcp_client() as client:
+        project = await _call(client, "create_project", {"data": {"name": "Undo"}})
+        project_id = project["id"]
+        parent = await _call(
+            client, "create_task", {"data": {"title": "P", "project_id": project_id}}
+        )
+        child = await _call(
+            client,
+            "create_task",
+            {
+                "data": {
+                    "title": "C",
+                    "project_id": project_id,
+                    "parent_task_id": parent["id"],
+                }
+            },
+        )
+
+        await _call(client, "trash_task", {"task_id": parent["id"]})
+        restored = await _call(
+            client,
+            "restore_task",
+            {"task_id": parent["id"], "restore_subtasks": True},
+        )
+        assert restored["id"] == parent["id"]
+
+        trash = await _call(client, "list_trash", {})
+        assert [t["id"] for t in trash["tasks"]] == []
+        back = await _call(client, "get_task", {"task_id": child["id"]})
+        assert back["deleted_at"] is None
+
+
 async def test_dependency_tools_block_and_audit(
     _mcp_db: sessionmaker[Session],
 ) -> None:

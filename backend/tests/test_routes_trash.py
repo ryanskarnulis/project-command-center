@@ -792,3 +792,112 @@ def test_purge_task_spares_a_trashed_child_owned_by_another_project(
     assert surviving is not None
     assert surviving.parent_task_id is None
     assert surviving.deleted_at is not None
+
+
+def test_restore_subtasks_reverses_a_cascade_delete(
+    client: TestClient, db_session: Session
+) -> None:
+    """BUG #192: the agent's Undo for trash_task must reverse the whole cascade.
+
+    Trashing P removed P, C and grandchild G. ``restore_subtasks=true`` — what
+    the agent trajectory's Undo button calls — has to bring all three back, or
+    the restored parent silently comes back as a leaf.
+    """
+    pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
+    parent = client.post(f"/api/projects/{pid}/tasks", json={"title": "P"}).json()["id"]
+    child = client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "C", "parent_task_id": parent}
+    ).json()["id"]
+    grandchild = client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "G", "parent_task_id": child}
+    ).json()["id"]
+
+    client.delete(f"/api/tasks/{parent}")
+    db_session.expire_all()
+    for task_id in (parent, child, grandchild):
+        row = db_session.get(Task, task_id)
+        assert row is not None and row.deleted_at is not None
+        # Descendants carry the root's id; the root itself is unmarked.
+        assert row.deleted_with_task_id == (None if task_id == parent else parent)
+
+    restored = client.post(f"/api/tasks/{parent}/restore?restore_subtasks=true")
+    assert restored.status_code == 200
+    assert restored.json()["id"] == parent
+
+    db_session.expire_all()
+    for task_id in (parent, child, grandchild):
+        row = db_session.get(Task, task_id)
+        assert row is not None
+        assert row.deleted_at is None, f"task {task_id} left in trash"
+        assert row.deleted_with_task_id is None  # marker cleared on restore
+    # Hierarchy intact, and nothing is left listed as trash.
+    child_row = db_session.get(Task, child)
+    grandchild_row = db_session.get(Task, grandchild)
+    assert child_row is not None and child_row.parent_task_id == parent
+    assert grandchild_row is not None and grandchild_row.parent_task_id == child
+    assert client.get("/api/trash").json()["tasks"] == []
+    # Every restored row is audited, not just the root.
+    restored_events = (
+        db_session.execute(
+            select(ActivityEvent.entity_id).where(
+                ActivityEvent.entity_type == "task",
+                ActivityEvent.action == "restored",
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert sorted(restored_events) == sorted([parent, child, grandchild])
+
+
+def test_restore_subtasks_leaves_independently_trashed_subtasks_alone(
+    client: TestClient, db_session: Session
+) -> None:
+    """Only what THIS delete removed comes back (#192).
+
+    ``old`` was trashed by the user before the parent was; undoing the parent's
+    delete must not resurrect it.
+    """
+    pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
+    parent = client.post(f"/api/projects/{pid}/tasks", json={"title": "P"}).json()["id"]
+    old = client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "old", "parent_task_id": parent}
+    ).json()["id"]
+    fresh = client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "fresh", "parent_task_id": parent}
+    ).json()["id"]
+
+    client.delete(f"/api/tasks/{old}")  # trashed on its own, beforehand
+    client.delete(f"/api/tasks/{parent}")  # cascade takes P + fresh
+
+    client.post(f"/api/tasks/{parent}/restore?restore_subtasks=true")
+
+    db_session.expire_all()
+    parent_row = db_session.get(Task, parent)
+    fresh_row = db_session.get(Task, fresh)
+    assert parent_row is not None and parent_row.deleted_at is None
+    assert fresh_row is not None and fresh_row.deleted_at is None
+    still_trashed = db_session.get(Task, old)
+    assert still_trashed is not None
+    assert still_trashed.deleted_at is not None
+    assert still_trashed.deleted_with_task_id is None
+
+
+def test_restore_without_subtasks_stays_root_only(
+    client: TestClient, db_session: Session
+) -> None:
+    """The default (trash-page) restore keeps its long-standing per-task shape."""
+    pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
+    parent = client.post(f"/api/projects/{pid}/tasks", json={"title": "P"}).json()["id"]
+    child = client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "C", "parent_task_id": parent}
+    ).json()["id"]
+
+    client.delete(f"/api/tasks/{parent}")
+    assert client.post(f"/api/tasks/{parent}/restore").status_code == 200
+
+    db_session.expire_all()
+    parent_row = db_session.get(Task, parent)
+    child_row = db_session.get(Task, child)
+    assert parent_row is not None and parent_row.deleted_at is None
+    assert child_row is not None and child_row.deleted_at is not None

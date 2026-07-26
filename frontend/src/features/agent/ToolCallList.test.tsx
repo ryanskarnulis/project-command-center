@@ -104,8 +104,13 @@ describe('ToolCallList', () => {
       screen.getByRole('link', { name: 'Moved a task to the trash' }),
     ).toHaveAttribute('href', '/trash')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Undo (restore)' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Undo (restore with subtasks)' }),
+    )
     expect(await screen.findByText('Undone')).toBeInTheDocument()
+    // The row may only claim "Undone" because the undo reversed the whole
+    // cascade, subtasks included (#192).
+    expect(vi.mocked(restoreTask)).toHaveBeenCalledWith(9, true)
 
     expect(
       screen.getByRole('link', { name: 'Moved a task to the trash' }),

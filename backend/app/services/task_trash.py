@@ -123,8 +123,10 @@ def restore_task(db: Session, task: Task) -> Task:
         and projects_service.get_project(db, task.project_id) is None
     ):
         task.project_id = projects_service.ensure_default_project_id(db)
-    # An individually-restored task drops its project-cascade marker.
+    # An individually-restored task drops its cascade markers: it is back on its
+    # own terms and must not be dragged around by a later parent/project restore.
     task.deleted_with_project_id = None
+    task.deleted_with_task_id = None
     # And its skip marker: a skipped occurrence whose series has no live successor
     # restores in place through this path, and must not stay flagged as skipped
     # while it's active again.
@@ -142,6 +144,52 @@ def restore_task(db: Session, task: Task) -> Task:
     db.refresh(task)
     log_task_event(db, task, "restored")
     return task
+
+
+def restore_task_subtree(db: Session, task: Task) -> tuple[Task, int]:
+    """Restore ``task`` **and exactly the descendants trashed with it**.
+
+    ``tasks.soft_delete_task`` cascades, so a single trash of a parent removes a
+    whole subtree; restoring only the root leaves the checklist in the trash and
+    the parent silently a leaf (BUG #192). This is the true inverse of that one
+    delete: it brings back the rows stamped ``deleted_with_task_id == task.id``
+    by that cascade and nothing else — descendants the user had already trashed
+    independently beforehand carry no marker and stay in the trash, where they
+    belong.
+
+    Unlike the purge traversal (``_deleted_subtree_depth_first``) this is *not*
+    project-scoped. That walk is scoped because it destroys rows and must not
+    reach into another project's trash; here the marker already names the exact
+    rows this delete removed, whatever project they live in, and restoring them
+    is reversible anyway.
+
+    Returns the restored root and the number of descendants restored with it.
+    Each row goes through ``restore_task``, so every one gets its own
+    ``restored`` activity event, recurrence reconciliation and rehoming.
+    """
+    marked_ids = list(
+        db.execute(
+            select(Task.id)
+            .where(
+                Task.deleted_at.is_not(None),
+                Task.deleted_with_task_id == task.id,
+            )
+            .order_by(Task.id.asc())
+        )
+        .scalars()
+        .all()
+    )
+    root = restore_task(db, task)
+    restored_count = 0
+    for descendant_id in marked_ids:
+        # Re-read: restoring an un-skipped occurrence root purges rows, so a
+        # marked descendant may legitimately be gone by now.
+        descendant = get_deleted_task(db, descendant_id)
+        if descendant is None:
+            continue
+        restore_task(db, descendant)
+        restored_count += 1
+    return root, restored_count
 
 
 def _deleted_subtree_depth_first(db: Session, task: Task) -> list[Task]:

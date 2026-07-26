@@ -160,12 +160,16 @@ describe('undoFor', () => {
       record({
         tool: 'trash_task',
         arguments: { task_id: 9 },
-        result: 'Task 9 "X" moved to trash (undo with restore_task)',
+        result:
+          'Task 9 "X" and its subtasks moved to trash ' +
+          '(undo with restore_task(9, restore_subtasks=True))',
       }),
     )
-    expect(action?.label).toBe('Undo (restore)')
+    // trash_task cascades over the subtree, so the undo must restore the
+    // subtasks it trashed as well — a root-only restore is not an undo (#192).
+    expect(action?.label).toBe('Undo (restore with subtasks)')
     await action?.perform()
-    expect(vi.mocked(restoreTask)).toHaveBeenCalledWith(9)
+    expect(vi.mocked(restoreTask)).toHaveBeenCalledWith(9, true)
   })
 
   it('inverts complete_task with a reopen', () => {

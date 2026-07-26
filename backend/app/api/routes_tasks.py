@@ -279,15 +279,32 @@ def delete_task(task_id: EntityId, db: Session = Depends(get_db_write)) -> None:
 
 
 @router.post("/tasks/{task_id}/restore", response_model=TaskRead)
-def restore_task(task_id: EntityId, db: Session = Depends(get_db_write)) -> TaskRead:
+def restore_task(
+    task_id: EntityId,
+    restore_subtasks: bool = False,
+    db: Session = Depends(get_db_write),
+) -> TaskRead:
+    """Restore a trashed task.
+
+    With ``restore_subtasks=true`` this also restores exactly the descendants
+    that were cascade-trashed together with it, making it the true inverse of the
+    delete that removed them (the agent's per-tool-call Undo uses this). Default
+    stays root-only, the long-standing per-task trash behaviour.
+    """
     task = task_trash.get_deleted_task(db, task_id)
     if task is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No deleted task with that id",
         )
+    restored_subtask_count = 0
     try:
-        restored = task_trash.restore_task(db, task)
+        if restore_subtasks:
+            restored, restored_subtask_count = task_trash.restore_task_subtree(
+                db, task
+            )
+        else:
+            restored = task_trash.restore_task(db, task)
     except tasks_service.OccurrenceConflictError as exc:
         # A state conflict, not bad input: the date this occurrence wants is taken
         # by a live sibling. 409, not the 422 its RecurrenceError base would get.
@@ -296,7 +313,11 @@ def restore_task(task_id: EntityId, db: Session = Depends(get_db_write)) -> Task
         ) from exc
     db.commit()
     db.refresh(restored)
-    logger.info("task_restored", task_id=restored.id)
+    logger.info(
+        "task_restored",
+        task_id=restored.id,
+        restored_subtask_count=restored_subtask_count,
+    )
     return read_with_blocked(db, restored)
 
 

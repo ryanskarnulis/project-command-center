@@ -29,7 +29,7 @@ the MCP layer; a tool is (validate args) → (open session) → (call service) �
 | `update_task` | `tasks.update_task` | Partial update; inherits the service's cycle/derived-status/blocked checks. Recurrence `edit_scope` supported. |
 | `complete_task` | `tasks.mark_done` | Distinct from `update_task` — the service rejects direct `workflow_status` writes on parents and blocked tasks, and completion triggers recurrence spawning. |
 | `reopen_task` | `tasks.reopen_task` | |
-| `trash_task` | `tasks.soft_delete_task` | The only delete the agent gets. |
+| `trash_task` | `tasks.soft_delete_task` | The only delete the agent gets. Cascades over the subtask tree; undone with `restore_task(..., restore_subtasks=True)`. |
 
 ### Projects
 
@@ -49,7 +49,7 @@ the MCP layer; a tool is (validate args) → (open session) → (call service) �
 | `search` | `search.search` | FTS-tiered search over active projects/tasks. This is also the seed of the "agentic retrieval over FTS5" plan in `TODO.md` — no separate RAG tool needed yet. |
 | `get_focus_plan` | `focus.get_focus_plan` | `target_date` (default today), `start_time`, `available_minutes`. Read-only. |
 | `list_trash` | `task_trash.list_deleted_tasks` + `projects.list_deleted_projects` | |
-| `restore_task` / `restore_project` | `task_trash.restore_task` / `projects.restore_project` | Undo path for every agent delete. |
+| `restore_task` / `restore_project` | `task_trash.restore_task` (or `restore_task_subtree` with `restore_subtasks=True`) / `projects.restore_project` | Undo path for every agent delete. `restore_subtasks` brings back exactly the subtasks that cascade-trashed with the task, leaving separately-trashed ones alone. |
 | `list_activity` | `activity.list_events` | Lets the agent read its own (and the user's) audit trail. |
 
 ### Dependencies and recurrence
