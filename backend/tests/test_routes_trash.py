@@ -463,3 +463,183 @@ def test_lan_client_can_purge_project(
     # Destroyed: trash is empty for loopback too.
     trash = client.get("/api/trash").json()
     assert [p["id"] for p in trash["projects"]] == []
+
+
+# --- Purge lands in the audit trail (#170) ----------------------------------
+
+
+def _actions_for(db: Session, entity_type: str, entity_id: int) -> list[str]:
+    """Every recorded action for one entity, oldest first.
+
+    Queried by ``entity_type``/``entity_id`` rather than ``project_id`` on purpose:
+    purge nulls the project FK, so the entity coordinates are the only handle left
+    on a destroyed row's history.
+    """
+    return [
+        e.action
+        for e in db.execute(
+            select(ActivityEvent)
+            .where(
+                ActivityEvent.entity_type == entity_type,
+                ActivityEvent.entity_id == entity_id,
+            )
+            .order_by(ActivityEvent.id)
+        ).scalars()
+    ]
+
+
+def test_soft_delete_and_purge_are_distinguishable_in_the_audit_log(
+    client: TestClient, db_session: Session
+) -> None:
+    """The regression: a purged task's last event used to be "deleted".
+
+    That is indistinguishable from a task still sitting restorable in trash, so
+    the audit log couldn't answer "was this destroyed?".
+    """
+    pid = client.post("/api/projects", json={"name": "Firewall"}).json()["id"]
+    tid = client.post(f"/api/projects/{pid}/tasks", json={"title": "Patch"}).json()[
+        "id"
+    ]
+
+    client.delete(f"/api/tasks/{tid}")
+    assert _actions_for(db_session, "task", tid) == ["created", "deleted"]
+
+    assert client.delete(f"/api/tasks/{tid}/purge").status_code == 204
+    assert db_session.get(Task, tid) is None
+    assert _actions_for(db_session, "task", tid) == ["created", "deleted", "purged"]
+
+
+def test_purge_event_snapshots_the_title_and_keeps_actor_attribution(
+    client: TestClient, db_session: Session
+) -> None:
+    tid = client.post("/api/tasks", json={"title": "Rotate keys"}).json()["id"]
+    client.delete(f"/api/tasks/{tid}")
+    client.delete(f"/api/tasks/{tid}/purge")
+
+    event = db_session.execute(
+        select(ActivityEvent).where(
+            ActivityEvent.entity_type == "task",
+            ActivityEvent.entity_id == tid,
+            ActivityEvent.action == "purged",
+        )
+    ).scalar_one()
+    # The title lives on only in the summary once the row is gone.
+    assert "Rotate keys" in event.summary
+    # Requests from the UI/API are the user: actor stays NULL, same as every
+    # other user-driven event.
+    assert event.actor is None
+
+
+def test_agent_actor_is_preserved_on_purge(db_session: Session) -> None:
+    from app.services import activity, task_trash, tasks
+
+    task = tasks.create_task(db_session, project_id=None, title="Agent's doing")
+    soft_delete(task)
+    db_session.flush()
+
+    token = activity.current_actor.set("agent:mcp")
+    try:
+        task_trash.purge_task(db_session, task)
+    finally:
+        activity.current_actor.reset(token)
+    db_session.commit()
+
+    event = db_session.execute(
+        select(ActivityEvent).where(
+            ActivityEvent.entity_type == "task", ActivityEvent.action == "purged"
+        )
+    ).scalar_one()
+    assert event.actor == "agent:mcp"
+
+
+def test_purging_a_parent_audits_every_cascaded_subtree_task(
+    client: TestClient, db_session: Session
+) -> None:
+    parent = client.post("/api/tasks", json={"title": "Parent"}).json()["id"]
+    child = client.post(
+        "/api/tasks", json={"title": "Child", "parent_task_id": parent}
+    ).json()["id"]
+    client.delete(f"/api/tasks/{parent}")
+
+    assert client.delete(f"/api/tasks/{parent}/purge").status_code == 204
+    # The child was destroyed by the cascade, so it needs its own purge event —
+    # nothing else records that it ceased to exist.
+    assert _actions_for(db_session, "task", parent)[-1] == "purged"
+    assert _actions_for(db_session, "task", child)[-1] == "purged"
+
+
+def test_purging_a_project_audits_the_project_and_its_owned_tasks(
+    client: TestClient, db_session: Session
+) -> None:
+    pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
+    tid = client.post(f"/api/projects/{pid}/tasks", json={"title": "Owned"}).json()[
+        "id"
+    ]
+    client.delete(f"/api/projects/{pid}")
+    # Re-file the rehomed task under the trashed project so purge owns it.
+    task = db_session.get(Task, tid)
+    assert task is not None
+    task.project_id = pid
+    soft_delete(task)
+    db_session.commit()
+
+    assert client.delete(f"/api/projects/{pid}/purge").status_code == 204
+
+    assert _actions_for(db_session, "project", pid)[-1] == "purged"
+    assert _actions_for(db_session, "task", tid)[-1] == "purged"
+    # The FK into a destroyed project cannot survive, so the purge event points at
+    # the project through entity_id only; project_id is nulled with the rest of
+    # the project's history.
+    purge_event = db_session.execute(
+        select(ActivityEvent).where(
+            ActivityEvent.entity_type == "project",
+            ActivityEvent.entity_id == pid,
+            ActivityEvent.action == "purged",
+        )
+    ).scalar_one()
+    assert purge_event.project_id is None
+    assert "Doomed" in purge_event.summary
+
+
+def test_empty_trash_audits_every_row_it_removes(
+    client: TestClient, db_session: Session
+) -> None:
+    pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
+    cascade = client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "Cascade"}
+    ).json()["id"]
+    standalone = client.post("/api/tasks", json={"title": "Standalone"}).json()["id"]
+    client.delete(f"/api/projects/{pid}")  # cascade-soft-deletes its task
+    client.delete(f"/api/tasks/{standalone}")
+
+    counts = client.delete("/api/trash").json()
+    assert counts == {"projects": 1, "tasks": 2}
+
+    purged = [
+        (e.entity_type, e.entity_id)
+        for e in db_session.execute(
+            select(ActivityEvent).where(ActivityEvent.action == "purged")
+        ).scalars()
+    ]
+    # One event per removed row, and no more: the counts and the audit agree.
+    assert sorted(purged) == sorted(
+        [("project", pid), ("task", cascade), ("task", standalone)]
+    )
+
+
+def test_purge_selected_audits_only_the_rows_it_actually_removes(
+    client: TestClient, db_session: Session
+) -> None:
+    doomed = client.post("/api/tasks", json={"title": "Doomed"}).json()["id"]
+    spared = client.post("/api/tasks", json={"title": "Spared"}).json()["id"]
+    client.delete(f"/api/tasks/{doomed}")
+    client.delete(f"/api/tasks/{spared}")
+
+    resp = client.post(
+        "/api/trash/purge", json={"project_ids": [], "task_ids": [doomed, 999999]}
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"projects": 0, "tasks": 1}
+
+    assert _actions_for(db_session, "task", doomed)[-1] == "purged"
+    assert _actions_for(db_session, "task", spared) == ["created", "deleted"]

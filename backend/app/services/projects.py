@@ -424,6 +424,20 @@ def purge_project(db: Session, project: Project) -> None:
         if task is not None:
             task_trash.purge_task(db, task)
 
+    # Audited before the row is destroyed, and before the ``project_id`` null-out
+    # below sweeps it up with the rest of this project's history: the FK forbids
+    # keeping the reference, so the purge event identifies the project through
+    # ``entity_id`` (a plain column, not a FK) plus the name snapshotted into the
+    # summary.
+    activity.record_event(
+        db,
+        project_id=project.id,
+        entity_type="project",
+        entity_id=project.id,
+        action="purged",
+        summary=f'Project "{project.name}" permanently deleted',
+    )
+
     db.execute(
         update(ActivityEvent)
         .where(ActivityEvent.project_id == project.id)
