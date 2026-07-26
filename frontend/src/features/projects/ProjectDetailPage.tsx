@@ -50,7 +50,11 @@ export function ProjectDetailPage() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [tasksLoadedProjectId, setTasksLoadedProjectId] = useState<number | null>(null)
   const [tasksError, setTasksError] = useState<string | null>(null)
-  const [doneCount, setDoneCount] = useState(0)
+  // Completed-task count tagged with the project it was loaded for. The count
+  // is best-effort (a failure is swallowed), so an untagged number would keep
+  // showing the previous project's progress — indefinitely if the new
+  // project's request fails. Only a count whose id matches the route counts.
+  const [doneCount, setDoneCount] = useState<{ projectId: number; count: number } | null>(null)
   const [loadedProjectId, setLoadedProjectId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -125,7 +129,7 @@ export function ProjectDetailPage() {
   useEffect(() => {
     let active = true
     listCompletedTasks(id)
-      .then((data) => { if (active) setDoneCount(data.length) })
+      .then((data) => { if (active) setDoneCount({ projectId: id, count: data.length }) })
       .catch(() => { /* best-effort */ })
     return () => { active = false }
   }, [id, tasksReloadKey, taskRefreshVersion])
@@ -253,7 +257,8 @@ export function ProjectDetailPage() {
 
   const currentTasks = tasksLoadedProjectId === id ? tasks : []
   const tasksLoading = tasksLoadedProjectId !== id
-  const stats = buildProjectStats(currentTasks, doneCount)
+  const currentDoneCount = doneCount?.projectId === id ? doneCount.count : 0
+  const stats = buildProjectStats(currentTasks, currentDoneCount)
   const taskTree = buildTaskTree(currentTasks)
   const currentSaveState = saveProjectId === id ? saveState : 'idle'
   const currentSaveError = saveProjectId === id ? saveError : null
