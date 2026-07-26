@@ -57,7 +57,14 @@ def get_deleted_task(db: Session, task_id: int) -> Task | None:
     ).scalar_one_or_none()
 
 
-def restore_task(db: Session, task: Task) -> Task:
+def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> Task:
+    """Restore one trashed task.
+
+    ``defer_reconcile`` suppresses the recurrence reconciliation this restore
+    would normally run, leaving it to the caller (see ``restore_task_subtree``).
+    It only applies to the plain-restore path: the un-skip rewind below rewrites
+    and destroys rows as one atomic correction and must settle immediately.
+    """
     # Un-skip: if this occurrence's series still has a live occurrence, restoring
     # must NOT add a second one (that's the duplicate-series bug). Pull the live
     # occurrence's date (and its subtasks') back to the restored occurrence's date,
@@ -139,8 +146,12 @@ def restore_task(db: Session, task: Task) -> Task:
     # and a restored done child can complete an ancestor's roll-up. Seeding the
     # restored id covers both — reconcile climbs the parent chain and fans out to
     # dependents itself. Idempotent, so restoring an open task is a cheap no-op.
-    reconcile(db, [task.id])
-    db.flush()
+    #
+    # A cascade restore defers this: reconciling mid-cascade judges the series
+    # against a half-restored subtree (BUG #199).
+    if not defer_reconcile:
+        reconcile(db, [task.id])
+        db.flush()
     db.refresh(task)
     log_task_event(db, task, "restored")
     return task
@@ -165,7 +176,14 @@ def restore_task_subtree(db: Session, task: Task) -> tuple[Task, int]:
 
     Returns the restored root and the number of descendants restored with it.
     Each row goes through ``restore_task``, so every one gets its own
-    ``restored`` activity event, recurrence reconciliation and rehoming.
+    ``restored`` activity event and rehoming.
+
+    Recurrence, however, is reconciled **once, after the whole subtree is back**
+    (BUG #199). Reconciling per-row meant the root — restored first, while its
+    open children were still deleted and therefore invisible to the roll-up —
+    looked effectively done and advanced its series; the checklist then came
+    back open behind an already-spawned successor. Deferring to the final state
+    keeps the invariant that a successor follows *effective* completion.
     """
     marked_ids = list(
         db.execute(
@@ -179,7 +197,8 @@ def restore_task_subtree(db: Session, task: Task) -> tuple[Task, int]:
         .scalars()
         .all()
     )
-    root = restore_task(db, task)
+    root = restore_task(db, task, defer_reconcile=True)
+    restored_ids = [root.id]
     restored_count = 0
     for descendant_id in marked_ids:
         # Re-read: restoring an un-skipped occurrence root purges rows, so a
@@ -187,8 +206,15 @@ def restore_task_subtree(db: Session, task: Task) -> tuple[Task, int]:
         descendant = get_deleted_task(db, descendant_id)
         if descendant is None:
             continue
-        restore_task(db, descendant)
+        restored = restore_task(db, descendant, defer_reconcile=True)
+        restored_ids.append(restored.id)
         restored_count += 1
+    # Now that the subtree is whole again, judge the series once against the
+    # final effective state. Seeding every restored id keeps the fan-out the
+    # per-row reconciles used to provide (ancestors and dependents included).
+    reconcile(db, restored_ids)
+    db.flush()
+    db.refresh(root)
     return root, restored_count
 
 
