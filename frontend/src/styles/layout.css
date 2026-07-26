@@ -5,13 +5,43 @@
   min-height: 100svh;
 }
 
+.brand-cluster {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* In-topbar back-to-gateway button (GatewayLink.tsx). Same look as the
+   floating button in chess/conductor, but it sits in the header because
+   PCC already has one. Renders nothing on localhost/IP dev. */
+.gateway-link {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface-veil, rgba(15, 19, 29, 0.9));
+  border: 1px solid var(--border);
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+
+.gateway-link:hover,
+.gateway-link:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--blue-soft);
+}
+
+.gateway-link img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: block;
+}
+
 .brand-mark {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.brand-text {
   color: inherit;
   text-decoration: none;
 }
@@ -48,8 +78,7 @@
   display: block;
 }
 
-.brand-icon:hover,
-.brand-icon:focus-visible {
+.brand-mark:hover .brand-icon {
   background: var(--blue-soft);
 }
 

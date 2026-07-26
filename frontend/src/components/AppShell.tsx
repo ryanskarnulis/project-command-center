@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom'
 import { useTrashCount } from '../features/trash/trashCountContext'
 import { CommandSearch } from '../features/search/CommandSearch'
 import { CheckSquare, Sun, Trash2 } from 'lucide-react'
+import { GatewayLink } from './GatewayLink'
 import { GlitchMark } from './GlitchMark'
 
 interface AppShellProps {
@@ -15,43 +16,26 @@ const topbarNav = [
   { to: '/agent', label: 'Agent', icon: GlitchMark },
 ]
 
-// The gateway launcher serves the apex of whatever domain served this app
-// (tasks.home.example → home.example). On localhost/IP dev there is no
-// gateway, so the brand icon falls back to the dashboard link.
-const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/
-
-function gatewayUrl(): string | null {
-  const { hostname, port, protocol } = window.location
-  const labels = hostname.split('.')
-  if (labels.length <= 1 || IPV4.test(hostname)) return null
-  return `${protocol}//${labels.slice(1).join('.')}${port ? `:${port}` : ''}/`
-}
-
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? 'shell-nav-link active' : 'shell-nav-link'
 }
 
 export function AppShell({ children }: AppShellProps) {
   const { count: trashCount } = useTrashCount()
-  const gateway = gatewayUrl()
-  const brandIcon = <img src="/web.png" alt="" width={32} height={32} />
 
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand-mark">
-          {gateway ? (
-            <a className="brand-icon" href={gateway} aria-label="Back to The Web" title="The Web">
-              {brandIcon}
-            </a>
-          ) : (
-            <NavLink to="/dashboard" className="brand-icon" aria-label="Dashboard">
-              {brandIcon}
-            </NavLink>
-          )}
-          <NavLink to="/dashboard" className="brand-text" aria-label="Command Center">
-            <strong>Project</strong>
-            <span>Command Center</span>
+        <div className="brand-cluster">
+          <GatewayLink />
+          <NavLink to="/dashboard" className="brand-mark" aria-label="Command Center">
+            <span className="brand-icon">
+              <img src="/web.png" alt="" width={32} height={32} />
+            </span>
+            <span className="brand-text">
+              <strong>Project</strong>
+              <span>Command Center</span>
+            </span>
           </NavLink>
         </div>
 
