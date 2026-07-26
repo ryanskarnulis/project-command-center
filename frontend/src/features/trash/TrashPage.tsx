@@ -137,20 +137,21 @@ export function TrashPage() {
 
   // Purge is irreversible (it really deletes the row), so every purge path is
   // gated by an explicit confirm naming what's about to go.
-  // A project purge also destroys every task archived with it, so the confirm
-  // names those rows instead of implying only the project goes (BUG #184).
+  // A project purge also destroys every trashed task the project owns — the ones
+  // archived with it AND any the user trashed independently — so the confirm
+  // names that full set rather than the narrower restore count (BUG #184, #189).
   const confirmPurge = (
     kind: TrashKind,
     id: number,
     label: string,
-    cascadeTaskCount = 0,
+    purgeTaskCount = 0,
   ) => {
     const scope =
-      cascadeTaskCount > 0
-        ? `“${label}” and the ${cascadeTaskCount} task${cascadeTaskCount === 1 ? '' : 's'} archived with it`
+      purgeTaskCount > 0
+        ? `“${label}” and the ${purgeTaskCount} trashed task${purgeTaskCount === 1 ? '' : 's'} it owns`
         : `“${label}”`
     if (window.confirm(`Permanently delete ${scope}? This cannot be undone.`)) {
-      void purgeById(kind, id, label, cascadeTaskCount)
+      void purgeById(kind, id, label, purgeTaskCount)
     }
   }
 
@@ -179,15 +180,16 @@ export function TrashPage() {
 
   // Bulk-purge is irreversible, so confirm with the count first — and for
   // projects that count has to include the tasks archived with them, which the
-  // purge destroys too (BUG #184). Cascade tasks aren't trash rows of their own,
-  // so they can't already be in the selection: no double counting.
+  // purge destroys too — every trashed task they own, not just the cascade ones
+  // (BUG #184, #189). A project's owned trashed tasks are counted once here; the
+  // tasks section is confirmed separately, so there's no double counting.
   const purgeSelected = (kind: TrashKind, items: RestoreItem[]) => {
     if (items.length === 0) return
-    const cascadeTasks = items.reduce((sum, i) => sum + (i.archivedTaskCount ?? 0), 0)
+    const cascadeTasks = items.reduce((sum, i) => sum + (i.purgeTaskCount ?? 0), 0)
     const total = items.length + cascadeTasks
     const scope =
       cascadeTasks > 0
-        ? `${total} item${total === 1 ? '' : 's'} (${items.length} project${items.length === 1 ? '' : 's'} and ${cascadeTasks} archived task${cascadeTasks === 1 ? '' : 's'})`
+        ? `${total} item${total === 1 ? '' : 's'} (${items.length} project${items.length === 1 ? '' : 's'} and ${cascadeTasks} trashed task${cascadeTasks === 1 ? '' : 's'})`
         : `${total} item${total === 1 ? '' : 's'}`
     if (window.confirm(`Permanently delete ${scope}? This cannot be undone.`)) {
       clearSelection(kind)
@@ -238,6 +240,7 @@ export function TrashPage() {
     id: p.id,
     label: p.name,
     archivedTaskCount: p.archived_task_count,
+    purgeTaskCount: p.purge_task_count,
   }))
   const taskItems: RestoreItem[] = tasks.map((t) => ({ id: t.id, label: t.title }))
   // The subset of each section currently checked (intersected with what's shown).
@@ -396,7 +399,7 @@ export function TrashPage() {
                               'projects',
                               project.id,
                               project.name,
-                              project.archived_task_count,
+                              project.purge_task_count,
                             )
                           }
                         >

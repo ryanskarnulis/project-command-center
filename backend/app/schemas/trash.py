@@ -11,11 +11,15 @@ class ProjectTrashRead(ProjectRead):
     """A trashed project plus how many tasks would return if restored with it.
 
     ``archived_task_count`` is the set cascade-soft-deleted with the project (it
-    drives the restore confirm). Only used by the trash list, so the shared
-    ``ProjectRead`` stays unchanged.
+    drives the restore confirm). ``purge_task_count`` is the wider set a purge
+    destroys — every trashed task the project still owns, including ones the user
+    trashed independently — so the irreversible confirm can't understate its scope
+    (BUG #189). Only used by the trash list, so the shared ``ProjectRead`` stays
+    unchanged.
     """
 
     archived_task_count: int = 0
+    purge_task_count: int = 0
 
 
 class TrashRead(BaseModel):

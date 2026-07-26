@@ -153,9 +153,25 @@ def _deleted_subtree_depth_first(db: Session, task: Task) -> list[Task]:
     (``PRAGMA foreign_keys = ON``), so that dangle would *raise*; children-first
     ordering lets the caller delete in a single pass without tripping the
     self-referential FK.
+
+    The walk is **scoped to the root's project** (BUG #189). Task hierarchies may
+    cross project boundaries, so an unscoped walk let a purge reach out of the
+    project the user selected and permanently destroy a trashed task owned by a
+    different, still-active project — work that was independently restorable from
+    that project's trash. A descendant in another project is left alone (and cut
+    loose by ``purge_task``'s detach step, so no FK dangles); the walk stops
+    there, since anything below it hangs off a row that survives.
     """
+    scope = task.project_id
     children = (
-        db.execute(deleted(Task).where(Task.parent_task_id == task.id))
+        db.execute(
+            deleted(Task).where(
+                Task.parent_task_id == task.id,
+                Task.project_id.is_(None)
+                if scope is None
+                else Task.project_id == scope,
+            )
+        )
         .scalars()
         .all()
     )
@@ -204,8 +220,10 @@ def purge_task(db: Session, task: Task) -> None:
 
     Cleans the real FK edges first: dependency rows on either side of any subtree
     task, and any stray ``parent_task_id`` from a row outside the purge set (e.g. a
-    child that was individually restored while its parent stayed in trash). The
-    caller is responsible for committing.
+    child that was individually restored while its parent stayed in trash, or a
+    trashed child owned by another project, which the scoped subtree walk leaves
+    behind — see ``_deleted_subtree_depth_first``). The caller is responsible for
+    committing.
 
     Every node in the subtree gets its own ``purged`` audit event *before* the
     row is destroyed — the audit trail must distinguish a restorable soft delete

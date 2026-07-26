@@ -4,6 +4,8 @@ import type { Task } from './task'
 export interface TrashProject extends Project {
   /** Tasks cascade-deleted with this project that would return if restored with it. */
   archived_task_count: number
+  /** Every trashed task this project owns — the set a purge permanently destroys. */
+  purge_task_count: number
 }
 
 export interface Trash {
