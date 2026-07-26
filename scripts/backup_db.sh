@@ -21,6 +21,13 @@ DB_PATH="${REPO_ROOT}/data/app.db"
 BACKUP_DIR="${REPO_ROOT}/data/backups"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 
+# shellcheck source=scripts/backup_retention.sh
+source "${SCRIPT_DIR}/backup_retention.sh"
+
+# Validate up front: a bad retention value must never reach the prune step,
+# and must not leave behind a half-done run either.
+validate_retention_days "${RETENTION_DAYS}" || exit 1
+
 PYTHON="${PYTHON:-python3}"
 if ! command -v "${PYTHON}" >/dev/null 2>&1; then
   echo "backup_db.sh: ${PYTHON} not found on PATH" >&2
@@ -53,4 +60,4 @@ PY
 echo "backup_db.sh: wrote ${DEST}"
 
 # Prune backups older than the retention window.
-find "${BACKUP_DIR}" -maxdepth 1 -name 'app-*.db' -type f -mtime "+${RETENTION_DAYS}" -delete
+prune_backups "${BACKUP_DIR}" "${RETENTION_DAYS}"
