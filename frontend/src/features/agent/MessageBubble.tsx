@@ -38,7 +38,7 @@ export function MessageBubble({ message }: { message: AgentMessage }) {
   return (
     <li className="agent-message agent-message--assistant">
       <span className="agent-avatar" aria-hidden="true">
-        <GlitchMark size={16} />
+        <GlitchMark size={20} />
       </span>
       <div className="agent-message-body">
         {message.tool_calls !== null && message.tool_calls.length > 0 && (

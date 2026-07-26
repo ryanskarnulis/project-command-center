@@ -193,7 +193,7 @@ export function AgentPage() {
       <section className="agent-thread" aria-label="Agent chat">
         {activeId === null ? (
           <div className="agent-thread-empty">
-            <GlitchMark size={22} />
+            <GlitchMark size={28} />
             <h1>Agent</h1>
             <p>
               Ask for anything your projects need — “create a task…”, “what’s

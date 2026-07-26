@@ -12,7 +12,7 @@ export function PendingExchange({ text }: { text: string }) {
       </li>
       <li className="agent-message agent-message--assistant">
         <span className="agent-avatar" aria-hidden="true">
-          <GlitchMark size={16} className="agent-spider-working" />
+          <GlitchMark size={20} className="agent-spider-working" />
         </span>
         <div className="agent-message-body">
           <div className="agent-bubble agent-bubble--working" role="status">
