@@ -45,7 +45,7 @@ export function AppShell({ children }: AppShellProps) {
               {brandIcon}
             </a>
           ) : (
-            <NavLink to="/dashboard" className="brand-icon" aria-label="Command Center">
+            <NavLink to="/dashboard" className="brand-icon" aria-label="Dashboard">
               {brandIcon}
             </NavLink>
           )}
