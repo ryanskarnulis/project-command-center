@@ -4,7 +4,15 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
 import { listDependencies, listDependents } from '../../api/taskDependencies'
-import { getSubtasks, getTask, listAllTasks, updateTask } from '../../api/tasks'
+import {
+  createUnscopedTask,
+  deleteTask,
+  getSubtasks,
+  getTask,
+  listAllTasks,
+  skipOccurrence,
+  updateTask,
+} from '../../api/tasks'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { todayISO } from '../../utils/dates'
@@ -16,8 +24,15 @@ vi.mock('../../api/tasks', () => ({
   getSubtasks: vi.fn(),
   getTask: vi.fn(),
   listAllTasks: vi.fn(),
+  skipOccurrence: vi.fn(),
   updateTask: vi.fn(),
 }))
+
+const mockNavigate = vi.fn()
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return { ...actual, useNavigate: () => mockNavigate }
+})
 
 vi.mock('../../api/projects', () => ({
   listProjects: vi.fn(),
@@ -70,6 +85,9 @@ const mockListProjects = vi.mocked(listProjects)
 const mockListDependencies = vi.mocked(listDependencies)
 const mockListDependents = vi.mocked(listDependents)
 const mockUpdateTask = vi.mocked(updateTask)
+const mockCreateUnscopedTask = vi.mocked(createUnscopedTask)
+const mockDeleteTask = vi.mocked(deleteTask)
+const mockSkipOccurrence = vi.mocked(skipOccurrence)
 
 function renderDetail() {
   return render(
@@ -310,6 +328,135 @@ describe('TaskDetailView', () => {
 
     expect(screen.getByLabelText('Task title')).toHaveValue('Task B')
     expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+  })
+
+  it('discards a subtask create that lands after switching to another task', async () => {
+    const user = userEvent.setup()
+    const taskB: Task = { ...task, id: 8, title: 'Task B' }
+    const child: Task = { ...task, id: 21, title: 'Child of A', parent_task_id: 7 }
+    let resolveCreate!: (value: Task) => void
+    mockCreateUnscopedTask.mockImplementation(
+      () => new Promise<Task>((resolve) => { resolveCreate = resolve }),
+    )
+    // A's refresh would publish A's title over B if the guard were missing.
+    mockGetTask.mockImplementation(async (id: number) =>
+      id === 8 ? taskB : { ...task, title: 'Task A refreshed', has_subtasks: true },
+    )
+    mockListAllTasks.mockResolvedValue([task, taskB])
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <TaskDetailView taskId={7} />
+      </MemoryRouter>,
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'Add subtask' }))
+    // Submit from the title field: the dependency section has an 'Add' button too.
+    await user.type(screen.getByPlaceholderText('Subtask title'), 'Child of A{Enter}')
+    await waitFor(() => expect(mockCreateUnscopedTask).toHaveBeenCalledTimes(1))
+
+    rerender(
+      <MemoryRouter>
+        <TaskDetailView taskId={8} />
+      </MemoryRouter>,
+    )
+    await waitFor(() =>
+      expect(screen.getByLabelText('Task title')).toHaveValue('Task B'),
+    )
+
+    await act(async () => {
+      resolveCreate(child)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(screen.getByLabelText('Task title')).toHaveValue('Task B')
+    expect(screen.queryByText('Child of A')).not.toBeInTheDocument()
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument()
+  })
+
+  it('does not navigate when a skip lands after switching to another task', async () => {
+    const user = userEvent.setup()
+    const recurring: Task = {
+      ...task,
+      due_date: '2026-07-10',
+      recurrence_id: 'abc123',
+      repeat_interval: { unit: 'week', every: 1 },
+    }
+    const taskB: Task = { ...task, id: 8, title: 'Task B' }
+    let resolveSkip!: (value: Task) => void
+    mockSkipOccurrence.mockImplementation(
+      () => new Promise<Task>((resolve) => { resolveSkip = resolve }),
+    )
+    mockGetTask.mockImplementation(async (id: number) => (id === 8 ? taskB : recurring))
+    mockListAllTasks.mockResolvedValue([recurring, taskB])
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <TaskDetailView taskId={7} />
+      </MemoryRouter>,
+    )
+
+    await user.click(await screen.findByRole('button', { name: /Skip this occurrence/ }))
+    await user.click(screen.getByRole('button', { name: 'Skip occurrence' }))
+    await waitFor(() => expect(mockSkipOccurrence).toHaveBeenCalledTimes(1))
+
+    rerender(
+      <MemoryRouter>
+        <TaskDetailView taskId={8} />
+      </MemoryRouter>,
+    )
+    await waitFor(() =>
+      expect(screen.getByLabelText('Task title')).toHaveValue('Task B'),
+    )
+
+    await act(async () => {
+      resolveSkip({ ...recurring, id: 31, due_date: '2026-07-17' })
+      await Promise.resolve()
+    })
+
+    // The surface stayed on B: no repoint to A's next occurrence.
+    expect(mockNavigate).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Task title')).toHaveValue('Task B')
+  })
+
+  it('does not close the panel when a delete lands after switching to another task', async () => {
+    const user = userEvent.setup()
+    const taskB: Task = { ...task, id: 8, title: 'Task B' }
+    const onClose = vi.fn()
+    let resolveDelete!: () => void
+    mockDeleteTask.mockImplementation(
+      () => new Promise<void>((resolve) => { resolveDelete = resolve }),
+    )
+    mockGetTask.mockImplementation(async (id: number) => (id === 8 ? taskB : task))
+    mockListAllTasks.mockResolvedValue([task, taskB])
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <TaskDetailView taskId={7} onClose={onClose} />
+      </MemoryRouter>,
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(mockDeleteTask).toHaveBeenCalledTimes(1))
+
+    rerender(
+      <MemoryRouter>
+        <TaskDetailView taskId={8} onClose={onClose} />
+      </MemoryRouter>,
+    )
+    await waitFor(() =>
+      expect(screen.getByLabelText('Task title')).toHaveValue('Task B'),
+    )
+
+    await act(async () => {
+      resolveDelete()
+      await Promise.resolve()
+    })
+
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Task title')).toHaveValue('Task B')
   })
 
   it('saves friendly estimate text from the estimate chip', async () => {

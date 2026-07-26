@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useMemo, useState } from 'react'
+import { type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, Circle, PlayCircle, SkipForward, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { createUnscopedTask, deleteTask, getSubtasks, getTask, listAllTasks, skipOccurrence } from '../../api/tasks'
@@ -102,6 +102,39 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
   const [addingSubtask, setAddingSubtask] = useState(false)
   const [confirmingSkip, setConfirmingSkip] = useState(false)
 
+  // Page-level mutations (subtask create, skip, delete) are long-running and can
+  // outlive the task they were started for — the same hazard `useScopedTaskUpdate`
+  // guards for PATCHes. Every such operation takes a generation and the task id it
+  // was issued for; only the newest operation, still on its own task, may publish
+  // state, touch the save line, close the panel, or navigate.
+  const latestOperationId = useRef(0)
+  const activeTaskId = useRef(id)
+  useLayoutEffect(() => {
+    activeTaskId.current = id
+    // Switching tasks retires every pending operation, including one issued for a
+    // task we later switch back to.
+    latestOperationId.current += 1
+  }, [id])
+
+  // The previous task's transient prompts belong to a task that is no longer on
+  // screen; switching retires them along with its pending operations. Done during
+  // render (the `useScopedTaskUpdate` pattern) rather than in an effect, so the
+  // switch never renders one frame of the old task's composer.
+  const [renderedTaskId, setRenderedTaskId] = useState(id)
+  if (renderedTaskId !== id) {
+    setRenderedTaskId(id)
+    setAddingSubtask(false)
+    setConfirmingSkip(false)
+  }
+
+  /** Start an operation; the returned predicate says whether it may still act. */
+  function beginOperation(): () => boolean {
+    const operationTaskId = id
+    const operationId = ++latestOperationId.current
+    return () =>
+      operationId === latestOperationId.current && operationTaskId === activeTaskId.current
+  }
+
   function applyUpdated(updated: Task) {
     // Final boundary: a response that outlived a switch to another task must
     // never become the surface's task, even if it slipped past the hook.
@@ -174,6 +207,7 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
 
   async function handleSkip() {
     if (!task) return
+    const isCurrent = beginOperation()
     setConfirmingSkip(false)
     setSaveState('saving')
     setSaveError(null)
@@ -182,10 +216,12 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
       // series forward so the user lands on the live task, not a deleted row.
       // In a panel, repoint with replace: Back must not land on the deleted row.
       const next = await skipOccurrence(task.id)
+      if (!isCurrent()) return
       onMutated?.()
       if (panel) panel.openTask(next.id, { replace: true })
       else navigate(`/tasks/${next.id}`)
     } catch (e: unknown) {
+      if (!isCurrent()) return
       setSaveState('error')
       setSaveError(e instanceof Error ? e.message : 'Failed to skip occurrence')
     }
@@ -215,19 +251,26 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
 
   async function handleAddSubtask(data: TaskCreate) {
     if (!task) return
+    const isCurrent = beginOperation()
+    const parentId = task.id
     setSaveState('saving')
     setSaveError(null)
     try {
       const created = await createUnscopedTask(data)
+      if (!isCurrent()) return
       setSubtasks((items) => [...items, created])
       setAllTasks((items) => [...items, created])
       // The parent's estimate/status/has_subtasks are now derived — refresh it so
       // the read-only gating and rolled-up values reflect the new subtask.
-      setTask(await getTask(task.id))
+      const refreshed = await getTask(parentId)
+      // Two awaits, two chances to be outrun: re-check, and let applyUpdated make
+      // the final id assertion before the refreshed parent becomes the surface.
+      if (!isCurrent()) return
+      applyUpdated(refreshed)
       setAddingSubtask(false)
       setSaveState('saved')
-      onMutated?.()
     } catch (e: unknown) {
+      if (!isCurrent()) return
       setSaveState('error')
       setSaveError(e instanceof Error ? e.message : 'Failed to add subtask')
     }
@@ -235,15 +278,20 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
 
   async function handleDelete() {
     if (!task) return
+    const isCurrent = beginOperation()
     setSaveState('saving')
     setSaveError(null)
     try {
       await deleteTask(task.id)
+      // The trash count and the host list reflect the delete regardless of what
+      // is on screen now; only the close/navigate belongs to the initiating task.
       void refreshTrashCount()
       onMutated?.()
+      if (!isCurrent()) return
       if (onClose) onClose()
       else navigate('/tasks')
     } catch (e: unknown) {
+      if (!isCurrent()) return
       setSaveState('error')
       setSaveError(e instanceof Error ? e.message : 'Failed to delete task')
     }
