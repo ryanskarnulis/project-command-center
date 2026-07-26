@@ -16,8 +16,14 @@ creation fail. They are resolved first, non-destructively: on each conflicting
 ``(recurrence_id, due_date)`` the lowest ``id`` stays active and the rest are
 *soft*-deleted into the trash (no hard deletes — CLAUDE.md prime directive 2),
 each with an ``activity_events`` row so the move is auditable and the row is
-discoverable and restorable. Restoring one now raises ``OccurrenceConflictError``
+discoverable and restorable. The trash move cascades to the duplicate's active
+descendants, matching ``services/tasks.soft_delete_task``, so a duplicate
+recurring *checklist* can't leave its cloned subtasks live under a trashed
+parent. Restoring one now raises ``OccurrenceConflictError``
 until its date is free, which is the point.
+
+Databases that ran the pre-cascade version of this revision are healed by
+``9f2ce6b4d1a7``.
 
 Revision ID: 3ab1c74d9e02
 Revises: 05f72f546249
@@ -36,9 +42,18 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 # The duplicate active occurrences, excluding the survivor (lowest id) on each
-# (recurrence_id, due_date). Shared by the audit-log insert and the soft delete so
-# the two can't drift.
-_DUPLICATES = """
+# (recurrence_id, due_date), plus their still-active descendants. A duplicate
+# occurrence can be a recurring *checklist* whose cloned subtasks are live rows
+# beneath it; trashing only the parent would leave them active under a trashed
+# parent, which the read model promotes to effective top-level work.
+# ``services/tasks.soft_delete_task`` cascades the whole subtree, and this heal
+# has to match that invariant. Recursion is confined to descendants of the rows
+# being trashed, so unrelated effective orphans are untouched. ``UNION`` (not
+# ``UNION ALL``) also makes a corrupt parent cycle terminate.
+#
+# Shared by the audit-log insert and the soft delete so the two can't drift.
+_CLOSURE_CTE = """
+WITH RECURSIVE duplicates(id) AS (
     SELECT t.id FROM tasks t
     WHERE t.recurrence_id IS NOT NULL
       AND t.due_date IS NOT NULL
@@ -49,6 +64,15 @@ _DUPLICATES = """
             AND o.due_date = t.due_date
             AND o.deleted_at IS NULL
       )
+),
+doomed(id, is_duplicate) AS (
+    SELECT id, 1 FROM duplicates
+    UNION
+    SELECT t.id, 0 FROM tasks t
+    JOIN doomed d ON t.parent_task_id = d.id
+    WHERE t.deleted_at IS NULL
+      AND t.id NOT IN (SELECT id FROM duplicates)
+)
 """
 
 
@@ -57,6 +81,7 @@ def upgrade() -> None:
     # and it reads the title, so it can't be reconstructed afterwards.
     op.execute(
         f"""
+        {_CLOSURE_CTE}
         INSERT INTO activity_events
             (project_id, entity_type, entity_id, action, summary, actor, created_at, updated_at)
         SELECT
@@ -64,19 +89,22 @@ def upgrade() -> None:
             'task',
             t.id,
             'deleted',
-            'Task "' || t.title || '" moved to trash: duplicate recurring '
-                || 'occurrence for the same due date',
+            'Task "' || t.title || '" moved to trash: '
+                || CASE WHEN d.is_duplicate = 1
+                        THEN 'duplicate recurring occurrence for the same due date'
+                        ELSE 'parent occurrence was a duplicate for the same due date'
+                   END,
             NULL,
             CURRENT_TIMESTAMP,
             CURRENT_TIMESTAMP
-        FROM tasks t
-        WHERE t.id IN ({_DUPLICATES})
+        FROM doomed d JOIN tasks t ON t.id = d.id
         """
     )
     op.execute(
         f"""
+        {_CLOSURE_CTE}
         UPDATE tasks SET deleted_at = CURRENT_TIMESTAMP
-        WHERE id IN ({_DUPLICATES})
+        WHERE id IN (SELECT id FROM doomed)
         """
     )
     op.create_index(

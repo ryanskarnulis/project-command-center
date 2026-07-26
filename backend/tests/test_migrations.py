@@ -129,3 +129,188 @@ def test_active_occurrence_migration_resolves_existing_duplicates(
         task_id for task_id, in trashed
     }
     assert all("duplicate recurring" in summary for _e, _a, summary in events)
+
+
+def test_active_occurrence_migration_cascades_to_checklist_subtasks(
+    tmp_path: Path,
+) -> None:
+    """A duplicate recurring *checklist* takes its live subtasks to the trash with it.
+
+    Trashing only the duplicate parent left its cloned subtasks active beneath a
+    trashed row, and the read model promotes those to effective top-level work —
+    checklist steps silently appearing on boards and Focus. The heal has to match
+    ``services/tasks.soft_delete_task``'s subtree cascade.
+    """
+    db_path = tmp_path / "dupe_checklist.db"
+    assert _alembic(db_path, "upgrade", "05f72f546249").returncode == 0
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO projects (name, created_at, updated_at) "
+                    "VALUES ('P', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+            # 1 = survivor, 2 = duplicate checklist parent.
+            for title in ("keeper", "duplicate checklist"):
+                conn.execute(
+                    text(
+                        "INSERT INTO tasks (project_id, title, workflow_status, "
+                        "priority, due_date, recurrence_id, created_at, updated_at) "
+                        "VALUES (1, :title, 'open', 'medium', '2026-06-08', 'r1', "
+                        "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                    ),
+                    {"title": title},
+                )
+            # 3 = cloned checklist step under the duplicate; 4 = grandchild.
+            for title, parent in (("step", 2), ("substep", 3)):
+                conn.execute(
+                    text(
+                        "INSERT INTO tasks (project_id, title, workflow_status, "
+                        "priority, parent_task_id, created_at, updated_at) "
+                        "VALUES (1, :title, 'open', 'medium', :parent, "
+                        "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                    ),
+                    {"title": title, "parent": parent},
+                )
+            # An unrelated live child of the *survivor* must be left alone.
+            conn.execute(
+                text(
+                    "INSERT INTO tasks (project_id, title, workflow_status, "
+                    "priority, parent_task_id, created_at, updated_at) "
+                    "VALUES (1, 'kept step', 'open', 'medium', 1, "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+
+        result = _alembic(db_path, "upgrade", "head")
+        assert result.returncode == 0, result.stderr
+
+        with engine.begin() as conn:
+            live = conn.execute(
+                text("SELECT id FROM tasks WHERE deleted_at IS NULL ORDER BY id")
+            ).all()
+            trashed = conn.execute(
+                text("SELECT id FROM tasks WHERE deleted_at IS NOT NULL ORDER BY id")
+            ).all()
+            # No live task may hang off a trashed one.
+            orphans = conn.execute(
+                text(
+                    "SELECT c.id FROM tasks c JOIN tasks p ON p.id = c.parent_task_id "
+                    "WHERE c.deleted_at IS NULL AND p.deleted_at IS NOT NULL"
+                )
+            ).all()
+            events = conn.execute(
+                text(
+                    "SELECT entity_id FROM activity_events WHERE action = 'deleted'"
+                )
+            ).all()
+    finally:
+        engine.dispose()
+
+    assert [task_id for task_id, in live] == [1, 5]
+    assert [task_id for task_id, in trashed] == [2, 3, 4]
+    assert orphans == []
+    # Every trashed row is auditable and therefore restorable from the trash UI.
+    assert {task_id for task_id, in events} == {2, 3, 4}
+
+
+def test_heal_revision_cascades_leaked_subtasks_on_upgraded_databases(
+    tmp_path: Path,
+) -> None:
+    """Databases that ran the pre-cascade migration are healed after the fact.
+
+    Reconstructs exactly what the old ``3ab1c74d9e02`` left behind — a trashed
+    duplicate occurrence with its audit event, and a still-live subtree under it —
+    and asserts the follow-up revision cascades it, while a live task orphaned for
+    any *other* reason is untouched.
+    """
+    db_path = tmp_path / "already_upgraded.db"
+    assert _alembic(db_path, "upgrade", "3ab1c74d9e02").returncode == 0
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO projects (name, created_at, updated_at) "
+                    "VALUES ('P', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+            # 1 = the duplicate occurrence the old migration trashed flat.
+            conn.execute(
+                text(
+                    "INSERT INTO tasks (project_id, title, workflow_status, priority, "
+                    "due_date, recurrence_id, deleted_at, created_at, updated_at) "
+                    "VALUES (1, 'duplicate checklist', 'open', 'medium', '2026-06-08', "
+                    "'r1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO activity_events (project_id, entity_type, entity_id, "
+                    "action, summary, created_at, updated_at) VALUES "
+                    "(1, 'task', 1, 'deleted', 'Task \"duplicate checklist\" moved to "
+                    "trash: duplicate recurring occurrence for the same due date', "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+            # 2/3 = the leaked live subtree; 4 = a trashed task orphaning 5 for an
+            # unrelated reason, which must stay live.
+            for title, parent in (("step", 1), ("substep", 2)):
+                conn.execute(
+                    text(
+                        "INSERT INTO tasks (project_id, title, workflow_status, "
+                        "priority, parent_task_id, created_at, updated_at) "
+                        "VALUES (1, :title, 'open', 'medium', :parent, "
+                        "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                    ),
+                    {"title": title, "parent": parent},
+                )
+            conn.execute(
+                text(
+                    "INSERT INTO tasks (project_id, title, workflow_status, priority, "
+                    "deleted_at, created_at, updated_at) VALUES (1, 'hand-trashed', "
+                    "'open', 'medium', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, "
+                    "CURRENT_TIMESTAMP)"
+                )
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO tasks (project_id, title, workflow_status, priority, "
+                    "parent_task_id, created_at, updated_at) VALUES (1, 'valid orphan', "
+                    "'open', 'medium', 4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+
+        result = _alembic(db_path, "upgrade", "head")
+        assert result.returncode == 0, result.stderr
+
+        with engine.begin() as conn:
+            live = conn.execute(
+                text("SELECT id FROM tasks WHERE deleted_at IS NULL ORDER BY id")
+            ).all()
+            events = conn.execute(
+                text(
+                    "SELECT entity_id FROM activity_events WHERE action = 'deleted' "
+                    "ORDER BY entity_id"
+                )
+            ).all()
+
+        # Re-running the heal on an already-healed database changes nothing.
+        assert _alembic(db_path, "downgrade", "3ab1c74d9e02").returncode == 0
+        second = _alembic(db_path, "upgrade", "head")
+        assert second.returncode == 0, second.stderr
+
+        with engine.begin() as conn:
+            live_again = conn.execute(
+                text("SELECT id FROM tasks WHERE deleted_at IS NULL ORDER BY id")
+            ).all()
+    finally:
+        engine.dispose()
+
+    assert [task_id for task_id, in live] == [5]
+    assert [task_id for task_id, in events] == [1, 2, 3]
+    assert live_again == live
