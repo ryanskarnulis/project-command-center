@@ -2,7 +2,9 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db.models import TaskWorkflowStatus
+from app.db.models import Task, TaskDependency, TaskWorkflowStatus
+from app.services import activity as activity_service
+from app.services import projects as projects_service
 from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
 
@@ -473,3 +475,108 @@ def test_blocked_task_can_be_started(client: TestClient) -> None:
     assert started.json()["workflow_status"] == "in_progress"
 
     assert client.post(f"/api/tasks/{a}/done").status_code == 409
+
+
+def _removed_events(db: Session, project_id: int) -> list[str]:
+    return [
+        e.summary
+        for e in activity_service.list_events(db, project_id)
+        if e.action == "dependency_removed"
+    ]
+
+
+def _linked_pair(db: Session) -> tuple[int, Task, Task, TaskDependency]:
+    """A project with ``deploy`` waiting on ``build``, plus the edge."""
+    project = projects_service.create_project(db, name="Ship")
+    dependent = tasks_service.create_task(db, project_id=project.id, title="deploy")
+    blocker = tasks_service.create_task(db, project_id=project.id, title="build")
+    edge = deps_service.add_dependency(db, dependent.id, blocker.id)
+    db.commit()
+    return project.id, dependent, blocker, edge
+
+
+def test_remove_dependency_after_blocker_trashed_still_logs(
+    db_session: Session,
+) -> None:
+    # Regression (#201): removal looked both endpoints up through ``get_task``,
+    # which filters soft deletes, so trashing the blocker first committed the
+    # edge removal with zero activity events.
+    project_id, dependent, blocker, edge = _linked_pair(db_session)
+
+    tasks_service.soft_delete_task(db_session, blocker)
+    db_session.commit()
+
+    deps_service.remove_dependency(db_session, edge)
+    db_session.commit()
+
+    assert _removed_events(db_session, project_id) == [
+        'Task "deploy" no longer waits on "build"'
+    ]
+    assert deps_service.list_dependencies(db_session, dependent.id) == []
+    assert tasks_service.get_task(db_session, dependent.id) is not None
+
+
+def test_remove_dependency_after_dependent_trashed_still_logs(
+    db_session: Session,
+) -> None:
+    # Mirror case: the dependent side is soft-deleted. The edge removal still
+    # commits, so it still has to be auditable.
+    project_id, dependent, _blocker, edge = _linked_pair(db_session)
+
+    tasks_service.soft_delete_task(db_session, dependent)
+    db_session.commit()
+
+    deps_service.remove_dependency(db_session, edge)
+    db_session.commit()
+
+    assert _removed_events(db_session, project_id) == [
+        'Task "deploy" no longer waits on "build"'
+    ]
+
+
+def test_remove_dependency_after_blocker_trashed_attributes_agent_actor(
+    db_session: Session,
+) -> None:
+    project_id, _dependent, blocker, edge = _linked_pair(db_session)
+    tasks_service.soft_delete_task(db_session, blocker)
+    db_session.commit()
+
+    token = activity_service.current_actor.set("agent:mcp")
+    try:
+        deps_service.remove_dependency(db_session, edge)
+        db_session.commit()
+    finally:
+        activity_service.current_actor.reset(token)
+
+    removed = [
+        e
+        for e in activity_service.list_events(db_session, project_id)
+        if e.action == "dependency_removed"
+    ]
+    assert len(removed) == 1
+    assert removed[0].actor == "agent:mcp"
+
+
+def test_routes_remove_dependency_after_blocker_trashed_logs_user_actor(
+    client: TestClient,
+) -> None:
+    project_id = client.post("/api/projects", json={"name": "Ship"}).json()["id"]
+    a = client.post(
+        "/api/tasks", json={"title": "deploy", "project_id": project_id}
+    ).json()["id"]
+    b = client.post(
+        "/api/tasks", json={"title": "build", "project_id": project_id}
+    ).json()["id"]
+    edge_id = client.post(
+        f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b}
+    ).json()["id"]
+
+    assert client.delete(f"/api/tasks/{b}").status_code == 204
+    assert client.delete(f"/api/tasks/{a}/dependencies/{edge_id}").status_code == 204
+
+    events = client.get(f"/api/projects/{project_id}/activity").json()
+    removed = [e for e in events if e["action"] == "dependency_removed"]
+    assert len(removed) == 1
+    assert removed[0]["summary"] == 'Task "deploy" no longer waits on "build"'
+    # REST callers are the implicit user: no agent actor.
+    assert removed[0]["actor"] is None
