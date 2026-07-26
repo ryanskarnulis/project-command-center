@@ -7,6 +7,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import Task, TaskDependency
+from app.services import activity
 from app.services import projects as projects_service
 from app.services.common import active, deleted, hard_delete, restore
 from app.services.task_recurrence import (
@@ -165,6 +166,29 @@ def _deleted_subtree_depth_first(db: Session, task: Task) -> list[Task]:
     return ordered
 
 
+def log_task_purged(db: Session, task: Task) -> None:
+    """Record the irreversible destruction of ``task`` in the audit log.
+
+    Unlike ``tasks.log_task_event`` this does *not* skip unfiled tasks
+    (``project_id is None``). That helper's silence is a feed-noise trade-off for
+    reversible edits; a purge is the one mutation nothing can undo, so it is
+    always written — with ``project_id=None`` it simply lives outside every
+    per-project feed while still being durable history.
+
+    ``activity_events.entity_id`` is a plain column, not a foreign key, so the
+    event survives the row it describes. The title is snapshotted into the summary
+    because after the purge nothing else remembers it.
+    """
+    activity.record_event(
+        db,
+        project_id=task.project_id,
+        entity_type="task",
+        entity_id=task.id,
+        action="purged",
+        summary=f'Task "{task.title}" permanently deleted',
+    )
+
+
 def purge_task(db: Session, task: Task) -> None:
     """Permanently delete a trashed task and its soft-deleted subtree.
 
@@ -172,6 +196,11 @@ def purge_task(db: Session, task: Task) -> None:
     task, and any stray ``parent_task_id`` from a row outside the purge set (e.g. a
     child that was individually restored while its parent stayed in trash). The
     caller is responsible for committing.
+
+    Every node in the subtree gets its own ``purged`` audit event *before* the
+    row is destroyed — the audit trail must distinguish a restorable soft delete
+    from permanent destruction, and cascade-purged descendants are as gone as the
+    root the user actually clicked.
     """
     subtree = _deleted_subtree_depth_first(db, task)
     ids = [t.id for t in subtree]
@@ -191,6 +220,9 @@ def purge_task(db: Session, task: Task) -> None:
         .where(Task.parent_task_id.in_(ids), Task.id.not_in(ids))
         .values(parent_task_id=None)
     )
+
+    for node in subtree:
+        log_task_purged(db, node)
 
     for node in subtree:  # children before parents
         hard_delete(db, node)

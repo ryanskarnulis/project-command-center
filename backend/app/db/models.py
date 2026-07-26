@@ -265,7 +265,11 @@ class ActivityEvent(Base, TimestampMixin):
     )
     entity_type: Mapped[str]  # "project" | "task"
     entity_id: Mapped[int]
-    action: Mapped[str]  # "created" | "updated" | "completed" | "deleted"
+    # "created" | "updated" | "completed" | "deleted" (soft, restorable) |
+    # "purged" (permanent). A "purged" row outlives the entity it names, so its
+    # ``entity_id`` no longer resolves and its ``project_id`` is NULL when the
+    # project itself was purged — the summary carries the name snapshot.
+    action: Mapped[str]
     summary: Mapped[str]  # human-readable, e.g. 'Task "Fix VPN" created'
     # Who caused the event: NULL = the user (all pre-agent rows stay correct
     # without a backfill); agents stamp an identifier, e.g. "agent:mcp".
