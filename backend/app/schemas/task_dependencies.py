@@ -3,11 +3,11 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from app.db.models import TaskWorkflowStatus
-from app.schemas.common import MutationModel
+from app.schemas.common import EntityId, MutationModel
 
 
 class TaskDependencyCreate(MutationModel):
-    depends_on_task_id: int
+    depends_on_task_id: EntityId
 
 
 class TaskDependencyRead(BaseModel):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from app.schemas.common import MutationModel
+from app.schemas.common import EntityId, MutationModel
 from app.schemas.projects import ProjectRead
 from app.schemas.tasks import TaskRead
 
@@ -43,8 +43,8 @@ class PurgeSelectedRequest(MutationModel):
     gone by the time the server reaches it (BUG-11).
     """
 
-    project_ids: list[int] = []
-    task_ids: list[int] = []
+    project_ids: list[EntityId] = []
+    task_ids: list[EntityId] = []
 
 
 class EmptyTrashResult(BaseModel):

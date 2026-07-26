@@ -37,6 +37,7 @@ from app.api.dependency_reads import dependency_read, dependent_read
 from app.api.task_reads import read_with_blocked, reads_with_blocked
 from app.db.models import Project, Task, TaskWorkflowStatus
 from app.schemas.activity import ActivityEventRead
+from app.schemas.common import EntityId
 from app.schemas.focus import FocusPlan
 from app.schemas.projects import ProjectCreate, ProjectRead, ProjectUpdate
 from app.schemas.search import SearchResults
@@ -177,7 +178,7 @@ def _ensure_project_exists(db: Session, project_id: int) -> None:
 
 @_tool
 def list_tasks(
-    project_id: int | None = None,
+    project_id: EntityId | None = None,
     workflow_status: TaskWorkflowStatus | None = None,
     exclude_done: bool = False,
     top_level_only: bool = False,
@@ -201,7 +202,7 @@ def list_tasks(
 
 
 @_tool
-def get_task(task_id: int) -> TaskRead:
+def get_task(task_id: EntityId) -> TaskRead:
     """Fetch one task with its subtask roll-up and blocked/blocking flags."""
     with tool_session("get_task", write=False) as db:
         return read_with_blocked(db, _task_or_error(db, task_id))
@@ -233,7 +234,7 @@ def create_task(data: TaskCreate) -> TaskRead:
 
 
 @_tool
-def update_task(task_id: int, changes: TaskUpdate) -> TaskRead:
+def update_task(task_id: EntityId, changes: TaskUpdate) -> TaskRead:
     """Partially update a task; only the fields present in `changes` are touched.
 
     A parent's workflow_status is derived from its subtasks and cannot be set
@@ -255,7 +256,7 @@ def update_task(task_id: int, changes: TaskUpdate) -> TaskRead:
 
 
 @_tool
-def complete_task(task_id: int) -> TaskRead:
+def complete_task(task_id: EntityId) -> TaskRead:
     """Mark a task done. A recurring task spawns its next occurrence."""
     with tool_session("complete_task") as db:
         task = _task_or_error(db, task_id)
@@ -269,7 +270,7 @@ def complete_task(task_id: int) -> TaskRead:
 
 
 @_tool
-def reopen_task(task_id: int) -> TaskRead:
+def reopen_task(task_id: EntityId) -> TaskRead:
     """Reopen a done task (workflow_status back to open)."""
     with tool_session("reopen_task") as db:
         task = _task_or_error(db, task_id)
@@ -283,7 +284,7 @@ def reopen_task(task_id: int) -> TaskRead:
 
 
 @_tool
-def trash_task(task_id: int) -> str:
+def trash_task(task_id: EntityId) -> str:
     """Move a task (and its subtasks) to the trash. Undo with restore_task."""
     with tool_session("trash_task") as db:
         task = _task_or_error(db, task_id)
@@ -294,7 +295,7 @@ def trash_task(task_id: int) -> str:
 
 
 @_tool
-def restore_task(task_id: int) -> TaskRead:
+def restore_task(task_id: EntityId) -> TaskRead:
     """Restore a trashed task (see list_trash for what is restorable)."""
     with tool_session("restore_task") as db:
         task = task_trash.get_deleted_task(db, task_id)
@@ -316,7 +317,7 @@ def restore_task(task_id: int) -> TaskRead:
 
 
 @_tool
-def list_dependencies(task_id: int) -> TaskDependenciesRead:
+def list_dependencies(task_id: EntityId) -> TaskDependenciesRead:
     """Both directions of a task's dependency graph: what it waits on (depends_on) and what waits on it (dependents)."""
     with tool_session("list_dependencies", write=False) as db:
         _task_or_error(db, task_id)
@@ -342,7 +343,7 @@ def list_dependencies(task_id: int) -> TaskDependenciesRead:
 
 
 @_tool
-def add_dependency(task_id: int, depends_on_task_id: int) -> TaskDependencyRead:
+def add_dependency(task_id: EntityId, depends_on_task_id: EntityId) -> TaskDependencyRead:
     """Make task_id wait on depends_on_task_id: it is blocked until that task is done."""
     with tool_session("add_dependency") as db:
         try:
@@ -358,7 +359,7 @@ def add_dependency(task_id: int, depends_on_task_id: int) -> TaskDependencyRead:
 
 
 @_tool
-def remove_dependency(task_id: int, dependency_id: int) -> str:
+def remove_dependency(task_id: EntityId, dependency_id: EntityId) -> str:
     """Remove a dependency edge by its id (from list_dependencies); task_id must be its dependent."""
     with tool_session("remove_dependency") as db:
         edge = deps_service.get_dependency(db, dependency_id)
@@ -372,7 +373,7 @@ def remove_dependency(task_id: int, dependency_id: int) -> str:
 
 
 @_tool
-def skip_occurrence(task_id: int) -> TaskRead:
+def skip_occurrence(task_id: EntityId) -> TaskRead:
     """Skip a recurring task's current occurrence (to trash, restorable) and return the next one."""
     with tool_session("skip_occurrence") as db:
         task = _task_or_error(db, task_id)
@@ -390,7 +391,7 @@ def skip_occurrence(task_id: int) -> TaskRead:
 
 
 @_tool
-def stop_recurrence(task_id: int) -> TaskRead:
+def stop_recurrence(task_id: EntityId) -> TaskRead:
     """Stop a recurring task from repeating; the current occurrence stays as a normal task."""
     with tool_session("stop_recurrence") as db:
         task = _task_or_error(db, task_id)
@@ -415,7 +416,7 @@ def list_projects(include_closed: bool = False) -> list[ProjectRead]:
 
 
 @_tool
-def get_project(project_id: int) -> ProjectRead:
+def get_project(project_id: EntityId) -> ProjectRead:
     """Fetch one project."""
     with tool_session("get_project", write=False) as db:
         return ProjectRead.model_validate(_project_or_error(db, project_id))
@@ -434,7 +435,7 @@ def create_project(data: ProjectCreate) -> ProjectRead:
 
 
 @_tool
-def update_project(project_id: int, changes: ProjectUpdate) -> ProjectRead:
+def update_project(project_id: EntityId, changes: ProjectUpdate) -> ProjectRead:
     """Rename a project or edit its description; only fields present are touched."""
     with tool_session("update_project") as db:
         project = _project_or_error(db, project_id)
@@ -447,7 +448,7 @@ def update_project(project_id: int, changes: ProjectUpdate) -> ProjectRead:
 
 
 @_tool
-def close_project(project_id: int) -> ProjectRead:
+def close_project(project_id: EntityId) -> ProjectRead:
     """Close a project: hidden from default lists, nothing deleted."""
     with tool_session("close_project") as db:
         project = _project_or_error(db, project_id)
@@ -461,7 +462,7 @@ def close_project(project_id: int) -> ProjectRead:
 
 
 @_tool
-def reopen_project(project_id: int) -> ProjectRead:
+def reopen_project(project_id: EntityId) -> ProjectRead:
     """Reopen a closed project."""
     with tool_session("reopen_project") as db:
         project = _project_or_error(db, project_id)
@@ -472,7 +473,7 @@ def reopen_project(project_id: int) -> ProjectRead:
 
 
 @_tool
-def trash_project(project_id: int) -> str:
+def trash_project(project_id: EntityId) -> str:
     """Move a project and its tasks to the trash. Undo with restore_project."""
     with tool_session("trash_project") as db:
         project = _project_or_error(db, project_id)
@@ -490,7 +491,7 @@ def trash_project(project_id: int) -> str:
 
 @_tool
 def restore_project(
-    project_id: int, restore_tasks: bool = False
+    project_id: EntityId, restore_tasks: bool = False
 ) -> ProjectRestoreResult:
     """Restore a trashed project; restore_tasks also brings back the tasks trashed with it."""
     with tool_session("restore_project") as db:
@@ -568,7 +569,7 @@ def list_trash(limit: _ListLimit = 50) -> TrashRead:
 
 
 @_tool
-def list_activity(project_id: int, limit: _ListLimit = 50) -> list[ActivityEventRead]:
+def list_activity(project_id: EntityId, limit: _ListLimit = 50) -> list[ActivityEventRead]:
     """A project's audit trail, newest first. actor is null for the user; agents stamp theirs (e.g. "agent:mcp", "agent:loop")."""
     with tool_session("list_activity", write=False) as db:
         _ensure_project_exists(db, project_id)

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.db.models import TaskPriority, TaskWorkflowStatus
 from app.schemas.common import (
+    EntityId,
     MutationModel,
     NonBlankStr,
     OptionalStrippedStr,
@@ -41,8 +42,8 @@ class TaskCreate(MutationModel):
     # Honored only by the unscoped ``POST /api/tasks`` route; the project-scoped
     # route takes the project from its path and ignores this field. Omit to file
     # in General.
-    project_id: int | None = None
-    parent_task_id: int | None = None
+    project_id: EntityId | None = None
+    parent_task_id: EntityId | None = None
     estimated_minutes: PositiveMinutes | None = None
 
 
@@ -64,8 +65,8 @@ class TaskUpdate(MutationModel):
     # Day-plan snooze (Focus page "defer"): the scheduler skips the task while
     # this is after the plan's target date. Explicit null clears the deferral.
     deferred_until: date | None = None
-    project_id: int | None = None
-    parent_task_id: int | None = None
+    project_id: EntityId | None = None
+    parent_task_id: EntityId | None = None
     estimated_minutes: PositiveMinutes | None = None
     # Recurrence (Sprint 9L). All three rely on the route's
     # ``model_dump(exclude_unset=True)``: an absent ``repeat_interval`` is left

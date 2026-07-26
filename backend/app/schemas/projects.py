@@ -4,6 +4,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.schemas.common import (
+    EntityId,
     MutationModel,
     NonBlankStr,
     OptionalStrippedStr,
@@ -40,7 +41,7 @@ class ProjectUpdate(MutationModel):
 class ProjectOrderUpdate(MutationModel):
     """Full manual order: every active project id, in display order."""
 
-    project_ids: list[int]
+    project_ids: list[EntityId]
 
 
 class ProjectRead(BaseModel):
