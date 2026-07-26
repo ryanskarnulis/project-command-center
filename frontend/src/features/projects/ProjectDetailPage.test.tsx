@@ -1,6 +1,6 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   closeProject,
@@ -121,6 +121,19 @@ function renderDetail() {
   )
 }
 
+/** Same mounted route, plus a link that only changes `:projectId`. */
+function renderDetailWithSwitcher() {
+  return render(
+    <MemoryRouter initialEntries={['/projects/7']}>
+      <Link to="/projects/8">Open project 8</Link>
+      <Routes>
+        <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+        <Route path="/dashboard" element={<main>Dashboard page</main>} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
 describe('ProjectDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -231,6 +244,68 @@ describe('ProjectDetailPage', () => {
     await nameResponse.promise.catch(() => undefined)
     await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument())
     expect(screen.queryByText('boom')).not.toBeInTheDocument()
+  })
+
+  it('discards a PATCH that resolves after navigating to another project', async () => {
+    const user = userEvent.setup()
+    const otherProject: Project = { ...project, id: 8, name: 'Perimeter', description: 'Other' }
+    mockGetProject.mockImplementation(async (pid: number) =>
+      pid === 8 ? otherProject : project,
+    )
+    const nameResponse = deferred<Project>()
+    mockUpdateProject.mockReturnValueOnce(nameResponse.promise)
+    renderDetailWithSwitcher()
+
+    const name = await screen.findByLabelText('Project name')
+    await waitFor(() => expect(name).toHaveValue('Firewall'))
+
+    // PATCH A on project 7, response held open.
+    await user.clear(name)
+    await user.type(name, 'Edge Firewall')
+    await user.tab()
+    await waitFor(() => expect(mockUpdateProject).toHaveBeenCalledWith(7, { name: 'Edge Firewall' }))
+
+    // Same mounted route, new :projectId.
+    await user.click(screen.getByRole('link', { name: 'Open project 8' }))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Project name')).toHaveValue('Perimeter'),
+    )
+
+    nameResponse.resolve({ ...project, name: 'Edge Firewall' })
+    await waitFor(() => expect(mockGetProject).toHaveBeenCalledWith(8))
+    expect(screen.getByLabelText('Project name')).toHaveValue('Perimeter')
+    expect(screen.getByLabelText('Project description')).toHaveValue('Other')
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+    expect(screen.queryByText('Saving…')).not.toBeInTheDocument()
+  })
+
+  it('discards a PATCH failure from a project we already navigated away from', async () => {
+    const user = userEvent.setup()
+    const otherProject: Project = { ...project, id: 8, name: 'Perimeter', description: 'Other' }
+    mockGetProject.mockImplementation(async (pid: number) =>
+      pid === 8 ? otherProject : project,
+    )
+    const nameResponse = deferred<Project>()
+    mockUpdateProject.mockReturnValueOnce(nameResponse.promise)
+    renderDetailWithSwitcher()
+
+    const name = await screen.findByLabelText('Project name')
+    await waitFor(() => expect(name).toHaveValue('Firewall'))
+    await user.clear(name)
+    await user.type(name, 'Edge Firewall')
+    await user.tab()
+    await waitFor(() => expect(mockUpdateProject).toHaveBeenCalledTimes(1))
+
+    await user.click(screen.getByRole('link', { name: 'Open project 8' }))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Project name')).toHaveValue('Perimeter'),
+    )
+
+    nameResponse.reject(new Error('boom'))
+    await nameResponse.promise.catch(() => undefined)
+    await waitFor(() => expect(mockGetProject).toHaveBeenCalledWith(8))
+    expect(screen.queryByText('boom')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Project name')).toHaveValue('Perimeter')
   })
 
   it('does not save when the name is cleared to blank', async () => {
