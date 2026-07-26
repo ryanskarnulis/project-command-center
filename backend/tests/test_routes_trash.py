@@ -411,6 +411,78 @@ def test_purge_selected_removes_projects(
     assert db_session.get(Project, pid) is None
 
 
+def test_purge_selected_counts_tasks_cascaded_with_a_project(
+    client: TestClient, db_session: Session
+) -> None:
+    """BUG #184: a project purge destroys its archived tasks — report them.
+
+    The response used to say ``{"projects": 1, "tasks": 0}`` while both archived
+    tasks were permanently gone, so the API, the log line, and the UI notice all
+    understated an irreversible delete.
+    """
+    pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
+    a = client.post(f"/api/projects/{pid}/tasks", json={"title": "cascade a"}).json()["id"]
+    b = client.post(f"/api/projects/{pid}/tasks", json={"title": "cascade b"}).json()["id"]
+    client.delete(f"/api/projects/{pid}")  # cascade-soft-deletes both tasks
+
+    assert client.get("/api/trash").json()["projects"][0]["archived_task_count"] == 2
+
+    result = client.post(
+        "/api/trash/purge", json={"project_ids": [pid], "task_ids": []}
+    )
+    assert result.status_code == 200
+    assert result.json() == {"projects": 1, "tasks": 2}
+    assert db_session.get(Project, pid) is None
+    assert db_session.get(Task, a) is None
+    assert db_session.get(Task, b) is None
+
+
+def test_purge_selected_counts_a_task_selected_with_its_own_project_once(
+    client: TestClient, db_session: Session
+) -> None:
+    """Mixed selection: the shared row is one deletion, so it counts once."""
+    pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
+    cascaded = client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "cascade"}
+    ).json()["id"]
+    standalone = client.post("/api/tasks", json={"title": "standalone"}).json()["id"]
+    client.delete(f"/api/tasks/{standalone}")
+    client.delete(f"/api/projects/{pid}")
+
+    result = client.post(
+        "/api/trash/purge",
+        json={"project_ids": [pid], "task_ids": [cascaded, standalone]},
+    )
+    assert result.status_code == 200
+    # 2 task rows really disappear (the cascaded one is not counted twice).
+    assert result.json() == {"projects": 1, "tasks": 2}
+    assert db_session.get(Task, cascaded) is None
+    assert db_session.get(Task, standalone) is None
+
+
+def test_purge_selected_counts_a_cascaded_subtree_once(
+    client: TestClient, db_session: Session
+) -> None:
+    """A project's archived subtree: parent + child are two rows, counted once each."""
+    pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
+    parent = client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "Parent"}
+    ).json()["id"]
+    child = client.post(
+        "/api/tasks",
+        json={"title": "Child", "parent_task_id": parent, "project_id": pid},
+    ).json()["id"]
+    client.delete(f"/api/projects/{pid}")
+
+    result = client.post(
+        "/api/trash/purge", json={"project_ids": [pid], "task_ids": [parent]}
+    )
+    assert result.status_code == 200
+    assert result.json() == {"projects": 1, "tasks": 2}
+    assert db_session.get(Task, parent) is None
+    assert db_session.get(Task, child) is None
+
+
 # --- LAN clients may purge --------------------------------------------------
 #
 # Purge/empty-trash are the app's only irreversible deletes, but the trusted

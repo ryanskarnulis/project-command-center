@@ -166,6 +166,16 @@ def _deleted_subtree_depth_first(db: Session, task: Task) -> list[Task]:
     return ordered
 
 
+def deleted_subtree_ids(db: Session, task: Task) -> list[int]:
+    """Ids of every row ``purge_task(db, task)`` would destroy (``task`` included).
+
+    Public so callers that need to *count* a purge's true reach before running it
+    (see ``trash.purge_selected``) use the same traversal the purge itself does,
+    instead of re-deriving it and drifting.
+    """
+    return [t.id for t in _deleted_subtree_depth_first(db, task)]
+
+
 def log_task_purged(db: Session, task: Task) -> None:
     """Record the irreversible destruction of ``task`` in the audit log.
 

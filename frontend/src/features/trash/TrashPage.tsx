@@ -137,9 +137,20 @@ export function TrashPage() {
 
   // Purge is irreversible (it really deletes the row), so every purge path is
   // gated by an explicit confirm naming what's about to go.
-  const confirmPurge = (kind: TrashKind, id: number, label: string) => {
-    if (window.confirm(`Permanently delete “${label}”? This cannot be undone.`)) {
-      void purgeById(kind, id, label)
+  // A project purge also destroys every task archived with it, so the confirm
+  // names those rows instead of implying only the project goes (BUG #184).
+  const confirmPurge = (
+    kind: TrashKind,
+    id: number,
+    label: string,
+    cascadeTaskCount = 0,
+  ) => {
+    const scope =
+      cascadeTaskCount > 0
+        ? `“${label}” and the ${cascadeTaskCount} task${cascadeTaskCount === 1 ? '' : 's'} archived with it`
+        : `“${label}”`
+    if (window.confirm(`Permanently delete ${scope}? This cannot be undone.`)) {
+      void purgeById(kind, id, label, cascadeTaskCount)
     }
   }
 
@@ -166,16 +177,21 @@ export function TrashPage() {
     void restoreAll(kind, items)
   }
 
-  // Bulk-purge is irreversible, so confirm with the count first.
-  const purgeSelected = (kind: TrashKind, ids: number[]) => {
-    if (ids.length === 0) return
-    if (
-      window.confirm(
-        `Permanently delete ${ids.length} item${ids.length === 1 ? '' : 's'}? This cannot be undone.`,
-      )
-    ) {
+  // Bulk-purge is irreversible, so confirm with the count first — and for
+  // projects that count has to include the tasks archived with them, which the
+  // purge destroys too (BUG #184). Cascade tasks aren't trash rows of their own,
+  // so they can't already be in the selection: no double counting.
+  const purgeSelected = (kind: TrashKind, items: RestoreItem[]) => {
+    if (items.length === 0) return
+    const cascadeTasks = items.reduce((sum, i) => sum + (i.archivedTaskCount ?? 0), 0)
+    const total = items.length + cascadeTasks
+    const scope =
+      cascadeTasks > 0
+        ? `${total} item${total === 1 ? '' : 's'} (${items.length} project${items.length === 1 ? '' : 's'} and ${cascadeTasks} archived task${cascadeTasks === 1 ? '' : 's'})`
+        : `${total} item${total === 1 ? '' : 's'}`
+    if (window.confirm(`Permanently delete ${scope}? This cannot be undone.`)) {
       clearSelection(kind)
-      void purgeAll(kind, ids)
+      void purgeAll(kind, items.map((i) => i.id))
     }
   }
 
@@ -332,7 +348,7 @@ export function TrashPage() {
             count={selectedIn('projects', projectItems).length}
             onRestore={() => restoreSelected('projects', selectedIn('projects', projectItems))}
             onDelete={() =>
-              purgeSelected('projects', selectedIn('projects', projectItems).map((i) => i.id))
+              purgeSelected('projects', selectedIn('projects', projectItems))
             }
           />
           <TruncationHint loaded={trash.projects.length} total={counts.projects} />
@@ -375,7 +391,14 @@ export function TrashPage() {
                           type="button"
                           className="trash-danger"
                           aria-label={`Delete project ${project.name} forever`}
-                          onClick={() => confirmPurge('projects', project.id, project.name)}
+                          onClick={() =>
+                            confirmPurge(
+                              'projects',
+                              project.id,
+                              project.name,
+                              project.archived_task_count,
+                            )
+                          }
                         >
                           Delete forever
                         </button>
@@ -413,7 +436,7 @@ export function TrashPage() {
             count={selectedIn('tasks', taskItems).length}
             onRestore={() => restoreSelected('tasks', selectedIn('tasks', taskItems))}
             onDelete={() =>
-              purgeSelected('tasks', selectedIn('tasks', taskItems).map((i) => i.id))
+              purgeSelected('tasks', selectedIn('tasks', taskItems))
             }
           />
           <TruncationHint loaded={trash.tasks.length} total={counts.tasks} />

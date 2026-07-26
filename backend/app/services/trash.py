@@ -66,6 +66,45 @@ def count_trash(db: Session) -> TrashCounts:
     )
 
 
+def _removed_task_ids(
+    db: Session,
+    *,
+    task_ids: Sequence[int],
+    project_ids: Sequence[int],
+) -> set[int]:
+    """Every task row a purge of ``task_ids`` + ``project_ids`` would destroy.
+
+    Must be called *before* the purge runs — it reads the rows that are about to
+    go. The roots are the selected trashed tasks plus every task archived with a
+    purged project; each root expands to the soft-deleted subtree its own purge
+    takes. Returned as a set so overlapping reachability (a task selected next to
+    its project, or next to an ancestor) is counted once, matching the number of
+    rows that actually disappear.
+    """
+    roots = list(task_ids)
+    if project_ids:
+        roots.extend(
+            db.execute(
+                select(Task.id).where(
+                    Task.deleted_at.is_not(None), Task.project_id.in_(project_ids)
+                )
+            ).scalars()
+        )
+
+    removed: set[int] = set()
+    for root_id in roots:
+        # A root already inside a previously expanded subtree adds nothing: the
+        # subtree of a descendant is contained in its ancestor's.
+        if root_id in removed:
+            continue
+        task = db.execute(
+            deleted(Task).where(Task.id == root_id)
+        ).scalar_one_or_none()
+        if task is not None:
+            removed.update(task_trash.deleted_subtree_ids(db, task))
+    return removed
+
+
 def purge_selected(
     db: Session,
     *,
@@ -86,6 +125,12 @@ def purge_selected(
     ancestor's purge — which is why the counts come from the up-front snapshot
     rather than the per-row loop. Ids that were never in trash are filtered out
     by that snapshot and count for nothing. Caller commits.
+
+    The reported ``tasks`` count is the *set* of rows the purge really destroys
+    (BUG #184): explicitly selected tasks, their cascade-purged subtrees, and the
+    tasks archived with each purged project. A set, so a task reachable more than
+    one way — selected alongside its own project, or alongside an ancestor —
+    counts exactly once.
     """
     purge_task_ids = [
         t.id
@@ -98,6 +143,10 @@ def purge_selected(
         ).scalars()
         if not p.is_protected
     ]
+
+    removed_task_ids = _removed_task_ids(
+        db, task_ids=purge_task_ids, project_ids=purge_project_ids
+    )
 
     for task_id in purge_task_ids:
         task = db.execute(
@@ -115,7 +164,7 @@ def purge_selected(
 
     return PurgeCounts(
         projects=len(purge_project_ids),
-        tasks=len(purge_task_ids),
+        tasks=len(removed_task_ids),
     )
 
 
