@@ -325,6 +325,7 @@ def restore_project(
     True and a cascade task is a series occurrence whose date is already held by a
     live sibling.
     """
+    from app.services import task_recurrence
     from app.services.tasks import log_task_event
 
     tasks: Sequence[Task] = ()
@@ -343,13 +344,27 @@ def restore_project(
 
     restored_tasks = 0
     if restore_tasks:
+        restored_ids: list[int] = []
         for task in tasks:
             restore(task)
             task.deleted_with_project_id = None
             # Per-task restore event mirrors the per-task "deleted" events the
             # cascade writes, so an itemized restore is auditable too.
             log_task_event(db, task, "restored")
+            restored_ids.append(task.id)
             restored_tasks += 1
+        if restored_ids:
+            db.flush()
+            # Same invariant standalone restore keeps (``task_trash.restore_task``):
+            # a row coming back out of the trash re-enters every derived computation
+            # it was absent from. A done occurrence whose successor was purged while
+            # the project sat in trash is immediately an effectively-done recurring
+            # task with nothing following it, and a restored done child can complete
+            # an ancestor's roll-up. Reconciling once, after the whole batch, keeps
+            # it atomic and lets reconcile see the final restored set (it climbs
+            # parent chains and fans out to dependents itself). Idempotent, so
+            # restored open/non-recurring tasks are a no-op.
+            task_recurrence.reconcile(db, restored_ids)
     else:
         # Don't strand the cascade tasks: clearing the marker moves them into the
         # standalone Tasks trash instead of leaving them pointing at an active
