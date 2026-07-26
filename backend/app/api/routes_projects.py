@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.guards import trashed_row_or_error
 from app.db.models import ActivityEvent, Project
 from app.db.session import get_db, get_db_write
+from app.schemas.common import EntityId
 from app.schemas.activity import ActivityEventRead
 from app.schemas.projects import (
     ProjectCreate,
@@ -65,7 +66,7 @@ def reorder_projects(
 
 
 @router.get("/{project_id}", response_model=ProjectRead)
-def get_project(project_id: int, db: Session = Depends(get_db)) -> Project:
+def get_project(project_id: EntityId, db: Session = Depends(get_db)) -> Project:
     return _get_or_404(db, project_id)
 
 
@@ -82,7 +83,7 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db_write)) -> 
 
 @router.patch("/{project_id}", response_model=ProjectRead)
 def update_project(
-    project_id: int, data: ProjectUpdate, db: Session = Depends(get_db_write)
+    project_id: EntityId, data: ProjectUpdate, db: Session = Depends(get_db_write)
 ) -> Project:
     project = _get_or_404(db, project_id)
     updated = projects_service.update_project(
@@ -95,7 +96,7 @@ def update_project(
 
 
 @router.post("/{project_id}/close", response_model=ProjectRead)
-def close_project(project_id: int, db: Session = Depends(get_db_write)) -> Project:
+def close_project(project_id: EntityId, db: Session = Depends(get_db_write)) -> Project:
     project = _get_or_404(db, project_id)
     try:
         closed = projects_service.close_project(db, project)
@@ -108,7 +109,7 @@ def close_project(project_id: int, db: Session = Depends(get_db_write)) -> Proje
 
 
 @router.post("/{project_id}/reopen", response_model=ProjectRead)
-def reopen_project(project_id: int, db: Session = Depends(get_db_write)) -> Project:
+def reopen_project(project_id: EntityId, db: Session = Depends(get_db_write)) -> Project:
     project = _get_or_404(db, project_id)
     reopened = projects_service.reopen_project(db, project)
     db.commit()
@@ -118,7 +119,7 @@ def reopen_project(project_id: int, db: Session = Depends(get_db_write)) -> Proj
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_project(project_id: int, db: Session = Depends(get_db_write)) -> None:
+def delete_project(project_id: EntityId, db: Session = Depends(get_db_write)) -> None:
     project = _get_or_404(db, project_id)
     try:
         projects_service.soft_delete_project(db, project)
@@ -130,7 +131,7 @@ def delete_project(project_id: int, db: Session = Depends(get_db_write)) -> None
 
 @router.post("/{project_id}/restore", response_model=ProjectRestoreResult)
 def restore_project(
-    project_id: int,
+    project_id: EntityId,
     restore_tasks: bool = False,
     db: Session = Depends(get_db_write),
 ) -> ProjectRestoreResult:
@@ -168,7 +169,7 @@ def restore_project(
     "/{project_id}/purge",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-def purge_project(project_id: int, db: Session = Depends(get_db_write)) -> None:
+def purge_project(project_id: EntityId, db: Session = Depends(get_db_write)) -> None:
     project = trashed_row_or_error(
         projects_service.get_deleted_project(db, project_id),
         lambda: projects_service.get_project(db, project_id),
@@ -187,7 +188,7 @@ def purge_project(project_id: int, db: Session = Depends(get_db_write)) -> None:
 
 @router.get("/{project_id}/activity", response_model=list[ActivityEventRead])
 def list_activity(
-    project_id: int,
+    project_id: EntityId,
     limit: int = Query(default=DEFAULT_ACTIVITY_LIMIT, ge=1, le=MAX_ACTIVITY_LIMIT),
     db: Session = Depends(get_db),
 ) -> Sequence[ActivityEvent]:

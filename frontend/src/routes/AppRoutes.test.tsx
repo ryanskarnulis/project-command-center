@@ -100,7 +100,19 @@ describe('AppRoutes', () => {
       expect(await screen.findByText(text)).toBeInTheDocument()
     })
 
-    const invalidIds = ['nope', '0', '-1', '1.5', '1e3', '%20', 'null', 'undefined']
+    const invalidIds = [
+      'nope',
+      '0',
+      '-1',
+      '1.5',
+      '1e3',
+      '%20',
+      'null',
+      'undefined',
+      // Digit-only but not exactly representable / not storable (#182).
+      '9007199254740993',
+      '999999999999999999999999',
+    ]
     const guardedPaths = (id: string) => [
       `/projects/${id}`,
       `/projects/${id}/tasks`,

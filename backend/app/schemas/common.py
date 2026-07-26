@@ -8,10 +8,17 @@ from pydantic import (
     BaseModel,
     BeforeValidator,
     ConfigDict,
+    Field,
     StringConstraints,
 )
 
 MAX_INBOX_RAW_TEXT_LENGTH = 8_000
+
+# SQLite stores INTEGER as a signed 64-bit value, so a larger Python int cannot
+# be bound to an id column at all. A digit-only path segment above this used to
+# parse fine as `int`, reach `Task.id == task_id`, and surface as a 500 instead
+# of the 404 an unknown in-range id gets (#182). Bound ids at the boundary.
+MAX_SQLITE_INT = 2**63 - 1
 
 
 class MutationModel(BaseModel):
@@ -54,6 +61,12 @@ def _assume_utc(value: datetime) -> datetime:
         return value.replace(tzinfo=UTC)
     return value
 
+
+# The one type every DB-backed row id should use at the API boundary (path
+# params and ID-bearing request payload fields alike): positive, and small
+# enough for SQLite to bind. Out-of-range values fail validation as a 422 before
+# any SQL runs.
+EntityId = Annotated[int, Field(ge=1, le=MAX_SQLITE_INT)]
 
 NonBlankStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 # The one datetime type read schemas should use for DB-sourced timestamps.

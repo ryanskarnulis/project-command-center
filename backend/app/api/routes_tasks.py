@@ -8,6 +8,7 @@ from app.api.guards import trashed_row_or_error
 from app.api.task_reads import read_with_blocked, reads_with_blocked
 from app.db.models import Task, TaskWorkflowStatus
 from app.db.session import get_db, get_db_write
+from app.schemas.common import EntityId
 from app.schemas.tasks import (
     TaskCreate,
     TaskRead,
@@ -51,7 +52,7 @@ def _recurrence_422(exc: tasks_service.RecurrenceError) -> HTTPException:
 
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskRead])
 def list_tasks(
-    project_id: int,
+    project_id: EntityId,
     workflow_status: TaskWorkflowStatus | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[TaskRead]:
@@ -123,7 +124,7 @@ def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db_write)) 
     status_code=status.HTTP_201_CREATED,
 )
 def create_task(
-    project_id: int, data: TaskCreate, db: Session = Depends(get_db_write)
+    project_id: EntityId, data: TaskCreate, db: Session = Depends(get_db_write)
 ) -> TaskRead:
     _ensure_project(db, project_id)
     # The path project_id is authoritative here; any ``data.project_id`` is ignored.
@@ -148,12 +149,12 @@ def create_task(
 
 
 @router.get("/tasks/{task_id}", response_model=TaskRead)
-def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
+def get_task(task_id: EntityId, db: Session = Depends(get_db)) -> TaskRead:
     return read_with_blocked(db, _get_task_or_404(db, task_id))
 
 
 @router.get("/tasks/{task_id}/subtasks", response_model=list[TaskRead])
-def list_subtasks(task_id: int, db: Session = Depends(get_db)) -> list[TaskRead]:
+def list_subtasks(task_id: EntityId, db: Session = Depends(get_db)) -> list[TaskRead]:
     """Direct active children of a task, including done ones (unlike GET /api/tasks)."""
     _get_task_or_404(db, task_id)
     return reads_with_blocked(db, tasks_service.list_subtasks(db, task_id))
@@ -161,7 +162,7 @@ def list_subtasks(task_id: int, db: Session = Depends(get_db)) -> list[TaskRead]
 
 @router.patch("/tasks/{task_id}", response_model=TaskRead)
 def update_task(
-    task_id: int, data: TaskUpdate, db: Session = Depends(get_db_write)
+    task_id: EntityId, data: TaskUpdate, db: Session = Depends(get_db_write)
 ) -> TaskRead:
     task = _get_task_or_404(db, task_id)
     fields = data.model_dump(exclude_unset=True)
@@ -194,7 +195,7 @@ def update_task(
 
 
 @router.post("/tasks/{task_id}/done", response_model=TaskRead)
-def mark_task_done(task_id: int, db: Session = Depends(get_db_write)) -> TaskRead:
+def mark_task_done(task_id: EntityId, db: Session = Depends(get_db_write)) -> TaskRead:
     task = _get_task_or_404(db, task_id)
     try:
         updated = tasks_service.mark_done(db, task)
@@ -209,7 +210,7 @@ def mark_task_done(task_id: int, db: Session = Depends(get_db_write)) -> TaskRea
 
 
 @router.post("/tasks/{task_id}/skip", response_model=TaskRead)
-def skip_occurrence(task_id: int, db: Session = Depends(get_db_write)) -> TaskRead:
+def skip_occurrence(task_id: EntityId, db: Session = Depends(get_db_write)) -> TaskRead:
     """Skip a recurring occurrence: soft-delete it, return the next occurrence."""
     task = _get_task_or_404(db, task_id)
     try:
@@ -225,7 +226,7 @@ def skip_occurrence(task_id: int, db: Session = Depends(get_db_write)) -> TaskRe
 
 
 @router.get("/tasks/{task_id}/series", response_model=TaskSeries)
-def get_task_series(task_id: int, db: Session = Depends(get_db)) -> TaskSeries:
+def get_task_series(task_id: EntityId, db: Session = Depends(get_db)) -> TaskSeries:
     """All occurrences in this task's recurrence series, oldest due date first."""
     task = _get_task_or_404(db, task_id)
     if task.recurrence_id is None:
@@ -241,7 +242,7 @@ def get_task_series(task_id: int, db: Session = Depends(get_db)) -> TaskSeries:
 
 
 @router.post("/tasks/{task_id}/stop-recurrence", response_model=TaskRead)
-def stop_recurrence(task_id: int, db: Session = Depends(get_db_write)) -> TaskRead:
+def stop_recurrence(task_id: EntityId, db: Session = Depends(get_db_write)) -> TaskRead:
     """Stop a series from spawning further occurrences (clears repeat_interval)."""
     task = _get_task_or_404(db, task_id)
     try:
@@ -255,7 +256,7 @@ def stop_recurrence(task_id: int, db: Session = Depends(get_db_write)) -> TaskRe
 
 
 @router.post("/tasks/{task_id}/reopen", response_model=TaskRead)
-def reopen_task(task_id: int, db: Session = Depends(get_db_write)) -> TaskRead:
+def reopen_task(task_id: EntityId, db: Session = Depends(get_db_write)) -> TaskRead:
     task = _get_task_or_404(db, task_id)
     try:
         updated = tasks_service.reopen_task(db, task)
@@ -270,7 +271,7 @@ def reopen_task(task_id: int, db: Session = Depends(get_db_write)) -> TaskRead:
 
 
 @router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_task(task_id: int, db: Session = Depends(get_db_write)) -> None:
+def delete_task(task_id: EntityId, db: Session = Depends(get_db_write)) -> None:
     task = _get_task_or_404(db, task_id)
     tasks_service.soft_delete_task(db, task)
     db.commit()
@@ -278,7 +279,7 @@ def delete_task(task_id: int, db: Session = Depends(get_db_write)) -> None:
 
 
 @router.post("/tasks/{task_id}/restore", response_model=TaskRead)
-def restore_task(task_id: int, db: Session = Depends(get_db_write)) -> TaskRead:
+def restore_task(task_id: EntityId, db: Session = Depends(get_db_write)) -> TaskRead:
     task = task_trash.get_deleted_task(db, task_id)
     if task is None:
         raise HTTPException(
@@ -303,7 +304,7 @@ def restore_task(task_id: int, db: Session = Depends(get_db_write)) -> TaskRead:
     "/tasks/{task_id}/purge",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-def purge_task(task_id: int, db: Session = Depends(get_db_write)) -> None:
+def purge_task(task_id: EntityId, db: Session = Depends(get_db_write)) -> None:
     task = trashed_row_or_error(
         task_trash.get_deleted_task(db, task_id),
         lambda: tasks_service.get_task(db, task_id),

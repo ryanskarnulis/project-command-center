@@ -23,6 +23,7 @@ from app.api.rate_limit import rate_limit
 from app.config import get_settings
 from app.db.models import Conversation
 from app.db.session import get_db, get_db_write
+from app.schemas.common import EntityId
 from app.schemas.conversations import (
     ConversationCreate,
     ConversationDetail,
@@ -78,7 +79,7 @@ def create_conversation(
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationDetail)
 def get_conversation(
-    conversation_id: int, db: Session = Depends(get_db)
+    conversation_id: EntityId, db: Session = Depends(get_db)
 ) -> ConversationDetail:
     conversation = _get_or_404(db, conversation_id)
     return ConversationDetail(
@@ -93,7 +94,7 @@ def get_conversation(
 @router.delete(
     "/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT
 )
-def delete_conversation(conversation_id: int, db: Session = Depends(get_db_write)) -> None:
+def delete_conversation(conversation_id: EntityId, db: Session = Depends(get_db_write)) -> None:
     """Soft-delete an idle conversation; **409** while a run is in flight (#149).
 
     Deletion takes the conversation's run lock, so it is serialized against
@@ -121,7 +122,7 @@ def delete_conversation(conversation_id: int, db: Session = Depends(get_db_write
     ],
 )
 def post_message(
-    conversation_id: int,
+    conversation_id: EntityId,
     data: MessageCreate,
     db: Session = Depends(get_db_write),
     reader: Session = Depends(get_db),
