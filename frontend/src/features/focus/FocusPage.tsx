@@ -230,6 +230,16 @@ function FocusRowActions({
   )
 }
 
+// The "now" divider. Sits between rows, or after the last row once the whole
+// day's schedule has elapsed.
+function NowMarker({ label }: { label: string }) {
+  return (
+    <li className="focus-now-marker" aria-label={`Now, ${label}`}>
+      <span>Now · {label}</span>
+    </li>
+  )
+}
+
 function ScheduledRow({
   block,
   past,
@@ -432,15 +442,18 @@ export function FocusPage() {
       ? [...CAPACITY_PRESETS, capacityMinutes].sort((a, b) => a - b)
       : CAPACITY_PRESETS
 
-  // Index of the first block still in the future — the "now" divider renders
-  // just above it; everything before it is dimmed as already elapsed.
-  const nowIndex =
-    viewingToday && plan
-      ? plan.scheduled.findIndex(
-          (block) =>
-            block.end_day_offset * 24 * 60 + parseTime(block.end_time) > nowMinutes,
-        )
-      : -1
+  // Insertion index of the "now" divider: the first block still in the future,
+  // or `scheduled.length` when the whole day has elapsed (marker lands after the
+  // final row and every block is dimmed). `null` means "not viewing today", so
+  // no marker and no dimming — distinct from the fully-elapsed case, which a
+  // bare findIndex() of -1 used to conflate.
+  let nowIndex: number | null = null
+  if (viewingToday && plan) {
+    const upcoming = plan.scheduled.findIndex(
+      (block) => block.end_day_offset * 24 * 60 + parseTime(block.end_time) > nowMinutes,
+    )
+    nowIndex = upcoming === -1 ? plan.scheduled.length : upcoming
+  }
   const nowLabel = `${String(Math.floor(nowMinutes / 60)).padStart(2, '0')}:${String(
     nowMinutes % 60,
   ).padStart(2, '0')}`
@@ -541,20 +554,17 @@ export function FocusPage() {
               <ol className="focus-timeline">
                 {plan.scheduled.map((block, index) => (
                   <Fragment key={block.task_id}>
-                    {index === nowIndex && (
-                      <li className="focus-now-marker" aria-label={`Now, ${nowLabel}`}>
-                        <span>Now · {nowLabel}</span>
-                      </li>
-                    )}
+                    {index === nowIndex && <NowMarker label={nowLabel} />}
                     <ScheduledRow
                       block={block}
-                      past={nowIndex >= 0 ? index < nowIndex : false}
+                      past={nowIndex !== null && index < nowIndex}
                       planDate={plan.date}
                       onMutated={refetch}
                       onSkip={(id, title) => setSkipTarget({ id, title })}
                     />
                   </Fragment>
                 ))}
+                {nowIndex === plan.scheduled.length && <NowMarker label={nowLabel} />}
               </ol>
             </section>
           ) : (
