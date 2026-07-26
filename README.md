@@ -181,7 +181,8 @@ delete conversations under `/api/agent/conversations`, and
 `POST /api/agent/conversations/{id}/messages` — the one model-calling
 endpoint — which stores the user turn, runs the loop synchronously, and
 returns the exchange with the full tool-call trajectory. It is rate-limited
-per client IP (`AGENT_MESSAGES_PER_MIN`, default 10).
+per client IP (`AGENT_MESSAGES_PER_MIN`, default 10; must be a positive
+integer — the limiter cannot be disabled).
 
 Runs on one conversation are serialized: a second message that arrives mid-run
 waits for the first to finish (so it sees the reply in history) or gets a 409.
@@ -210,7 +211,8 @@ per the fleet contract (`../agent-standard/voice.md`), and
 `app/api/routes_voice.py` proxies it — `POST /api/voice/transcribe` (audio →
 text, biased toward PCC's task/project vocabulary) and `POST /api/voice/speak`
 (text → mp3, the fleet house voice). Both are rate-limited per client IP
-(`VOICE_REQUESTS_PER_MIN`, default 30). Configure with `SPEECH_BASE_URL` /
+(`VOICE_REQUESTS_PER_MIN`, default 30; must be a positive integer).
+Configure with `SPEECH_BASE_URL` /
 `TTS_BASE_URL` / `STT_MODEL` / `TTS_MODEL` / `TTS_VOICE` (defaults in
 `app/config.py`); leave `SPEECH_BASE_URL` unset **or empty** to run voiceless —
 the voice endpoints answer 503 and nothing else changes. Voice is off by

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from app.config import Settings
 
@@ -69,3 +70,32 @@ def test_compose_leaves_speech_urls_unset_by_default() -> None:
             f"${{{var}-}}",
             f"${{{var}}}",
         }, f"{var} must expand to empty when unset, got {value.strip()!r}"
+
+
+@pytest.mark.parametrize("env_var", ["AGENT_MESSAGES_PER_MIN", "VOICE_REQUESTS_PER_MIN"])
+@pytest.mark.parametrize("value", ["0", "-1", "-30"])
+def test_non_positive_rate_limits_are_rejected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, env_var: str, value: str
+) -> None:
+    """Issue #165: a non-positive cap made the limiter index an empty deque.
+
+    Non-positive is invalid configuration (zero does NOT disable the limiter),
+    so it must fail loudly at the settings boundary, not per request.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(env_var, value)
+
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+@pytest.mark.parametrize("env_var", ["AGENT_MESSAGES_PER_MIN", "VOICE_REQUESTS_PER_MIN"])
+def test_positive_rate_limits_are_accepted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, env_var: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(env_var, "1")
+
+    settings = Settings()
+
+    assert getattr(settings, env_var.lower()) == 1
