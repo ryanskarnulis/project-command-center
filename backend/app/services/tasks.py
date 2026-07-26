@@ -401,6 +401,42 @@ def has_active_children(db: Session, task_id: int) -> bool:
     )
 
 
+def first_future_occurrence_with_children(
+    db: Session,
+    recurrence_id: str,
+    due_date: date,
+    exclude_id: int,
+) -> Task | None:
+    """Earliest later occurrence in the series that is a checklist parent.
+
+    "This and all future occurrences" forward-patches rows with a blind bulk
+    UPDATE, which can't re-run the per-row derived-field guard. Any targeted row
+    with active subtasks derives its estimate from them, so the patch would write
+    a hidden value onto it. Callers use this to reject such an edit up front.
+    """
+    child = aliased(Task)
+    return (
+        db.execute(
+            active(Task)
+            .where(
+                Task.recurrence_id == recurrence_id,
+                Task.due_date >= due_date,
+                Task.id != exclude_id,
+                select(child.id)
+                .where(
+                    child.parent_task_id == Task.id,
+                    child.deleted_at.is_(None),
+                )
+                .exists(),
+            )
+            .order_by(Task.due_date, Task.id)
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+
+
 def _assert_not_blocked(db: Session, task_id: int) -> None:
     """Reject completing a task that still waits on an unfinished dependency.
 
@@ -647,6 +683,31 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
                 f"This series already has an active occurrence due "
                 f"{effective_due.isoformat()}. Pick another date, or trash or skip "
                 f"that occurrence first."
+            )
+
+    # Same invariant, one scope wider: "this and all future occurrences" forwards
+    # ``estimated_minutes`` onto later rows with a bulk UPDATE that can't re-run the
+    # guard above. If any targeted occurrence is a checklist parent, its estimate is
+    # derived, and the patch would park a hidden value on it that resurfaces once its
+    # last child is trashed or reparented. Reject the whole edit here — before the
+    # attribute loop — so the rejection is atomic: the acted-on row keeps its old
+    # estimate too, rather than leaving the series half-patched. (issue #200)
+    if (
+        edit_scope == "future"
+        and "estimated_minutes" in control
+        and task.recurrence_id is not None
+        and effective_due is not None
+    ):
+        blocking = first_future_occurrence_with_children(
+            db, task.recurrence_id, effective_due, exclude_id=task.id
+        )
+        if blocking is not None:
+            # due_date is never NULL here: the lookup filters on ``due_date >= ...``.
+            when = blocking.due_date.isoformat() if blocking.due_date else "later"
+            raise DerivedEstimateError(
+                f"A later occurrence (due {when}) has subtasks, so its estimate is "
+                f"derived from them and can't be set. Apply this estimate to this "
+                f"occurrence only, or remove that occurrence's subtasks first."
             )
 
     for key, value in control.items():

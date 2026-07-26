@@ -584,6 +584,75 @@ def test_edit_scope_future_does_not_forward_structural_fields(
     assert refreshed[date(2026, 6, 1)].parent_task_id is None
 
 
+def test_edit_scope_future_rejects_estimate_when_future_row_has_children(
+    db_session: Session,
+) -> None:
+    # A future occurrence that has active subtasks derives its estimate from them.
+    # The forward-patch is a blind bulk UPDATE, so it can't re-run the derived-field
+    # guard; it would park a hidden estimate on that parent which resurfaces once the
+    # last child is trashed. The whole edit must be rejected, atomically. (issue #200)
+    recurrence_id, series = _three_occurrence_series(db_session)
+    first, second, third = series
+    assert third.project_id is not None
+
+    child = tasks_service.create_task(
+        db_session,
+        project_id=third.project_id,
+        title="step one",
+        parent_task_id=third.id,
+        estimated_minutes=15,
+    )
+    db_session.commit()
+    assert tasks_service.get_rollup(db_session, third).estimated_minutes == 15
+    estimate_before = second.estimated_minutes
+
+    with pytest.raises(tasks_service.DerivedEstimateError):
+        tasks_service.update_task(
+            db_session, second, {"estimated_minutes": 120, "edit_scope": "future"}
+        )
+    db_session.rollback()
+
+    refreshed = {t.due_date: t for t in _series(db_session, recurrence_id)}
+    # Atomic: not even the acted-on row took the estimate.
+    assert refreshed[date(2026, 6, 8)].estimated_minutes == estimate_before
+    assert refreshed[date(2026, 6, 15)].estimated_minutes is None
+    assert refreshed[date(2026, 6, 1)].estimated_minutes is None
+
+    # ...and nothing resurfaces once the parent's last child is gone.
+    parent = refreshed[date(2026, 6, 15)]
+    child_row = tasks_service.get_task(db_session, child.id)
+    assert child_row is not None
+    tasks_service.soft_delete_task(db_session, child_row)
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.estimated_minutes is None
+    assert tasks_service.get_rollup(db_session, parent).estimated_minutes is None
+
+    # The same edit scoped to this occurrence only still works.
+    tasks_service.update_task(
+        db_session, second, {"estimated_minutes": 120, "edit_scope": "this"}
+    )
+    db_session.commit()
+    assert second.estimated_minutes == 120
+
+
+def test_edit_scope_future_forwards_estimate_when_no_row_has_children(
+    db_session: Session,
+) -> None:
+    recurrence_id, series = _three_occurrence_series(db_session)
+    _first, second, _third = series
+
+    tasks_service.update_task(
+        db_session, second, {"estimated_minutes": 45, "edit_scope": "future"}
+    )
+    db_session.commit()
+
+    refreshed = {t.due_date: t.estimated_minutes for t in _series(db_session, recurrence_id)}
+    assert refreshed[date(2026, 6, 1)] is None  # past row untouched
+    assert refreshed[date(2026, 6, 8)] == 45
+    assert refreshed[date(2026, 6, 15)] == 45
+
+
 def test_edit_scope_future_logs_event_per_occurrence(db_session: Session) -> None:
     # The forward-patch is a bulk UPDATE; every occurrence it mutates must still
     # land an activity event, like every other multi-row op. The acted-on row and
