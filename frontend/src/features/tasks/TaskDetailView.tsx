@@ -103,6 +103,9 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
   const [confirmingSkip, setConfirmingSkip] = useState(false)
 
   function applyUpdated(updated: Task) {
+    // Final boundary: a response that outlived a switch to another task must
+    // never become the surface's task, even if it slipped past the hook.
+    if (updated.id !== id) return
     setTask(updated)
     setAllTasks((items) => items.map((item) => (item.id === updated.id ? updated : item)))
     onMutated?.()

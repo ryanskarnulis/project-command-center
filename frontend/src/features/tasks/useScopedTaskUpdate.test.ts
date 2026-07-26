@@ -97,4 +97,62 @@ describe('useScopedTaskUpdate', () => {
     expect(result.current.saveError).toBeNull()
     expect(saved).toEqual([newResponse])
   })
+
+  it('retires an in-flight PATCH when the hook switches to another task', async () => {
+    const otherTask = { id: 2, title: 'Other', recurrence_id: null } as Task
+    const staleResponse = { ...task, title: 'Task edited' } as Task
+    const pending = deferred<Task>()
+    mockUpdateTask.mockReturnValueOnce(pending.promise)
+
+    const saved: Task[] = []
+    const { result, rerender } = renderHook(
+      ({ current }: { current: Task }) =>
+        useScopedTaskUpdate(current, (updated) => {
+          saved.push(updated)
+        }),
+      { initialProps: { current: task } },
+    )
+
+    act(() => {
+      result.current.savePatch({ title: 'Task edited' })
+    })
+    expect(result.current.saveState).toBe('saving')
+
+    // The detail surface navigates to another task, then the old PATCH lands.
+    rerender({ current: otherTask })
+    expect(result.current.saveState).toBe('idle')
+    await act(async () => {
+      pending.resolve(staleResponse)
+      await pending.promise
+    })
+
+    expect(saved).toEqual([])
+    expect(result.current.saveState).toBe('idle')
+    expect(result.current.saveError).toBeNull()
+  })
+
+  it('clears a pending scope prompt when the task changes', () => {
+    const recurring = { ...task, recurrence_id: 'rec-9' } as Task
+    const otherTask = { id: 2, title: 'Other', recurrence_id: null } as Task
+
+    const { result, rerender } = renderHook(
+      ({ current }: { current: Task }) => useScopedTaskUpdate(current, () => undefined),
+      { initialProps: { current: recurring } },
+    )
+
+    act(() => {
+      result.current.savePatch({ title: 'Renamed series' })
+    })
+    expect(result.current.scopePromptOpen).toBe(true)
+    expect(mockUpdateTask).not.toHaveBeenCalled()
+
+    rerender({ current: otherTask })
+    expect(result.current.scopePromptOpen).toBe(false)
+
+    // The retired prompt must not be replayable against the new task.
+    act(() => {
+      result.current.resolveScope('this')
+    })
+    expect(mockUpdateTask).not.toHaveBeenCalled()
+  })
 })

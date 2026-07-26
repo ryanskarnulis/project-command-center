@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { updateTask } from '../../api/tasks'
 import type { EditScope, Task, TaskUpdate } from '../../types/task'
 
@@ -48,19 +48,39 @@ export function useScopedTaskUpdate(
   // can resolve out of order; only the newest write may publish its snapshot or
   // its save state, so a slow older response can never revert newer fields.
   const latestRequestId = useRef(0)
+  const taskId = task?.id ?? null
+  // The task every generation belongs to: a response may only publish while the
+  // hook still tracks the task it was issued for. Kept in a ref so an in-flight
+  // PATCH resolving after a task switch sees the new identity, not its own.
+  const activeTaskId = useRef(taskId)
+  useLayoutEffect(() => {
+    activeTaskId.current = taskId
+  }, [taskId])
+  // Switching tasks also retires the previous task's pending UI: its scope
+  // prompt and save line belong to a task that is no longer on screen.
+  const [renderedTaskId, setRenderedTaskId] = useState<number | null>(taskId)
+  if (renderedTaskId !== taskId) {
+    setRenderedTaskId(taskId)
+    setPendingScopePatch(null)
+    setSaveState('idle')
+    setSaveError(null)
+  }
 
   async function applyPatch(patch: TaskUpdate) {
     if (!task) return
+    const patchTaskId = task.id
     const requestId = ++latestRequestId.current
+    const isCurrent = (): boolean =>
+      requestId === latestRequestId.current && patchTaskId === activeTaskId.current
     setSaveState('saving')
     setSaveError(null)
     try {
       const updated = await updateTask(task.id, patch)
-      if (requestId !== latestRequestId.current) return
+      if (!isCurrent()) return
       onSaved(updated)
       setSaveState('saved')
     } catch (e: unknown) {
-      if (requestId !== latestRequestId.current) return
+      if (!isCurrent()) return
       setSaveState('error')
       setSaveError(e instanceof Error ? e.message : 'Failed to save task')
     }

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -267,6 +267,49 @@ describe('TaskDetailView', () => {
     const dependent = await screen.findByRole('link', { name: 'Install the router' })
     expect(dependent).toHaveAttribute('href', '/tasks/12')
     expect(screen.getByText('waiting')).toBeInTheDocument()
+  })
+
+  it('discards a PATCH response that lands after switching to another task', async () => {
+    const user = userEvent.setup()
+    const taskB: Task = { ...task, id: 8, title: 'Task B' }
+    let resolvePatch!: (value: Task) => void
+    mockUpdateTask.mockImplementation(
+      () => new Promise<Task>((resolve) => { resolvePatch = resolve }),
+    )
+    mockGetTask.mockImplementation(async (id: number) => (id === 8 ? taskB : task))
+    mockListAllTasks.mockResolvedValue([task, taskB])
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <TaskDetailView taskId={7} />
+      </MemoryRouter>,
+    )
+
+    const title = await screen.findByLabelText('Task title')
+    await waitFor(() => expect(title).toHaveValue('Patch the router'))
+    await user.clear(title)
+    await user.type(title, 'Task A edited')
+    await user.tab()
+    await waitFor(() => expect(mockUpdateTask).toHaveBeenCalledTimes(1))
+
+    // The panel navigates to task B and B's detail request resolves…
+    rerender(
+      <MemoryRouter>
+        <TaskDetailView taskId={8} />
+      </MemoryRouter>,
+    )
+    await waitFor(() =>
+      expect(screen.getByLabelText('Task title')).toHaveValue('Task B'),
+    )
+
+    // …then task A's stale PATCH response finally arrives.
+    await act(async () => {
+      resolvePatch({ ...task, title: 'Task A edited' })
+      await Promise.resolve()
+    })
+
+    expect(screen.getByLabelText('Task title')).toHaveValue('Task B')
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
   })
 
   it('saves friendly estimate text from the estimate chip', async () => {
