@@ -9,7 +9,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import Task, TaskWorkflowStatus
+from app.db.models import Task, TaskDependency, TaskWorkflowStatus
 from app.services.common import soft_delete
 from app.services.integrity import violates_unique_columns
 from app.services.tasks import (
@@ -70,7 +70,11 @@ def next_occurrence_date(
 
 
 def _clone_subtask_tree(
-    db: Session, source: Task, new_parent_id: int, due_date: date | None
+    db: Session,
+    source: Task,
+    new_parent_id: int,
+    due_date: date | None,
+    clone_ids: dict[int, int],
 ) -> None:
     """Recursively clone ``source``'s active subtree under ``new_parent_id``.
 
@@ -79,6 +83,11 @@ def _clone_subtask_tree(
     inherits ``due_date`` (the new occurrence's date) so the reset checklist is due
     with its occurrence rather than carrying the previous cadence's stale dates.
     Grandchildren recurse.
+
+    ``clone_ids`` accumulates ``source subtask id -> clone id`` for the whole
+    subtree; ``_clone_dependency_edges`` needs the finished map to remap edges, so
+    the two passes are deliberately separate (an edge may point at a task in a
+    sibling branch that has not been cloned yet when this one is walked).
     """
     for child in list_subtasks(db, source.id):
         clone = Task(
@@ -96,8 +105,57 @@ def _clone_subtask_tree(
         db.add(clone)
         db.flush()
         db.refresh(clone)
+        clone_ids[child.id] = clone.id
         log_task_event(db, clone, "created")
-        _clone_subtask_tree(db, child, clone.id, due_date)
+        _clone_subtask_tree(db, child, clone.id, due_date, clone_ids)
+
+
+def _clone_dependency_edges(db: Session, clone_ids: Mapping[int, int]) -> None:
+    """Recreate the cloned subtree's *internal* dependency edges on the clones.
+
+    A checklist's ordering ("Deploy waits on Build") is part of the routine, not
+    incidental metadata: without this the successor occurrence's steps are all
+    unblocked and completable out of order.
+
+    **Only edges with both endpoints inside the cloned subtree are recreated.** An
+    edge to a task *outside* the subtree is deliberately dropped rather than
+    pointed at the original task, because the outside endpoint belongs to *this*
+    cadence: a one-off blocker that will already be done (leaving the clone
+    permanently satisfied and the edge pure noise), or worse, a task in the
+    completed occurrence's own tree, which would chain every future occurrence to
+    the previous one's rows. Re-establishing such a cross-cadence link is a
+    judgement the user should make explicitly on the new occurrence; guessing it
+    here would silently manufacture blockers nobody asked for.
+
+    Goes through ``add_dependency`` rather than inserting rows, so clone edges get
+    the same validation and the same ``dependency_added`` activity event a manual
+    add produces — the clone is a real workflow change and the feed should say so.
+    Edges are replayed in source-edge id order for a deterministic audit trail.
+    """
+    # Local import: task_dependencies builds on this module (see ``reconcile``), so
+    # a top-level import would cycle.
+    from app.services import task_dependencies as deps_service
+
+    if not clone_ids:
+        return
+    source_ids = set(clone_ids)
+    edges = (
+        db.execute(
+            select(TaskDependency)
+            .where(
+                TaskDependency.deleted_at.is_(None),
+                TaskDependency.task_id.in_(source_ids),
+                TaskDependency.depends_on_task_id.in_(source_ids),
+            )
+            .order_by(TaskDependency.id)
+        )
+        .scalars()
+        .all()
+    )
+    for edge in edges:
+        deps_service.add_dependency(
+            db, clone_ids[edge.task_id], clone_ids[edge.depends_on_task_id]
+        )
 
 
 def find_live_occurrence_on(
@@ -255,7 +313,9 @@ def _insert_occurrence(db: Session, task: Task, due_date: date) -> Task:
     db.flush()
     db.refresh(occurrence)
     log_task_event(db, occurrence, "created")
-    _clone_subtask_tree(db, task, occurrence.id, occurrence.due_date)
+    clone_ids: dict[int, int] = {}
+    _clone_subtask_tree(db, task, occurrence.id, occurrence.due_date, clone_ids)
+    _clone_dependency_edges(db, clone_ids)
     return occurrence
 
 
