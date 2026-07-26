@@ -104,6 +104,15 @@ Key decisions:
   audit event per task); restoring **without** tasks clears the marker so those
   tasks fall into the standalone Tasks trash instead of being stranded. A
   protected `General` project is seeded (system key `general`).
+- **Task deletion cascade**: trashing a task soft-deletes its whole subtask
+  subtree, each descendant stamped with `deleted_with_task_id` naming the root
+  that was actually trashed. Restoring is per-task by default (the trash page);
+  `POST /api/tasks/{id}/restore?restore_subtasks=true` — the agent's Undo for
+  `trash_task` — restores exactly the stamped set, one audit event per task, so
+  it reverses that one delete and nothing else. Subtasks trashed independently
+  beforehand carry no marker and stay in the trash. The marker clears on any
+  restore, and is a plain integer, not an FK: purges destroy rows and a stale
+  marker must stay inert.
 - **Agent conversations** persist as `conversations` (soft-deletable,
   auto-titled from the first user message) and immutable
   `conversation_messages`. The assistant turn stores the loop's tool
