@@ -3,7 +3,9 @@
 Two complementary layers protect `data/app.db`:
 
 1. **Snapshots** — `./scripts/backup_db.sh` takes a consistent online snapshot
-   into `data/backups/` (prunes past `BACKUP_RETENTION_DAYS`, default 14). Run
+   into `data/backups/` (prunes past `BACKUP_RETENTION_DAYS`, default 14; it
+   must be a non-negative integer — anything else aborts before any snapshot is
+   written or pruned). Run
    it from cron on the host, or from inside the container.
 2. **Continuous replication (Litestream)** — streams the write-ahead log to a
    replica as writes land, giving point-in-time recovery *between* snapshots.
