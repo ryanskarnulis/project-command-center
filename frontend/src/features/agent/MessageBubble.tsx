@@ -1,5 +1,5 @@
 import ReactMarkdown, { type Components } from 'react-markdown'
-import { SpiderMark } from '../../components/SpiderMark'
+import { GlitchMark } from '../../components/GlitchMark'
 import type { AgentMessage, AgentStopReason } from '../../types/agent'
 import { formatRelative } from '../../utils/dates'
 import { ToolCallList } from './ToolCallList'
@@ -38,7 +38,7 @@ export function MessageBubble({ message }: { message: AgentMessage }) {
   return (
     <li className="agent-message agent-message--assistant">
       <span className="agent-avatar" aria-hidden="true">
-        <SpiderMark size={16} />
+        <GlitchMark size={16} />
       </span>
       <div className="agent-message-body">
         {message.tool_calls !== null && message.tool_calls.length > 0 && (

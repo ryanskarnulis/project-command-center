@@ -9,6 +9,9 @@
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.brand-text {
   color: inherit;
   text-decoration: none;
 }
@@ -38,10 +41,15 @@
   min-width: 40px;
   height: 40px;
   border-radius: 10px;
-  color: var(--blue);
 }
 
-.brand-mark:hover .brand-icon {
+.brand-icon img {
+  border-radius: 50%;
+  display: block;
+}
+
+.brand-icon:hover,
+.brand-icon:focus-visible {
   background: var(--blue-soft);
 }
 

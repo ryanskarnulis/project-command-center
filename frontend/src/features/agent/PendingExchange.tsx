@@ -1,4 +1,4 @@
-import { SpiderMark } from '../../components/SpiderMark'
+import { GlitchMark } from '../../components/GlitchMark'
 
 /** The optimistic tail while a run is in flight: the user's bubble plus a
  * progress note (v1 is non-streaming — tool calls appear when the run lands).
@@ -12,7 +12,7 @@ export function PendingExchange({ text }: { text: string }) {
       </li>
       <li className="agent-message agent-message--assistant">
         <span className="agent-avatar" aria-hidden="true">
-          <SpiderMark size={16} className="agent-spider-working" />
+          <GlitchMark size={16} className="agent-spider-working" />
         </span>
         <div className="agent-message-body">
           <div className="agent-bubble agent-bubble--working" role="status">

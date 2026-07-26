@@ -4,7 +4,7 @@ import { Sparkles } from 'lucide-react'
 import { Badge, type BadgeTone } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { AsyncState } from '../../components/AsyncState'
-import { SpiderMark } from '../../components/SpiderMark'
+import { GlitchMark } from '../../components/GlitchMark'
 import type { SearchKind, SearchResultItem } from '../../types/search'
 import { MicButton } from '../../voice/MicButton'
 import { playText } from '../../voice/tts'
@@ -295,7 +295,7 @@ export function CommandSearch() {
               className="command-search-ask"
               onClick={() => void submitAsk()}
             >
-              <SpiderMark size={16} />
+              <GlitchMark size={16} />
               <span className="command-search-result-text">
                 <span className="command-search-result-title">
                   Ask the agent: “{trimmed}”

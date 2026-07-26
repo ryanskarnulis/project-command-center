@@ -14,7 +14,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import { SpiderMark } from '../../components/SpiderMark'
+import { GlitchMark } from '../../components/GlitchMark'
 import { fireAndForget } from '../../utils/async'
 import { formatRelative } from '../../utils/dates'
 import { MicButton } from '../../voice/MicButton'
@@ -193,7 +193,7 @@ export function AgentPage() {
       <section className="agent-thread" aria-label="Agent chat">
         {activeId === null ? (
           <div className="agent-thread-empty">
-            <SpiderMark size={22} />
+            <GlitchMark size={22} />
             <h1>Agent</h1>
             <p>
               Ask for anything your projects need — “create a task…”, “what’s
