@@ -61,10 +61,26 @@ export function useConversations(): UseConversations {
   // The window currently loaded; refreshes re-read exactly this much so a
   // background refresh never shrinks the list back to the first page.
   const windowSize = useRef(CONVERSATION_PAGE_SIZE)
+  // Ordering guards (#211). Requests are multi-page and can overlap — a refresh
+  // started while "Load older" is still in flight captures the *old* window
+  // size, so without these an out-of-order completion would hide rows the user
+  // just loaded.
+  const requestSeq = useRef(0)
+  const committedSeq = useRef(0)
 
-  const load = useCallback(async (size: number) => {
+  const load = useCallback(async function load(size: number): Promise<void> {
+    const seq = ++requestSeq.current
     try {
       const result = await fetchWindow(size)
+      // Something newer already landed — this result is stale, drop it.
+      if (seq <= committedSeq.current) return
+      if (size < windowSize.current) {
+        // Fresher data, but a smaller window than what is on screen. Re-read at
+        // the committed size rather than shrinking the list back.
+        await load(windowSize.current)
+        return
+      }
+      committedSeq.current = seq
       windowSize.current = size
       setConversations(result.conversations)
       setHasMore(result.hasMore)
@@ -88,26 +104,10 @@ export function useConversations(): UseConversations {
     }
   }, [load])
 
+  // Initial read goes through `refresh` so it shares the ordering guards above.
   useEffect(() => {
-    let active = true
-    fetchWindow(CONVERSATION_PAGE_SIZE)
-      .then((result) => {
-        if (!active) return
-        setConversations(result.conversations)
-        setHasMore(result.hasMore)
-      })
-      .catch((e: unknown) => {
-        if (active) {
-          setError(e instanceof Error ? e.message : 'Failed to load conversations')
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false)
-      })
-    return () => {
-      active = false
-    }
-  }, [])
+    void refresh()
+  }, [refresh])
 
   const create = useCallback(async () => {
     const conversation = await createConversation()

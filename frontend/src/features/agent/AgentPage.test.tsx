@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -221,6 +221,81 @@ describe('AgentPage', () => {
         screen.queryByRole('button', { name: /Load older conversations/ }),
       ).not.toBeInTheDocument(),
     )
+  })
+
+  it('keeps the loaded window when a stale refresh resolves last (#211)', async () => {
+    const all = Array.from({ length: 51 }, (_, index) => ({
+      id: 51 - index,
+      title: `Conversation ${51 - index}`,
+      created_at: detail.created_at,
+      updated_at: detail.updated_at,
+    }))
+    // Every list request is deferred so completion order can be controlled.
+    const pending: { offset: number; limit: number; resolve: () => void }[] = []
+    mockList.mockImplementation(async (params) => {
+      const offset = params?.offset ?? 0
+      const limit = params?.limit ?? 50
+      return new Promise((resolve) => {
+        pending.push({
+          offset,
+          limit,
+          resolve: () => resolve(all.slice(offset, offset + limit)),
+        })
+      })
+    })
+    mockCreate.mockResolvedValue({
+      id: 99,
+      title: null,
+      created_at: detail.created_at,
+      updated_at: detail.updated_at,
+    })
+
+    /** Resolve the `index`-th request made so far, waiting for it to start. */
+    async function settle(index: number): Promise<void> {
+      await waitFor(() => expect(pending.length).toBeGreaterThan(index))
+      const request = pending[index]
+      await act(async () => {
+        request.resolve()
+      })
+    }
+
+    renderAt('/agent')
+
+    // 1. Initial 50-row window.
+    await settle(0)
+    expect(await screen.findByText('Conversation 51')).toBeInTheDocument()
+    expect(screen.queryByText('Conversation 1')).not.toBeInTheDocument()
+
+    // 2. Start "Load older" (window 100) but leave its first page pending.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Load older conversations' }),
+    )
+    await waitFor(() => expect(pending).toHaveLength(2))
+
+    // 3. Trigger a refresh while that is in flight — it captures window 50.
+    fireEvent.click(screen.getByRole('button', { name: /New conversation/ }))
+    await waitFor(() => expect(pending).toHaveLength(3))
+
+    // 4. The load-more request completes first: both of its pages land.
+    await settle(1)
+    await settle(3)
+    expect(await screen.findByText('Conversation 1')).toBeInTheDocument()
+
+    // 5. The stale 50-row refresh resolves last and must not shrink the window.
+    await settle(2)
+    // Its guard re-reads at the committed size; drain whatever that starts.
+    await settle(4)
+    await settle(5)
+
+    const titles = screen
+      .getAllByRole('button', { name: /^Conversation \d+/ })
+      .map((button) => button.textContent)
+    expect(titles).toHaveLength(51)
+    expect(screen.getByText('Conversation 1')).toBeInTheDocument()
+    // Window stayed at >= 100: the affordance does not come back.
+    expect(
+      screen.queryByRole('button', { name: /Load older conversations/ }),
+    ).not.toBeInTheDocument()
   })
 
   it('surfaces a rate-limit rejection and reloads the thread', async () => {
