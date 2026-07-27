@@ -97,7 +97,12 @@ def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> T
         )
         if live is not None:
             reschedule_occurrence(db, live, task.due_date)
-            purge_task(db, task)
+            # Unscoped: this destroys the *original* skipped occurrence, which
+            # the skip already replaced with fresh clones — including children
+            # filed in other projects. The project-scoped walk would leave those
+            # merely detached, stranding an obsolete duplicate in standalone
+            # trash (BUG #212).
+            purge_task(db, task, project_scoped=False)
             db.flush()
             reconcile(db, [live.id])
             db.flush()
@@ -218,7 +223,9 @@ def restore_task_subtree(db: Session, task: Task) -> tuple[Task, int]:
     return root, restored_count
 
 
-def _deleted_subtree_depth_first(db: Session, task: Task) -> list[Task]:
+def _deleted_subtree_depth_first(
+    db: Session, task: Task, *, project_scoped: bool = True
+) -> list[Task]:
     """The soft-deleted subtree rooted at ``task``, children before parents.
 
     Soft-deleting a parent cascade-soft-deletes its subtree, so the whole subtree
@@ -235,23 +242,27 @@ def _deleted_subtree_depth_first(db: Session, task: Task) -> list[Task]:
     that project's trash. A descendant in another project is left alone (and cut
     loose by ``purge_task``'s detach step, so no FK dangles); the walk stops
     there, since anything below it hangs off a row that survives.
+
+    ``project_scoped=False`` drops that guard, and is **only** for internal
+    corrections that undo a write this service made itself (BUG #212): the
+    un-skip rewind must destroy the entire original skipped occurrence, whose
+    descendants ``task_recurrence._clone_subtask_tree`` may have filed in other
+    projects. Those rows have already been replaced by fresh clones, so leaving
+    them detached in another project's trash strands an obsolete duplicate.
+    Never pass it for a user-requested purge.
     """
     scope = task.project_id
-    children = (
-        db.execute(
-            deleted(Task).where(
-                Task.parent_task_id == task.id,
-                Task.project_id.is_(None)
-                if scope is None
-                else Task.project_id == scope,
-            )
+    conditions = [Task.parent_task_id == task.id]
+    if project_scoped:
+        conditions.append(
+            Task.project_id.is_(None) if scope is None else Task.project_id == scope
         )
-        .scalars()
-        .all()
-    )
+    children = db.execute(deleted(Task).where(*conditions)).scalars().all()
     ordered: list[Task] = []
     for child in children:
-        ordered.extend(_deleted_subtree_depth_first(db, child))
+        ordered.extend(
+            _deleted_subtree_depth_first(db, child, project_scoped=project_scoped)
+        )
     ordered.append(task)
     return ordered
 
@@ -289,7 +300,7 @@ def log_task_purged(db: Session, task: Task) -> None:
     )
 
 
-def purge_task(db: Session, task: Task) -> None:
+def purge_task(db: Session, task: Task, *, project_scoped: bool = True) -> None:
     """Permanently delete a trashed task and its soft-deleted subtree.
 
     Cleans the real FK edges first: dependency rows on either side of any subtree
@@ -303,8 +314,11 @@ def purge_task(db: Session, task: Task) -> None:
     row is destroyed — the audit trail must distinguish a restorable soft delete
     from permanent destruction, and cascade-purged descendants are as gone as the
     root the user actually clicked.
+
+    ``project_scoped=False`` is reserved for internal corrections; see
+    ``_deleted_subtree_depth_first``.
     """
-    subtree = _deleted_subtree_depth_first(db, task)
+    subtree = _deleted_subtree_depth_first(db, task, project_scoped=project_scoped)
     ids = [t.id for t in subtree]
 
     db.execute(
