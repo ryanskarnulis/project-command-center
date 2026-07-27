@@ -2156,3 +2156,36 @@ def test_restoring_completed_occurrence_whose_successor_was_purged_respawns(
         date(2026, 6, 1),
         date(2026, 6, 8),
     ]
+
+
+def test_reparenting_completed_occurrence_under_successor_rolls_forward(
+    db_session: Session,
+) -> None:
+    # Issue #210: moving the completed 07-01 occurrence *under* the live 07-08 one
+    # makes 07-08 effectively done by roll-up. reconcile's ancestor climb stops at
+    # the moved task (it is itself a series head, so a series-within-a-series can't
+    # double-fire), so update_task has to seed the *new* parent explicitly or the
+    # series silently stalls with no 07-15 occurrence.
+    task = _make_task(db_session, due=date(2026, 7, 1))
+    tasks_service.update_task(
+        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
+    )
+    db_session.commit()
+    recurrence_id = task.recurrence_id
+    assert recurrence_id is not None
+
+    tasks_service.mark_done(db_session, task)
+    db_session.commit()
+    successor = _series(db_session, recurrence_id)[-1]
+    assert successor.due_date == date(2026, 7, 8)
+
+    tasks_service.update_task(db_session, task, {"parent_task_id": successor.id})
+    db_session.commit()
+
+    assert _effective(db_session, successor) == TaskWorkflowStatus.done
+    # Exactly one 07-15 successor: the double-fire guard still holds.
+    assert [t.due_date for t in _live_series(db_session, recurrence_id)] == [
+        date(2026, 7, 1),
+        date(2026, 7, 8),
+        date(2026, 7, 15),
+    ]

@@ -615,11 +615,19 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     # roll-up of *both* endpoints, and the old parent is unreachable from the moved
     # task afterwards. Moving the last open child away can leave the old parent a
     # newly (and only derivedly) done recurring leaf.
-    previous_parent_id = (
-        task.parent_task_id
-        if "parent_task_id" in control and control["parent_task_id"] != task.parent_task_id
-        else None
+    #
+    # The *new* parent is seeded too. Reconciliation normally reaches it by climbing
+    # from the moved task, but that climb deliberately stops when the moved task is
+    # itself a series head (so a series-within-a-series can't double-fire). Moving a
+    # completed occurrence under a live one then made the new parent effectively done
+    # with nothing reconciling it, stalling the series (issue #210). Seeding both
+    # endpoints keeps the guard intact — reconcile's `seen` set makes the extra seed
+    # idempotent — while making the move reconcile the relationship it just created.
+    moved = (
+        "parent_task_id" in control
+        and control["parent_task_id"] != task.parent_task_id
     )
+    previous_parent_id = task.parent_task_id if moved else None
 
     # A parent's status *and* estimate are derived from its subtasks (read-only);
     # reject a direct write to either rather than silently dropping it. The check is
@@ -778,6 +786,8 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     seeds = [task.id]
     if previous_parent_id is not None:
         seeds.append(previous_parent_id)
+    if moved and new_parent_id is not None:
+        seeds.append(new_parent_id)
     task_recurrence.reconcile(db, seeds)
 
     db.flush()
