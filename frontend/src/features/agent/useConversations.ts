@@ -67,6 +67,11 @@ export function useConversations(): UseConversations {
   // The window currently loaded; refreshes re-read exactly this much so a
   // background refresh never shrinks the list back to the first page.
   const windowSize = useRef(CONVERSATION_PAGE_SIZE)
+  // The largest window anyone has *asked* for, including requests still in
+  // flight. "Load older" records its intent here before awaiting, so a refresh
+  // that started (and finishes) while that page is loading is recognised as too
+  // small and cannot cancel the click (#221).
+  const requestedWindow = useRef(CONVERSATION_PAGE_SIZE)
   // Ordering guards (#211). Requests are multi-page and can overlap — a refresh
   // started while "Load older" is still in flight captures the *old* window
   // size, so without these an out-of-order completion would hide rows the user
@@ -76,14 +81,19 @@ export function useConversations(): UseConversations {
 
   const load = useCallback(async function load(size: number): Promise<void> {
     const seq = ++requestSeq.current
+    // Publish the intent before the first await: whichever request finishes
+    // first, the largest window asked for is the one that ends up on screen.
+    requestedWindow.current = Math.max(requestedWindow.current, size)
     try {
       const result = await fetchWindow(size)
       // Something newer already landed — this result is stale, drop it.
       if (seq <= committedSeq.current) return
-      if (size < windowSize.current) {
-        // Fresher data, but a smaller window than what is on screen. Re-read at
-        // the committed size rather than shrinking the list back.
-        await load(windowSize.current)
+      if (size < requestedWindow.current) {
+        // Fresher data, but a smaller window than what is on screen or than a
+        // "Load older" click is still fetching. Re-read at the requested size
+        // rather than shrinking the list back (#211) or dropping this result
+        // and losing the fresher data with it (#221).
+        await load(requestedWindow.current)
         return
       }
       committedSeq.current = seq
