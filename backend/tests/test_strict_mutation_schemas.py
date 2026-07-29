@@ -195,14 +195,25 @@ def test_omit_versus_explicit_null_still_differ(client: TestClient) -> None:
     assert rejected.status_code == 422
 
 
-def test_empty_patch_body_is_still_accepted(client: TestClient) -> None:
-    """``{}`` is a well-formed no-op request and stays a 200 (see PR notes)."""
+def test_empty_patch_body_is_still_accepted(
+    client: TestClient, db_session: Session
+) -> None:
+    """``{}`` is a well-formed no-op request and stays a 200 (see PR notes).
+
+    A no-op stays a no-op all the way down: issue #218 made the *service* stop
+    logging for it too, so the accepted-but-empty PATCH writes no activity row
+    either. ``tests/test_no_op_activity.py`` covers that rule across all three
+    boundaries; this asserts the 200 half of it does not regress here.
+    """
     created = client.post("/api/tasks", json={"title": "Ship"}).json()
+    before = _counts(db_session)
 
     response = client.patch(f"/api/tasks/{created['id']}", json={})
 
     assert response.status_code == 200
     assert response.json()["title"] == "Ship"
+    db_session.expire_all()
+    assert _counts(db_session) == before
 
 
 # --- Agent tool boundary -----------------------------------------------------
