@@ -29,6 +29,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 describe('playText transport failures', () => {
@@ -64,6 +65,38 @@ describe('playText transport failures', () => {
     // Nothing was loaded, so nothing should have been allocated or leaked.
     expect(URL.createObjectURL).not.toHaveBeenCalled()
     expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('gives up on a request that never answers, best-effort like a 503', async () => {
+    // Issue #217: a backend or proxy that accepts the request and then never
+    // settles it rejects nothing, so the catch never runs — without the client
+    // deadline the vendored speak() hangs, currentPlayback never settles, and
+    // the hands-free loop awaiting audioIdle() never reopens the mic.
+    vi.useFakeTimers()
+    const signals: (AbortSignal | undefined)[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) => {
+        signals.push(init?.signal ?? undefined)
+        return new Promise<Response>(() => {})
+      }),
+    )
+    let settled = false
+    const done = playText('hello').then(() => {
+      settled = true
+    })
+    // Still waiting past the backend's own 60s speech timeout, so a slow but
+    // living upstream reports its own failure rather than being cut off.
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(30_000)
+    await expect(done).resolves.toBeUndefined()
+    // Nothing played, exactly as when voice answers 503, and the wait the
+    // hands-free loop does is released.
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+    await expect(audioIdle()).resolves.toBeUndefined()
+    // The request itself is cancelled, not just abandoned.
+    expect(signals[0]?.aborted).toBe(true)
   })
 
   it('does not disturb a clip already loaded in the shared element', async () => {

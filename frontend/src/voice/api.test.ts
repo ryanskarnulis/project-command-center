@@ -3,6 +3,7 @@ import { transcribe } from './api'
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 
 describe('transcribe', () => {
@@ -38,5 +39,46 @@ describe('transcribe', () => {
       vi.fn(async () => new Response(JSON.stringify({ detail: 'nope' }), { status: 200 })),
     )
     await expect(transcribe(new Blob(['x']))).resolves.toBeNull()
+  })
+
+  it('gives up on a request that never answers, reporting unavailable', async () => {
+    // Issue #217: a backend or proxy that accepts the request and then never
+    // settles it rejects nothing, so the catch never runs. Without a client
+    // deadline the promise hangs, and MicButton stays in 'transcribing' — the
+    // state that disables the button the user would tap to retry or exit.
+    vi.useFakeTimers()
+    const signals: (AbortSignal | undefined)[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) => {
+        signals.push(init?.signal ?? undefined)
+        return new Promise<Response>(() => {})
+      }),
+    )
+    let settled = false
+    const done = transcribe(new Blob(['x'])).then((text) => {
+      settled = true
+      return text
+    })
+    // Still waiting well past the backend's own 60s speech timeout: a slow but
+    // living upstream must win the race and report its own failure.
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(30_000)
+    await expect(done).resolves.toBeNull()
+    expect(settled).toBe(true)
+    // The request itself is cancelled, not just abandoned.
+    expect(signals[0]?.aborted).toBe(true)
+  })
+
+  it('clears the deadline once the transcript has been read', async () => {
+    // A completed request must not leave a timer armed to abort nothing.
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ text: 'hello' }), { status: 200 })),
+    )
+    await expect(transcribe(new Blob(['x']))).resolves.toBe('hello')
+    expect(vi.getTimerCount()).toBe(0)
   })
 })
