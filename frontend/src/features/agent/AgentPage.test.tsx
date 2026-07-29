@@ -91,6 +91,55 @@ function renderAt(path: string) {
   )
 }
 
+/** 51 conversations, newest first — one more than a server page. */
+const manyConversations = Array.from({ length: 51 }, (_, index) => ({
+  id: 51 - index,
+  title: `Conversation ${51 - index}`,
+  created_at: detail.created_at,
+  updated_at: detail.updated_at,
+}))
+
+/** Serve every list request from a deferred promise so the test controls the
+ * completion order. `settle(n)` resolves the n-th request made so far. */
+function deferConversationPages() {
+  const pending: (() => void)[] = []
+  mockList.mockImplementation(async (params) => {
+    const offset = params?.offset ?? 0
+    const limit = params?.limit ?? 50
+    return new Promise((resolve) => {
+      pending.push(() =>
+        resolve(manyConversations.slice(offset, offset + limit)),
+      )
+    })
+  })
+  mockCreate.mockResolvedValue({
+    id: 99,
+    title: null,
+    created_at: detail.created_at,
+    updated_at: detail.updated_at,
+  })
+
+  async function settle(index: number): Promise<void> {
+    await waitFor(() => expect(pending.length).toBeGreaterThan(index))
+    await act(async () => {
+      pending[index]()
+    })
+  }
+
+  /** Resolve every outstanding request, and anything they start, in order. */
+  async function settleAll(): Promise<void> {
+    for (let index = 0; index < pending.length; index += 1) await settle(index)
+  }
+  return { pending, settle, settleAll }
+}
+
+/** Titles currently rendered in the conversation sidebar. */
+function visibleConversations(): (string | null)[] {
+  return screen
+    .getAllByRole('button', { name: /^Conversation \d+/ })
+    .map((button) => button.textContent)
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockList.mockResolvedValue([
@@ -267,40 +316,7 @@ describe('AgentPage', () => {
   )
 
   it('keeps the loaded window when a stale refresh resolves last (#211)', async () => {
-    const all = Array.from({ length: 51 }, (_, index) => ({
-      id: 51 - index,
-      title: `Conversation ${51 - index}`,
-      created_at: detail.created_at,
-      updated_at: detail.updated_at,
-    }))
-    // Every list request is deferred so completion order can be controlled.
-    const pending: { offset: number; limit: number; resolve: () => void }[] = []
-    mockList.mockImplementation(async (params) => {
-      const offset = params?.offset ?? 0
-      const limit = params?.limit ?? 50
-      return new Promise((resolve) => {
-        pending.push({
-          offset,
-          limit,
-          resolve: () => resolve(all.slice(offset, offset + limit)),
-        })
-      })
-    })
-    mockCreate.mockResolvedValue({
-      id: 99,
-      title: null,
-      created_at: detail.created_at,
-      updated_at: detail.updated_at,
-    })
-
-    /** Resolve the `index`-th request made so far, waiting for it to start. */
-    async function settle(index: number): Promise<void> {
-      await waitFor(() => expect(pending.length).toBeGreaterThan(index))
-      const request = pending[index]
-      await act(async () => {
-        request.resolve()
-      })
-    }
+    const { pending, settle } = deferConversationPages()
 
     renderAt('/agent')
 
@@ -330,12 +346,48 @@ describe('AgentPage', () => {
     await settle(4)
     await settle(5)
 
-    const titles = screen
-      .getAllByRole('button', { name: /^Conversation \d+/ })
-      .map((button) => button.textContent)
-    expect(titles).toHaveLength(51)
+    expect(visibleConversations()).toHaveLength(51)
     expect(screen.getByText('Conversation 1')).toBeInTheDocument()
     // Window stayed at >= 100: the affordance does not come back.
+    expect(
+      screen.queryByRole('button', { name: /Load older conversations/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps a pending "Load older" when a refresh resolves first (#221)', async () => {
+    // The inverse completion order of #211: the *newer* refresh lands first, so
+    // request freshness alone would discard the larger window the user asked
+    // for and the click would silently do nothing.
+    const { pending, settle, settleAll } = deferConversationPages()
+
+    renderAt('/agent')
+
+    // 1. Initial 50-row window.
+    await settle(0)
+    expect(await screen.findByText('Conversation 51')).toBeInTheDocument()
+    expect(screen.queryByText('Conversation 1')).not.toBeInTheDocument()
+
+    // 2. Start "Load older" (window 100) but leave its first page pending.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Load older conversations' }),
+    )
+    await waitFor(() => expect(pending).toHaveLength(2))
+    expect(mockList).toHaveBeenLastCalledWith({ limit: 51, offset: 0 })
+
+    // 3. Trigger a refresh while that is in flight — it captures window 50.
+    fireEvent.click(screen.getByRole('button', { name: /New conversation/ }))
+    await waitFor(() => expect(pending).toHaveLength(3))
+
+    // 4. The newer refresh completes first. It may not commit its smaller
+    //    window over the pagination still in flight.
+    await settle(2)
+    expect(visibleConversations()).toHaveLength(50)
+
+    // 5. The older, larger request lands last — and must still be honoured.
+    await settleAll()
+
+    expect(visibleConversations()).toHaveLength(51)
+    expect(screen.getByText('Conversation 1')).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: /Load older conversations/ }),
     ).not.toBeInTheDocument()
