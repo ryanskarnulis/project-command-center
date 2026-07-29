@@ -99,6 +99,16 @@ def ensure_default_project_id(db: Session) -> int:
 
 
 def update_project(db: Session, project: Project, fields: Mapping[str, Any]) -> Project:
+    """Apply ``fields`` to ``project``; a patch that changes nothing records nothing.
+
+    An empty patch, or one supplying only the values the row already holds, leaves
+    the project exactly as it was — appending an ``updated`` event for it would put
+    a change that never happened into the append-only trail (issue #218).
+    ``close_project`` / ``reopen_project`` below have always worked this way; this
+    is the same rule for the field patch.
+    """
+    if all(getattr(project, key) == value for key, value in fields.items()):
+        return project
     for key, value in fields.items():
         setattr(project, key, value)
     db.flush()

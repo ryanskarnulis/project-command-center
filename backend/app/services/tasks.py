@@ -718,6 +718,38 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
                 f"occurrence only, or remove that occurrence's subtasks first."
             )
 
+    # Which of the supplied fields actually move the row. A patch carrying only
+    # values the task already holds — or, at the extreme, no fields at all (an
+    # empty body, or one whose sole content was the ``edit_scope`` control flag
+    # popped above) — leaves the row exactly as it was, and the append-only
+    # activity trail must not claim otherwise (issue #218).
+    #
+    # Computed *after* every guard above, so a write that is rejected on its
+    # shape stays rejected whatever values it carries (a status write against a
+    # derived parent is a 409 even when it matches the hidden stored column —
+    # issue #191), and before the assignment loop, which would erase the
+    # comparison.
+    effective_changes = {
+        key: value for key, value in control.items() if getattr(task, key) != value
+    }
+
+    # Two things still make a same-valued patch real work, so neither short-
+    # circuits. "This and all future occurrences" patches *other* rows, which may
+    # be out of step with this one even when this one is already correct — a
+    # deliberately conservative pre-image of the forward block's own condition
+    # below (that one reads the post-assignment row). And an unfiled task is
+    # filed into General by any update (tasks are always filed), a change of its
+    # own that ``log_task_event`` documents as landing on the update path.
+    forwards_to_future = (
+        edit_scope == "future"
+        and task.recurrence_id is not None
+        and task.due_date is not None
+        and any(key not in _FORWARD_PATCH_EXCLUDE for key in control)
+    )
+    row_changed = bool(effective_changes) or task.project_id is None
+    if not row_changed and not forwards_to_future:
+        return task
+
     for key, value in control.items():
         setattr(task, key, value)
     task.project_id = _default_project_id(db, task.project_id)
@@ -743,20 +775,13 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
         and task.due_date is not None
         and forward_fields
     ):
-        db.execute(
-            update(Task)
-            .where(
-                Task.recurrence_id == task.recurrence_id,
-                Task.due_date >= task.due_date,
-                Task.deleted_at.is_(None),
-            )
-            .values(**forward_fields)
-        )
-        db.expire_all()
         # The bulk UPDATE mutates every forwarded occurrence but emits no activity
-        # events, unlike every other multi-row op (which loops and logs per row).
-        # Re-select the forwarded rows (same predicate) and log each so the audit
-        # trail is complete; the acted-on row is logged once below.
+        # events, unlike every other multi-row op (which loops and logs per row),
+        # so the rows it targets are read and logged here. Read *before* the
+        # UPDATE, not after: only the occurrences the patch actually moves earn an
+        # event, and once the UPDATE has run every row matches the new values and
+        # that distinction is gone (issue #218). The acted-on row is excluded here
+        # and logged once below.
         forwarded = (
             db.execute(
                 select(Task).where(
@@ -769,7 +794,22 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
             .scalars()
             .all()
         )
-        for row in forwarded:
+        changed_rows = [
+            row
+            for row in forwarded
+            if any(getattr(row, key) != value for key, value in forward_fields.items())
+        ]
+        db.execute(
+            update(Task)
+            .where(
+                Task.recurrence_id == task.recurrence_id,
+                Task.due_date >= task.due_date,
+                Task.deleted_at.is_(None),
+            )
+            .values(**forward_fields)
+        )
+        db.expire_all()
+        for row in changed_rows:
             log_task_event(db, row, "updated")
 
     # Any patch can move this task (or an ancestor, or something waiting on it)
@@ -792,7 +832,8 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
 
     db.flush()
     db.refresh(task)
-    log_task_event(db, task, "updated")
+    if row_changed:
+        log_task_event(db, task, "updated")
     return task
 
 
@@ -807,7 +848,14 @@ def mark_done(db: Session, task: Task) -> Task:
         raise DerivedStatusError(
             "This task's status is derived from its subtasks and can't be set directly"
         )
-    if task.workflow_status != TaskWorkflowStatus.done:
+    # Completing an already-done task changes nothing, so it records nothing: the
+    # activity trail describes transitions, not requests (issue #218). Mirrors
+    # ``projects.close_project``, which has always been quiet about a re-close.
+    # The call stays a success and still reconciles — the series roll-forward is
+    # idempotent, and a stalled series is worth repairing on the way through.
+    completed = task.workflow_status != TaskWorkflowStatus.done
+    filed = task.project_id is None
+    if completed:
         _assert_not_blocked(db, task.id)
     task.workflow_status = TaskWorkflowStatus.done
     task.project_id = _default_project_id(db, task.project_id)
@@ -815,7 +863,11 @@ def mark_done(db: Session, task: Task) -> Task:
     task_recurrence.reconcile(db, [task.id])
     db.flush()
     db.refresh(task)
-    log_task_event(db, task, "completed")
+    if completed:
+        log_task_event(db, task, "completed")
+    elif filed:
+        # No status transition, but the task was unfiled and is now in General.
+        log_task_event(db, task, "updated")
     return task
 
 
@@ -824,6 +876,10 @@ def reopen_task(db: Session, task: Task) -> Task:
         raise DerivedStatusError(
             "This task's status is derived from its subtasks and can't be set directly"
         )
+    # Same rule as ``mark_done``: an already-open task is not reopened by asking
+    # again, so no ``reopened`` event is appended (issue #218).
+    if task.workflow_status == TaskWorkflowStatus.open:
+        return task
     task.workflow_status = TaskWorkflowStatus.open
     db.flush()
     db.refresh(task)
