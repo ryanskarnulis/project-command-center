@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '../../api/client'
 import {
   listDependencies,
   listDependents,
@@ -59,25 +60,57 @@ describe('TaskDependencies', () => {
     mockListDependents.mockResolvedValue([])
   })
 
-  it('keeps a dependency visible when removal rejects', async () => {
-    const user = userEvent.setup()
-    mockRemoveDependency.mockRejectedValue(new Error('Remove failed'))
+  function renderPanel() {
     render(
       <MemoryRouter>
         <TaskDependencies task={task} tasks={[task]} />
       </MemoryRouter>,
     )
+    return screen.findByRole('button', {
+      name: 'Remove dependency Finish review',
+    })
+  }
 
-    await user.click(
-      await screen.findByRole('button', {
-        name: 'Remove dependency Finish review',
-      }),
-    )
+  it('surfaces the failure when removal rejects, keeping the row', async () => {
+    const user = userEvent.setup()
+    mockRemoveDependency.mockRejectedValue(new Error('Remove failed'))
 
-    await waitFor(() =>
-      expect(mockRemoveDependency).toHaveBeenCalledWith(1, 4),
-    )
+    await user.click(await renderPanel())
+
+    await waitFor(() => expect(mockRemoveDependency).toHaveBeenCalledWith(1, 4))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Remove failed')
+    // Row stays and the list is not reloaded — the dependency still exists.
     expect(screen.getByText('Finish review')).toBeInTheDocument()
     expect(mockListDependencies).toHaveBeenCalledTimes(1)
+  })
+
+  it("prefers the API's detail over the generic status message", async () => {
+    const user = userEvent.setup()
+    mockRemoveDependency.mockRejectedValue(
+      new ApiError(409, { detail: 'Dependency already removed' }),
+    )
+
+    await user.click(await renderPanel())
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Dependency already removed',
+    )
+  })
+
+  it('clears the error and reloads when a retry succeeds', async () => {
+    const user = userEvent.setup()
+    mockRemoveDependency.mockRejectedValueOnce(new Error('Remove failed'))
+    mockRemoveDependency.mockResolvedValueOnce(undefined)
+    const removeButton = await renderPanel()
+
+    await user.click(removeButton)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Remove failed')
+
+    mockListDependencies.mockResolvedValue([])
+    await user.click(removeButton)
+
+    await waitFor(() => expect(mockListDependencies).toHaveBeenCalledTimes(2))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByText('Finish review')).not.toBeInTheDocument()
   })
 })

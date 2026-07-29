@@ -50,7 +50,10 @@ export function useTaskDependencies(taskId: number): UseTaskDependencies {
     }
   }, [taskId, refreshKey])
 
-  // Errors propagate to the caller so the form can show "would create a cycle".
+  // Errors from `add`/`remove` propagate to the caller so the UI can show the
+  // API's reason ("would create a cycle"). Neither is safe to fire-and-forget:
+  // the caller must catch and surface, or the failure is invisible. Only a
+  // successful mutation reloads the list.
   const add = useCallback(
     async (dependsOnTaskId: number) => {
       await addDependency(taskId, dependsOnTaskId)

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { fireAndForget } from '../../utils/async'
+import { ApiError } from '../../api/client'
 import type { Task } from '../../types/task'
 import { useTaskLinkTo } from './panel/taskPanelContext'
 import { useTaskDependencies } from './useTaskDependencies'
@@ -11,6 +11,17 @@ interface Props {
   tasks: Task[]
 }
 
+/** The failure line for an add/remove. Prefers the API's `detail` over the
+ * generic "API error 409" so a refused mutation says *why* (would create a
+ * cycle, dependency already gone) instead of leaving the user guessing. */
+function dependencyErrorMessage(e: unknown, fallback: string): string {
+  if (e instanceof ApiError) {
+    const detail = (e.body as { detail?: unknown } | null)?.detail
+    if (typeof detail === 'string') return detail
+  }
+  return e instanceof Error ? e.message : fallback
+}
+
 /** "Depends on" manager: B must be done before this task can start. */
 export function TaskDependencies({ task, tasks }: Props) {
   const taskLinkTo = useTaskLinkTo()
@@ -18,6 +29,7 @@ export function TaskDependencies({ task, tasks }: Props) {
     useTaskDependencies(task.id)
   const [selected, setSelected] = useState('')
   const [addError, setAddError] = useState<string | null>(null)
+  const [removeError, setRemoveError] = useState<string | null>(null)
 
   // Candidates: every other task that isn't already a dependency.
   const dependsOnIds = useMemo(
@@ -35,7 +47,20 @@ export function TaskDependencies({ task, tasks }: Props) {
       await add(Number(selected))
       setSelected('')
     } catch (e: unknown) {
-      setAddError(e instanceof Error ? e.message : 'Could not add dependency')
+      setAddError(dependencyErrorMessage(e, 'Could not add dependency'))
+    }
+  }
+
+  // Mirrors `handleAdd`: a failed removal leaves the row on screen, so the
+  // reason has to be shown or the button just looks broken. The list is only
+  // reloaded by the hook on success, so the row stays and the click is
+  // retryable.
+  async function handleRemove(dependencyId: number) {
+    setRemoveError(null)
+    try {
+      await remove(dependencyId)
+    } catch (e: unknown) {
+      setRemoveError(dependencyErrorMessage(e, 'Could not remove dependency'))
     }
   }
 
@@ -89,13 +114,14 @@ export function TaskDependencies({ task, tasks }: Props) {
               type="button"
               className="icon-button compact"
               aria-label={`Remove dependency ${d.depends_on_title}`}
-              onClick={() => fireAndForget(remove(d.id))}
+              onClick={() => void handleRemove(d.id)}
             >
               <X size={16} aria-hidden="true" />
             </button>
           </li>
         ))}
       </ul>
+      {removeError && <p role="alert">{removeError}</p>}
       {dependencies.length === 0 && !loading && <p>No dependencies.</p>}
 
       <div className="dependency-add-row">
