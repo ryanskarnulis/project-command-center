@@ -223,6 +223,49 @@ describe('AgentPage', () => {
     )
   })
 
+  // A full page proves the page is full, not that another row exists, so the
+  // window is read with a one-row lookahead (#216). 50 is the exact boundary:
+  // it used to offer "Load older" and then answer it with an empty page.
+  it.each([
+    { total: 49, expectsMore: false },
+    { total: 50, expectsMore: false },
+    { total: 51, expectsMore: true },
+  ])(
+    'offers "Load older" for $total conversations only when older ones exist (#216)',
+    async ({ total, expectsMore }) => {
+      const all = Array.from({ length: total }, (_, index) => ({
+        id: total - index,
+        title: `Conversation ${total - index}`,
+        created_at: detail.created_at,
+        updated_at: detail.updated_at,
+      }))
+      mockList.mockImplementation(async (params) => {
+        const offset = params?.offset ?? 0
+        return all.slice(offset, offset + (params?.limit ?? 50))
+      })
+
+      renderAt('/agent')
+      await screen.findByText(`Conversation ${total}`)
+      await waitFor(() =>
+        expect(
+          screen.getAllByRole('button', { name: /^Conversation \d+/ }),
+        ).toHaveLength(Math.min(total, 50)),
+      )
+
+      const loadOlder = screen.queryByRole('button', {
+        name: /Load older conversations/,
+      })
+      if (expectsMore) {
+        expect(loadOlder).toBeInTheDocument()
+      } else {
+        expect(loadOlder).not.toBeInTheDocument()
+      }
+      // One page plus its lookahead row — never a speculative second page.
+      expect(mockList).toHaveBeenCalledTimes(1)
+      expect(mockList).toHaveBeenCalledWith({ limit: 51, offset: 0 })
+    },
+  )
+
   it('keeps the loaded window when a stale refresh resolves last (#211)', async () => {
     const all = Array.from({ length: 51 }, (_, index) => ({
       id: 51 - index,

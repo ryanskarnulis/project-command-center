@@ -28,6 +28,11 @@ interface UseConversations {
  * stitch a fresh page onto a stale window): a new turn bumps a conversation's
  * `updated_at` and reorders the list, which would otherwise duplicate or skip
  * rows. Ids are deduped as belt and braces against a write landing mid-read.
+ *
+ * Each page is read with a one-row lookahead (#216): a *full* page proves only
+ * that the page is full, so asking for one row past it is what proves another
+ * row exists. The lookahead row is never part of this window — it is the first
+ * row of the next page, read again when that page is fetched.
  */
 async function fetchWindow(
   size: number,
@@ -36,12 +41,13 @@ async function fetchWindow(
   let hasMore = false
   for (let offset = 0; offset < size; offset += CONVERSATION_PAGE_SIZE) {
     const page = await listConversations({
-      limit: CONVERSATION_PAGE_SIZE,
+      limit: CONVERSATION_PAGE_SIZE + 1,
       offset,
     })
-    for (const conversation of page) byId.set(conversation.id, conversation)
-    // A short page means we reached the end of the list.
-    hasMore = page.length === CONVERSATION_PAGE_SIZE
+    for (const conversation of page.slice(0, CONVERSATION_PAGE_SIZE))
+      byId.set(conversation.id, conversation)
+    // Without the lookahead row, this page is the end of the list.
+    hasMore = page.length > CONVERSATION_PAGE_SIZE
     if (!hasMore) break
   }
   return { conversations: [...byId.values()], hasMore }
