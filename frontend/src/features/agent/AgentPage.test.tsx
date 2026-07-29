@@ -163,7 +163,7 @@ describe('AgentPage', () => {
     expect(await screen.findByText('Undone')).toBeInTheDocument()
   })
 
-  it('swallows rejected conversation create and delete actions', async () => {
+  it('surfaces rejected conversation create and delete actions', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     mockCreate.mockRejectedValue(new Error('Create failed'))
     mockDelete.mockRejectedValue(new Error('Delete failed'))
@@ -174,6 +174,7 @@ describe('AgentPage', () => {
     })
     fireEvent.click(createButton)
     await waitFor(() => expect(mockCreate).toHaveBeenCalledOnce())
+    expect(await screen.findByText('Create failed')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Agent' })).toBeInTheDocument()
 
     fireEvent.click(
@@ -182,8 +183,49 @@ describe('AgentPage', () => {
       }),
     )
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith(1))
+    expect(await screen.findByText('Delete failed')).toBeInTheDocument()
     expect(screen.getByText('Water the plants')).toBeInTheDocument()
     confirmSpy.mockRestore()
+  })
+
+  // Both "New conversation" buttons fire-and-forget `startConversation`, so a
+  // rejected create used to look exactly like an ignored click (#219).
+  it('keeps a failed new conversation on screen and retryable (#219)', async () => {
+    const { ApiError } = await import('../../api/client')
+    mockCreate.mockRejectedValue(new ApiError(503, { detail: 'Backend unavailable' }))
+    renderAt('/agent')
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'New conversation' }),
+    )
+
+    // The reason is shown, and nothing navigated to a conversation that was
+    // never created.
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Backend unavailable',
+    )
+    expect(screen.getByRole('heading', { name: 'Agent' })).toBeInTheDocument()
+    expect(mockGet).not.toHaveBeenCalled()
+
+    // The empty-state button is the same action and reports the same way.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Start a conversation' }),
+    )
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('alert')).toHaveTextContent('Backend unavailable')
+    expect(screen.getByRole('heading', { name: 'Agent' })).toBeInTheDocument()
+
+    // A retry that succeeds clears the failure and opens the conversation.
+    mockCreate.mockResolvedValueOnce({
+      id: 99,
+      title: null,
+      created_at: detail.created_at,
+      updated_at: detail.updated_at,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith(99))
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
   })
 
   it('sends a message, shows progress, then renders the refetched thread', async () => {

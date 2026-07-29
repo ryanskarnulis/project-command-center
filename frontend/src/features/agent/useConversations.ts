@@ -125,6 +125,10 @@ export function useConversations(): UseConversations {
     void refresh()
   }, [refresh])
 
+  // A failed create propagates to the caller rather than writing `error`: that
+  // state belongs to the list load and is cleared by the next successful
+  // refresh, so a mutation failure parked there can vanish before it is read
+  // (#219). Not safe to fire-and-forget — the caller must catch and surface it.
   const create = useCallback(async () => {
     const conversation = await createConversation()
     await refresh()

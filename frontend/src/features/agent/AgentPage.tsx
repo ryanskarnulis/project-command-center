@@ -14,6 +14,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
+import { ApiError } from '../../api/client'
 import { GlitchMark } from '../../components/GlitchMark'
 import { fireAndForget } from '../../utils/async'
 import { formatRelative } from '../../utils/dates'
@@ -23,6 +24,17 @@ import { MessageBubble } from './MessageBubble'
 import { PendingExchange } from './PendingExchange'
 import { useConversation } from './useConversation'
 import { useConversations } from './useConversations'
+
+/** The failure line for a rejected `create`. Prefers the API's `detail` over
+ * the generic "API error 500" — same shape as `sendErrorMessage` here and
+ * `dependencyErrorMessage` in `TaskDependencies`. */
+function createErrorMessage(e: unknown): string {
+  if (e instanceof ApiError) {
+    const detail = (e.body as { detail?: unknown } | null)?.detail
+    if (typeof detail === 'string') return detail
+  }
+  return e instanceof Error ? e.message : 'Could not start a new conversation'
+}
 
 export function AgentPage() {
   const params = useParams<{ conversationId?: string }>()
@@ -48,6 +60,7 @@ export function AgentPage() {
   )
 
   const [draft, setDraft] = useState('')
+  const [createError, setCreateError] = useState<string | null>(null)
   const threadEndRef = useRef<HTMLLIElement>(null)
   const sending = pendingText !== null
 
@@ -85,9 +98,21 @@ export function AgentPage() {
 
   const openConversation = (id: number) => navigate(`/agent/${id}`)
 
+  // Both "New conversation" buttons fire-and-forget this, and that helper's
+  // contract is that the rejection is already surfaced — so it has to be
+  // surfaced here (#219). Component state, not the hook's `error`: that one
+  // belongs to the list load and is cleared by the next successful refresh
+  // (an agent turn refreshes the sidebar), which would wipe this message out
+  // from under the user — the same reasoning as the dependency-removal fix in
+  // #220. A failed create navigates nowhere and stays retryable.
   const startConversation = async () => {
-    const conversation = await create()
-    openConversation(conversation.id)
+    setCreateError(null)
+    try {
+      const conversation = await create()
+      openConversation(conversation.id)
+    } catch (e: unknown) {
+      setCreateError(createErrorMessage(e))
+    }
   }
 
   const removeConversation = async (id: number, title: string | null) => {
@@ -125,6 +150,8 @@ export function AgentPage() {
           New conversation
         </button>
 
+        {/* The sidebar is always mounted, so one alert covers both buttons. */}
+        {createError && <p role="alert" className="error">{createError}</p>}
         {listError && <p role="alert" className="error">{listError}</p>}
         {listLoading && <div className="page-loading">Loading…</div>}
         {!listLoading && conversations.length === 0 && (
