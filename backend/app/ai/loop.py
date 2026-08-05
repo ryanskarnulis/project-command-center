@@ -39,6 +39,7 @@ from typing import Any, Literal, Protocol
 import structlog
 from pydantic import BaseModel, ValidationError
 
+from app.ai import context_budget
 from app.ai.providers.llamacpp import (
     ChatResult,
     ProviderError,
@@ -287,19 +288,40 @@ class AgentLoop:
         deadline: float | None,
     ) -> AgentRunResult:
         specs = registry.tool_specs()
+        system_prompt = build_system_prompt(date.today())
+        # Last gate before any provider request (#244). The service layer
+        # already applied this policy when it built the history, but the loop
+        # is the only place that can measure the request's real overhead —
+        # system prompt, tool schemas, and this turn — so it re-applies the
+        # same function with those figures. History reaching here over budget
+        # (a delegate caller, a grown tool registry) is trimmed deterministically
+        # rather than turned into an impossible request.
+        windowed = context_budget.fit_history(
+            history or [],
+            budget_tokens=context_budget.history_token_budget(
+                prompt_overhead_tokens=(
+                    context_budget.estimate_tokens(system_prompt)
+                    + sum(
+                        context_budget.estimate_tokens(spec.model_dump_json())
+                        for spec in specs
+                    )
+                    + context_budget.estimate_tokens(user_message)
+                )
+            ),
+        )
         messages: list[dict[str, Any]] = [
-            {
-                "role": "system",
-                "content": build_system_prompt(date.today()),
-            },
-            *(history or []),
+            {"role": "system", "content": system_prompt},
+            *windowed,
             {"role": "user", "content": user_message},
         ]
         records: list[ToolCallRecord] = []
         corrections = 0
         iterations = 0
         logger.info(
-            "agent_run_started", tools=len(specs), history_messages=len(history or [])
+            "agent_run_started",
+            tools=len(specs),
+            history_messages=len(windowed),
+            history_dropped=len(history or []) - len(windowed),
         )
         for iteration in range(1, self._max_iterations + 1):
             iterations = iteration

@@ -32,8 +32,18 @@ export async function createConversation(): Promise<Conversation> {
   return (await res.json()) as Conversation
 }
 
-export async function getConversation(id: number): Promise<ConversationDetail> {
-  const res = await apiClient(`/api/agent/conversations/${id}`)
+/** One page of a conversation: the newest messages by default, or the page
+ * immediately older than `before_id`. The server caps `limit` (#244). */
+export async function getConversation(
+  id: number,
+  params: { limit?: number; before_id?: number } = {},
+): Promise<ConversationDetail> {
+  const query = new URLSearchParams()
+  if (params.limit !== undefined) query.set('limit', String(params.limit))
+  if (params.before_id !== undefined)
+    query.set('before_id', String(params.before_id))
+  const suffix = query.toString() === '' ? '' : `?${query.toString()}`
+  const res = await apiClient(`/api/agent/conversations/${id}${suffix}`)
   return (await res.json()) as ConversationDetail
 }
 

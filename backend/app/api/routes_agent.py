@@ -23,7 +23,7 @@ from app.api.rate_limit import rate_limit
 from app.config import get_settings
 from app.db.models import Conversation
 from app.db.session import get_db, get_db_write
-from app.schemas.common import EntityId, PaginationOffset
+from app.schemas.common import MAX_SQLITE_INT, EntityId, PaginationOffset
 from app.schemas.conversations import (
     ConversationCreate,
     ConversationDetail,
@@ -64,6 +64,14 @@ def _get_or_404(db: Session, conversation_id: int) -> Conversation:
 DEFAULT_CONVERSATION_LIMIT = 50
 MAX_CONVERSATION_LIMIT = 500
 
+# The thread view's page size, and the ceiling on one detail request (#244).
+# A conversation's transcript grows without limit — messages are immutable and
+# never pruned — so the detail response returns the newest page and lets the
+# panel walk backwards with `before_id` rather than serializing and rendering
+# every turn ever sent.
+DEFAULT_MESSAGE_LIMIT = 100
+MAX_MESSAGE_LIMIT = 500
+
 
 @router.get("/conversations", response_model=list[ConversationRead])
 def list_conversations(
@@ -91,15 +99,29 @@ def create_conversation(
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationDetail)
 def get_conversation(
-    conversation_id: EntityId, db: Session = Depends(get_db)
+    conversation_id: EntityId,
+    limit: int = Query(default=DEFAULT_MESSAGE_LIMIT, ge=1, le=MAX_MESSAGE_LIMIT),
+    before_id: int | None = Query(default=None, ge=1, le=MAX_SQLITE_INT),
+    db: Session = Depends(get_db),
 ) -> ConversationDetail:
+    """One bounded page of a conversation, newest ``limit`` messages by default.
+
+    ``before_id`` pages backwards (older than that message id). Message ids are
+    monotonic and messages immutable, so pages never duplicate or skip a turn
+    even while the thread grows underneath a reader.
+    """
     conversation = _get_or_404(db, conversation_id)
+    messages = conversations_service.list_messages(
+        db, conversation.id, limit=limit, before_id=before_id
+    )
     return ConversationDetail(
         **ConversationRead.model_validate(conversation).model_dump(),
-        messages=[
-            MessageRead.model_validate(message)
-            for message in conversations_service.list_messages(db, conversation.id)
-        ],
+        messages=[MessageRead.model_validate(message) for message in messages],
+        message_count=conversations_service.count_messages(db, conversation.id),
+        has_more=bool(messages)
+        and conversations_service.has_messages_before(
+            db, conversation.id, messages[0].id
+        ),
     )
 
 

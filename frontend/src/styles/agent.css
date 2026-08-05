@@ -56,6 +56,18 @@ main.agent-page {
   opacity: 0.6;
 }
 
+/* "Load older messages" sits at the top of the thread, not stretched like the
+   sidebar's variant. */
+.agent-thread-load-older {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.agent-thread-load-older .agent-load-more {
+  align-self: center;
+}
+
 .agent-conversation-list {
   list-style: none;
   margin: 0;

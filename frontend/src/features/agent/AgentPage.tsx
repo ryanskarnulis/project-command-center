@@ -43,7 +43,16 @@ export function AgentPage() {
     remove,
   } = useConversations()
   const onExchange = useCallback(() => void refresh(), [refresh])
-  const { detail, loading, error, pendingText, send } = useConversation(
+  const {
+    detail,
+    loading,
+    error,
+    hasMore: threadHasMore,
+    loadingOlder,
+    loadOlder,
+    pendingText,
+    send,
+  } = useConversation(
     activeId !== null && Number.isFinite(activeId) ? activeId : null,
     onExchange,
   )
@@ -80,11 +89,14 @@ export function AgentPage() {
     }
   }
 
-  // Keep the newest turn in view as messages/pending state arrive.
+  // Keep the newest turn in view as messages/pending state arrive. Keyed on
+  // the newest message id rather than the count, so prepending an older page
+  // (#244) doesn't yank the user back to the bottom of the thread.
   // (Guarded call: jsdom has no scrollIntoView.)
+  const newestMessageId = detail?.messages.at(-1)?.id
   useEffect(() => {
     threadEndRef.current?.scrollIntoView?.({ block: 'end' })
-  }, [detail?.messages.length, pendingText])
+  }, [newestMessageId, pendingText])
 
   const openConversation = (id: number) => navigate(`/agent/${id}`)
 
@@ -243,6 +255,21 @@ export function AgentPage() {
             {loading && <div className="page-loading">Loading conversation…</div>}
 
             <ul className="agent-messages">
+              {/* The thread is paged (#244): a long conversation loads its
+                  newest page, and every older turn stays reachable from here
+                  instead of being serialized into one unbounded response. */}
+              {threadHasMore && (
+                <li className="agent-thread-load-older">
+                  <button
+                    type="button"
+                    className="agent-load-more"
+                    onClick={() => fireAndForget(loadOlder())}
+                    disabled={loadingOlder}
+                  >
+                    {loadingOlder ? 'Loading…' : 'Load older messages'}
+                  </button>
+                </li>
+              )}
               {detail?.messages.map((message) => (
                 <MessageBubble key={message.id} message={message} />
               ))}

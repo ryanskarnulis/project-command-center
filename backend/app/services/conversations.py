@@ -11,9 +11,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.ai import context_budget
 from app.ai.loop import AgentRunResult
 from app.db.models import Conversation, ConversationMessage, ConversationRole, utcnow
 from app.services import activity
@@ -88,17 +89,58 @@ def soft_delete_conversation(db: Session, conversation: Conversation) -> None:
 
 
 def list_messages(
-    db: Session, conversation_id: int
+    db: Session,
+    conversation_id: int,
+    *,
+    limit: int | None = None,
+    before_id: int | None = None,
 ) -> Sequence[ConversationMessage]:
-    """A conversation's messages, oldest first."""
-    return (
-        db.execute(
-            select(ConversationMessage)
-            .where(ConversationMessage.conversation_id == conversation_id)
-            .order_by(ConversationMessage.id)
-        )
+    """A window of a conversation's messages, oldest first.
+
+    Unbounded by default (callers that want the whole thread say so by
+    omitting ``limit``). With ``limit``, the window is the *newest* ``limit``
+    messages — chat reads the tail first — still returned oldest-first so the
+    caller can render it directly. ``before_id`` pages backwards from a known
+    message: only messages older than it are considered. Ids are monotonic and
+    messages immutable, so successive pages have no duplicates and no gaps
+    even while the conversation grows.
+    """
+    query = select(ConversationMessage).where(
+        ConversationMessage.conversation_id == conversation_id
+    )
+    if before_id is not None:
+        query = query.where(ConversationMessage.id < before_id)
+    if limit is None:
+        return db.execute(query.order_by(ConversationMessage.id)).scalars().all()
+    newest_first = (
+        db.execute(query.order_by(ConversationMessage.id.desc()).limit(limit))
         .scalars()
         .all()
+    )
+    return list(reversed(newest_first))
+
+
+def count_messages(db: Session, conversation_id: int) -> int:
+    """How many messages the conversation holds in total, across all pages."""
+    return int(
+        db.execute(
+            select(func.count())
+            .select_from(ConversationMessage)
+            .where(ConversationMessage.conversation_id == conversation_id)
+        ).scalar_one()
+    )
+
+
+def has_messages_before(db: Session, conversation_id: int, message_id: int) -> bool:
+    """Whether an older message than ``message_id`` exists in the thread."""
+    return (
+        db.execute(
+            select(ConversationMessage.id)
+            .where(ConversationMessage.conversation_id == conversation_id)
+            .where(ConversationMessage.id < message_id)
+            .limit(1)
+        ).scalar_one_or_none()
+        is not None
     )
 
 
@@ -110,12 +152,24 @@ def history_for_loop(db: Session, conversation_id: int) -> list[dict[str, str]]:
     stale tool transcripts bloats the local model's window, and the loop
     re-reads live state through its tools instead. Assistant turns that ended
     without a reply (iteration/correction limit) are skipped.
+
+    **Bounded** (#244): a per-turn character cap does not bound a
+    conversation, so the result is the newest coherent window that fits
+    ``context_budget.history_token_budget()`` — everything older is left in
+    the transcript for display and audit but not sent to the model. This is
+    the source of truth for that policy; the loop re-applies the same function
+    as a last gate with the overhead it can actually measure.
     """
-    return [
+    turns = [
         {"role": message.role.value, "content": message.content}
-        for message in list_messages(db, conversation_id)
+        for message in list_messages(
+            db, conversation_id, limit=context_budget.HISTORY_SCAN_LIMIT
+        )
         if message.content is not None
     ]
+    return context_budget.fit_history(
+        turns, budget_tokens=context_budget.history_token_budget()
+    )
 
 
 def append_user_message(

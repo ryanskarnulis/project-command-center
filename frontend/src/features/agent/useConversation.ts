@@ -7,6 +7,12 @@ interface UseConversation {
   detail: ConversationDetail | null
   loading: boolean
   error: string | null
+  /** Whether messages older than the loaded page exist (#244). */
+  hasMore: boolean
+  /** True while `loadOlder` is in flight. */
+  loadingOlder: boolean
+  /** Prepend the page immediately older than the oldest loaded message. */
+  loadOlder: () => Promise<void>
   /** The optimistic user bubble + "working" indicator while a run is in flight. */
   pendingText: string | null
   /** Resolves to the assistant's reply text on success (possibly ''), or
@@ -45,7 +51,39 @@ function withExchange(
   const added = [exchange.user_message, exchange.assistant_message].filter(
     (m) => !seen.has(m.id),
   )
-  return added.length === 0 ? detail : { ...detail, messages: [...detail.messages, ...added] }
+  return added.length === 0
+    ? detail
+    : {
+        ...detail,
+        messages: [...detail.messages, ...added],
+        message_count: detail.message_count + added.length,
+      }
+}
+
+/** A freshly fetched newest page, with any older pages the user had already
+ * loaded kept in front of it (#244).
+ *
+ * Without this, every post-send refetch — which asks for the default newest
+ * page — would silently collapse a thread the user had scrolled back through.
+ * `has_more` then belongs to the oldest message on screen, not to the fresh
+ * page, so the "load older" affordance stays correct.
+ */
+function mergeOlder(
+  previous: ConversationDetail | null,
+  fresh: ConversationDetail,
+): ConversationDetail {
+  if (previous === null || previous.messages.length === 0) return fresh
+  const freshIds = new Set(fresh.messages.map((m) => m.id))
+  const oldestFresh = fresh.messages[0]?.id
+  const older = previous.messages.filter(
+    (m) => !freshIds.has(m.id) && (oldestFresh === undefined || m.id < oldestFresh),
+  )
+  if (older.length === 0) return fresh
+  return {
+    ...fresh,
+    messages: [...older, ...fresh.messages],
+    has_more: previous.has_more,
+  }
 }
 
 /**
@@ -65,6 +103,7 @@ export function useConversation(
   const [loaded, setLoaded] = useState<Tagged<ConversationDetail> | null>(null)
   const [errorState, setErrorState] = useState<Tagged<string> | null>(null)
   const [pending, setPending] = useState<Tagged<string> | null>(null)
+  const [olderPending, setOlderPending] = useState<Tagged<true> | null>(null)
 
   // The conversation the hook is currently routed to, readable from async
   // continuations that started before a navigation.
@@ -76,7 +115,9 @@ export function useConversation(
   const detail = forId(loaded, conversationId)
   const error = forId(errorState, conversationId)
   const pendingText = forId(pending, conversationId)
+  const loadingOlder = forId(olderPending, conversationId) === true
   const loading = conversationId !== null && detail === null && error === null
+  const hasMore = detail?.has_more ?? false
 
   useEffect(() => {
     if (conversationId === null) return
@@ -104,6 +145,36 @@ export function useConversation(
     }
   }, [conversationId])
 
+  const loadOlder = useCallback(async (): Promise<void> => {
+    if (conversationId === null) return
+    const oldest = loaded?.id === conversationId ? loaded.value.messages[0] : undefined
+    if (oldest === undefined || !loaded?.value.has_more) return
+    setOlderPending({ id: conversationId, value: true })
+    try {
+      const page = await getConversation(conversationId, { before_id: oldest.id })
+      // Same single-slot guard as `send`: a page that lands after the user
+      // navigated away must not touch the thread now on screen.
+      if (currentIdRef.current === conversationId) {
+        setLoaded((prev) =>
+          prev !== null && prev.id === conversationId
+            ? { id: conversationId, value: mergeOlder(page, prev.value) }
+            : prev,
+        )
+      }
+    } catch (e: unknown) {
+      if (currentIdRef.current === conversationId) {
+        setErrorState({
+          id: conversationId,
+          value: e instanceof Error ? e.message : 'Failed to load older messages',
+        })
+      }
+    } finally {
+      setOlderPending((prev) =>
+        prev !== null && prev.id === conversationId ? null : prev,
+      )
+    }
+  }, [conversationId, loaded])
+
   const send = useCallback(
     async (content: string): Promise<string | null> => {
       if (conversationId === null) return null
@@ -124,9 +195,14 @@ export function useConversation(
       try {
         const fresh = await getConversation(conversationId)
         // Only write if the user is still on this conversation — otherwise the
-        // single slot would clobber whatever thread is on screen now.
+        // single slot would clobber whatever thread is on screen now. The
+        // refetch asks for the newest page, so any older pages already loaded
+        // are merged back in rather than collapsing the thread (#244).
         if (currentIdRef.current === conversationId) {
-          setLoaded({ id: conversationId, value: fresh })
+          setLoaded((prev) => ({
+            id: conversationId,
+            value: mergeOlder(prev !== null && prev.id === conversationId ? prev.value : null, fresh),
+          }))
         }
       } catch (e: unknown) {
         // Same guard: a refetch that lost the race must not touch the thread
@@ -160,5 +236,5 @@ export function useConversation(
     [conversationId, onExchange],
   )
 
-  return { detail, loading, error, pendingText, send }
+  return { detail, loading, error, hasMore, loadingOlder, loadOlder, pendingText, send }
 }

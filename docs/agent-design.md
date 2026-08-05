@@ -306,6 +306,56 @@ per client IP via the retained limiter (`agent_messages_per_min`, default
 turns only — tool transcripts never round-trip (they'd bloat the 12B's
 window; the model re-reads live state through tools).
 
+## Context budget: bounded model-facing history (landed 2026-08-05, #244)
+
+The per-turn cap (`MAX_AGENT_MESSAGE_LENGTH = 8_000`) never bounded a
+*conversation*: 200 individually valid turns is 1.6M characters in one
+request, which either overflows `-c 131072` or spends the whole
+`agent_run_budget_seconds` prefilling it — and a retry resends the same
+oversized prompt, so there was no in-thread recovery.
+
+`app/ai/context_budget.py` is the policy, deliberately dependency-free so both
+layers apply the identical rule:
+
+- **Strategy: a deterministic recent window.** The newest turns that fit are
+  sent; older ones stay in `conversation_messages` for display and audit and
+  are simply not transmitted. No summarizer — that is a second local-GPU call
+  per turn, and CLAUDE.md rule 3 forbids a cloud one. The window is trimmed to
+  start on a `user` turn, so an assistant reply is never stranded without its
+  question, and it never skips a turn to squeeze an older one in.
+- **Token estimation is a character heuristic** — `CHARS_PER_TOKEN = 3`. A
+  real tokenizer means a new dependency plus keeping it in sync with whatever
+  GGUF llama-swap has loaded. English prose runs ~4 chars/token and JSON/ids
+  worse, so 3 over-counts tokens and every budget below is a *floor*: erring
+  small costs a little context, erring large costs a failed run.
+- **Reserves** (tokens), taken out of the 131,072 window before history gets
+  any: system prompt + tool schemas `8_192` (measured 2,426 + 14,269 chars ≈
+  5.6k for 25 tools; a test asserts the real figure still fits), the current
+  user turn at its schema maximum `2_667`, the run's own tool
+  calls/results `16_384`, completion `2_048`.
+- **The binding constraint is time, not window.** Prefill measures 446–680
+  tok/s at depth, so the ~101k tokens the window would allow is ~4 minutes of
+  prefill against a 240 s run budget. `PREFILL_BUDGET_TOKENS = 24_576` (~55 s
+  at the pessimistic rate, under a quarter of the budget) is therefore the
+  effective history ceiling; `history_token_budget()` returns the *min* of the
+  two and never a negative number.
+
+Where it is applied: `services/conversations.py::history_for_loop` is the
+source of truth — it reads at most `HISTORY_SCAN_LIMIT` (500) rows and returns
+the windowed result, so nothing downstream can widen it. `AgentLoop._run`
+re-applies the same function as a last gate before any provider request, using
+the overhead it can actually measure (real system prompt, real tool schemas,
+real user turn); history arriving over budget from any caller is trimmed
+deterministically instead of becoming an impossible request. Both paths log
+`agent_history_windowed` / `history_dropped` with the run's request id.
+
+`GET /agent/conversations/{id}` is paginated for the same reason (the issue's
+secondary point): the newest `limit` messages (default 100, max 500), with
+`before_id` walking backwards, plus `message_count` and `has_more`. The chat
+panel loads the newest page and offers "Load older messages"; older pages
+already on screen survive the post-send refetch. Covered by
+`tests/test_agent_context_budget.py` and `useConversation.test.ts`.
+
 Verified end-to-end on the live runtime (2026-07-11): a three-step ask
 (create project → create high-priority task → complete it) ran in ~9 s warm,
 including two genuine self-corrections the loop fed back and the model fixed;
@@ -357,6 +407,14 @@ Re-run green under the layered personality prompt (2026-07-11, 2 consecutive
 suites, 12/12 pass): trajectories unchanged in shape, `honest_about_missing`
 conceded in 2–3 iterations, and the recurring `create_task` self-correction
 still fixes itself — Glitch's brevity contract did not degrade tool honesty.
+
+Re-run green under the context budget of #244 (2026-08-05, 4 consecutive
+suites, 24/24 pass): trajectories and warm times unchanged — the eval
+scenarios are single-turn, so they exercise the loop's new windowing call with
+an empty history and confirm it costs nothing. One `create_task_with_fields`
+run took 6 iterations (baseline 3–5) on three self-corrections; the end state
+was correct, and it is temp-1.0 sampling of the known `name`/`title` miss, not
+a regression — the other three runs landed at 3, 5, and 5.
 
 **Baseline (gemma-4-12b UD-Q4_K_XL, 2026-07-11, 4 consecutive suite runs —
 24/24 pass, warm model):**

@@ -64,9 +64,20 @@ class MessageRead(BaseModel):
 
 
 class ConversationDetail(ConversationRead):
-    """A conversation with its full message history, oldest first."""
+    """A conversation with one bounded page of its history, oldest first.
+
+    The page is the newest ``limit`` messages by default (chat reads the tail
+    first); ``before_id`` walks backwards from there. A thread's full
+    transcript stays reachable — ``has_more`` says whether an older page
+    exists, ``message_count`` is the total — but no single response is
+    unbounded (#244).
+    """
 
     messages: list[MessageRead]
+    # Total persisted messages in the thread, across every page.
+    message_count: int
+    # True when messages older than ``messages[0]`` exist.
+    has_more: bool
 
 
 class MessageExchange(BaseModel):

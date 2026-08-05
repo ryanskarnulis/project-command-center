@@ -31,6 +31,8 @@ function detail(id: number, contents: string[]): ConversationDetail {
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     messages: contents.map((c, i) => message(i + 1, id, c)),
+    message_count: contents.length,
+    has_more: false,
   }
 }
 
@@ -222,5 +224,98 @@ describe('useConversation', () => {
     rerender({ id: 1 })
     await waitFor(() => expect(contents(result.current.detail)).toEqual(['recovered']))
     expect(result.current.error).toBeNull()
+  })
+
+  // --- Bounded thread pagination (#244) --------------------------------------
+
+  it('loads an older page and keeps it in front of the newest one', async () => {
+    const newest: ConversationDetail = {
+      ...detail(1, ['turn 3', 'turn 4']),
+      message_count: 4,
+      has_more: true,
+    }
+    const older: ConversationDetail = {
+      ...detail(1, []),
+      messages: [message(11, 1, 'turn 1'), message(12, 1, 'turn 2')],
+      message_count: 4,
+      has_more: false,
+    }
+    // Ids on the fixtures: the "newest" page has to sort after the older one.
+    newest.messages = [message(21, 1, 'turn 3'), message(22, 1, 'turn 4')]
+
+    mockGet.mockImplementation((_id: number, params?: { before_id?: number }) =>
+      Promise.resolve(params?.before_id === undefined ? newest : older),
+    )
+
+    const { result } = renderHook(() => useConversation(1))
+    await waitFor(() => expect(contents(result.current.detail)).toEqual(['turn 3', 'turn 4']))
+    expect(result.current.hasMore).toBe(true)
+
+    await act(async () => {
+      await result.current.loadOlder()
+    })
+
+    expect(mockGet).toHaveBeenLastCalledWith(1, { before_id: 21 })
+    expect(contents(result.current.detail)).toEqual([
+      'turn 1',
+      'turn 2',
+      'turn 3',
+      'turn 4',
+    ])
+    // has_more now belongs to the oldest page on screen.
+    expect(result.current.hasMore).toBe(false)
+  })
+
+  it('keeps already-loaded older messages across a post-send refetch', async () => {
+    const newest: ConversationDetail = {
+      ...detail(1, []),
+      messages: [message(21, 1, 'turn 3')],
+      message_count: 3,
+      has_more: true,
+    }
+    const older: ConversationDetail = {
+      ...detail(1, []),
+      messages: [message(11, 1, 'turn 1'), message(12, 1, 'turn 2')],
+      message_count: 3,
+      has_more: false,
+    }
+    const afterSend: ConversationDetail = {
+      ...newest,
+      messages: [...newest.messages, message(23, 1, 'sent'), message(24, 1, 'reply')],
+      message_count: 5,
+    }
+
+    let sendDone = false
+    mockGet.mockImplementation((_id: number, params?: { before_id?: number }) => {
+      if (params?.before_id !== undefined) return Promise.resolve(older)
+      return Promise.resolve(sendDone ? afterSend : newest)
+    })
+    mockPost.mockImplementation(() => {
+      sendDone = true
+      return Promise.resolve({
+        user_message: message(23, 1, 'sent'),
+        assistant_message: message(24, 1, 'reply'),
+      })
+    })
+
+    const { result } = renderHook(() => useConversation(1))
+    await waitFor(() => expect(contents(result.current.detail)).toEqual(['turn 3']))
+    await act(async () => {
+      await result.current.loadOlder()
+    })
+    expect(contents(result.current.detail)).toEqual(['turn 1', 'turn 2', 'turn 3'])
+
+    await act(async () => {
+      await result.current.send('sent')
+    })
+
+    // The refetch only returns the newest page; the older one survives (#244).
+    expect(contents(result.current.detail)).toEqual([
+      'turn 1',
+      'turn 2',
+      'turn 3',
+      'sent',
+      'reply',
+    ])
   })
 })
