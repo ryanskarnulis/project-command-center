@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { createConversation, postMessage } from '../../api/agent'
 import { ApiError } from '../../api/client'
-import { sendErrorMessage } from '../agent/useConversation'
+import { sendErrorMessage } from '../agent/errorMessage'
 import type { MessageExchange } from '../../types/agent'
 
 /** Lifecycle of one ask from the command bar. Single-exchange scoped: each

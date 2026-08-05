@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getConversation, postMessage } from '../../api/agent'
-import { ApiError } from '../../api/client'
 import type { ConversationDetail } from '../../types/agent'
+import { sendErrorMessage } from './errorMessage'
 
 interface UseConversation {
   detail: ConversationDetail | null
@@ -12,19 +12,6 @@ interface UseConversation {
   /** Resolves to the assistant's reply text on success (possibly ''), or
    * null when the run failed — voice uses the text to speak the reply. */
   send: (content: string) => Promise<string | null>
-}
-
-/** Human-readable failure line for a `postMessage` run (shared with the
- * command bar's inline ask). */
-export function sendErrorMessage(e: unknown): string {
-  if (e instanceof ApiError) {
-    if (e.status === 429) {
-      return 'Rate limited — give the agent a moment before sending more.'
-    }
-    const detail = (e.body as { detail?: unknown } | null)?.detail
-    if (typeof detail === 'string') return detail
-  }
-  return e instanceof Error ? e.message : 'The agent run failed'
 }
 
 // All state is tagged with the conversation it belongs to and the exposed
