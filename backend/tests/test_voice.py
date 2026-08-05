@@ -26,6 +26,7 @@ from app.ai.speech import (
     SpeechResponseError,
     speech_client_from_settings,
 )
+from app.api.routes_voice import MAX_AUDIO_BYTES, MAX_SPEAK_TEXT_LENGTH
 from app.api import routes_voice
 from app.config import get_settings
 from app.main import app
@@ -356,3 +357,175 @@ async def test_transcribe_does_not_block_the_event_loop() -> None:
     assert gaps, "the ticker never ran"
     # Generous bound: no single tick may have waited out the 250 ms STT call.
     assert max(gaps) < 0.15, f"event loop was blocked for {max(gaps):.3f}s"
+
+
+# --- payload limits (#245) -----------------------------------------------------
+
+
+class RecordingSpeechClient:
+    """A ``SpeechClient`` stand-in that records whether it was reached at all.
+
+    Rejected input must never touch the speech service: the whole point of the
+    limits is that oversized bytes are not forwarded upstream.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def transcribe(self, data: bytes, filename: str = "audio.webm") -> str:
+        self.calls.append("transcribe")
+        return "transcript"
+
+    def speak(self, text: str) -> bytes:
+        self.calls.append("speak")
+        return b"mp3-bytes"
+
+
+@pytest.fixture
+def recording_client() -> Generator[
+    tuple[TestClient, RecordingSpeechClient], None, None
+]:
+    speech = RecordingSpeechClient()
+    app.dependency_overrides[routes_voice.get_speech_client] = lambda: speech
+    with TestClient(app) as client:
+        yield client, speech
+    app.dependency_overrides.clear()
+
+
+_BOUNDARY = "pccvoiceboundary"
+_MULTIPART_HEAD = (
+    f"--{_BOUNDARY}\r\n"
+    'Content-Disposition: form-data; name="audio"; filename="clip.wav"\r\n'
+    "Content-Type: audio/wav\r\n\r\n"
+).encode()
+_MULTIPART_TAIL = f"\r\n--{_BOUNDARY}--\r\n".encode()
+# What the multipart envelope costs on top of the audio itself. The ceiling
+# bounds the whole request body, so the tests size the audio to hit it exactly.
+_ENVELOPE = len(_MULTIPART_HEAD) + len(_MULTIPART_TAIL)
+_MULTIPART_TYPE = f"multipart/form-data; boundary={_BOUNDARY}"
+_CHUNK = 64 * 1024
+
+
+def _upload_of_total_size(total: int) -> bytes:
+    """A multipart body whose *whole* length is exactly ``total`` bytes."""
+    body = _MULTIPART_HEAD + b"\0" * (total - _ENVELOPE) + _MULTIPART_TAIL
+    assert len(body) == total
+    return body
+
+
+def _chunked(body: bytes) -> Generator[bytes, None, None]:
+    """Yield the body in pieces: httpx sends an iterator without a length as
+    ``Transfer-Encoding: chunked``, which is the case a Content-Length check
+    alone cannot catch."""
+    for start in range(0, len(body), _CHUNK):
+        yield body[start : start + _CHUNK]
+
+
+def test_transcribe_accepts_a_body_at_the_exact_limit(
+    recording_client: tuple[TestClient, RecordingSpeechClient],
+) -> None:
+    client, speech = recording_client
+    response = client.post(
+        "/api/voice/transcribe",
+        content=_upload_of_total_size(MAX_AUDIO_BYTES),
+        headers={"content-type": _MULTIPART_TYPE},
+    )
+    assert response.status_code == 200
+    assert speech.calls == ["transcribe"]
+
+
+def test_transcribe_rejects_one_byte_over_the_limit(
+    recording_client: tuple[TestClient, RecordingSpeechClient],
+) -> None:
+    client, speech = recording_client
+    response = client.post(
+        "/api/voice/transcribe",
+        content=_upload_of_total_size(MAX_AUDIO_BYTES + 1),
+        headers={"content-type": _MULTIPART_TYPE},
+    )
+    assert response.status_code == 413
+    assert "too large" in response.json()["detail"]
+    assert speech.calls == []  # nothing was forwarded upstream
+
+
+def test_transcribe_rejects_a_chunked_upload_without_content_length(
+    recording_client: tuple[TestClient, RecordingSpeechClient],
+) -> None:
+    client, speech = recording_client
+    response = client.post(
+        "/api/voice/transcribe",
+        content=_chunked(_upload_of_total_size(MAX_AUDIO_BYTES + 1)),
+        headers={"content-type": _MULTIPART_TYPE},
+    )
+    assert "content-length" not in response.request.headers
+    assert response.request.headers["transfer-encoding"] == "chunked"
+    assert response.status_code == 413
+    assert speech.calls == []
+
+
+def test_transcribe_accepts_a_chunked_upload_at_the_limit(
+    recording_client: tuple[TestClient, RecordingSpeechClient],
+) -> None:
+    client, speech = recording_client
+    response = client.post(
+        "/api/voice/transcribe",
+        content=_chunked(_upload_of_total_size(MAX_AUDIO_BYTES)),
+        headers={"content-type": _MULTIPART_TYPE},
+    )
+    assert response.status_code == 200
+    assert speech.calls == ["transcribe"]
+
+
+def test_transcribe_rejects_an_oversized_declared_length(
+    recording_client: tuple[TestClient, RecordingSpeechClient],
+) -> None:
+    """A truthful ``Content-Length`` is refused before the body is read."""
+    client, speech = recording_client
+    response = client.post(
+        "/api/voice/transcribe",
+        content=b"x" * 16,
+        headers={
+            "content-type": _MULTIPART_TYPE,
+            "content-length": str(MAX_AUDIO_BYTES + 1),
+        },
+    )
+    assert response.status_code == 413
+    assert speech.calls == []
+
+
+def test_speak_accepts_text_at_the_exact_limit(
+    recording_client: tuple[TestClient, RecordingSpeechClient],
+) -> None:
+    client, speech = recording_client
+    response = client.post(
+        "/api/voice/speak", json={"text": "a" * MAX_SPEAK_TEXT_LENGTH}
+    )
+    assert response.status_code == 200
+    assert speech.calls == ["speak"]
+
+
+def test_speak_rejects_one_character_over_the_limit(
+    recording_client: tuple[TestClient, RecordingSpeechClient],
+) -> None:
+    client, speech = recording_client
+    response = client.post(
+        "/api/voice/speak", json={"text": "a" * (MAX_SPEAK_TEXT_LENGTH + 1)}
+    )
+    assert response.status_code == 422
+    assert speech.calls == []
+
+
+def test_speak_rejects_an_oversized_body_before_validating_it(
+    recording_client: tuple[TestClient, RecordingSpeechClient],
+) -> None:
+    """The byte ceiling covers the JSON side too: a megabyte-scale text field
+    is refused as a payload rather than buffered whole and then 422'd."""
+    client, speech = recording_client
+    body = b'{"text": "' + b"a" * (MAX_AUDIO_BYTES + 1) + b'"}'
+    response = client.post(
+        "/api/voice/speak",
+        content=body,
+        headers={"content-type": "application/json"},
+    )
+    assert response.status_code == 413
+    assert speech.calls == []

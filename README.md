@@ -222,6 +222,20 @@ per the fleet contract (`../agent-standard/voice.md`), and
 text, biased toward PCC's task/project vocabulary) and `POST /api/voice/speak`
 (text → mp3, the fleet house voice). Both are rate-limited per client IP
 (`VOICE_REQUESTS_PER_MIN`, default 30; must be a positive integer).
+
+Both also carry explicit payload limits, because a request cap counts requests,
+not bytes. `/api/voice/transcribe` bounds the request body at **8 MiB**
+(`MAX_AUDIO_BYTES`) — 262 s of the 16 kHz mono 16-bit WAV the hands-free VAD
+records (32,000 bytes/s), better than 2× the longest utterance worth
+supporting; the body is counted as it streams and cut off at the ceiling, so
+oversized input is never buffered whole and never reaches the speech service.
+Over the limit is a stable JSON **413**, whether or not the upload declares a
+`Content-Length`. `/api/voice/speak` bounds `text` at **2,000 characters**
+(`MAX_SPEAK_TEXT_LENGTH`, ~2.5 minutes of speech) with a **422**. The limit is
+the API's, not the proxy's — the app is reachable directly over the LAN with no
+proxy in front — and `frontend/nginx.conf` sets `client_max_body_size 9m` so
+the docker path agrees instead of failing at nginx's 1 MB default.
+
 Configure with `SPEECH_BASE_URL` /
 `TTS_BASE_URL` / `STT_MODEL` / `TTS_MODEL` / `TTS_VOICE` (defaults in
 `app/config.py`); leave `SPEECH_BASE_URL` unset **or empty** to run voiceless —
