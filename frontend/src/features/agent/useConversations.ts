@@ -125,10 +125,10 @@ export function useConversations(): UseConversations {
     void refresh()
   }, [refresh])
 
-  // A failed create propagates to the caller rather than writing `error`: that
-  // state belongs to the list load and is cleared by the next successful
-  // refresh, so a mutation failure parked there can vanish before it is read
-  // (#219). Not safe to fire-and-forget — the caller must catch and surface it.
+  // Mutations propagate to the caller rather than writing `error`: that state
+  // belongs to the list load and is cleared by the next successful refresh, so
+  // a mutation failure parked there can vanish before it is read (#219, #229).
+  // Neither is safe to fire-and-forget — the caller must catch and surface it.
   const create = useCallback(async () => {
     const conversation = await createConversation()
     await refresh()
@@ -138,15 +138,11 @@ export function useConversations(): UseConversations {
   const remove = useCallback(
     async (id: number) => {
       // The API rejects a delete while that conversation has a run in flight
-      // (409, #149) — surface it instead of failing silently, and rethrow so the
-      // caller doesn't treat the conversation as gone.
-      try {
-        await deleteConversation(id)
-        setError(null)
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Failed to delete conversation')
-        throw e
-      }
+      // (409, #149). Letting that reject reach the caller both surfaces it and
+      // stops the caller treating the conversation as gone; `refresh` is only
+      // reached on success, so a failed delete leaves the row on screen and
+      // retryable.
+      await deleteConversation(id)
       await refresh()
     },
     [refresh],

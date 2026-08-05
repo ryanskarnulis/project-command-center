@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { ApiError } from '../../api/client'
+import { apiErrorMessage } from '../../api/errorMessage'
 import type { Task } from '../../types/task'
 import { useTaskLinkTo } from './panel/taskPanelContext'
 import { useTaskDependencies } from './useTaskDependencies'
@@ -9,17 +9,6 @@ import { useTaskDependencies } from './useTaskDependencies'
 interface Props {
   task: Task
   tasks: Task[]
-}
-
-/** The failure line for an add/remove. Prefers the API's `detail` over the
- * generic "API error 409" so a refused mutation says *why* (would create a
- * cycle, dependency already gone) instead of leaving the user guessing. */
-function dependencyErrorMessage(e: unknown, fallback: string): string {
-  if (e instanceof ApiError) {
-    const detail = (e.body as { detail?: unknown } | null)?.detail
-    if (typeof detail === 'string') return detail
-  }
-  return e instanceof Error ? e.message : fallback
 }
 
 /** "Depends on" manager: B must be done before this task can start. */
@@ -47,7 +36,7 @@ export function TaskDependencies({ task, tasks }: Props) {
       await add(Number(selected))
       setSelected('')
     } catch (e: unknown) {
-      setAddError(dependencyErrorMessage(e, 'Could not add dependency'))
+      setAddError(apiErrorMessage(e, 'Could not add dependency'))
     }
   }
 
@@ -60,7 +49,7 @@ export function TaskDependencies({ task, tasks }: Props) {
     try {
       await remove(dependencyId)
     } catch (e: unknown) {
-      setRemoveError(dependencyErrorMessage(e, 'Could not remove dependency'))
+      setRemoveError(apiErrorMessage(e, 'Could not remove dependency'))
     }
   }
 

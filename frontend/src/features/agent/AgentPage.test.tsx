@@ -188,6 +188,55 @@ describe('AgentPage', () => {
     confirmSpy.mockRestore()
   })
 
+  // A delete failure used to be written into the hook's `error` — the slot the
+  // list load owns and clears on every successful refresh. Since an agent turn
+  // refreshes the sidebar, the reason could vanish before it was read (#229).
+  it('keeps a rejected delete visible across a later refresh, with the API reason (#229)', async () => {
+    const { ApiError } = await import('../../api/client')
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mockDelete.mockRejectedValue(
+      new ApiError(409, { detail: 'That conversation has a run in flight.' }),
+    )
+    renderAt('/agent/1')
+    await screen.findByText('Created the task.')
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Delete conversation Water the plants' }),
+    )
+    await waitFor(() => expect(mockDelete).toHaveBeenCalledWith(1))
+
+    // The API's `detail` explains the refusal; "API error 409" would not.
+    expect(
+      await screen.findByText('That conversation has a run in flight.'),
+    ).toBeInTheDocument()
+    // Nothing navigated away, and the conversation is still listed.
+    expect(screen.getByText('Water the plants')).toBeInTheDocument()
+    expect(screen.getByText('Created the task.')).toBeInTheDocument()
+
+    // An agent turn refreshes the sidebar list, which clears the load's own
+    // error. The delete failure must survive it.
+    mockPost.mockResolvedValue({
+      user_message: message({ id: 3, content: 'Now complete it' }),
+      assistant_message: message({
+        id: 4,
+        role: 'assistant',
+        content: 'Done.',
+        stop_reason: 'completed',
+      }),
+    })
+    fireEvent.change(screen.getByLabelText('Message the agent'), {
+      target: { value: 'Now complete it' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    await waitFor(() => expect(mockPost).toHaveBeenCalledOnce())
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2))
+
+    expect(
+      screen.getByText('That conversation has a run in flight.'),
+    ).toBeInTheDocument()
+    confirmSpy.mockRestore()
+  })
+
   // Both "New conversation" buttons fire-and-forget `startConversation`, so a
   // rejected create used to look exactly like an ignored click (#219).
   it('keeps a failed new conversation on screen and retryable (#219)', async () => {

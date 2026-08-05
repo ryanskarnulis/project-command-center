@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError } from '../../api/client'
+import { apiErrorMessage } from '../../api/errorMessage'
 import { listProjects, purgeProject, restoreProject } from '../../api/projects'
 import { purgeTask, restoreTask } from '../../api/tasks'
 import { emptyTrash, getTrash, purgeSelected } from '../../api/trash'
@@ -43,16 +44,10 @@ const KIND_NOUN: Record<TrashKind, string> = {
   tasks: 'task',
 }
 
-/** The failure line for a restore. Prefers the API's `detail` over the generic
- * "API error 409": a refused restore says *why* (a recurring occurrence whose
- * due date is already taken by a live sibling) and what to do about it. */
-function restoreErrorMessage(e: unknown): string {
-  if (e instanceof ApiError) {
-    const detail = (e.body as { detail?: unknown } | null)?.detail
-    if (typeof detail === 'string') return detail
-  }
-  return e instanceof Error ? e.message : 'Failed to restore item'
-}
+/** Fallback for a restore that failed without an `Error` to speak for itself.
+ * The interesting case is the API's `detail` (a recurring occurrence whose due
+ * date is already taken by a live sibling), which `apiErrorMessage` prefers. */
+const RESTORE_FAILED = 'Failed to restore item'
 
 const RESTORE: Record<TrashKind, (id: number) => Promise<unknown>> = {
   projects: restoreProject,
@@ -126,7 +121,7 @@ export function useTrash(): UseTrash {
         setNotice(buildNotice(result))
         reload()
       } catch (e: unknown) {
-        setError(restoreErrorMessage(e))
+        setError(apiErrorMessage(e, RESTORE_FAILED))
       }
     },
     [reload],
@@ -152,7 +147,7 @@ export function useTrash(): UseTrash {
         )
         reload()
       } catch (e: unknown) {
-        setError(restoreErrorMessage(e))
+        setError(apiErrorMessage(e, RESTORE_FAILED))
       }
     },
     [reload],
@@ -201,7 +196,7 @@ export function useTrash(): UseTrash {
           // Skip it rather than reporting the whole batch as broken (BUG-11).
           if (e instanceof ApiError && e.status === 404) continue
           failed = true
-          setError(restoreErrorMessage(e))
+          setError(apiErrorMessage(e, RESTORE_FAILED))
           break
         }
       }

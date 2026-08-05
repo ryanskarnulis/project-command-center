@@ -14,7 +14,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import { ApiError } from '../../api/client'
+import { apiErrorMessage } from '../../api/errorMessage'
 import { GlitchMark } from '../../components/GlitchMark'
 import { fireAndForget } from '../../utils/async'
 import { formatRelative } from '../../utils/dates'
@@ -24,17 +24,6 @@ import { MessageBubble } from './MessageBubble'
 import { PendingExchange } from './PendingExchange'
 import { useConversation } from './useConversation'
 import { useConversations } from './useConversations'
-
-/** The failure line for a rejected `create`. Prefers the API's `detail` over
- * the generic "API error 500" — same shape as `sendErrorMessage` here and
- * `dependencyErrorMessage` in `TaskDependencies`. */
-function createErrorMessage(e: unknown): string {
-  if (e instanceof ApiError) {
-    const detail = (e.body as { detail?: unknown } | null)?.detail
-    if (typeof detail === 'string') return detail
-  }
-  return e instanceof Error ? e.message : 'Could not start a new conversation'
-}
 
 export function AgentPage() {
   const params = useParams<{ conversationId?: string }>()
@@ -61,6 +50,7 @@ export function AgentPage() {
 
   const [draft, setDraft] = useState('')
   const [createError, setCreateError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const threadEndRef = useRef<HTMLLIElement>(null)
   const sending = pendingText !== null
 
@@ -111,13 +101,23 @@ export function AgentPage() {
       const conversation = await create()
       openConversation(conversation.id)
     } catch (e: unknown) {
-      setCreateError(createErrorMessage(e))
+      setCreateError(apiErrorMessage(e, 'Could not start a new conversation'))
     }
   }
 
+  // Same contract as `startConversation`, for the same reasons (#229): the
+  // delete button fire-and-forgets this, and the hook's `error` is load-owned,
+  // so the failure is held here instead. A rejected delete navigates nowhere —
+  // the conversation is still there — and the row stays clickable for a retry.
   const removeConversation = async (id: number, title: string | null) => {
     if (!window.confirm(`Delete “${title ?? 'this conversation'}”?`)) return
-    await remove(id)
+    setDeleteError(null)
+    try {
+      await remove(id)
+    } catch (e: unknown) {
+      setDeleteError(apiErrorMessage(e, 'Could not delete the conversation'))
+      return
+    }
     if (id === activeId) navigate('/agent')
   }
 
@@ -152,6 +152,7 @@ export function AgentPage() {
 
         {/* The sidebar is always mounted, so one alert covers both buttons. */}
         {createError && <p role="alert" className="error">{createError}</p>}
+        {deleteError && <p role="alert" className="error">{deleteError}</p>}
         {listError && <p role="alert" className="error">{listError}</p>}
         {listLoading && <div className="page-loading">Loading…</div>}
         {!listLoading && conversations.length === 0 && (
