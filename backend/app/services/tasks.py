@@ -973,6 +973,43 @@ def soft_delete_task(db: Session, task: Task) -> None:
         task_recurrence.reconcile(db, external)
 
 
+def soft_delete_descendants(db: Session, task: Task) -> None:
+    """Cascade-soft-delete ``task``'s active descendants, stamped with ``task.id``.
+
+    The subtree half of ``soft_delete_task``, for the one caller that removes the
+    root on its own terms: ``task_recurrence.skip_occurrence`` soft-deletes the
+    occurrence itself and records it as ``skipped``, not ``deleted``.
+
+    It exists because deleting the children one at a time — a
+    ``soft_delete_task`` call per direct child — made each child *its own delete
+    root*: the child got ``deleted_with_task_id = NULL`` and its own descendants
+    were stamped with the child's id, so nothing carried the occurrence's id and
+    the skip could not be reversed as one unit. Restoring a skipped occurrence
+    whose successor had since been trashed then brought the checklist back as a
+    bare leaf with its subtasks stranded in the trash (issue #241). Going through
+    the same recursion with ``root_id=task.id`` restores the contract
+    ``soft_delete_task`` documents: every row this cascade removes names the
+    occurrence, and only rows already trashed beforehand stay behind.
+
+    Reconciliation follows ``soft_delete_task``'s rule and additionally excludes
+    the root: it is about to be soft-deleted by the caller, so judging its series
+    here would be judging a task on its way out of the active set.
+    """
+    from app.services import task_recurrence
+
+    deleted: set[int] = set()
+    seeds: list[int] = []
+    for child in list_subtasks(db, task.id):
+        _soft_delete_subtree(db, child, deleted, seeds, root_id=task.id)
+    external = [
+        task_id
+        for task_id in seeds
+        if task_id not in deleted and task_id != task.id
+    ]
+    if external:
+        task_recurrence.reconcile(db, external)
+
+
 def _soft_delete_subtree(
     db: Session, task: Task, deleted: set[int], seeds: list[int], *, root_id: int
 ) -> None:
