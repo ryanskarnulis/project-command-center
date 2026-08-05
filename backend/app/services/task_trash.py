@@ -356,6 +356,34 @@ def log_task_purged(db: Session, task: Task) -> None:
     )
 
 
+def log_task_detached_by_purge(
+    db: Session, *, task_id: int, title: str, project_id: int | None, parent_title: str
+) -> None:
+    """Record that a purge cut ``task_id`` loose from a parent it destroyed.
+
+    The action is ``"updated"`` — the documented set in ``ActivityEvent`` — because
+    the row survives and what changed is one of its fields. ``"purged"`` would be a
+    lie about a task that still exists, and a new action string would surface in the
+    activity feed with no frontend handling. The summary carries the specifics.
+
+    Like ``log_task_purged`` (and unlike ``tasks.log_task_event``) this does *not*
+    skip unfiled tasks: the parent is gone forever, so this is the only record that
+    the task was ever nested, and that is worth writing even where no per-project
+    feed can show it.
+    """
+    activity.record_event(
+        db,
+        project_id=project_id,
+        entity_type="task",
+        entity_id=task_id,
+        action="updated",
+        summary=(
+            f'Task "{title}" detached from permanently deleted '
+            f'parent "{parent_title}"'
+        ),
+    )
+
+
 def purge_task(db: Session, task: Task, *, project_scoped: bool = True) -> None:
     """Permanently delete a trashed task and its soft-deleted subtree.
 
@@ -369,7 +397,10 @@ def purge_task(db: Session, task: Task, *, project_scoped: bool = True) -> None:
     Every node in the subtree gets its own ``purged`` audit event *before* the
     row is destroyed — the audit trail must distinguish a restorable soft delete
     from permanent destruction, and cascade-purged descendants are as gone as the
-    root the user actually clicked.
+    root the user actually clicked. Every *surviving* row the detach step
+    reparents gets an ``updated`` event too (issue #242): losing a parent is a
+    structural change to a task that lives on, and the destroyed parent's title
+    exists nowhere else afterwards.
 
     ``project_scoped=False`` is reserved for internal corrections; see
     ``_deleted_subtree_depth_first``.
@@ -386,12 +417,31 @@ def purge_task(db: Session, task: Task, *, project_scoped: bool = True) -> None:
         )
     )
     # Detach any row (active or not) still pointing into the purge set but not
-    # itself being purged, so no dangling parent ref survives.
+    # itself being purged, so no dangling parent ref survives. Snapshotted first
+    # because the update erases the very edge the audit event has to describe;
+    # the bulk write stays a single statement (the fan-out is unbounded) and the
+    # events are emitted from the snapshot in the same transaction, so the row
+    # change and its history commit together or not at all.
+    detached = db.execute(
+        select(Task.id, Task.title, Task.project_id, Task.parent_task_id).where(
+            Task.parent_task_id.in_(ids), Task.id.not_in(ids)
+        )
+    ).all()
     db.execute(
         update(Task)
         .where(Task.parent_task_id.in_(ids), Task.id.not_in(ids))
         .values(parent_task_id=None)
     )
+
+    titles = {node.id: node.title for node in subtree}
+    for detached_id, detached_title, detached_project_id, old_parent_id in detached:
+        log_task_detached_by_purge(
+            db,
+            task_id=detached_id,
+            title=detached_title,
+            project_id=detached_project_id,
+            parent_title=titles[old_parent_id],
+        )
 
     for node in subtree:
         log_task_purged(db, node)

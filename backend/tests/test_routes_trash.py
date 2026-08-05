@@ -12,6 +12,7 @@ from app.db.models import (
     Task,
     TaskDependency,
 )
+from app.services import activity, task_trash
 from app.services.common import soft_delete
 
 
@@ -901,3 +902,188 @@ def test_restore_without_subtasks_stays_root_only(
     child_row = db_session.get(Task, child)
     assert parent_row is not None and parent_row.deleted_at is None
     assert child_row is not None and child_row.deleted_at is not None
+
+
+# --- A purge that detaches a survivor says so in the audit trail (#242) ------
+
+
+def _events_for(db: Session, entity_type: str, entity_id: int) -> list[ActivityEvent]:
+    """Every recorded event row for one entity, oldest first."""
+    return list(
+        db.execute(
+            select(ActivityEvent)
+            .where(
+                ActivityEvent.entity_type == entity_type,
+                ActivityEvent.entity_id == entity_id,
+            )
+            .order_by(ActivityEvent.id)
+        ).scalars()
+    )
+
+
+def test_purge_audits_the_detach_of_an_individually_restored_child(
+    client: TestClient, db_session: Session
+) -> None:
+    """BUG #242: the survivor's hierarchy change used to be written silently.
+
+    C is restored on its own while P stays in the trash, so C is active and still
+    points at a trashed parent. Purging P clears that pointer — C goes from nested
+    work to a root task — and that must leave a durable, attributed record.
+    """
+    pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
+    parent = client.post(f"/api/projects/{pid}/tasks", json={"title": "P"}).json()["id"]
+    child = client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "C", "parent_task_id": parent}
+    ).json()["id"]
+
+    client.delete(f"/api/tasks/{parent}")  # cascades to C
+    assert client.post(f"/api/tasks/{child}/restore").status_code == 200
+    db_session.expire_all()
+    restored = db_session.get(Task, child)
+    assert restored is not None
+    assert restored.deleted_at is None
+    assert restored.parent_task_id == parent  # still pointing at the trashed parent
+    assert _actions_for(db_session, "task", child) == ["created", "deleted", "restored"]
+
+    assert client.delete(f"/api/tasks/{parent}/purge").status_code == 204
+
+    db_session.expire_all()
+    assert db_session.get(Task, parent) is None
+    survivor = db_session.get(Task, child)
+    assert survivor is not None
+    assert survivor.parent_task_id is None
+
+    events = _events_for(db_session, "task", child)
+    assert [e.action for e in events] == ["created", "deleted", "restored", "updated"]
+    detach = events[-1]
+    assert detach.project_id == pid
+    # The destroyed parent's title survives nowhere else, so it is snapshotted.
+    assert detach.summary == 'Task "C" detached from permanently deleted parent "P"'
+
+
+def test_purge_audits_the_detach_of_a_cross_project_child_it_spares(
+    client: TestClient, db_session: Session
+) -> None:
+    """The #189 sparing path also detaches, so it also has to be audited.
+
+    C is owned by the still-active project B and sits in B's trash on its own
+    terms; the project-scoped walk deliberately leaves it alive, merely cut loose.
+    The event is filed against B — the project that still owns the survivor.
+    """
+    a = client.post("/api/projects", json={"name": "Project A"}).json()["id"]
+    b = client.post("/api/projects", json={"name": "Project B"}).json()["id"]
+    parent = client.post(f"/api/projects/{a}/tasks", json={"title": "P"}).json()["id"]
+    child = client.post(
+        f"/api/projects/{b}/tasks", json={"title": "C", "parent_task_id": parent}
+    ).json()["id"]
+
+    client.delete(f"/api/tasks/{parent}")  # cascade-soft-deletes C too
+    assert client.delete(f"/api/tasks/{parent}/purge").status_code == 204
+
+    db_session.expire_all()
+    assert db_session.get(Task, parent) is None
+    survivor = db_session.get(Task, child)
+    assert survivor is not None
+    assert survivor.parent_task_id is None
+    assert survivor.deleted_at is not None  # spared, still restorable from B
+
+    events = _events_for(db_session, "task", child)
+    assert [e.action for e in events] == ["created", "deleted", "updated"]
+    assert events[-1].project_id == b
+    assert events[-1].summary == 'Task "C" detached from permanently deleted parent "P"'
+
+
+def test_bulk_purge_audits_every_detached_survivor(
+    client: TestClient, db_session: Session
+) -> None:
+    """The bulk trash route delegates to the same purge service, so it audits too."""
+    pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
+    parent = client.post(f"/api/projects/{pid}/tasks", json={"title": "P"}).json()["id"]
+    children = [
+        client.post(
+            f"/api/projects/{pid}/tasks",
+            json={"title": f"C{i}", "parent_task_id": parent},
+        ).json()["id"]
+        for i in range(2)
+    ]
+
+    client.delete(f"/api/tasks/{parent}")
+    for child in children:
+        assert client.post(f"/api/tasks/{child}/restore").status_code == 200
+
+    resp = client.post(
+        "/api/trash/purge", json={"project_ids": [], "task_ids": [parent]}
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"projects": 0, "tasks": 1}
+
+    db_session.expire_all()
+    for i, child in enumerate(children):
+        survivor = db_session.get(Task, child)
+        assert survivor is not None
+        assert survivor.parent_task_id is None
+        events = _events_for(db_session, "task", child)
+        assert [e.action for e in events] == [
+            "created",
+            "deleted",
+            "restored",
+            "updated",
+        ]
+        assert events[-1].summary == (
+            f'Task "C{i}" detached from permanently deleted parent "P"'
+        )
+
+
+def test_empty_trash_audits_the_detach_of_a_surviving_child(
+    client: TestClient, db_session: Session
+) -> None:
+    """Emptying the whole trash goes through ``purge_selected`` — same guarantee."""
+    pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
+    parent = client.post(f"/api/projects/{pid}/tasks", json={"title": "P"}).json()["id"]
+    child = client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "C", "parent_task_id": parent}
+    ).json()["id"]
+
+    client.delete(f"/api/tasks/{parent}")
+    assert client.post(f"/api/tasks/{child}/restore").status_code == 200
+
+    assert client.delete("/api/trash").status_code == 200
+
+    db_session.expire_all()
+    assert db_session.get(Task, parent) is None
+    survivor = db_session.get(Task, child)
+    assert survivor is not None
+    assert survivor.parent_task_id is None
+    assert _actions_for(db_session, "task", child) == [
+        "created",
+        "deleted",
+        "restored",
+        "updated",
+    ]
+
+
+def test_purge_detach_event_carries_the_actor(
+    client: TestClient, db_session: Session
+) -> None:
+    """Attribution comes from the shared ``record_event`` actor contextvar."""
+    pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
+    parent = client.post(f"/api/projects/{pid}/tasks", json={"title": "P"}).json()["id"]
+    child = client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "C", "parent_task_id": parent}
+    ).json()["id"]
+    client.delete(f"/api/tasks/{parent}")
+    client.post(f"/api/tasks/{child}/restore")
+
+    db_session.expire_all()
+    trashed = task_trash.get_deleted_task(db_session, parent)
+    assert trashed is not None
+    token = activity.current_actor.set("agent:mcp")
+    try:
+        task_trash.purge_task(db_session, trashed)
+        db_session.commit()
+    finally:
+        activity.current_actor.reset(token)
+
+    detach = _events_for(db_session, "task", child)[-1]
+    assert detach.action == "updated"
+    assert detach.actor == "agent:mcp"
