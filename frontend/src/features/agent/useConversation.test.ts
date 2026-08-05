@@ -34,14 +34,32 @@ function detail(id: number, contents: string[]): ConversationDetail {
   }
 }
 
-/** A promise plus the handle to settle it later. */
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+/** A promise plus the handles to settle it later. */
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (reason: unknown) => void
+} {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((res) => {
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
     resolve = res
+    reject = rej
   })
-  return { promise, resolve }
+  // Nothing rejects an unused deferred, and every rejection below is awaited
+  // through the hook — this only keeps Vitest from flagging the gap between
+  // creating the promise and the hook attaching its handler.
+  promise.catch(() => {})
+  return { promise, resolve, reject }
 }
+
+const exchange = (id: number): MessageExchange => ({
+  user_message: message(3, id, 'sent'),
+  assistant_message: message(4, id, 'reply'),
+})
+
+const contents = (d: ConversationDetail | null): (string | null)[] =>
+  (d?.messages ?? []).map((m) => m.content)
 
 describe('useConversation', () => {
   beforeEach(() => {
@@ -109,6 +127,100 @@ describe('useConversation', () => {
     // B is still on screen and not stuck loading.
     expect(result.current.detail).toEqual(bLoad)
     expect(result.current.loading).toBe(false)
+    expect(result.current.error).toBeNull()
+  })
+
+  it('keeps the committed exchange visible when the post-send refetch fails (#233)', async () => {
+    const aLoad = detail(1, ['old'])
+    const refetchA = deferred<ConversationDetail>()
+
+    mockGet.mockImplementation((id: number) => {
+      if (id === 2) return Promise.resolve(detail(2, ['b first']))
+      return mockGet.mock.calls.filter((c) => c[0] === 1).length === 1
+        ? Promise.resolve(aLoad)
+        : refetchA.promise
+    })
+    mockPost.mockResolvedValue(exchange(1))
+
+    const { result, rerender } = renderHook(({ id }: { id: number }) => useConversation(id), {
+      initialProps: { id: 1 },
+    })
+    await waitFor(() => expect(result.current.detail).toEqual(aLoad))
+
+    let sent!: Promise<string | null>
+    act(() => {
+      sent = result.current.send('sent')
+    })
+    await waitFor(() => expect(result.current.pendingText).toBe('sent'))
+
+    // The run committed; only the source-of-truth reload fails.
+    await act(async () => {
+      refetchA.reject(new Error('refresh failed'))
+      expect(await sent).toBe('reply')
+    })
+
+    // The turn stays on screen instead of reverting to the pre-send thread.
+    expect(contents(result.current.detail)).toEqual(['old', 'sent', 'reply'])
+    expect(result.current.pendingText).toBeNull()
+    expect(result.current.loading).toBe(false)
+    // Worded as a refresh failure, not a run failure: the reply did land.
+    expect(result.current.error).toContain('The agent replied')
+    expect(result.current.error).toContain('refresh failed')
+
+    // And the error belongs to conversation 1 only.
+    rerender({ id: 2 })
+    await waitFor(() => expect(result.current.detail?.id).toBe(2))
+    expect(result.current.error).toBeNull()
+  })
+
+  it('keeps the send error when the send and the refetch both fail (#233)', async () => {
+    const aLoad = detail(1, ['old'])
+    mockGet.mockImplementation(() =>
+      mockGet.mock.calls.length === 1
+        ? Promise.resolve(aLoad)
+        : Promise.reject(new Error('refresh failed')),
+    )
+    mockPost.mockRejectedValue(new Error('the agent run exploded'))
+
+    const { result } = renderHook(({ id }: { id: number }) => useConversation(id), {
+      initialProps: { id: 1 },
+    })
+    await waitFor(() => expect(result.current.detail).toEqual(aLoad))
+
+    await act(async () => {
+      expect(await result.current.send('sent')).toBeNull()
+    })
+
+    // The run failure is the one the user needs; nothing was committed to merge.
+    expect(result.current.error).toBe('the agent run exploded')
+    expect(contents(result.current.detail)).toEqual(['old'])
+    expect(result.current.pendingText).toBeNull()
+  })
+
+  it('clears a load error once the same conversation loads successfully (#233)', async () => {
+    const recovered = detail(1, ['recovered'])
+    mockGet.mockImplementation((id: number) => {
+      if (id === 2) return Promise.resolve(detail(2, ['b first']))
+      return mockGet.mock.calls.filter((c) => c[0] === 1).length === 1
+        ? Promise.reject(new Error('first failed'))
+        : Promise.resolve(recovered)
+    })
+
+    const { result, rerender } = renderHook(({ id }: { id: number }) => useConversation(id), {
+      initialProps: { id: 1 },
+    })
+    await waitFor(() => expect(result.current.error).toBe('first failed'))
+    expect(result.current.detail).toBeNull()
+    expect(result.current.loading).toBe(false)
+
+    // The error is tagged to 1, so 2 never inherits it.
+    rerender({ id: 2 })
+    await waitFor(() => expect(result.current.detail?.id).toBe(2))
+    expect(result.current.error).toBeNull()
+
+    // Back on 1, the recovered thread renders without the obsolete alert.
+    rerender({ id: 1 })
+    await waitFor(() => expect(contents(result.current.detail)).toEqual(['recovered']))
     expect(result.current.error).toBeNull()
   })
 })

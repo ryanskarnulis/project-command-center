@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getConversation, postMessage } from '../../api/agent'
-import type { ConversationDetail } from '../../types/agent'
-import { sendErrorMessage } from './errorMessage'
+import type { ConversationDetail, MessageExchange } from '../../types/agent'
+import { refreshErrorMessage, sendErrorMessage } from './errorMessage'
 
 interface UseConversation {
   detail: ConversationDetail | null
@@ -29,6 +29,23 @@ interface Tagged<T> {
 
 function forId<T>(tagged: Tagged<T> | null, id: number | null): T | null {
   return tagged !== null && tagged.id === id ? tagged.value : null
+}
+
+/** The thread with the exchange the server just committed appended — the
+ * fallback for when the post-send refetch fails (#233).
+ *
+ * Message ids are unique and server-assigned, so skipping the ones already
+ * present keeps this idempotent if the pre-send thread somehow contains them.
+ */
+function withExchange(
+  detail: ConversationDetail,
+  exchange: MessageExchange,
+): ConversationDetail {
+  const seen = new Set(detail.messages.map((m) => m.id))
+  const added = [exchange.user_message, exchange.assistant_message].filter(
+    (m) => !seen.has(m.id),
+  )
+  return added.length === 0 ? detail : { ...detail, messages: [...detail.messages, ...added] }
 }
 
 /**
@@ -66,7 +83,13 @@ export function useConversation(
     let active = true
     getConversation(conversationId)
       .then((data) => {
-        if (active) setLoaded({ id: conversationId, value: data })
+        if (!active) return
+        setLoaded({ id: conversationId, value: data })
+        // A load that succeeds owns this conversation's outcome: drop the
+        // failure it supersedes, or the recovered thread renders under a
+        // stale alert (#233). Only this conversation's error, though — the
+        // slot may hold one belonging to the thread the user came from.
+        setErrorState((prev) => (prev !== null && prev.id === conversationId ? null : prev))
       })
       .catch((e: unknown) => {
         if (active) {
@@ -87,9 +110,10 @@ export function useConversation(
       setErrorState(null)
       setPending({ id: conversationId, value: content })
       let reply: string | null = null
+      let committed: MessageExchange | null = null
       try {
-        const exchange = await postMessage(conversationId, content)
-        reply = exchange.assistant_message.content ?? ''
+        committed = await postMessage(conversationId, content)
+        reply = committed.assistant_message.content ?? ''
       } catch (e: unknown) {
         if (currentIdRef.current === conversationId) {
           setErrorState({ id: conversationId, value: sendErrorMessage(e) })
@@ -104,8 +128,30 @@ export function useConversation(
         if (currentIdRef.current === conversationId) {
           setLoaded({ id: conversationId, value: fresh })
         }
-      } catch {
-        // The send error (if any) is already surfaced; keep it.
+      } catch (e: unknown) {
+        // Same guard: a refetch that lost the race must not touch the thread
+        // the user navigated to (#99).
+        if (currentIdRef.current === conversationId) {
+          if (committed !== null) {
+            // The run landed and only the reload failed, so the exchange in
+            // hand is the best available truth — without it the optimistic
+            // bubble clears back to the pre-send thread and the turn looks
+            // lost, inviting a duplicate send (#233). Merge only into this
+            // conversation's own thread; there is nothing to append to when
+            // the slot holds another id (or the initial load never landed),
+            // and inventing a detail from two messages would hide the rest
+            // of the history.
+            const exchange = committed
+            setLoaded((prev) =>
+              prev !== null && prev.id === conversationId
+                ? { id: conversationId, value: withExchange(prev.value, exchange) }
+                : prev,
+            )
+            setErrorState({ id: conversationId, value: refreshErrorMessage(e) })
+          }
+          // Otherwise the send error is already surfaced and is the more
+          // relevant one — a failed reload is a footnote to a failed run.
+        }
       }
       setPending((prev) => (prev !== null && prev.id === conversationId ? null : prev))
       onExchange?.()
