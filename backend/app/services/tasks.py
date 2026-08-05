@@ -437,6 +437,36 @@ def first_future_occurrence_with_children(
     )
 
 
+def last_future_occurrence(
+    db: Session,
+    recurrence_id: str,
+    due_date: date,
+    exclude_id: int,
+) -> Task | None:
+    """Latest-dated later occurrence in the series, or ``None``.
+
+    The counterpart of ``first_future_occurrence_with_children`` for the recurrence
+    horizon: "this and all future occurrences" forwards ``repeat_interval`` with a
+    blind bulk UPDATE, and a cadence that has a representable next date from *this*
+    occurrence may not have one from a later-dated sibling. The interval is fixed,
+    so the latest row is the worst case and the only one worth checking.
+    """
+    return (
+        db.execute(
+            active(Task)
+            .where(
+                Task.recurrence_id == recurrence_id,
+                Task.due_date >= due_date,
+                Task.id != exclude_id,
+            )
+            .order_by(Task.due_date.desc(), Task.id.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+
+
 def _assert_not_blocked(db: Session, task_id: int) -> None:
     """Reject completing a task that still waits on an unfinished dependency.
 
@@ -668,6 +698,37 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     )
     if effective_repeat is not None and effective_due is None:
         raise RecurrenceError("A recurring task requires a due date")
+
+    # ...and a next occurrence Python can represent. A due date at the top of the
+    # supported range (9999-12-31) plus any positive interval overflows ``date``,
+    # and the derived ``next_occurrence_date`` on the read payload is computed
+    # *after* this update commits — so without this guard the recurrence landed,
+    # the response 500'd, and the task became unreadable through every path that
+    # derives its next occurrence (issue #232). Checked here, against the same
+    # post-patch view as the due-date rule above, so the rejection is atomic: the
+    # task keeps its old (non-)recurrence and stays readable. Local import: same
+    # deliberate inversion as below.
+    if effective_repeat is not None and effective_due is not None:
+        from app.services import task_recurrence as _recurrence
+
+        _recurrence.require_next_due_date(effective_due, effective_repeat)
+
+        # Same rule, one scope wider — mirroring the derived-estimate block below.
+        # "This and all future occurrences" forwards ``repeat_interval`` onto
+        # later-dated rows with a bulk UPDATE that can't re-run the check above,
+        # and a later due date is exactly what pushes the cadence off the end of
+        # the calendar. The latest row is the worst case, and rejecting here keeps
+        # the whole edit atomic.
+        if (
+            edit_scope == "future"
+            and "repeat_interval" in control
+            and task.recurrence_id is not None
+        ):
+            latest = last_future_occurrence(
+                db, task.recurrence_id, effective_due, task.id
+            )
+            if latest is not None and latest.due_date is not None:
+                _recurrence.require_next_due_date(latest.due_date, effective_repeat)
 
     # Moving an occurrence onto a date a live sibling already holds would break the
     # same invariant restore guards (uq_tasks_active_occurrence). Checked before the

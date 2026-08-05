@@ -203,6 +203,18 @@ def mark_task_done(task_id: EntityId, db: Session = Depends(get_db_write)) -> Ta
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
+    except tasks_service.OccurrenceConflictError as exc:
+        # Caught before its RecurrenceError base, same split as the PATCH route: a
+        # date already held by a live sibling is a state conflict, not bad input.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except tasks_service.RecurrenceError as exc:
+        # Completing a recurring task spawns its successor, which can fail on a
+        # domain rule — the successor's date falling past date.max (issue #232).
+        # Nothing is committed, so this is a 422 on an unchanged task rather than
+        # the 500 the raw error used to produce.
+        raise _recurrence_422(exc) from exc
     db.commit()
     db.refresh(updated)
     logger.info("task_marked_done", task_id=updated.id)
