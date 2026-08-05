@@ -64,6 +64,12 @@ def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> T
     would normally run, leaving it to the caller (see ``restore_task_subtree``).
     It only applies to the plain-restore path: the un-skip rewind below rewrites
     and destroys rows as one atomic correction and must settle immediately.
+
+    Restoring a *skipped* occurrence is a subtree operation either way. With a
+    live successor the rewind below brings the checklist back as that successor's
+    (already cloned) subtree; without one, the plain restore takes the rows the
+    skip cascaded away with it (issue #241). An ordinary trashed task is
+    unchanged — root-only, with ``restore_task_subtree`` as the opt-in.
     """
     # Un-skip: if this occurrence's series still has a live occurrence, restoring
     # must NOT add a second one (that's the duplicate-series bug). Pull the live
@@ -127,6 +133,10 @@ def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> T
                 f"then restore this."
             )
 
+    # Read before the plain restore clears it: an un-skip with no live successor
+    # has to bring the skipped occurrence's whole cascade back, not just its root.
+    was_skipped = task.skipped_at is not None
+
     # Fallback (non-recurring, or a series with no live occurrence): plain restore.
     # A restored task may point at a since-deleted project; rehome it to General
     # so it stays reachable, mirroring the project-delete rehoming rule.
@@ -145,6 +155,14 @@ def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> T
     task.skipped_at = None
     restore(task)
     db.flush()
+    # An un-skip that lands here is the inverse of ``skip_occurrence``, and that
+    # skip trashed the occurrence *with* its checklist. The subtasks were never
+    # trashed on their own terms, so leaving them behind would restore the
+    # routine as an empty shell (issue #241). Rows already in the trash before
+    # the skip carry no marker and stay there.
+    restored_ids = [task.id]
+    if was_skipped:
+        restored_ids.extend(_restore_marked_descendants(db, task.id))
     # A restore brings a row back into every derived computation it was absent
     # from: a done occurrence returning to a series whose successor was purged is
     # immediately an effectively-done recurring task with nothing following it,
@@ -155,11 +173,54 @@ def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> T
     # A cascade restore defers this: reconciling mid-cascade judges the series
     # against a half-restored subtree (BUG #199).
     if not defer_reconcile:
-        reconcile(db, [task.id])
+        reconcile(db, restored_ids)
         db.flush()
     db.refresh(task)
     log_task_event(db, task, "restored")
     return task
+
+
+def _marked_descendant_ids(db: Session, root_id: int) -> list[int]:
+    """Ids of the trashed rows a single cascade delete of ``root_id`` removed.
+
+    The marker is the whole point: it names exactly the rows that one delete took
+    with it, so descendants the user had already trashed independently — no
+    marker — are never swept back in.
+    """
+    return list(
+        db.execute(
+            select(Task.id)
+            .where(
+                Task.deleted_at.is_not(None),
+                Task.deleted_with_task_id == root_id,
+            )
+            .order_by(Task.id.asc())
+        )
+        .scalars()
+        .all()
+    )
+
+
+def _restore_marked_descendants(db: Session, root_id: int) -> list[int]:
+    """Restore every trashed row stamped ``deleted_with_task_id == root_id``.
+
+    The shared inverse of one cascade delete, used both by the opt-in
+    ``restore_task_subtree`` and by the un-skip that has no successor to rewind.
+    Each row goes back through ``restore_task`` so it gets its own ``restored``
+    event, rehoming, and marker clearing; reconciliation is deferred to the
+    caller, which judges the series once against the whole restored subtree
+    (BUG #199). Returns the ids actually restored.
+    """
+    restored_ids: list[int] = []
+    for descendant_id in _marked_descendant_ids(db, root_id):
+        # Re-read: an un-skip that rewinds a live successor purges the original
+        # tree, so a marked descendant may legitimately be gone by now.
+        descendant = get_deleted_task(db, descendant_id)
+        if descendant is None:
+            continue
+        restore_task(db, descendant, defer_reconcile=True)
+        restored_ids.append(descendant_id)
+    return restored_ids
 
 
 def restore_task_subtree(db: Session, task: Task) -> tuple[Task, int]:
@@ -190,37 +251,32 @@ def restore_task_subtree(db: Session, task: Task) -> tuple[Task, int]:
     back open behind an already-spawned successor. Deferring to the final state
     keeps the invariant that a successor follows *effective* completion.
     """
-    marked_ids = list(
-        db.execute(
-            select(Task.id)
-            .where(
-                Task.deleted_at.is_not(None),
-                Task.deleted_with_task_id == task.id,
-            )
-            .order_by(Task.id.asc())
-        )
-        .scalars()
-        .all()
-    )
+    # Captured up front: an un-skip rewind hard-deletes ``task`` and hands back
+    # the live successor instead, so neither the row nor its id survives the
+    # restore below — and the marker set belongs to the row the user picked.
+    task_id = task.id
+    marked_ids = _marked_descendant_ids(db, task_id)
     root = restore_task(db, task, defer_reconcile=True)
-    restored_ids = [root.id]
-    restored_count = 0
-    for descendant_id in marked_ids:
-        # Re-read: restoring an un-skipped occurrence root purges rows, so a
-        # marked descendant may legitimately be gone by now.
-        descendant = get_deleted_task(db, descendant_id)
-        if descendant is None:
-            continue
-        restored = restore_task(db, descendant, defer_reconcile=True)
-        restored_ids.append(restored.id)
-        restored_count += 1
+    # Restoring the root may already have brought the marked rows back — an
+    # un-skip with no live successor restores its cascade as one unit (issue
+    # #241) — so this pass picks up whatever is still in the trash, and the count
+    # is taken from what ended up active either way.
+    _restore_marked_descendants(db, task_id)
+    restored_ids = [
+        descendant_id
+        for descendant_id in marked_ids
+        if db.execute(
+            active(Task).where(Task.id == descendant_id)
+        ).scalar_one_or_none()
+        is not None
+    ]
     # Now that the subtree is whole again, judge the series once against the
     # final effective state. Seeding every restored id keeps the fan-out the
     # per-row reconciles used to provide (ancestors and dependents included).
-    reconcile(db, restored_ids)
+    reconcile(db, [root.id, *restored_ids])
     db.flush()
     db.refresh(root)
-    return root, restored_count
+    return root, len(restored_ids)
 
 
 def _deleted_subtree_depth_first(

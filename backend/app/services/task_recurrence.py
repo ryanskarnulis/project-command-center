@@ -19,7 +19,7 @@ from app.services.tasks import (
     get_task,
     list_subtasks,
     log_task_event,
-    soft_delete_task,
+    soft_delete_descendants,
 )
 
 
@@ -449,10 +449,17 @@ def skip_occurrence(db: Session, task: Task) -> Task:
     # cloned first (above), so the children can now go to trash with the parent:
     # otherwise a checklist occurrence's subtasks stay active pointing at a
     # soft-deleted parent, and the frontend's buildTaskTree promotes them to
-    # root-level orphans (one leaked copy per skip). Children cascade-delete first
-    # (each logging "deleted"); the occurrence row itself is logged as "skipped".
-    for child in list_subtasks(db, task.id):
-        soft_delete_task(db, child)
+    # root-level orphans (one leaked copy per skip). Descendants cascade-delete
+    # first (each logging "deleted"); the occurrence row itself is logged as
+    # "skipped".
+    #
+    # One cascade stamped with *this* occurrence's id, not one delete per child:
+    # a skip removes the checklist as a unit and has to be reversible as a unit
+    # (issue #241). Deleting each child separately made every child its own
+    # delete root, so no descendant named the occurrence and restoring it — once
+    # its successor was trashed and the un-skip rewind below no longer applied —
+    # brought back a bare leaf.
+    soft_delete_descendants(db, task)
     soft_delete(task)
     # Persist the *intent*, not just the deletion: an ordinary delete also sets
     # deleted_at, and restore_task must not treat that as an un-skip (it would

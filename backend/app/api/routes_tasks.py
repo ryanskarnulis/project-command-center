@@ -301,7 +301,10 @@ def restore_task(
     With ``restore_subtasks=true`` this also restores exactly the descendants
     that were cascade-trashed together with it, making it the true inverse of the
     delete that removed them (the agent's per-tool-call Undo uses this). Default
-    stays root-only, the long-standing per-task trash behaviour.
+    stays root-only, the long-standing per-task trash behaviour — except for a
+    *skipped* recurring occurrence, where the subtree is not optional: a skip
+    removes the checklist as a unit, so un-skipping brings it back as one
+    (issue #241).
     """
     task = task_trash.get_deleted_task(db, task_id)
     if task is None:
