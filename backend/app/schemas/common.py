@@ -68,6 +68,14 @@ def _assume_utc(value: datetime) -> datetime:
 # any SQL runs.
 EntityId = Annotated[int, Field(ge=1, le=MAX_SQLITE_INT)]
 
+# The one type every pagination offset should use at the boundary (route query
+# params and agent tool arguments alike). ``ge=0`` alone left the same #182 hole
+# open one layer up: an offset above SQLite's range passed validation, reached
+# ``.offset(...)``, and blew up during SQL binding as a 500 (#235). Unlike
+# ``limit``, an offset has no meaningful domain ceiling to cap it at — paging
+# past the end is legitimately an empty page — so the bound is storage's.
+PaginationOffset = Annotated[int, Field(ge=0, le=MAX_SQLITE_INT)]
+
 NonBlankStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 # The one datetime type read schemas should use for DB-sourced timestamps.
 UTCDateTime = Annotated[datetime, AfterValidator(_assume_utc)]

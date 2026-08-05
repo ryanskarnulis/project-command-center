@@ -37,7 +37,7 @@ from app.api.dependency_reads import dependency_read, dependent_read
 from app.api.task_reads import read_with_blocked, reads_with_blocked
 from app.db.models import Project, Task, TaskWorkflowStatus
 from app.schemas.activity import ActivityEventRead
-from app.schemas.common import EntityId
+from app.schemas.common import EntityId, PaginationOffset
 from app.schemas.focus import FocusPlan
 from app.schemas.projects import ProjectCreate, ProjectRead, ProjectUpdate
 from app.schemas.search import SearchResults
@@ -183,7 +183,7 @@ def list_tasks(
     exclude_done: bool = False,
     top_level_only: bool = False,
     limit: _ListLimit = 50,
-    offset: int = 0,
+    offset: PaginationOffset = 0,
 ) -> list[TaskRead]:
     """List active tasks, oldest first. Omit project_id to search all projects."""
     with tool_session("list_tasks", write=False) as db:
