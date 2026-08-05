@@ -35,8 +35,16 @@ export interface AgentMessage {
   created_at: string
 }
 
+/** One bounded page of a conversation, oldest-first within the page.
+ *
+ * The backend returns the newest `limit` messages by default and pages
+ * backwards with `before_id` (#244) — a thread's transcript grows without
+ * limit, so no single response carries all of it. `has_more` says whether
+ * anything older than `messages[0]` exists; `message_count` is the total. */
 export interface ConversationDetail extends Conversation {
   messages: AgentMessage[]
+  message_count: number
+  has_more: boolean
 }
 
 export interface MessageExchange {

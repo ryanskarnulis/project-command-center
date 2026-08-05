@@ -78,6 +78,8 @@ const detail: ConversationDetail = {
   created_at: '2026-07-11T10:00:00Z',
   updated_at: '2026-07-11T10:00:00Z',
   messages: [message({ content: 'Create a task to water plants' }), assistantWithToolCalls],
+  message_count: 2,
+  has_more: false,
 }
 
 function renderAt(path: string) {
