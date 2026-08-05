@@ -23,26 +23,65 @@ from app.services.tasks import (
 )
 
 
-def _next_due_date(due_date: date, interval: Mapping[str, Any]) -> date:
-    """The next occurrence's due date: ``due_date`` advanced by one interval.
+def next_due_date(due_date: date, interval: Mapping[str, Any]) -> date | None:
+    """The next occurrence's due date, or ``None`` if it isn't a representable date.
 
     ``day``/``week`` are exact ``timedelta`` offsets. ``month`` uses manual month
     arithmetic with day-clamping (Jan 31 + 1 month -> Feb 28) since calendar
     months vary in length and ``python-dateutil`` is deliberately not a dependency.
+
+    Returns ``None`` rather than raising when the result would fall past
+    ``date.max`` (9999-12-31), which Python cannot represent: ``timedelta``
+    addition raises ``OverflowError`` and the ``month`` branch's ``date(...)``
+    raises ``ValueError``, and both used to escape as a 500 — including out of a
+    *read*, which left a task that had already been given such a recurrence
+    permanently unfetchable (issue #232). The overflow is checked up front instead
+    of caught, so a genuinely unknown unit still raises rather than being silently
+    reported as "no next date".
+
+    Callers decide what "not representable" means for them: the read path treats it
+    as "this series has no further occurrence", while writers reject it (see
+    ``require_next_due_date``) so the unrepresentable state is never persisted in
+    the first place.
     """
     unit = interval["unit"]
     every = int(interval["every"])
-    if unit == "day":
-        return due_date + timedelta(days=every)
-    if unit == "week":
-        return due_date + timedelta(weeks=every)
     if unit == "month":
         month_index = (due_date.month - 1) + every
         year = due_date.year + month_index // 12
         month = month_index % 12 + 1
+        if year > date.max.year:
+            return None
         last_day = monthrange(year, month)[1]
         return date(year, month, min(due_date.day, last_day))
-    raise ValueError(f"Unknown recurrence unit: {unit!r}")
+    if unit == "day":
+        days = every
+    elif unit == "week":
+        days = every * 7
+    else:
+        raise ValueError(f"Unknown recurrence unit: {unit!r}")
+    if due_date.toordinal() + days > date.max.toordinal():
+        return None
+    return due_date + timedelta(days=days)
+
+
+def require_next_due_date(due_date: date, interval: Mapping[str, Any]) -> date:
+    """``next_due_date``, but a ``RecurrenceError`` (422) instead of ``None``.
+
+    The write-side face of the same rule. Writers call it *before* persisting, so
+    an unrepresentable recurrence is rejected on an untouched task instead of being
+    committed and then blowing up while the response is built (issue #232: the
+    PATCH committed, 500'd on serialization, and left a task no read path could
+    fetch and the UI could not repair).
+    """
+    next_due = next_due_date(due_date, interval)
+    if next_due is None:
+        raise RecurrenceError(
+            f"Repeating from {due_date.isoformat()} would land past "
+            f"{date.max.isoformat()}, the latest supported date. Move the due "
+            "date earlier or stop the recurrence."
+        )
+    return next_due
 
 
 def next_occurrence_date(
@@ -61,12 +100,18 @@ def next_occurrence_date(
     goes ``done``, and reading the stored value made such a parent advertise a
     date whose occurrence had already been spawned. Callers resolve it with
     ``capped_status`` (they already compute the rollups for the same payload).
+
+    ``None`` also when the next date is past ``date.max``: reads must never fail.
+    Writers reject such a recurrence up front, so this can only be a row poisoned
+    before that guard existed (issue #232) — and "this series will never repeat
+    again" is both true within the supported date range and exactly what the field
+    already means, whereas raising would make the row unfetchable and unrepairable.
     """
     if task.repeat_interval is None or task.due_date is None:
         return None
     if effective_status is TaskWorkflowStatus.done:
         return None
-    return _next_due_date(task.due_date, task.repeat_interval)
+    return next_due_date(task.due_date, task.repeat_interval)
 
 
 def _clone_subtask_tree(
@@ -215,6 +260,12 @@ def create_next_occurrence(db: Session, task: Task) -> Task:
     out-of-scope note). The caller guarantees ``repeat_interval`` and ``due_date``
     are set.
 
+    Raises ``RecurrenceError`` (422) if the successor's due date would fall past
+    ``date.max`` — checked inside the roll-forward loop below, since rolling past
+    skipped dates can walk off the end even when the first step wouldn't. Writers
+    reject such a recurrence before storing it, so this is the backstop for a row
+    poisoned before that guard existed; nothing is written when it fires.
+
     Idempotent on ``(recurrence_id, next due date)``: if a *live* occurrence is
     already on that date it is returned as-is rather than inserted again.
     Completion is not a once-only event — ``reconcile`` runs after every mutation
@@ -242,12 +293,12 @@ def create_next_occurrence(db: Session, task: Task) -> Task:
     assert task.repeat_interval is not None
     assert task.due_date is not None
     if task.recurrence_id is None:
-        next_due = _next_due_date(task.due_date, task.repeat_interval)
+        next_due = require_next_due_date(task.due_date, task.repeat_interval)
         return _insert_occurrence(db, task, next_due)
 
     current_due = task.due_date
     while True:
-        next_due = _next_due_date(current_due, task.repeat_interval)
+        next_due = require_next_due_date(current_due, task.repeat_interval)
         live = find_live_occurrence_on(db, task.recurrence_id, next_due)
         if live is not None:
             return live
