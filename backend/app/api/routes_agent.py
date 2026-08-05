@@ -23,7 +23,7 @@ from app.api.rate_limit import rate_limit
 from app.config import get_settings
 from app.db.models import Conversation
 from app.db.session import get_db, get_db_write
-from app.schemas.common import EntityId
+from app.schemas.common import EntityId, PaginationOffset
 from app.schemas.conversations import (
     ConversationCreate,
     ConversationDetail,
@@ -68,7 +68,7 @@ MAX_CONVERSATION_LIMIT = 500
 @router.get("/conversations", response_model=list[ConversationRead])
 def list_conversations(
     limit: int = Query(default=DEFAULT_CONVERSATION_LIMIT, ge=1, le=MAX_CONVERSATION_LIMIT),
-    offset: int = Query(default=0, ge=0),
+    offset: PaginationOffset = 0,
     db: Session = Depends(get_db),
 ) -> Sequence[Conversation]:
     return conversations_service.list_conversations(db, limit=limit, offset=offset)
