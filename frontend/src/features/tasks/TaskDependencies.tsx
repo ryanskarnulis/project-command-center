@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { apiErrorMessage } from '../../api/errorMessage'
@@ -19,6 +19,15 @@ export function TaskDependencies({ task, tasks }: Props) {
   const [selected, setSelected] = useState('')
   const [addError, setAddError] = useState<string | null>(null)
   const [removeError, setRemoveError] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [removingIds, setRemovingIds] = useState<number[]>([])
+  // State updates don't land until the next render, so two clicks fired in the
+  // same tick would both pass an `adding`/`removingIds` check and dispatch two
+  // mutations — the second coming back 409 (duplicate) or 404 (already gone)
+  // for a change that did commit. The refs close that gap. Removal is tracked
+  // per dependency id so one in-flight delete doesn't freeze the other rows.
+  const addingRef = useRef(false)
+  const removingRef = useRef(new Set<number>())
 
   // Candidates: every other task that isn't already a dependency.
   const dependsOnIds = useMemo(
@@ -30,13 +39,19 @@ export function TaskDependencies({ task, tasks }: Props) {
   )
 
   async function handleAdd() {
-    if (selected === '') return
+    if (addingRef.current || selected === '') return
+    addingRef.current = true
+    setAdding(true)
     setAddError(null)
     try {
       await add(Number(selected))
       setSelected('')
     } catch (e: unknown) {
       setAddError(apiErrorMessage(e, 'Could not add dependency'))
+    } finally {
+      // Released on failure too, so a rejected add stays retryable.
+      addingRef.current = false
+      setAdding(false)
     }
   }
 
@@ -45,11 +60,17 @@ export function TaskDependencies({ task, tasks }: Props) {
   // reloaded by the hook on success, so the row stays and the click is
   // retryable.
   async function handleRemove(dependencyId: number) {
+    if (removingRef.current.has(dependencyId)) return
+    removingRef.current.add(dependencyId)
+    setRemovingIds((ids) => [...ids, dependencyId])
     setRemoveError(null)
     try {
       await remove(dependencyId)
     } catch (e: unknown) {
       setRemoveError(apiErrorMessage(e, 'Could not remove dependency'))
+    } finally {
+      removingRef.current.delete(dependencyId)
+      setRemovingIds((ids) => ids.filter((id) => id !== dependencyId))
     }
   }
 
@@ -103,6 +124,7 @@ export function TaskDependencies({ task, tasks }: Props) {
               type="button"
               className="icon-button compact"
               aria-label={`Remove dependency ${d.depends_on_title}`}
+              disabled={removingIds.includes(d.id)}
               onClick={() => void handleRemove(d.id)}
             >
               <X size={16} aria-hidden="true" />
@@ -117,6 +139,7 @@ export function TaskDependencies({ task, tasks }: Props) {
         <select
           aria-label="Add dependency"
           value={selected}
+          disabled={adding}
           onChange={(e) => setSelected(e.target.value)}
         >
           <option value="">Add a dependency</option>
@@ -126,8 +149,12 @@ export function TaskDependencies({ task, tasks }: Props) {
             </option>
           ))}
         </select>
-        <button type="button" disabled={selected === ''} onClick={() => void handleAdd()}>
-          Add
+        <button
+          type="button"
+          disabled={adding || selected === ''}
+          onClick={() => void handleAdd()}
+        >
+          {adding ? 'Adding…' : 'Add'}
         </button>
       </div>
       {addError && <p role="alert">{addError}</p>}
