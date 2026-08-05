@@ -542,12 +542,23 @@ def stop_recurrence(db: Session, task: Task) -> Task:
     return task
 
 
-def reschedule_occurrence(db: Session, occurrence: Task, new_due: date) -> None:
+def reschedule_occurrence(db: Session, occurrence: Task, new_due: date) -> list[Task]:
     """Set this occurrence and its entire active subtree to ``new_due``.
 
     Occurrence subtasks all share the occurrence's due date (see
     ``_clone_subtask_tree``), so an un-skip is a flat date reset down the tree.
+
+    Returns **the rows whose ``due_date`` this call actually changed**, root first
+    then descendants in walk order. A due date is user-facing task state, so the
+    caller has to audit every row it rewrote (issue #243) — and only those. The
+    walk always descends past an unchanged node (a child may still differ from its
+    parent, e.g. one edited by hand after the skip), but an unchanged node is left
+    out of the returned set so it cannot be given a false ``updated`` event.
     """
-    occurrence.due_date = new_due
+    changed: list[Task] = []
+    if occurrence.due_date != new_due:
+        occurrence.due_date = new_due
+        changed.append(occurrence)
     for child in list_subtasks(db, occurrence.id):  # active children only
-        reschedule_occurrence(db, child, new_due)
+        changed.extend(reschedule_occurrence(db, child, new_due))
+    return changed

@@ -102,7 +102,7 @@ def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> T
             .first()
         )
         if live is not None:
-            reschedule_occurrence(db, live, task.due_date)
+            rewound = reschedule_occurrence(db, live, task.due_date)
             # Unscoped: this destroys the *original* skipped occurrence, which
             # the skip already replaced with fresh clones — including children
             # filed in other projects. The project-scoped walk would leave those
@@ -113,6 +113,7 @@ def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> T
             reconcile(db, [live.id])
             db.flush()
             db.refresh(live)
+            log_rewound_by_unskip(db, rewound, root=live)
             log_task_event(db, live, "restored")
             return live
 
@@ -178,6 +179,35 @@ def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> T
     db.refresh(task)
     log_task_event(db, task, "restored")
     return task
+
+
+def log_rewound_by_unskip(
+    db: Session, rewound: Sequence[Task], *, root: Task
+) -> None:
+    """Audit the rows an un-skip's date rewind rewrote, excluding ``root``.
+
+    ``reschedule_occurrence`` sets a whole checklist to the un-skipped date in one
+    recursive pass. Nothing in that pass goes through ``update_task``, so without
+    this every cloned subtask's user-visible due date changed with no trace and no
+    actor — the attribution loss is total for an agent-driven un-skip (issue #243).
+
+    ``updated`` is the action: from the row's own point of view this *is* an
+    ordinary field edit, the same one ``update_task`` records when a due date is
+    set by hand, and the same one ``stop_recurrence`` records for its bulk write.
+    A new action string would be user-visible in the activity feed and would need
+    frontend handling for no added meaning.
+
+    ``root`` is excluded because it is the occurrence the caller reports as
+    ``restored`` — the more meaningful event for the row the user acted on, and
+    logging both would double-log one write. Only rows ``reschedule_occurrence``
+    reported as *changed* are passed in, so a descendant already sitting on the
+    target date gains no false event. ``log_task_event`` handles actor binding and
+    unfiled (``project_id is None``) rows.
+    """
+    for node in rewound:
+        if node.id == root.id:
+            continue
+        log_task_event(db, node, "updated")
 
 
 def _marked_descendant_ids(db: Session, root_id: int) -> list[int]:
