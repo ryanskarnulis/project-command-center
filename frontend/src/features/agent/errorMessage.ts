@@ -17,3 +17,16 @@ export function sendErrorMessage(e: unknown): string {
   }
   return apiErrorMessage(e, 'The agent run failed')
 }
+
+/** Human-readable failure line for the post-send refetch of the thread, used
+ * only when the run itself succeeded (#233).
+ *
+ * The wording has to lead with the fact that the turn was committed: reusing
+ * `sendErrorMessage` here would report a run failure that did not happen, and
+ * a user who believes their message was lost sends it again — duplicating an
+ * agent turn that already ran its tools.
+ */
+export function refreshErrorMessage(e: unknown): string {
+  const reason = apiErrorMessage(e, 'the conversation could not be reloaded')
+  return `The agent replied, but refreshing the conversation failed: ${reason}. This view may be out of date.`
+}
