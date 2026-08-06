@@ -166,6 +166,27 @@ describe('ChipPopover', () => {
     expect(outerClick).toHaveBeenCalledOnce()
   })
 
+  it('keeps chip editor submits out of an enclosing form', () => {
+    // Same portal leak as clicks: QuickAddBar wraps its chip preview in a
+    // <form>, and the fiber tree bubbled the editor's submit into it — so
+    // committing an estimate immediately created the draft task.
+    const outerSubmit = vi.fn()
+    const innerSubmit = vi.fn((e: FormEvent<HTMLFormElement>) => e.preventDefault())
+    render(
+      <form onSubmit={outerSubmit}>
+        <ChipPopover chip="x" chipClassName="estimate" label="Set estimate">
+          <form onSubmit={innerSubmit}>
+            <button type="submit">Set</button>
+          </form>
+        </ChipPopover>
+      </form>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Set estimate' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Set' }))
+    expect(innerSubmit).toHaveBeenCalledOnce()
+    expect(outerSubmit).not.toHaveBeenCalled()
+  })
+
   it('leaves native form submission inside the popover working', () => {
     // The click guard above must not preventDefault: the chip editors
     // (Estimate, Repeat) commit through a real submit button.

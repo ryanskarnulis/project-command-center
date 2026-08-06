@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import type {
+  FormEvent as ReactFormEvent,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   ReactNode,
@@ -140,6 +141,15 @@ export function ChipPopover({
     e.stopPropagation()
   }
 
+  // Submit events leak the same way: a chip editor's form (Estimate, Repeat)
+  // hosted under an enclosing <form> — QuickAddBar wraps its chip preview in
+  // one — would submit both, creating the draft task with the not-yet-applied
+  // edit. The editor's own onSubmit runs before the event reaches this
+  // boundary, so stopping it here costs the editors nothing.
+  function onSubmit(e: ReactFormEvent<HTMLDivElement>) {
+    e.stopPropagation()
+  }
+
   // Esc closes only the popover — stopPropagation keeps an enclosing
   // Esc-to-close surface (peek panel, modal) from also closing.
   function onKeyDown(e: ReactKeyboardEvent<HTMLElement>) {
@@ -174,6 +184,7 @@ export function ChipPopover({
             role="dialog"
             aria-label={label}
             onClick={onClick}
+            onSubmit={onSubmit}
             onKeyDown={onKeyDown}
           >
             {typeof children === 'function' ? children(close) : children}
