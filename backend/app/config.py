@@ -24,7 +24,10 @@ class Settings(BaseSettings):
     # 8100-8199 workspace block (8100 is the docker-published dashboard);
     # 8000 now belongs to the chess app. The docker image binds its own
     # container-internal 8000 in the Dockerfile CMD, independent of this.
-    api_port: int = 8101
+    # Must be a real TCP port: 0 silently binds an ephemeral one (the API then
+    # listens somewhere nobody is looking) and out-of-range values only blow up
+    # later at socket bind — bad config must fail at startup.
+    api_port: int = Field(default=8101, ge=1, le=65535)
 
     # Reverse-proxy trust list for the write-guard and per-IP rate limiter.
     # Comma-separated IPs/CIDRs (e.g. "172.28.0.0/16"). Empty (default) = trust
@@ -48,7 +51,12 @@ class Settings(BaseSettings):
     llamacpp_model: str = "gemma-4-12b"
     # Per-request read timeout. Generous because a cold model load through
     # llama-swap is ~100 s before the first byte; warm calls never get near it.
-    llamacpp_timeout_seconds: float = 300.0
+    # Must be positive and finite: it is handed straight to httpx.Timeout, which
+    # accepts 0, negatives, inf and nan without complaint — 0/negative makes every
+    # provider call time out immediately, and inf/nan waits forever on a stuck
+    # llama-server. Same rule as agent_run_budget_seconds: bad config must fail at
+    # startup, not per request.
+    llamacpp_timeout_seconds: float = Field(default=300.0, gt=0, allow_inf_nan=False)
 
     # Shared workspace speech service (../speech/: Speaches STT on 8400,
     # Kokoro-FastAPI TTS on 8410). Env var names are the fleet voice
