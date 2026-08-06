@@ -421,8 +421,10 @@ def purge_task(db: Session, task: Task, *, project_scoped: bool = True) -> None:
     task, and any stray ``parent_task_id`` from a row outside the purge set (e.g. a
     child that was individually restored while its parent stayed in trash, or a
     trashed child owned by another project, which the scoped subtree walk leaves
-    behind — see ``_deleted_subtree_depth_first``). The caller is responsible for
-    committing.
+    behind — see ``_deleted_subtree_depth_first``). Then the cascade markers: a
+    surviving row's ``deleted_with_task_id`` naming a destroyed one is no FK the
+    database would defend, but it must not outlive its target either (issue #251).
+    The caller is responsible for committing.
 
     Every node in the subtree gets its own ``purged`` audit event *before* the
     row is destroyed — the audit trail must distinguish a restorable soft delete
@@ -472,6 +474,21 @@ def purge_task(db: Session, task: Task, *, project_scoped: bool = True) -> None:
             project_id=detached_project_id,
             parent_title=titles[old_parent_id],
         )
+
+    # Same one-statement shape for the cascade markers of the rows that survive.
+    # A marker naming a destroyed row is not inert: ``tasks.id`` is a plain rowid,
+    # so the next insert is handed the freed id and ``_marked_descendant_ids``
+    # then reads these rows as that new task's cascade, resurrecting another
+    # project's trash as part of an unrelated undo (issue #251). Nothing to
+    # snapshot or audit: unlike the parent detach this is internal restore
+    # bookkeeping rather than user-visible state, which is why
+    # ``projects.purge_project`` nulls the matching ``deleted_with_project_id``
+    # markers silently too.
+    db.execute(
+        update(Task)
+        .where(Task.deleted_with_task_id.in_(ids), Task.id.not_in(ids))
+        .values(deleted_with_task_id=None)
+    )
 
     for node in subtree:
         log_task_purged(db, node)
