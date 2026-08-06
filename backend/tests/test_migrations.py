@@ -314,3 +314,88 @@ def test_heal_revision_cascades_leaked_subtasks_on_upgraded_databases(
     assert [task_id for task_id, in live] == [5]
     assert [task_id for task_id, in events] == [1, 2, 3]
     assert live_again == live
+
+
+def test_heal_revision_clears_markers_stale_from_pre_fix_purges(
+    tmp_path: Path,
+) -> None:
+    """Markers left dangling by purges that predate the #251 fix are nulled.
+
+    ``purge_task`` now clears ``deleted_with_task_id`` on surviving rows when it
+    destroys the marker's target, but a database purged before that fix can still
+    hold markers naming task ids that no longer exist — and because ``tasks.id``
+    is a plain rowid, a later insert can be handed the freed id and inherit those
+    rows as its cascade. Reconstructs that pre-fix state and asserts the heal
+    nulls only the dangling marker, while one naming a still-present trashed task
+    keeps its cascade membership.
+    """
+    db_path = tmp_path / "stale_markers.db"
+    # Stop at the revision that added the column, just before the heal.
+    assert _alembic(db_path, "upgrade", "93c179708075").returncode == 0
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO projects (name, created_at, updated_at) "
+                    "VALUES ('P', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+            # 1 = trashed parent still in the trash; 2 = its cascade child,
+            # whose marker names a live row and must survive the heal.
+            conn.execute(
+                text(
+                    "INSERT INTO tasks (project_id, title, workflow_status, "
+                    "priority, deleted_at, created_at, updated_at) "
+                    "VALUES (1, 'trashed parent', 'open', 'medium', "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO tasks (project_id, title, workflow_status, "
+                    "priority, deleted_with_task_id, deleted_at, created_at, "
+                    "updated_at) VALUES (1, 'valid cascade child', 'open', "
+                    "'medium', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, "
+                    "CURRENT_TIMESTAMP)"
+                )
+            )
+            # 3 = trashed row stamped with a task id a pre-fix purge destroyed;
+            # no row 999 exists, exactly the dangling state the heal targets.
+            conn.execute(
+                text(
+                    "INSERT INTO tasks (project_id, title, workflow_status, "
+                    "priority, deleted_with_task_id, deleted_at, created_at, "
+                    "updated_at) VALUES (1, 'stale marker', 'open', 'medium', "
+                    "999, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, "
+                    "CURRENT_TIMESTAMP)"
+                )
+            )
+
+        result = _alembic(db_path, "upgrade", "head")
+        assert result.returncode == 0, result.stderr
+
+        with engine.begin() as conn:
+            markers = conn.execute(
+                text("SELECT id, deleted_with_task_id FROM tasks ORDER BY id")
+            ).all()
+
+        # Re-running the heal on an already-healed database changes nothing.
+        assert _alembic(db_path, "downgrade", "93c179708075").returncode == 0
+        second = _alembic(db_path, "upgrade", "head")
+        assert second.returncode == 0, second.stderr
+
+        with engine.begin() as conn:
+            markers_again = conn.execute(
+                text("SELECT id, deleted_with_task_id FROM tasks ORDER BY id")
+            ).all()
+    finally:
+        engine.dispose()
+
+    assert [(task_id, marker) for task_id, marker in markers] == [
+        (1, None),
+        (2, 1),
+        (3, None),
+    ]
+    assert markers_again == markers
