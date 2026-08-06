@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { FormEvent } from 'react'
 import { ChipPopover } from './ChipPopover'
 
 afterEach(cleanup)
@@ -141,6 +142,44 @@ describe('ChipPopover', () => {
     expect(trigger).toHaveAttribute('title', 'Rolled up from subtasks')
     fireEvent.click(trigger)
     expect(screen.queryByText('Popover body')).not.toBeInTheDocument()
+  })
+
+  it('keeps clicks inside the popover out of the enclosing React tree', () => {
+    // The portal moves DOM ancestry to <body> but not React's event bubbling,
+    // so a host like the task card's <Link> saw every option click and
+    // navigated (#253). The trigger still bubbles — hosts guard that one.
+    const outerClick = vi.fn()
+    const optionClick = vi.fn()
+    render(
+      <div onClick={outerClick}>
+        <ChipPopover chip="high" chipClassName="priority-pill" label="Priority: high">
+          <button type="button" onClick={optionClick}>
+            Low
+          </button>
+        </ChipPopover>
+      </div>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Priority: high' }))
+    expect(outerClick).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Low' }))
+    expect(optionClick).toHaveBeenCalledOnce()
+    expect(outerClick).toHaveBeenCalledOnce()
+  })
+
+  it('leaves native form submission inside the popover working', () => {
+    // The click guard above must not preventDefault: the chip editors
+    // (Estimate, Repeat) commit through a real submit button.
+    const onSubmit = vi.fn((e: FormEvent<HTMLFormElement>) => e.preventDefault())
+    render(
+      <ChipPopover chip="x" chipClassName="estimate" label="Set estimate">
+        <form onSubmit={onSubmit}>
+          <button type="submit">Set</button>
+        </form>
+      </ChipPopover>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Set estimate' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Set' }))
+    expect(onSubmit).toHaveBeenCalledOnce()
   })
 
   it('passes a close callback to render-prop children', () => {
