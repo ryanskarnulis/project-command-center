@@ -34,3 +34,18 @@ prune_backups() {
 
   find "${backup_dir}" -maxdepth 1 -name 'app-*.db' -type f -mtime "+${retention_days}" -delete
 }
+
+# Delete in-progress snapshots (and their SQLite sidecars) that a hard kill or a
+# power loss stranded before backup_db.sh's trap could unlink them. They sit
+# outside the 'app-*.db' glob on purpose, so prune_backups leaves them alone and
+# they would otherwise accumulate forever. Reusing the retention window keeps
+# this from ever touching the temporary of a concurrently running backup.
+prune_stale_temp_snapshots() {
+  local backup_dir="${1-}"
+  local retention_days="${2-}"
+
+  validate_retention_days "${retention_days}" || return 1
+
+  find "${backup_dir}" -maxdepth 1 -name 'app-*.db.tmp.*' -type f \
+    -mtime "+${retention_days}" -delete
+}
