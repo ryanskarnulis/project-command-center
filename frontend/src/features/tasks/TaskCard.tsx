@@ -74,16 +74,15 @@ export function TaskCard({
     e.dataTransfer.effectAllowed = 'move'
   }
 
-  // The card is a <Link>, so a chip click would also navigate. Swallow the
-  // anchor default for clicks inside a chip; submit buttons in chip editors
-  // lose their native form submission to that preventDefault, so re-trigger it.
+  // The card is a <Link>, so opening a chip would also navigate. Swallow the
+  // anchor default for clicks on a chip trigger. Clicks *inside* an open chip
+  // popover never get here — it is portaled to <body> and stops them at its
+  // own boundary — which leaves native form submission in the chip editors
+  // (Estimate, Repeat) intact.
   function onBadgesClick(e: ReactMouseEvent<HTMLDivElement>) {
     if (!editable) return
-    const el = e.target as HTMLElement
-    if (!el.closest('.chip-wrap')) return
+    if (!(e.target as HTMLElement).closest('.chip-wrap')) return
     e.preventDefault()
-    const button = el.closest('button')
-    if (button?.type === 'submit') button.form?.requestSubmit()
   }
 
   // Selecting text in an open chip editor must not start a card drag.

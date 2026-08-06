@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import type { Project } from '../../types/project'
 import type { Task } from '../../types/task'
 import { TaskCard } from './TaskCard'
@@ -38,6 +38,11 @@ const homeNetworkProject: Project = {
   is_protected: false,
   created_at: '',
   updated_at: '',
+}
+
+function LocationProbe() {
+  const { pathname, search } = useLocation()
+  return <span data-testid="location">{`${pathname}${search}`}</span>
 }
 
 function render_card(task: Partial<Task> = {}, projects?: Project[]) {
@@ -190,6 +195,61 @@ describe('TaskCard', () => {
       expect(
         screen.queryByRole('button', { name: 'Skip occurrence…' }),
       ).not.toBeInTheDocument()
+    })
+  })
+
+  // The chip popovers are portaled to <body>, but React keeps bubbling their
+  // clicks up the fiber tree into the card's <Link>: every interaction inside
+  // an open popover also opened the task panel (#253).
+  describe('chip popovers inside the card link', () => {
+    function render_editable_card(task: Partial<Task> = {}) {
+      const onUpdate = vi.fn()
+      render(
+        <MemoryRouter initialEntries={['/projects/1']}>
+          <TaskCard task={{ ...base, ...task }} onUpdate={onUpdate} />
+          <LocationProbe />
+        </MemoryRouter>,
+      )
+      return onUpdate
+    }
+
+    function location() {
+      return screen.getByTestId('location').textContent
+    }
+
+    it('opens a chip without navigating', () => {
+      render_editable_card()
+      fireEvent.click(screen.getByRole('button', { name: 'Priority: high' }))
+      expect(screen.getByRole('dialog', { name: 'Priority: high' })).toBeInTheDocument()
+      expect(location()).toBe('/projects/1')
+    })
+
+    it('applies a priority choice without navigating', () => {
+      const onUpdate = render_editable_card()
+      fireEvent.click(screen.getByRole('button', { name: 'Priority: high' }))
+      fireEvent.click(screen.getByRole('button', { name: 'low' }))
+      expect(onUpdate).toHaveBeenCalledExactlyOnceWith({ priority: 'low' })
+      expect(location()).toBe('/projects/1')
+    })
+
+    it('pages the due-date calendar without navigating or committing', () => {
+      const onUpdate = render_editable_card({ due_date: '2026-06-15' })
+      fireEvent.click(screen.getByRole('button', { name: /^Due date:/ }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next month' }))
+      expect(screen.getByText('July 2026')).toBeInTheDocument()
+      expect(onUpdate).not.toHaveBeenCalled()
+      expect(location()).toBe('/projects/1')
+    })
+
+    // The editor form lives in the portal, so its submit button keeps its
+    // native form submission — nothing preventDefaults the click any more.
+    it('submits the estimate editor without navigating', () => {
+      const onUpdate = render_editable_card({ estimated_minutes: 60 })
+      fireEvent.click(screen.getByRole('button', { name: 'Estimate: 1 hour' }))
+      fireEvent.change(screen.getByLabelText('Estimate'), { target: { value: '2h' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Set' }))
+      expect(onUpdate).toHaveBeenCalledExactlyOnceWith({ estimated_minutes: 120 })
+      expect(location()).toBe('/projects/1')
     })
   })
 

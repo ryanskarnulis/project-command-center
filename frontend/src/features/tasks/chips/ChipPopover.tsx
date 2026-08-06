@@ -7,7 +7,11 @@ import {
   type CSSProperties,
 } from 'react'
 import { createPortal } from 'react-dom'
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+} from 'react'
 
 interface Props {
   /** Pill content shown on the trigger button. */
@@ -126,6 +130,16 @@ export function ChipPopover({
 
   const close = useCallback(() => setOpen(false), [])
 
+  // The portal moves the popover's DOM ancestry to <body>, but React still
+  // bubbles its events up the fiber tree — into hosts like the task card,
+  // whose <Link> then navigates on every option click (#253). Stop clicks at
+  // the popover boundary: nothing outside an open editor should react to them.
+  // Deliberately not preventDefault — chip editor forms (Estimate, Repeat)
+  // still need the submit button's native form submission.
+  function onClick(e: ReactMouseEvent<HTMLDivElement>) {
+    e.stopPropagation()
+  }
+
   // Esc closes only the popover — stopPropagation keeps an enclosing
   // Esc-to-close surface (peek panel, modal) from also closing.
   function onKeyDown(e: ReactKeyboardEvent<HTMLElement>) {
@@ -159,6 +173,7 @@ export function ChipPopover({
             style={style}
             role="dialog"
             aria-label={label}
+            onClick={onClick}
             onKeyDown={onKeyDown}
           >
             {typeof children === 'function' ? children(close) : children}
