@@ -126,3 +126,57 @@ def test_positive_agent_run_budget_is_accepted(
     monkeypatch.setenv("AGENT_RUN_BUDGET_SECONDS", value)
 
     assert Settings().agent_run_budget_seconds == float(value)
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "-300", "-0.5", "inf", "-inf", "nan"])
+def test_invalid_llamacpp_timeout_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, value: str
+) -> None:
+    """Issue #262: the timeout is handed straight to httpx.Timeout.
+
+    httpx accepts 0, negatives, inf and nan without complaint, so a typo turns
+    into either an instant timeout on every provider call or an unbounded wait
+    on a stuck llama-server. Reject it at the settings boundary, exactly as
+    AGENT_RUN_BUDGET_SECONDS is (#172).
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LLAMACPP_TIMEOUT_SECONDS", value)
+
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+@pytest.mark.parametrize("value", ["0.05", "300", "600.5"])
+def test_positive_llamacpp_timeout_is_accepted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, value: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LLAMACPP_TIMEOUT_SECONDS", value)
+
+    assert Settings().llamacpp_timeout_seconds == float(value)
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "65536", "99999"])
+def test_out_of_range_api_port_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, value: str
+) -> None:
+    """Issue #262: port 0 silently binds an ephemeral port.
+
+    The API then listens somewhere nobody is looking, and out-of-range values
+    only fail later at socket bind. Both are startup-time config errors.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("API_PORT", value)
+
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+@pytest.mark.parametrize("value", ["1", "8101", "65535"])
+def test_in_range_api_port_is_accepted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, value: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("API_PORT", value)
+
+    assert Settings().api_port == int(value)
