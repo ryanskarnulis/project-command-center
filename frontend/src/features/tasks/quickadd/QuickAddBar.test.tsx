@@ -99,6 +99,29 @@ describe('QuickAddBar', () => {
     )
   })
 
+  it('commits a chip editor submit without creating the task', async () => {
+    // The chip editors are portaled, but React still bubbles their submit
+    // through the fiber tree into the quick-add <form>. Unguarded, committing
+    // an estimate created the task immediately — with the stale estimate,
+    // since the override hadn't re-rendered yet.
+    const { onCreate, input } = setup()
+    fireEvent.change(input, { target: { value: 'Renew TLS cert ~20m' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Estimate: 20 minutes' }))
+    fireEvent.change(screen.getByLabelText('Estimate'), { target: { value: '45m' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Set' }))
+
+    expect(onCreate).not.toHaveBeenCalled()
+    expect(input).toHaveValue('Renew TLS cert ~20m')
+    expect(screen.getByRole('button', { name: 'Estimate: 45 minutes' })).toBeInTheDocument()
+
+    fireEvent.submit(input)
+    await waitFor(() =>
+      expect(onCreate).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ title: 'Renew TLS cert', estimated_minutes: 45 }),
+      ),
+    )
+  })
+
   it('does not submit a draft with an empty title', () => {
     const { onCreate, input } = setup()
     fireEvent.change(input, { target: { value: '!high' } })
