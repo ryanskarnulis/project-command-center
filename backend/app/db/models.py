@@ -160,8 +160,11 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     # Deliberately a plain Integer, not a ForeignKey: purging destroys rows, and
     # an FK would either block or cascade in ways the purge traversal (which is
     # project-scoped, see ``task_trash._deleted_subtree_depth_first``) doesn't
-    # control. A marker left pointing at a purged id is inert — the subtree
-    # restore only ever reads it while walking down from a live trashed root.
+    # control. Standing in for the missing FK, ``task_trash.purge_task`` clears
+    # this marker on every surviving row that names a row it destroys: ids are
+    # plain rowids and get recycled, so a marker outliving its root would later
+    # match an unrelated new task and pull foreign trash into that task's subtree
+    # restore (issue #251).
     deleted_with_task_id: Mapped[int | None] = mapped_column(default=None)
     # Set when this occurrence was SKIPPED (services/task_recurrence.skip_occurrence)
     # rather than trashed normally. Both paths set ``deleted_at``; only this marker
