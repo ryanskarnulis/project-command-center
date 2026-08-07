@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from typing import TypeVar
 
@@ -9,6 +10,25 @@ from sqlalchemy.orm import Session
 from app.db.models import SoftDeleteMixin
 
 ModelT = TypeVar("ModelT", bound=SoftDeleteMixin)
+
+# SQLite's bound-parameter ceiling is 32766 on modern builds but 999 on older
+# ones, and several service paths feed a whole id list into an ``IN (...)``: the
+# dependency closure walks a frontier per level, and ``trash.empty_trash`` hands
+# over however many rows happen to sit in the trash. Chunking at 900 keeps the
+# query legal everywhere for the cost of five lines.
+IN_CHUNK = 900
+
+
+def chunked(ids: Sequence[int], size: int = IN_CHUNK) -> Iterable[Sequence[int]]:
+    """Split ``ids`` into slices small enough to bind as one ``IN (...)`` list.
+
+    Lives here rather than in one service because the ceiling is a property of
+    the database, not of any single caller: any query that expands a
+    caller-sized or table-sized id list needs the same treatment. An empty input
+    yields nothing, so callers don't need a separate empty-list guard.
+    """
+    for start in range(0, len(ids), size):
+        yield ids[start : start + size]
 
 
 def active(model: type[ModelT]) -> Select[tuple[ModelT]]:

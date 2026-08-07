@@ -13,7 +13,7 @@ from app.db.models import (
     TaskWorkflowStatus,
 )
 from app.services import activity
-from app.services.common import active, soft_delete
+from app.services.common import active, chunked, soft_delete
 from app.services.integrity import violates_unique_columns
 from app.services.tasks import compute_rollups, get_task
 
@@ -85,7 +85,7 @@ def list_dependencies_for(
     if not ids:
         return {}
     by_task: dict[int, list[TaskDependency]] = {tid: [] for tid in ids}
-    for chunk in _chunked(ids):
+    for chunk in chunked(ids):
         edges = (
             db.execute(
                 active(TaskDependency)
@@ -102,17 +102,6 @@ def list_dependencies_for(
 
 def _depends_on_ids(db: Session, task_id: int) -> list[int]:
     return [dep.depends_on_task_id for dep in list_dependencies(db, task_id)]
-
-
-# SQLite's bound-parameter ceiling is 32766 on modern builds but 999 on older
-# ones, and the closure walks feed whole frontiers into an ``IN``. Chunking at
-# 900 keeps the query legal everywhere for the cost of five lines.
-_IN_CHUNK = 900
-
-
-def _chunked(ids: Sequence[int], size: int = _IN_CHUNK) -> Iterable[Sequence[int]]:
-    for start in range(0, len(ids), size):
-        yield ids[start : start + size]
 
 
 def _closure(
@@ -152,7 +141,7 @@ def _closure(
             adjacency.setdefault(tid, [])
         rows: list[tuple[int, int]] = []
         ordered = sorted(frontier)
-        for chunk in _chunked(ordered):
+        for chunk in chunked(ordered):
             rows.extend(
                 (int(from_id), int(to_id))
                 for from_id, to_id in db.execute(
@@ -186,7 +175,7 @@ def _direct_dependencies(
     """``task_id -> [depends_on_task_id]``, one hop only, in one query."""
     ordered = sorted(set(task_ids))
     adjacency: dict[int, list[int]] = {tid: [] for tid in ordered}
-    for chunk in _chunked(ordered):
+    for chunk in chunked(ordered):
         rows = db.execute(
             select(TaskDependency.task_id, TaskDependency.depends_on_task_id)
             .where(

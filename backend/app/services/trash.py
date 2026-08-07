@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from app.db.models import Project, Task
 from app.services import projects as projects_service
 from app.services import task_trash
-from app.services.common import count_deleted, deleted
+from app.services.common import chunked, count_deleted, deleted
 
 
 @dataclass(frozen=True)
@@ -82,11 +82,14 @@ def _removed_task_ids(
     rows that actually disappear.
     """
     roots = list(task_ids)
-    if project_ids:
+    # Chunked: ``project_ids`` can be every trashed project (``empty_trash``), and
+    # one bound parameter per id overruns SQLite's ceiling (issue #275). No empty
+    # guard needed — ``chunked`` yields nothing for an empty list.
+    for chunk in chunked(project_ids):
         roots.extend(
             db.execute(
                 select(Task.id).where(
-                    Task.deleted_at.is_not(None), Task.project_id.in_(project_ids)
+                    Task.deleted_at.is_not(None), Task.project_id.in_(chunk)
                 )
             ).scalars()
         )
@@ -105,6 +108,42 @@ def _removed_task_ids(
     return removed
 
 
+def _trashed_task_ids(db: Session, task_ids: Sequence[int]) -> list[int]:
+    """Which of ``task_ids`` are really in the trash, resolved in ``IN`` chunks.
+
+    The chunking is what lets ``empty_trash`` work at any size (issue #275): its
+    list is however many rows sit in the trash, so unlike ``POST /api/trash/purge``
+    no request schema can bound it, and one bound parameter per id blew past
+    SQLite's 32,766-parameter ceiling on the very first statement of the purge —
+    an unhandled ``OperationalError`` that left the trash permanently unemptiable.
+    """
+    resolved: list[int] = []
+    for chunk in chunked(task_ids):
+        resolved.extend(
+            task.id
+            for task in db.execute(deleted(Task).where(Task.id.in_(chunk))).scalars()
+        )
+    return resolved
+
+
+def _purgeable_project_ids(db: Session, project_ids: Sequence[int]) -> list[int]:
+    """Which of ``project_ids`` a purge may actually destroy, in ``IN`` chunks.
+
+    Trashed *and* not protected: ``is_protected`` stays the single source of
+    truth for the ``General`` rule, which is why this loads the rows rather than
+    re-deriving the condition in SQL. Chunked for the same reason as
+    ``_trashed_task_ids``.
+    """
+    return [
+        project.id
+        for chunk in chunked(project_ids)
+        for project in db.execute(
+            deleted(Project).where(Project.id.in_(chunk))
+        ).scalars()
+        if not project.is_protected
+    ]
+
+
 def purge_selected(
     db: Session,
     *,
@@ -118,7 +157,8 @@ def purge_selected(
     the nullable project FKs remain). The protected ``General`` project is never
     purged.
 
-    Ids are resolved against trash up front, then each purge re-fetches and skips
+    Ids are resolved against trash up front — in ``IN`` chunks, so the id lists
+    themselves have no size limit (issue #275) — then each purge re-fetches and skips
     rows a prior cascade already took: purging a parent task takes its whole
     subtree, so a child selected alongside its parent is already gone by the time
     its turn comes. It still counts as removed — it *was* removed, by the
@@ -132,17 +172,8 @@ def purge_selected(
     one way — selected alongside its own project, or alongside an ancestor —
     counts exactly once.
     """
-    purge_task_ids = [
-        t.id
-        for t in db.execute(deleted(Task).where(Task.id.in_(task_ids))).scalars()
-    ]
-    purge_project_ids = [
-        p.id
-        for p in db.execute(
-            deleted(Project).where(Project.id.in_(project_ids))
-        ).scalars()
-        if not p.is_protected
-    ]
+    purge_task_ids = _trashed_task_ids(db, task_ids)
+    purge_project_ids = _purgeable_project_ids(db, project_ids)
 
     removed_task_ids = _removed_task_ids(
         db, task_ids=purge_task_ids, project_ids=purge_project_ids
@@ -174,6 +205,12 @@ def empty_trash(db: Session) -> PurgeCounts:
     Snapshots every trashed id and hands it to ``purge_selected``, which owns the
     ordering, the protected-project rule, and the already-cascaded skip. Caller
     commits.
+
+    These lists are DB-sourced, so no request schema stands between them and the
+    SQL — ``MAX_PURGE_IDS`` bounds what a caller may *send* to
+    ``POST /api/trash/purge``, and structurally cannot bound what happens to be
+    sitting in the trash. That is why the size fix lives in ``purge_selected``'s
+    chunked id resolution rather than at a boundary here (issue #275).
     """
     return purge_selected(
         db,
