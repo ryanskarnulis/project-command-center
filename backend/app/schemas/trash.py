@@ -1,10 +1,28 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Annotated
+
+from pydantic import BaseModel, Field
 
 from app.schemas.common import EntityId, MutationModel
 from app.schemas.projects import ProjectRead
 from app.schemas.tasks import TaskRead
+
+# ``purge_selected`` expands each id list into a SQL ``IN (...)``, so every id
+# costs one bound parameter. SQLite's compiled-in ceiling is 32,766 of them;
+# past it the driver raises ``OperationalError: too many SQL variables`` and the
+# request 500s on a LAN-reachable endpoint (#264). Bound the lists here so an
+# oversized selection is a documented 422 before any SQL runs — the same
+# boundary-rejection shape as #182 (out-of-range ids) and #235 (oversized
+# offsets).
+#
+# 10,000 is deliberately generous: /trash pages at most 200 rows of each kind,
+# so no selection the UI can build comes close, while the cap still leaves ample
+# head-room under 32,766 for the other parameters a statement binds. Each list
+# is bounded independently because they never share a statement.
+MAX_PURGE_IDS = 10_000
+
+PurgeIdList = Annotated[list[EntityId], Field(max_length=MAX_PURGE_IDS)]
 
 
 class ProjectTrashRead(ProjectRead):
@@ -45,10 +63,13 @@ class PurgeSelectedRequest(MutationModel):
     Ids not in trash are skipped rather than rejected: purging a parent task takes
     its subtree with it, so a child selected alongside its parent is legitimately
     gone by the time the server reaches it (BUG-11).
+
+    Each list is capped at ``MAX_PURGE_IDS``; a longer one is a 422 rather than
+    the ``too many SQL variables`` 500 it used to become (#264).
     """
 
-    project_ids: list[EntityId] = []
-    task_ids: list[EntityId] = []
+    project_ids: PurgeIdList = []
+    task_ids: PurgeIdList = []
 
 
 class EmptyTrashResult(BaseModel):
