@@ -175,6 +175,91 @@ describe('ProjectDetailPage', () => {
     )
   })
 
+  it('keeps a dirty description while a name save is in flight', async () => {
+    const user = userEvent.setup()
+    const nameResponse = deferred<Project>()
+    mockUpdateProject.mockReturnValueOnce(nameResponse.promise)
+    renderDetail()
+
+    const name = await screen.findByLabelText('Project name')
+    await waitFor(() => expect(name).toHaveValue('Firewall'))
+    const description = screen.getByLabelText('Project description')
+
+    // Rename and blur-save; the PATCH is now open.
+    await user.clear(name)
+    await user.type(name, 'Edge Firewall')
+    await user.tab()
+    await waitFor(() => expect(mockUpdateProject).toHaveBeenCalledTimes(1))
+
+    // Start typing the *other* field while that save is still in flight.
+    await user.clear(description)
+    await user.type(description, 'Perimeter hard')
+    expect(description).toHaveValue('Perimeter hard')
+
+    nameResponse.resolve({ ...project, name: 'Edge Firewall' })
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument())
+
+    expect(description).toHaveValue('Perimeter hard')
+    expect(name).toHaveValue('Edge Firewall')
+    // The next keystroke must extend the surviving text, not a stale anchor.
+    await user.type(description, 'ening')
+    expect(description).toHaveValue('Perimeter hardening')
+  })
+
+  it('keeps a dirty name while a description save is in flight', async () => {
+    const user = userEvent.setup()
+    const descriptionResponse = deferred<Project>()
+    mockUpdateProject.mockReturnValueOnce(descriptionResponse.promise)
+    renderDetail()
+
+    const name = await screen.findByLabelText('Project name')
+    await waitFor(() => expect(name).toHaveValue('Firewall'))
+    const description = screen.getByLabelText('Project description')
+
+    await user.clear(description)
+    await user.type(description, 'Perimeter hardening')
+    await user.tab()
+    await waitFor(() => expect(mockUpdateProject).toHaveBeenCalledTimes(1))
+
+    await user.type(name, ' II')
+    expect(name).toHaveValue('Firewall II')
+
+    descriptionResponse.resolve({ ...project, description: 'Perimeter hardening' })
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument())
+
+    expect(name).toHaveValue('Firewall II')
+    expect(description).toHaveValue('Perimeter hardening')
+    await user.type(name, 'I')
+    expect(name).toHaveValue('Firewall III')
+  })
+
+  it('takes a server-side change to a field the user is not editing', async () => {
+    const user = userEvent.setup()
+    const nameResponse = deferred<Project>()
+    mockUpdateProject.mockReturnValueOnce(nameResponse.promise)
+    renderDetail()
+
+    const name = await screen.findByLabelText('Project name')
+    await waitFor(() => expect(name).toHaveValue('Firewall'))
+    const description = screen.getByLabelText('Project description')
+
+    await user.clear(name)
+    await user.type(name, 'Edge Firewall')
+    await user.tab()
+    await waitFor(() => expect(mockUpdateProject).toHaveBeenCalledTimes(1))
+
+    // The snapshot carries a description the agent rewrote meanwhile. Nobody is
+    // editing that field, so the server's value must still land in it.
+    nameResponse.resolve({
+      ...project,
+      name: 'Edge Firewall',
+      description: 'Agent rewrote this',
+    })
+
+    await waitFor(() => expect(description).toHaveValue('Agent rewrote this'))
+    expect(name).toHaveValue('Edge Firewall')
+  })
+
   it('does not let a stale PATCH response revert a newer inline edit', async () => {
     const user = userEvent.setup()
     const nameResponse = deferred<Project>()

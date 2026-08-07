@@ -143,6 +143,102 @@ describe('TaskDetailView', () => {
     )
   })
 
+  it('keeps a dirty description while a title save is in flight', async () => {
+    const user = userEvent.setup()
+    let resolvePatch!: (value: Task) => void
+    mockUpdateTask.mockImplementation(
+      () => new Promise<Task>((resolve) => { resolvePatch = resolve }),
+    )
+    renderDetail()
+
+    const title = await screen.findByLabelText('Task title')
+    await waitFor(() => expect(title).toHaveValue('Patch the router'))
+    const description = screen.getByLabelText('Task description')
+
+    // Rename and blur-save; the PATCH is now open.
+    await user.clear(title)
+    await user.type(title, 'Patch the edge router')
+    await user.tab()
+    await waitFor(() => expect(mockUpdateTask).toHaveBeenCalledTimes(1))
+
+    // Start typing the *other* field while that save is still in flight.
+    await user.type(description, 'hel')
+    expect(description).toHaveValue('hel')
+
+    await act(async () => {
+      resolvePatch({ ...task, title: 'Patch the edge router' })
+      await Promise.resolve()
+    })
+
+    expect(description).toHaveValue('hel')
+    expect(title).toHaveValue('Patch the edge router')
+    // The next keystroke must extend the surviving text, not a stale anchor.
+    await user.type(description, 'lo')
+    expect(description).toHaveValue('hello')
+  })
+
+  it('keeps a dirty title while a description save is in flight', async () => {
+    const user = userEvent.setup()
+    let resolvePatch!: (value: Task) => void
+    mockUpdateTask.mockImplementation(
+      () => new Promise<Task>((resolve) => { resolvePatch = resolve }),
+    )
+    renderDetail()
+
+    const title = await screen.findByLabelText('Task title')
+    await waitFor(() => expect(title).toHaveValue('Patch the router'))
+    const description = screen.getByLabelText('Task description')
+
+    await user.type(description, 'Router notes')
+    await user.tab()
+    await waitFor(() => expect(mockUpdateTask).toHaveBeenCalledTimes(1))
+
+    await user.type(title, ' now')
+    expect(title).toHaveValue('Patch the router now')
+
+    await act(async () => {
+      resolvePatch({ ...task, description: 'Router notes' })
+      await Promise.resolve()
+    })
+
+    expect(title).toHaveValue('Patch the router now')
+    expect(description).toHaveValue('Router notes')
+    await user.type(title, '!')
+    expect(title).toHaveValue('Patch the router now!')
+  })
+
+  it('takes a server-side change to a field the user is not editing', async () => {
+    const user = userEvent.setup()
+    let resolvePatch!: (value: Task) => void
+    mockUpdateTask.mockImplementation(
+      () => new Promise<Task>((resolve) => { resolvePatch = resolve }),
+    )
+    renderDetail()
+
+    const title = await screen.findByLabelText('Task title')
+    await waitFor(() => expect(title).toHaveValue('Patch the router'))
+    const description = screen.getByLabelText('Task description')
+
+    await user.clear(title)
+    await user.type(title, 'Patch the edge router')
+    await user.tab()
+    await waitFor(() => expect(mockUpdateTask).toHaveBeenCalledTimes(1))
+
+    // The snapshot carries a description the agent wrote meanwhile. Nobody is
+    // editing that field, so the server's value must still land in it.
+    await act(async () => {
+      resolvePatch({
+        ...task,
+        title: 'Patch the edge router',
+        description: 'Agent wrote this',
+      })
+      await Promise.resolve()
+    })
+
+    await waitFor(() => expect(description).toHaveValue('Agent wrote this'))
+    expect(title).toHaveValue('Patch the edge router')
+  })
+
   it('guards refresh/close only while a field holds an unsaved edit', async () => {
     const user = userEvent.setup()
     const addSpy = vi.spyOn(window, 'addEventListener')
