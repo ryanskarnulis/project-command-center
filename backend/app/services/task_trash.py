@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, or_, select, update
@@ -414,6 +415,111 @@ def log_task_detached_by_purge(
     )
 
 
+@dataclass(frozen=True)
+class _SeveredEdge:
+    """One active dependency edge a purge destroys whose other endpoint lives on.
+
+    ``survivor_waits`` says which side of the edge the surviving task was on:
+    ``True`` it was the dependent (it loses something it was waiting on),
+    ``False`` it was the blocker (it loses something that was waiting on it).
+    """
+
+    survivor_id: int
+    survivor_title: str
+    survivor_project_id: int | None
+    destroyed_id: int
+    survivor_waits: bool
+
+
+def _severed_dependency_edges(db: Session, ids: Sequence[int]) -> list[_SeveredEdge]:
+    """Active dependency edges a purge of ``ids`` destroys that a surviving task keeps.
+
+    Both directions, because the edge is severed for whichever endpoint is left
+    standing. Edges with *both* endpoints inside the purge set are excluded —
+    nothing survives to record them against, and the pair's history is already
+    covered by the two ``purged`` events.
+
+    Already soft-deleted edges are excluded too: ``remove_dependency`` audited
+    those when the user removed them, and the purge is only clearing a tombstone.
+
+    Neither query filters ``Task.deleted_at``. A survivor may itself sit in trash —
+    a cross-project row the scoped walk spares (BUG #189), or a task trashed on its
+    own terms — and it is still restorable, so the edge it loses is still worth
+    recording. Same reason ``remove_dependency`` looks its endpoints up including
+    soft-deleted rows (issue #201).
+    """
+    dependents = db.execute(
+        select(Task.id, Task.title, Task.project_id, TaskDependency.depends_on_task_id)
+        .join(TaskDependency, TaskDependency.task_id == Task.id)
+        .where(
+            TaskDependency.deleted_at.is_(None),
+            TaskDependency.depends_on_task_id.in_(ids),
+            TaskDependency.task_id.not_in(ids),
+        )
+        .order_by(TaskDependency.id)
+    ).all()
+    blockers = db.execute(
+        select(Task.id, Task.title, Task.project_id, TaskDependency.task_id)
+        .join(TaskDependency, TaskDependency.depends_on_task_id == Task.id)
+        .where(
+            TaskDependency.deleted_at.is_(None),
+            TaskDependency.task_id.in_(ids),
+            TaskDependency.depends_on_task_id.not_in(ids),
+        )
+        .order_by(TaskDependency.id)
+    ).all()
+    return [
+        _SeveredEdge(
+            survivor_id=survivor_id,
+            survivor_title=survivor_title,
+            survivor_project_id=survivor_project_id,
+            destroyed_id=destroyed_id,
+            survivor_waits=survivor_waits,
+        )
+        for rows, survivor_waits in ((dependents, True), (blockers, False))
+        for survivor_id, survivor_title, survivor_project_id, destroyed_id in rows
+    ]
+
+
+def log_dependency_severed_by_purge(
+    db: Session,
+    *,
+    task_id: int,
+    title: str,
+    project_id: int | None,
+    other_title: str,
+    waits_on: bool,
+) -> None:
+    """Record that a purge destroyed the other end of one of ``task_id``'s edges.
+
+    The action is ``"dependency_removed"`` and the dependent-side wording is
+    ``remove_dependency``'s, so the feed reads the same whether the edge went away
+    by hand or with the purge — it is the same event about the same edge. The
+    blocker side has no manual counterpart to mirror (``remove_dependency`` only
+    writes on the dependent), but losing a dependent is the same kind of
+    structural change and the survivor is the only row left to record it against.
+
+    "permanently deleted" is what the summary adds: nobody removed this
+    dependency, a purge destroyed the task on the other end. That title is
+    snapshotted here because afterwards it exists nowhere else — the same reason
+    ``log_task_detached_by_purge`` snapshots the destroyed parent's.
+
+    Like the other purge helpers (and unlike
+    ``task_dependencies._log_dependency_event``) an unfiled survivor
+    (``project_id is None``) is *not* skipped: no per-project feed can show the
+    event, but it is the only surviving record that the edge ever existed.
+    """
+    relation = "no longer waits on" if waits_on else "no longer blocks"
+    activity.record_event(
+        db,
+        project_id=project_id,
+        entity_type="task",
+        entity_id=task_id,
+        action="dependency_removed",
+        summary=f'Task "{title}" {relation} permanently deleted "{other_title}"',
+    )
+
+
 def purge_task(db: Session, task: Task, *, project_scoped: bool = True) -> None:
     """Permanently delete a trashed task and its soft-deleted subtree.
 
@@ -430,16 +536,28 @@ def purge_task(db: Session, task: Task, *, project_scoped: bool = True) -> None:
     row is destroyed — the audit trail must distinguish a restorable soft delete
     from permanent destruction, and cascade-purged descendants are as gone as the
     root the user actually clicked. Every *surviving* row the detach step
-    reparents gets an ``updated`` event too (issue #242): losing a parent is a
-    structural change to a task that lives on, and the destroyed parent's title
-    exists nowhere else afterwards.
+    reparents gets an ``updated`` event too (issue #242), and every surviving row
+    the dependency cleanup severs an edge from gets a ``dependency_removed`` event
+    (issue #254): both are structural changes to tasks that live on, and the
+    destroyed endpoint's title exists nowhere else afterwards.
 
     ``project_scoped=False`` is reserved for internal corrections; see
     ``_deleted_subtree_depth_first``.
     """
     subtree = _deleted_subtree_depth_first(db, task, project_scoped=project_scoped)
     ids = [t.id for t in subtree]
+    titles = {node.id: node.title for node in subtree}
 
+    # Snapshotted before the delete erases the edges the audit has to describe —
+    # the same shape as the detach step below: one unbounded bulk statement does
+    # the write, the events are emitted from the snapshot, and the row change and
+    # its history land in the same transaction (issue #254).
+    #
+    # No reconcile follows, unlike ``remove_dependency``: everything in the purge
+    # set is already soft-deleted, and a soft-deleted blocker never blocked
+    # (``effective_statuses`` omits it), so no survivor's effective status moves
+    # here. This severs a stale edge; it does not unblock anything.
+    severed = _severed_dependency_edges(db, ids)
     db.execute(
         sql_delete(TaskDependency).where(
             or_(
@@ -448,6 +566,16 @@ def purge_task(db: Session, task: Task, *, project_scoped: bool = True) -> None:
             )
         )
     )
+    for edge in severed:
+        log_dependency_severed_by_purge(
+            db,
+            task_id=edge.survivor_id,
+            title=edge.survivor_title,
+            project_id=edge.survivor_project_id,
+            other_title=titles[edge.destroyed_id],
+            waits_on=edge.survivor_waits,
+        )
+
     # Detach any row (active or not) still pointing into the purge set but not
     # itself being purged, so no dangling parent ref survives. Snapshotted first
     # because the update erases the very edge the audit event has to describe;
@@ -465,7 +593,6 @@ def purge_task(db: Session, task: Task, *, project_scoped: bool = True) -> None:
         .values(parent_task_id=None)
     )
 
-    titles = {node.id: node.title for node in subtree}
     for detached_id, detached_title, detached_project_id, old_parent_id in detached:
         log_task_detached_by_purge(
             db,
