@@ -19,17 +19,15 @@ export async function listConversations(
   if (params.limit !== undefined) query.set('limit', String(params.limit))
   if (params.offset !== undefined) query.set('offset', String(params.offset))
   const suffix = query.toString() === '' ? '' : `?${query.toString()}`
-  const res = await apiClient(`/api/agent/conversations${suffix}`)
-  return (await res.json()) as Conversation[]
+  return apiClient<Conversation[]>(`/api/agent/conversations${suffix}`)
 }
 
 export async function createConversation(): Promise<Conversation> {
-  const res = await apiClient('/api/agent/conversations', {
+  return apiClient<Conversation>('/api/agent/conversations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
   })
-  return (await res.json()) as Conversation
 }
 
 /** One page of a conversation: the newest messages by default, or the page
@@ -43,8 +41,7 @@ export async function getConversation(
   if (params.before_id !== undefined)
     query.set('before_id', String(params.before_id))
   const suffix = query.toString() === '' ? '' : `?${query.toString()}`
-  const res = await apiClient(`/api/agent/conversations/${id}${suffix}`)
-  return (await res.json()) as ConversationDetail
+  return apiClient<ConversationDetail>(`/api/agent/conversations/${id}${suffix}`)
 }
 
 export async function deleteConversation(id: number): Promise<void> {
@@ -55,7 +52,7 @@ export async function postMessage(
   conversationId: number,
   content: string,
 ): Promise<MessageExchange> {
-  const res = await apiClient(
+  return apiClient<MessageExchange>(
     `/api/agent/conversations/${conversationId}/messages`,
     {
       method: 'POST',
@@ -64,5 +61,4 @@ export async function postMessage(
       timeoutMs: AGENT_RUN_TIMEOUT_MS,
     },
   )
-  return (await res.json()) as MessageExchange
 }
