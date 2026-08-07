@@ -102,6 +102,11 @@ export function useConversations(): UseConversations {
       setHasMore(result.hasMore)
       setError(null)
     } catch (e: unknown) {
+      // A superseded request's failure is exactly as stale as its result would
+      // have been: something newer already committed, so this error describes a
+      // read whose rows were destined to be discarded. Surfacing it would paint
+      // a failure banner over a sidebar that is current (#261).
+      if (seq <= committedSeq.current) return
       setError(e instanceof Error ? e.message : 'Failed to load conversations')
     }
   }, [])
