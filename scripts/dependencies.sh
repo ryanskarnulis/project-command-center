@@ -48,6 +48,44 @@ if sys.version_info < (3, 11):
 PY
 }
 
+# A venv's bin/python is an unversioned symlink to the system interpreter, but
+# its packages live in a version-specific lib/pythonX.Y tree. When the OS
+# upgrades python3 the symlink still resolves and every console script stays
+# executable, yet the new interpreter looks for a site-packages directory that
+# does not exist and every import fails. pyvenv.cfg records the version the
+# tree was built for, so compare it against what bin/python actually is now.
+backend_venv_matches_interpreter() {
+  local config_path="$BACKEND_VENV/pyvenv.cfg"
+
+  [ -x "$BACKEND_PYTHON" ] || return 1
+  [ -f "$config_path" ] || return 1
+
+  "$BACKEND_PYTHON" - "$config_path" <<'PY'
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+recorded = ""
+for raw_line in Path(sys.argv[1]).read_text().splitlines():
+    key, separator, value = raw_line.partition("=")
+    if separator and key.strip() in {"version", "version_info"}:
+        recorded = value.strip()
+        break
+
+running = "%d.%d" % sys.version_info[:2]
+raise SystemExit(0 if ".".join(recorded.split(".")[:2]) == running else 1)
+PY
+}
+
+# Reinstalling into a venv whose interpreter moved cannot repair it: pip would
+# land packages in the tree the current interpreter already ignores.
+rebuild_backend_venv() {
+  [ -n "${BACKEND_VENV:-}" ] || return 1
+  rm -rf "$BACKEND_VENV"
+  "$SYSTEM_PYTHON" -m venv "$BACKEND_VENV"
+}
+
 backend_tools_missing() {
   [ ! -x "$BACKEND_PYTHON" ] && return 0
   [ ! -x "$BACKEND_VENV/bin/alembic" ] && return 0
@@ -67,9 +105,12 @@ ensure_backend_deps() {
     "$BACKEND_DIR/pyproject.toml" \
     "$BACKEND_DIR/requirements.lock")"
 
-  if [ ! -x "$BACKEND_PYTHON" ]; then
+  if [ ! -d "$BACKEND_VENV" ]; then
     log "Creating backend virtualenv."
     "$SYSTEM_PYTHON" -m venv "$BACKEND_VENV"
+  elif ! backend_venv_matches_interpreter; then
+    log "Backend virtualenv no longer matches its Python; rebuilding it."
+    rebuild_backend_venv
   fi
 
   if backend_tools_missing || ! dependency_stamp_matches "$stamp_path" "$fingerprint"; then
