@@ -2,8 +2,7 @@ import { apiClient } from './client'
 import type { Task, TaskCreate, TaskSeries, TaskUpdate } from '../types/task'
 
 export async function listTasks(projectId: number): Promise<Task[]> {
-  const res = await apiClient(`/api/projects/${projectId}/tasks`)
-  return (await res.json()) as Task[]
+  return apiClient<Task[]>(`/api/projects/${projectId}/tasks`)
 }
 
 // The all-tasks endpoint caps its result server-side (default 500, max 1000).
@@ -21,8 +20,7 @@ async function fetchAllPages(
 ): Promise<Task[]> {
   const all: Task[] = []
   for (let offset = 0; ; offset += MAX_TASK_LIMIT) {
-    const res = await apiClient(buildPath(MAX_TASK_LIMIT, offset))
-    const page = (await res.json()) as Task[]
+    const page = await apiClient<Task[]>(buildPath(MAX_TASK_LIMIT, offset))
     all.push(...page)
     if (page.length < MAX_TASK_LIMIT) break
   }
@@ -37,10 +35,7 @@ export async function listCompletedTasks(projectId?: number): Promise<Task[]> {
   // The project-scoped route is unbounded (no cap), so it needs no paging; only
   // the global completed list rides the capped /api/tasks endpoint.
   if (projectId !== undefined) {
-    const res = await apiClient(
-      `/api/projects/${projectId}/tasks?workflow_status=done`,
-    )
-    return (await res.json()) as Task[]
+    return apiClient<Task[]>(`/api/projects/${projectId}/tasks?workflow_status=done`)
   }
   return fetchAllPages(
     (limit, offset) =>
@@ -49,67 +44,58 @@ export async function listCompletedTasks(projectId?: number): Promise<Task[]> {
 }
 
 export async function createUnscopedTask(data: TaskCreate): Promise<Task> {
-  const res = await apiClient('/api/tasks', {
+  return apiClient<Task>('/api/tasks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
-  return (await res.json()) as Task
 }
 
 export async function createTask(
   projectId: number,
   data: TaskCreate,
 ): Promise<Task> {
-  const res = await apiClient(`/api/projects/${projectId}/tasks`, {
+  return apiClient<Task>(`/api/projects/${projectId}/tasks`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
-  return (await res.json()) as Task
 }
 
 export async function getTask(id: number): Promise<Task> {
-  const res = await apiClient(`/api/tasks/${id}`)
-  return (await res.json()) as Task
+  return apiClient<Task>(`/api/tasks/${id}`)
 }
 
 export async function updateTask(id: number, data: TaskUpdate): Promise<Task> {
-  const res = await apiClient(`/api/tasks/${id}`, {
+  return apiClient<Task>(`/api/tasks/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
-  return (await res.json()) as Task
 }
 
 export async function markTaskDone(id: number): Promise<Task> {
-  const res = await apiClient(`/api/tasks/${id}/done`, { method: 'POST' })
-  return (await res.json()) as Task
+  return apiClient<Task>(`/api/tasks/${id}/done`, { method: 'POST' })
 }
 
 export async function skipOccurrence(id: number): Promise<Task> {
-  const res = await apiClient(`/api/tasks/${id}/skip`, { method: 'POST' })
-  return (await res.json()) as Task
+  return apiClient<Task>(`/api/tasks/${id}/skip`, { method: 'POST' })
 }
 
 /** Every occurrence in this task's recurrence series (oldest due date first). */
 export async function getTaskSeries(id: number): Promise<TaskSeries> {
-  const res = await apiClient(`/api/tasks/${id}/series`)
-  return (await res.json()) as TaskSeries
+  return apiClient<TaskSeries>(`/api/tasks/${id}/series`)
 }
 
 /** Stop the series from spawning further occurrences (clears repeat_interval). */
 export async function stopRecurrence(id: number): Promise<Task> {
-  const res = await apiClient(`/api/tasks/${id}/stop-recurrence`, {
+  return apiClient<Task>(`/api/tasks/${id}/stop-recurrence`, {
     method: 'POST',
   })
-  return (await res.json()) as Task
 }
 
 export async function reopenTask(id: number): Promise<Task> {
-  const res = await apiClient(`/api/tasks/${id}/reopen`, { method: 'POST' })
-  return (await res.json()) as Task
+  return apiClient<Task>(`/api/tasks/${id}/reopen`, { method: 'POST' })
 }
 
 export async function deleteTask(id: number): Promise<void> {
@@ -123,8 +109,7 @@ export async function restoreTask(
   restoreSubtasks = false,
 ): Promise<Task> {
   const query = restoreSubtasks ? '?restore_subtasks=true' : ''
-  const res = await apiClient(`/api/tasks/${id}/restore${query}`, { method: 'POST' })
-  return (await res.json()) as Task
+  return apiClient<Task>(`/api/tasks/${id}/restore${query}`, { method: 'POST' })
 }
 
 export async function purgeTask(id: number): Promise<void> {
@@ -132,6 +117,5 @@ export async function purgeTask(id: number): Promise<void> {
 }
 
 export async function getSubtasks(id: number): Promise<Task[]> {
-  const res = await apiClient(`/api/tasks/${id}/subtasks`)
-  return (await res.json()) as Task[]
+  return apiClient<Task[]>(`/api/tasks/${id}/subtasks`)
 }

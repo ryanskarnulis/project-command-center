@@ -4,25 +4,22 @@ import type { TaskDependency, TaskDependent } from '../types/task'
 export async function listDependencies(
   taskId: number,
 ): Promise<TaskDependency[]> {
-  const res = await apiClient(`/api/tasks/${taskId}/dependencies`)
-  return (await res.json()) as TaskDependency[]
+  return apiClient<TaskDependency[]>(`/api/tasks/${taskId}/dependencies`)
 }
 
 export async function listDependents(taskId: number): Promise<TaskDependent[]> {
-  const res = await apiClient(`/api/tasks/${taskId}/dependents`)
-  return (await res.json()) as TaskDependent[]
+  return apiClient<TaskDependent[]>(`/api/tasks/${taskId}/dependents`)
 }
 
 export async function addDependency(
   taskId: number,
   dependsOnTaskId: number,
 ): Promise<TaskDependency> {
-  const res = await apiClient(`/api/tasks/${taskId}/dependencies`, {
+  return apiClient<TaskDependency>(`/api/tasks/${taskId}/dependencies`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ depends_on_task_id: dependsOnTaskId }),
   })
-  return (await res.json()) as TaskDependency
 }
 
 export async function removeDependency(

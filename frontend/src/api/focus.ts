@@ -20,6 +20,5 @@ export async function getFocusPlan(params: FocusPlanParams = {}): Promise<FocusP
     query.set('available_minutes', String(params.availableMinutes))
   }
   const suffix = query.toString()
-  const res = await apiClient(`/api/focus${suffix ? `?${suffix}` : ''}`)
-  return (await res.json()) as FocusPlan
+  return apiClient<FocusPlan>(`/api/focus${suffix ? `?${suffix}` : ''}`)
 }
