@@ -50,6 +50,13 @@ def _recurrence_422(exc: tasks_service.RecurrenceError) -> HTTPException:
     )
 
 
+def _depth_422(exc: tasks_service.TaskDepthError) -> HTTPException:
+    """Nesting past ``MAX_SUBTASK_DEPTH`` is out-of-range input, not a conflict."""
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+    )
+
+
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskRead])
 def list_tasks(
     project_id: EntityId,
@@ -112,6 +119,8 @@ def create_unscoped_task(data: TaskCreate, db: Session = Depends(get_db_write)) 
         )
     except tasks_service.TaskCycleError as exc:
         raise _cycle_409(exc) from exc
+    except tasks_service.TaskDepthError as exc:
+        raise _depth_422(exc) from exc
     db.commit()
     db.refresh(task)
     logger.info("task_created", task_id=task.id, project_id=task.project_id)
@@ -142,6 +151,8 @@ def create_task(
         )
     except tasks_service.TaskCycleError as exc:
         raise _cycle_409(exc) from exc
+    except tasks_service.TaskDepthError as exc:
+        raise _depth_422(exc) from exc
     db.commit()
     db.refresh(task)
     logger.info("task_created", task_id=task.id, project_id=project_id)
@@ -175,6 +186,8 @@ def update_task(
         updated = tasks_service.update_task(db, task, fields)
     except tasks_service.TaskCycleError as exc:
         raise _cycle_409(exc) from exc
+    except tasks_service.TaskDepthError as exc:
+        raise _depth_422(exc) from exc
     except (tasks_service.DerivedFieldError, tasks_service.BlockedTaskError) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)

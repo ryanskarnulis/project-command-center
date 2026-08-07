@@ -149,6 +149,7 @@ _AvailableMinutes = Annotated[int, Field(ge=15, le=1440)]
 # surfaced as tool errors so the model can read the reason and self-correct.
 _TASK_DOMAIN_ERRORS = (
     tasks_service.TaskCycleError,
+    tasks_service.TaskDepthError,
     tasks_service.DerivedFieldError,
     tasks_service.BlockedTaskError,
     tasks_service.RecurrenceError,

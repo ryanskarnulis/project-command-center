@@ -40,10 +40,40 @@ _FORWARD_PATCH_EXCLUDE = {
 }
 
 
+# Maximum nesting levels a task tree may reach. A task with no (active) parent
+# sits at level 1, its subtask at level 2, and so on; a chain of
+# ``MAX_SUBTASK_DEPTH`` tasks is the deepest the API will accept.
+#
+# Why a cap at all (issue #252): every subtree traversal in the service layer is
+# recursive — ``_resolve_rollup``, ``_soft_delete_subtree``, the recurrence
+# clone/reschedule walks, the trash depth-first walks, dependency status resolve
+# — so an unbounded tree eventually blows the Python stack. Worse, the walks
+# don't all fail at the same depth, so *creates* could commit a chain that
+# *deletes* could no longer process: a permanently stuck subtree. Rejecting the
+# edge at create/reparent time keeps every walk safe by construction for any
+# state the API can commit. The cap also keeps reconcile — which climbs the
+# ancestor chain resolving each ancestor's full-subtree roll-up, O(depth²) — off
+# the multi-second cliff deep chains fell down.
+#
+# 50 is generous by design: real checklists nest a handful of levels, so the cap
+# is invisible in practice while leaving a wide margin under the recursion limit.
+MAX_SUBTASK_DEPTH = 50
+
+
 class TaskCycleError(ValueError):
     """Setting a task's parent would create a cycle (e.g. A->B->A) or self-parent.
 
     Nesting is a tree: a task can't be its own ancestor. The caller surfaces a 409.
+    """
+
+
+class TaskDepthError(ValueError):
+    """A create or reparent would nest deeper than ``MAX_SUBTASK_DEPTH``.
+
+    Bad input against a documented bound, not a state conflict, so the caller
+    surfaces a 422 (the #182 boundary-rejection precedent). The check applies to
+    *new* nesting only: reading, trashing, restoring, and purging rows that are
+    already deeper than the cap keeps working.
     """
 
 
@@ -158,6 +188,92 @@ def _assert_no_parent_cycle(
         if ancestor is None:
             break
         current = ancestor.parent_task_id
+
+
+def _nesting_level(db: Session, task_id: int) -> int:
+    """How deep an existing task sits: 1 for an effective top-level task.
+
+    Climbs the active ancestor chain, stopping where ``_assert_no_parent_cycle``
+    stops — a missing or trashed ancestor ends the walk, because such a task is an
+    effective top-level orphan (see :func:`is_effective_top_level`) and every
+    recursive traversal treats it as a root. Iterative and visited-guarded so a
+    pre-existing over-deep or corrupted chain is measurable rather than fatal.
+    """
+    level = 0
+    visited: set[int] = set()
+    current: int | None = task_id
+    while current is not None and current not in visited:
+        visited.add(current)
+        task = get_task(db, current)
+        if task is None:
+            break
+        level += 1
+        current = task.parent_task_id
+    return level
+
+
+def _subtree_height(db: Session, task_id: int, limit: int) -> int:
+    """Levels of active descendants below ``task_id`` (0 for a leaf).
+
+    Descends level by level like :func:`_children_map_for`, one indexed
+    ``parent_task_id`` lookup per level, and gives up as soon as the answer is
+    known to exceed ``limit`` — the caller only needs to know *that* the subtree is
+    too tall, and an already-over-deep subtree must not be walked to the bottom
+    just to reject a move. The return value is therefore accurate up to
+    ``limit + 1``.
+    """
+    height = 0
+    frontier = [task_id]
+    seen: set[int] = {task_id}
+    while frontier and height <= limit:
+        child_ids = (
+            db.execute(
+                select(Task.id).where(
+                    Task.parent_task_id.in_(frontier), Task.deleted_at.is_(None)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        next_frontier = [cid for cid in child_ids if cid not in seen]
+        if not next_frontier:
+            break
+        seen.update(next_frontier)
+        frontier = next_frontier
+        height += 1
+    return height
+
+
+def _assert_within_depth_cap(
+    db: Session, task_id: int | None, new_parent_id: int
+) -> None:
+    """Reject an edge that would nest past :data:`MAX_SUBTASK_DEPTH` (issue #252).
+
+    ``task_id`` is None on create: the new task is a leaf, so it only has to fit
+    one level below its parent. On a *reparent* the whole subtree moves, so what
+    must fit is the moved task's deepest leaf — its own height below the new
+    parent, not just the parent's level. Checking the height is what stops a move
+    from smuggling a deep branch under a deep parent.
+
+    Only the prospective new nesting is measured; nothing here looks at trees the
+    caller isn't touching, so existing rows stay readable, trashable, restorable
+    and purgeable however deep they already are.
+    """
+    parent_level = _nesting_level(db, new_parent_id)
+    # Levels still available below the moved/created task itself.
+    allowance = MAX_SUBTASK_DEPTH - parent_level - 1
+    if allowance < 0:
+        raise TaskDepthError(
+            f"Subtasks can be nested at most {MAX_SUBTASK_DEPTH} levels deep"
+        )
+    if task_id is None:
+        return
+    height = _subtree_height(db, task_id, allowance)
+    if height > allowance:
+        raise TaskDepthError(
+            "Moving this task would nest its subtasks more than "
+            f"{MAX_SUBTASK_DEPTH} levels deep"
+        )
 
 
 def is_effective_top_level(task: Task, active_ids: set[int]) -> bool:
@@ -602,6 +718,7 @@ def create_task(
     project_id = _default_project_id(db, project_id)
     if parent_task_id is not None:
         _assert_no_parent_cycle(db, None, parent_task_id)
+        _assert_within_depth_cap(db, None, parent_task_id)
     task = Task(
         project_id=project_id,
         title=title,
@@ -640,6 +757,11 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     new_parent_id = control.get("parent_task_id")
     if new_parent_id is not None:
         _assert_no_parent_cycle(db, task.id, new_parent_id)
+        # Depth is checked only on an actual *move*. A PATCH that echoes the task's
+        # existing parent back introduces no new nesting, and must keep working on a
+        # subtree that already sits deeper than the cap (issue #252).
+        if new_parent_id != task.parent_task_id:
+            _assert_within_depth_cap(db, task.id, new_parent_id)
 
     # Remembered before the attribute loop overwrites it: reparenting changes the
     # roll-up of *both* endpoints, and the old parent is unreachable from the moved
