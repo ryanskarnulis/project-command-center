@@ -1,5 +1,5 @@
 import { useMemo, useRef, useEffect, useState, type ReactNode } from 'react'
-import { FolderX, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { Search, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { useTrash, type RestoreItem, type TrashKind } from './useTrash'
 import { useTrashCount } from './trashCountContext'
 import { TaskCard } from '../tasks/TaskCard'
@@ -329,7 +329,6 @@ export function TrashPage() {
         <section className="trash-section">
           <div className="trash-section-head">
             <h2>
-              <FolderX size={18} aria-hidden="true" />
               Projects ({headingCount(projects.length, trash.projects.length, counts.projects)})
             </h2>
             <SelectAll
@@ -419,7 +418,6 @@ export function TrashPage() {
         <section className="trash-section">
           <div className="trash-section-head">
             <h2>
-              <Trash2 size={18} aria-hidden="true" />
               Tasks ({headingCount(tasks.length, trash.tasks.length, counts.tasks)})
             </h2>
             <SelectAll

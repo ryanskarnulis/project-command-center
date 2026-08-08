@@ -3,61 +3,53 @@
 
 /* Project section nav (Overview / Tasks / Timeline): pill tabs modeled on the
    settings nav, with a clear active state. React Router's NavLink adds `.active`. */
+/* Same tab treatment as List/Board — one vocabulary for every tab strip. */
 .project-tabs {
   display: flex;
-  gap: 6px;
-  margin-bottom: 16px;
+  gap: 4px;
+  margin-bottom: 14px;
 }
 
 .project-tab {
   display: inline-flex;
   align-items: center;
-  padding: 8px 14px;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  height: var(--tab-h);
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
   background: transparent;
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 720;
+  color: var(--text-meta);
+  font-size: var(--fs-btn);
+  font-weight: 680;
   text-decoration: none;
 }
 
 .project-tab:hover {
   color: var(--text-h);
-  background: var(--surface-soft);
+  background: var(--fill-pill);
 }
 
 .project-tab.active {
-  color: var(--blue);
-  background: var(--blue-soft);
-  border-color: var(--blue);
+  color: var(--link);
+  background: rgba(143, 190, 242, 0.16);
+  border-color: transparent;
 }
 
+/* One column of full-width rows. The auto-fill grid existed to make cards
+   tile; with cards gone there is nothing to tile, and a 280px column would
+   only truncate titles that now have the whole width available. */
 .project-grid {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
-}
-
-/* Grid cells are narrow, so stack the card body over a full-width actions row
-   instead of fighting for horizontal space (which collapses the title to a
-   one-character-per-line column). Mirrors the <=880px responsive behaviour. */
-.project-grid .task-card {
+  display: flex;
   flex-direction: column;
-  align-items: stretch;
-}
-
-.project-grid .task-card-actions {
-  width: 100%;
-  flex-wrap: wrap;
+  gap: 0;
 }
 
 .project-card-desc {
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: 12.5px;
+  color: var(--text-meta);
   overflow-wrap: anywhere;
 }
 
