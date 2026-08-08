@@ -4,10 +4,10 @@
 .dashboard {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   /* The launcher's web motif, dashboard only — a faint quarter orb-web pinned
      to the viewport corner (same asset as chess; opacity baked into the SVG). */
-  background: url('../assets/corner-web.svg') top right / min(680px, 88vmin) auto
+  background: url('../assets/corner-web.svg') top right / min(560px, 88vmin) auto
     no-repeat fixed;
 }
 
@@ -39,48 +39,58 @@
 }
 
 .dashboard-board-heading p {
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 650;
+  margin-top: 3px;
+  color: var(--text-meta);
+  font-size: var(--fs-page-sub);
+  font-weight: 600;
 }
 
 .dashboard-board-actions {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
+/* Primary action. "New project" sits next to it as a plain ghost <button>:
+   the desktop design file draws both filled, but the README and the mobile
+   file both call for ghost + primary, and two adjacent blue fills give the
+   row no hierarchy at all. */
 .dashboard-add-task {
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  min-height: 36px;
-  border: 1px solid var(--blue-border);
-  border-radius: 8px;
+  gap: 5px;
+  min-height: var(--ctl-h);
+  border: 0;
+  border-radius: 7px;
   background: var(--blue);
   color: var(--on-accent);
-  font-size: 13px;
+  font-size: var(--fs-btn);
   font-weight: 750;
-  padding: 8px 12px;
+  padding: 0 11px;
+  white-space: nowrap;
 }
 
 .dashboard-add-task:hover {
+  border-color: transparent;
+  background: var(--accent);
   color: var(--on-accent);
-  filter: brightness(1.08);
 }
 
 /* --- Signal strip: one slim row of global counts / board filters --- */
 
+/* Was a bordered, shadowed card of 44px rows; now three cells bounded by a
+   rule top and bottom, with no fill of their own. */
 .dashboard-signal-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--frost);
-  box-shadow: var(--shadow-soft);
+  overflow: visible;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .dashboard-signal {
@@ -88,19 +98,20 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  min-height: 44px;
+  min-height: 46px;
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 650;
-  padding: 8px 14px;
+  color: var(--text-meta);
+  font-size: var(--fs-meta);
+  font-weight: 600;
+  padding: 10px 0;
   box-shadow: none;
 }
 
 .dashboard-signal + .dashboard-signal {
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--rule-column);
+  padding-left: 18px;
 }
 
 .dashboard-signal span {
@@ -110,36 +121,38 @@
   white-space: nowrap;
 }
 
+/* The count is the cell's headline, and its color is the severity. Blocking
+   stays neutral — it is a fact about the graph, not an alarm. */
 .dashboard-signal strong {
   color: var(--text-h);
-  font-size: 15px;
+  font-size: 16px;
+  font-weight: 720;
 }
 
-.dashboard-signal:hover,
-.dashboard-signal.selected {
-  background: var(--surface);
+.dashboard-signal-overdue strong {
+  color: var(--red);
+}
+
+.dashboard-signal-due_today strong {
+  color: var(--orange);
+}
+
+.dashboard-signal:hover {
+  border-color: var(--rule-column);
+  background: var(--fill-row-hover);
   color: var(--text-h);
 }
 
+/* Selected is a filter, so it needs to read at a glance without a fill. */
 .dashboard-signal.selected {
+  background: var(--fill-row-hover);
+  color: var(--text-h);
   box-shadow: inset 0 -2px 0 var(--blue);
-}
-
-.dashboard-signal-overdue.selected,
-.dashboard-signal-overdue:hover,
-.dashboard-signal-blocking.selected,
-.dashboard-signal-blocking:hover {
-  color: var(--red);
 }
 
 .dashboard-signal-overdue.selected,
 .dashboard-signal-blocking.selected {
   box-shadow: inset 0 -2px 0 var(--red);
-}
-
-.dashboard-signal-due_today.selected,
-.dashboard-signal-due_today:hover {
-  color: var(--blue);
 }
 
 /* --- Swimlane board: one lane per project, Open / In progress columns --- */
@@ -150,16 +163,18 @@
   gap: 12px;
 }
 
+/* A lane is no longer a card — it is a stretch of page under a rule. */
 .dashboard-swimlane {
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--frost);
-  box-shadow: var(--shadow-card);
+  overflow: visible;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .dashboard-swimlane.quiet {
-  background: var(--frost-soft);
+  background: transparent;
   box-shadow: none;
 }
 
@@ -171,10 +186,10 @@
 .dashboard-lane-grip {
   display: grid;
   place-items: center;
-  width: 20px;
-  min-width: 20px;
-  height: 32px;
-  color: var(--text-muted);
+  width: 16px;
+  min-width: 16px;
+  height: 26px;
+  color: var(--text-grip);
   cursor: grab;
 }
 
@@ -182,41 +197,36 @@
   cursor: grabbing;
 }
 
+/* Name leads; caret, "Done" pill and grip trail. The DOM order matches, so
+   no `order` juggling — see DashboardSwimlaneBoard.tsx. */
 .dashboard-swimlane-header {
   display: grid;
-  grid-template-columns: auto auto auto minmax(160px, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
   align-items: center;
   gap: 10px;
-  min-height: 62px;
-  padding: 10px 14px 10px 10px;
+  min-height: 48px;
+  padding: 7px 0;
 }
 
 .dashboard-lane-collapse {
   display: grid;
   place-items: center;
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  min-height: 32px;
+  width: var(--icon-btn);
+  min-width: var(--icon-btn);
+  height: var(--icon-btn);
+  min-height: var(--icon-btn);
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text-meta);
   padding: 0;
   box-shadow: none;
 }
 
 .dashboard-lane-collapse:hover {
-  background: var(--surface);
+  border-color: transparent;
+  background: var(--fill-pill);
   color: var(--text-h);
-}
-
-.dashboard-project-icon {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
 }
 
 .dashboard-project-title {
@@ -231,26 +241,46 @@
 .dashboard-project-title a {
   overflow: hidden;
   color: var(--text-h);
-  font-weight: 760;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .dashboard-project-title span {
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: 12px;
+  margin-top: 1px;
+  color: var(--text-meta);
+  font-size: 11.5px;
 }
 
+/* Micro pill — the one control that keeps a resting fill, because it is a
+   toggle and needs to read as pressable next to plain words. */
 .dashboard-done-toggle {
-  min-height: 32px;
-  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--pill-h);
+  min-height: var(--pill-h);
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-pill);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 650;
+  padding: 0 9px;
   white-space: nowrap;
 }
 
+.dashboard-done-toggle:hover {
+  border-color: transparent;
+  background: var(--neutral-strong);
+  color: var(--text-h);
+}
+
 .dashboard-swimlane-body {
-  border-top: 1px solid var(--border);
-  padding: 12px;
+  border-top: 0;
+  padding: 0 0 12px;
 }
 
 .dashboard-lane-columns {
@@ -260,38 +290,46 @@
   align-items: start;
 }
 
+/* Status groups are not columns-in-cards: a mono label row, then divider-
+   separated task rows. The left rule on drag-over replaces the full blue box
+   — a target, not a container. */
 .dashboard-lane-column {
   min-width: 0;
-  min-height: 128px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-soft);
-  padding: 10px;
-  transition: border-color 0.15s, background 0.15s;
+  min-height: 0;
+  border: 0;
+  border-left: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  transition: border-color 0.15s, background 0.15s, padding 0.15s;
 }
 
 .dashboard-lane-column.drag-over {
-  border-color: var(--blue);
-  background: var(--blue-tint);
+  border-left-color: var(--blue-border-strong);
+  background: rgba(143, 190, 242, 0.05);
+  padding-left: 10px;
 }
 
 .dashboard-lane-column > header,
 .dashboard-done-archive > header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: var(--text-h);
-  font-size: 13px;
-  font-weight: 700;
-  margin-bottom: 10px;
+  gap: 7px;
+  margin-bottom: 2px;
+  padding: 2px 0 3px;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
 .dashboard-lane-column > ul,
 .dashboard-done-archive > ul {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 0;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -312,26 +350,27 @@
 }
 
 .dashboard-lane-empty {
-  color: var(--text-muted);
-  font-size: 13px;
-  margin: 4px 2px;
+  color: var(--text-meta);
+  font-size: 12.5px;
+  margin: 4px 0;
 }
 
 .dashboard-done-archive {
   margin-top: 12px;
-  border-top: 1px dashed var(--border-strong);
+  border-top: 1px solid var(--rule);
   padding-top: 12px;
 }
 
 .dashboard-done-archive > ul {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 12px;
 }
 
 .dashboard-closed-projects {
   margin-top: 16px;
-  color: var(--text-muted);
-  font-size: 13px;
+  color: var(--text-meta);
+  font-size: 12.5px;
 }
 
 .dashboard-closed-projects > summary {
