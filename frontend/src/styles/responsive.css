@@ -110,12 +110,26 @@
     border-left: 0;
   }
 
+  /* Name | Done pill | caret. The status word and the drag grip both drop:
+     there is no room for the word, and HTML5 drag-and-drop does not fire on
+     touch, so the grip was never a working control here. */
   .dashboard-swimlane-header {
-    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
 
-  .dashboard-swimlane-header .status-pill {
+  .dashboard-swimlane-header .status-pill,
+  .dashboard-lane-grip {
     display: none;
+  }
+
+  /* Both lane columns are full width now, so their rows would run together
+     without a rule between the groups. */
+  .dashboard-lane-column + .dashboard-lane-column {
+    margin-top: 10px;
+  }
+
+  .dashboard-done-archive > ul {
+    column-gap: 0;
   }
 }
 

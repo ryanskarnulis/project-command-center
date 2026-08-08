@@ -111,46 +111,53 @@
   border-left-color: var(--green);
 }
 
+/* The task row. Was a bordered, filled, shadowed card; now a flush row
+   separated from its neighbours by a single hairline. No horizontal padding —
+   rows align to the page gutter, so the check circle and the title sit on the
+   same left edge as everything else on the page. */
 .task-card {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--rule-row);
+  border-radius: 0;
+  background: transparent;
   text-decoration: none;
   color: var(--text-h);
-  box-shadow: var(--shadow-lift-sm);
-  transition: box-shadow 0.15s, border-color 0.15s;
+  box-shadow: none;
+  transition: background 0.15s;
 }
 
 .task-card:hover {
-  box-shadow: var(--shadow-lift);
-  border-color: var(--blue);
+  box-shadow: none;
+  border-color: var(--rule-row);
+  background: var(--fill-row-hover);
 }
 
 .task-card-body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
   flex: 1;
 }
 
 .task-complete-circle {
   flex-shrink: 0;
-  width: 22px;
-  height: 22px;
+  width: var(--check-size);
+  height: var(--check-size);
   min-height: 0;
+  /* Optical alignment with the first line of the title, which is taller. */
+  margin-top: 1px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid var(--border);
+  border: 1.5px solid var(--rule-ring);
   border-radius: 50%;
-  background: var(--surface);
+  background: transparent;
   color: transparent;
   box-shadow: none;
   transition: border-color 0.15s, color 0.15s;
@@ -159,6 +166,7 @@
 .task-complete-circle:hover:not(:disabled),
 .task-complete-circle:focus-visible {
   border-color: var(--green);
+  background: transparent;
   color: var(--green);
 }
 
@@ -168,16 +176,22 @@
 }
 
 .task-card-title {
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: 620;
+  font-size: var(--fs-task-title);
+  line-height: 1.3;
   overflow-wrap: anywhere;
   word-break: normal;
 }
 
+/* The meta line: colored words, wrapping. The column gap is wide enough to
+   separate them without a bullet; the row gap keeps wrapped lines legible. */
 .task-card-badges {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 3px 9px;
+  font-size: var(--fs-meta);
+  color: var(--text-meta);
 }
 
 .task-card-actions {

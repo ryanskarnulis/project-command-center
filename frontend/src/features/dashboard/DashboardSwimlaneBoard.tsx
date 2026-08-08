@@ -1,10 +1,5 @@
 import { type DragEvent, useMemo, useRef, useState } from 'react'
-import {
-  ChevronDown,
-  ChevronRight,
-  FolderKanban,
-  GripVertical,
-} from 'lucide-react'
+import { ChevronDown, ChevronRight, Eye, GripVertical } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../../components/ToastContext'
 import {
@@ -224,33 +219,10 @@ function DashboardSwimlane({
       onDragOver={onLaneDragOver}
       onDrop={onLaneDrop}
     >
+      {/* Name leads the row; the controls trail it. The decorative folder tile
+          that used to sit in front of the name is gone — the status word
+          carries the same tone it did. */}
       <header className="dashboard-swimlane-header">
-        <span
-          className="dashboard-lane-grip"
-          title="Drag to reorder projects"
-          aria-label={`Reorder ${project.project_name}`}
-          draggable
-          onDragStart={onLaneDragStart}
-          onDragEnd={onLaneDragEnd}
-        >
-          <GripVertical size={16} aria-hidden="true" />
-        </span>
-        <button
-          type="button"
-          className="dashboard-lane-collapse"
-          aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${project.project_name}`}
-          aria-expanded={!collapsed}
-          onClick={() => setUserCollapsed(!collapsed)}
-        >
-          {collapsed ? (
-            <ChevronRight size={18} aria-hidden="true" />
-          ) : (
-            <ChevronDown size={18} aria-hidden="true" />
-          )}
-        </button>
-        <span className={`dashboard-project-icon tone-${status.tone}`}>
-          <FolderKanban size={18} aria-hidden="true" />
-        </span>
         <div className="dashboard-project-title">
           <Link
             id={`dashboard-project-${project.project_id}`}
@@ -268,14 +240,38 @@ function DashboardSwimlane({
         <span className={`status-pill tone-${status.tone}`}>{status.label}</span>
         <button
           type="button"
-          className="dashboard-done-toggle secondary-action"
+          className="dashboard-done-toggle"
           aria-expanded={doneOpen}
           onClick={() => setDoneOpen((open) => !open)}
         >
+          <Eye size={12} aria-hidden="true" />
           {doneOpen
             ? `Hide done${completed.loading ? '' : ` (${completedTasks.length})`}`
             : 'Show done'}
         </button>
+        <button
+          type="button"
+          className="dashboard-lane-collapse"
+          aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${project.project_name}`}
+          aria-expanded={!collapsed}
+          onClick={() => setUserCollapsed(!collapsed)}
+        >
+          {collapsed ? (
+            <ChevronRight size={18} aria-hidden="true" />
+          ) : (
+            <ChevronDown size={18} aria-hidden="true" />
+          )}
+        </button>
+        <span
+          className="dashboard-lane-grip"
+          title="Drag to reorder projects"
+          aria-label={`Reorder ${project.project_name}`}
+          draggable
+          onDragStart={onLaneDragStart}
+          onDragEnd={onLaneDragEnd}
+        >
+          <GripVertical size={16} aria-hidden="true" />
+        </span>
       </header>
 
       {!collapsed && (
