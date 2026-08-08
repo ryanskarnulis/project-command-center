@@ -22,15 +22,18 @@
   margin-top: 12px;
 }
 
+/* Warning state, not a container: a left rule carries the caution where a
+   full amber box used to. */
 .skip-confirm {
   display: flex;
   flex-direction: column;
   gap: 8px;
   margin: 12px 0;
-  padding: 12px;
-  border: 1px solid var(--orange);
-  border-radius: 8px;
-  background: var(--orange-soft);
+  padding: 10px 0 10px 12px;
+  border: 0;
+  border-left: 2px solid var(--orange);
+  border-radius: 0;
+  background: transparent;
 }
 
 .skip-confirm-actions {
@@ -235,7 +238,7 @@
 .recurrence-occurrence-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
   margin: 8px 0 0;
   padding: 0;
   list-style: none;
@@ -245,18 +248,23 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 8px;
-  border-radius: 6px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--rule-row);
+  border-radius: 0;
+  font-size: var(--fs-meta);
 }
 
+/* Which occurrence you are on is state worth a fill, so this keeps one. */
 .recurrence-occurrence.current {
   background: var(--blue-soft);
+  padding: 7px 8px;
+  border-radius: 6px;
 }
 
 .recurrence-occurrence-due {
   min-width: 110px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
+  color: var(--text-meta);
 }
 
 .recurrence-occurrence-here {
@@ -510,17 +518,17 @@
 .dep-pending {
   display: inline-flex;
   align-items: center;
-  border-radius: 6px;
-  background: var(--orange-soft);
+  border-radius: 0;
+  background: transparent;
   color: var(--orange-strong);
-  font-size: 12px;
-  font-weight: 760;
-  line-height: 1;
-  padding: 5px 8px;
+  font-size: var(--fs-meta);
+  font-weight: 650;
+  line-height: 1.2;
+  padding: 0;
 }
 
 .task-detail {
-  gap: 16px;
+  gap: 14px;
 }
 
 .task-detail-header,
@@ -545,28 +553,31 @@
 }
 
 .save-state {
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 700;
+  color: var(--text-meta);
+  font-size: var(--fs-meta);
+  font-weight: 650;
 }
 
 .danger-action {
   color: var(--red);
 }
 
+/* Sections, not cards: each opens with a rule and a mono heading. */
 .task-hero,
-.task-detail-panel {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: var(--shadow-soft);
-  padding: 16px;
+.task-detail-panel,
+.task-description-panel {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 14px 0 0;
 }
 
 .task-hero {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .task-title-input {
@@ -574,10 +585,11 @@
   border-color: transparent;
   background: transparent;
   color: var(--text-h);
-  font-size: 26px;
-  font-weight: 760;
+  font-size: var(--fs-page-title);
+  font-weight: 720;
+  letter-spacing: -0.015em;
   line-height: 1.2;
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
 .task-title-input:focus {
@@ -588,7 +600,7 @@
 .task-detail-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .task-description-panel textarea {
@@ -601,9 +613,21 @@
   width: 100%;
 }
 
+/* Panel headings are mono micro-labels — the same marker the lane columns,
+   kanban columns and filter block use, so every section on every page reads
+   the same way. */
+.task-section-heading h2 {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
 .task-section-heading span {
-  color: var(--text-muted);
-  font-size: 13px;
+  color: var(--text-meta);
+  font-size: var(--fs-meta);
 }
 
 .task-detail-list {
@@ -612,25 +636,29 @@
   gap: 10px;
 }
 
+/* Dependency and blocking entries are rows on the page, like task rows —
+   the boxed-list treatment was the last card-in-card in the detail view. */
 .dependency-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
 
 .dependency-list li {
   justify-content: space-between;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-soft);
-  padding: 10px;
+  border: 0;
+  border-bottom: 1px solid var(--rule-row);
+  border-radius: 0;
+  background: transparent;
+  padding: 9px 0;
 }
 
 .dependency-list li a {
   min-width: 0;
   overflow: hidden;
   color: var(--text-h);
-  font-weight: 700;
+  font-size: var(--fs-task-title);
+  font-weight: 620;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -652,9 +680,10 @@
 }
 
 .icon-button.compact {
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
+  width: var(--icon-btn);
+  min-width: var(--icon-btn);
+  height: var(--icon-btn);
+  min-height: var(--icon-btn);
 }
 
 /* Tasks page: quick-add bar + List/Board view toggle row. Top-aligned because
@@ -1138,7 +1167,21 @@
   top: 0;
   z-index: 2;
   margin-left: auto;
-  display: flex;
-  min-height: 0;
-  padding: 6px;
+  display: grid;
+  place-items: center;
+  width: var(--icon-btn);
+  min-width: var(--icon-btn);
+  height: var(--icon-btn);
+  min-height: var(--icon-btn);
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-meta);
+  padding: 0;
+}
+
+.peek-close:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--fill-pill);
+  color: var(--text-h);
 }
