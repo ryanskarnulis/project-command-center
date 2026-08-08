@@ -121,6 +121,33 @@
   color: var(--text-meta);
 }
 
+/* Phone-width primary nav, pinned to the viewport foot. Hidden by default and
+   switched on with the topbar's collapse in responsive.css, so exactly one of
+   the two navs is ever displayed — and only one lands in the a11y tree despite
+   both carrying the "Primary navigation" label. */
+.bottom-nav {
+  display: none;
+}
+
+.bottom-nav-link {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+.bottom-nav-link:hover {
+  background: var(--fill-pill);
+  color: var(--text-h);
+}
+
+.bottom-nav-link.active {
+  background: transparent;
+  color: var(--link);
+}
+
 .topbar {
   position: sticky;
   top: 0;

@@ -18,13 +18,34 @@ describe('AppShell', () => {
       </MemoryRouter>,
     )
 
-    // The brand mark is the home link; there is no sidebar.
+    // The brand mark is the home link; there is no sidebar. Scoped to the
+    // topbar's nav because the phone-width bottom bar carries the same landmark
+    // label — only one of the two is ever displayed (see responsive.css).
     expect(screen.getByRole('link', { name: 'Command Center' })).toBeInTheDocument()
-    const nav = screen.getByLabelText('Primary navigation')
+    const nav = document.querySelector('.topbar .shell-nav') as HTMLElement
+    expect(nav).not.toBeNull()
     expect(within(nav).getByRole('link', { name: 'Focus' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Tasks' })).toBeInTheDocument()
     expect(within(nav).queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument()
     expect(document.querySelector('.app-sidebar')).not.toBeInTheDocument()
+  })
+
+  it('carries a phone-width bottom bar with Home, Tasks and Agent', () => {
+    render(
+      <MemoryRouter>
+        <AppShell>
+          <main>Page</main>
+        </AppShell>
+      </MemoryRouter>,
+    )
+
+    const bottom = document.querySelector('.bottom-nav') as HTMLElement
+    expect(bottom).not.toBeNull()
+    expect(within(bottom).getByRole('link', { name: 'Home' })).toBeInTheDocument()
+    expect(within(bottom).getByRole('link', { name: 'Tasks' })).toBeInTheDocument()
+    expect(within(bottom).getByRole('link', { name: 'Agent' })).toBeInTheDocument()
+    // Focus is deliberately absent — it lives in the dashboard title row.
+    expect(within(bottom).queryByRole('link', { name: 'Focus' })).not.toBeInTheDocument()
   })
 
   it('shows the summed trash count beside the Trash link', async () => {

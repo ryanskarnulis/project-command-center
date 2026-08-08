@@ -1854,3 +1854,61 @@ sweep caught two bugs introduced earlier in the series: a 27px horizontal
 overflow on every task and trash row below 880px (`margin-left` on a
 `flex-basis: 100%` item, fixed to `padding-left`), and a hardcoded `16px` on the
 signal counts (tokenised, with the mobile 17px the design specifies).
+
+---
+
+## Mobile dashboard — M01f (2026-08-08)
+> Handoff `design_handoff_dashboard_mobile_m01f`: a UI revision of `/dashboard`
+> at 390px, inheriting the flat restyle's vocabulary. Nine problems in the
+> shipped screen — two competing primary buttons crushing the title, a signal
+> strip that stacked into misaligned rows, meta lines repeating what the group
+> header already said, ~86px of chrome before content, a nearly invisible check
+> circle, sub-44px tap targets, an empty lane spending a header row to say zero,
+> and no sense of project progress. Net: ~180px less above the first task and
+> one unambiguous create path per lane.
+
+- [x] **Shell** — primary nav moves to a fixed bottom bar (Home / Tasks / Agent)
+      below the 820px tier; the topbar collapses to one row (gateway, search,
+      trash) instead of two, and `.app-main` reserves the bar's height. Focus
+      leaves the nav for the dashboard title row.
+- [x] **Title row** — the two filled `.dashboard-add-task` buttons are gone.
+      A `sun` link and an icon-only `+` (New project), both bordered ghosts, and
+      the h1 goes to 22px at phone width now that nothing crowds it.
+- [x] **Signal strip stays 3-up at every width** — the `≤720` stacking rule and
+      its stray 18px indent on rows 2–3 are deleted; count leads the label, icon
+      dropped, and the strip owns the rule beneath it (first lane loses its
+      `border-top`, the stack rides up 8px).
+- [x] **Lane headers** — per-lane **Add task** opens the dialog pre-filed to
+      that project (new behavior); a 64×3 progress bar sits under the name,
+      fed by a new `done_task_count` on `GET /api/dashboard`; **Show done**
+      moves to the foot of the lane body; caret to 44×44 at phone width.
+- [x] **Empty projects** fold into one expandable summary row.
+- [x] **Exceptions-only task meta** (`TaskCard dense`) on the two live columns:
+      no state word, priority only above Medium, "Blocks 2", bare dates,
+      abbreviated estimates, `·` separators. Check circle to 19px and its ring
+      to `.62` alpha app-wide, tinted violet on in-progress rows.
+
+Deliberate deviations:
+
+- [x] **The done archive keeps the full meta line.** The dense rule would drop
+      its status chip, which is the only path from a completed card back to
+      In progress (#148) — the group header naming the state does not make the
+      control redundant.
+- [x] **The separators are sibling `<span>`s**, not pseudo-content inside the
+      chip `<button>`s — the reason the flat restyle left them out. As siblings
+      they are `aria-hidden` and outside every control's accessible name.
+- [x] **Mic stays 24px, not the file's 22** — same 2.5.8 floor the restyle
+      recorded.
+- [x] **Structural changes land at every width**, since the component tree is
+      shared: desktop also gets lane-scoped create, the progress bar, the moved
+      Show done and the dense meta line. Only geometry is breakpoint-scoped.
+
+Fixed in passing: the topbar's `.shell-nav-link > span` label-hiding rule was
+also matching `.nav-count-badge`, so the trash count was invisible below 820px —
+exactly the width the design shows it at.
+
+Verified in headless chromium at 390px and 1400px: 54 assertions over geometry,
+computed styles, meta content, the lane-scoped create pre-fill, the Show done
+disclosure, the empty-projects expansion and the signal filter, plus a
+no-horizontal-overflow check on `/dashboard`, `/tasks`, `/focus`, `/agent` and
+`/trash`.

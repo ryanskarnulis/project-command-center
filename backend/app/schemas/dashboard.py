@@ -10,6 +10,9 @@ class ProjectOpenTasksRow(BaseModel):
     project_id: int
     project_name: str
     open_task_count: int
+    # Completed siblings of `open_task_count`, so a lane can draw its progress
+    # share without a per-project round trip to the completed-tasks endpoint.
+    done_task_count: int
 
 
 class DashboardRead(BaseModel):

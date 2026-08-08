@@ -7,6 +7,14 @@ itself is not in the repo; the standing rule it leaves behind is in the
 restyle's `DONE.md` entry — **no element inherits the 16px root size**, and
 every new metadata word is a colored word, not a pill.
 
+**Mobile dashboard (M01f) shipped 2026-08-08**, archived in `DONE.md`. Two
+standing rules it leaves behind: creating is **lane-scoped** — the board has no
+global create button, and anything that adds a per-project affordance should
+follow suit; and a row that sits under a status group header carries an
+**exceptions-only** meta line (`TaskCard dense`), never the word the header
+already says. The done archive is the deliberate exception — its status chip is
+load-bearing (#148).
+
 Back to the checkout the restyle displaced.
 
 ---

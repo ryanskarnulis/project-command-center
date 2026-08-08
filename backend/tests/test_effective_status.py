@@ -109,7 +109,7 @@ def test_done_blocked_leaf_list_and_dashboard_agree(db_session: Session) -> None
     assert a not in done_ids
 
     # The dashboard's open set uses the same cap now, so it counts A as open too.
-    open_ids = {t.id for t in dashboard_service._open_tasks(db_session)}
+    open_ids = {t.id for t in dashboard_service._split_by_effective_status(db_session)[0]}
     assert a in open_ids
 
 
@@ -193,7 +193,7 @@ def test_dashboard_total_matches_effective_not_done(db_session: Session) -> None
     )
     assert total == expected_open
     # And the blocked-done parent is among the counted-open tasks.
-    open_ids = {t.id for t in dashboard_service._open_tasks(db_session)}
+    open_ids = {t.id for t in dashboard_service._split_by_effective_status(db_session)[0]}
     assert parent in open_ids
 
 

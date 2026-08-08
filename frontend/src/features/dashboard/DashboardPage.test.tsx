@@ -84,9 +84,24 @@ function localDateOffset(days: number): string {
 const overview: DashboardOverview = {
   total_open_tasks: 3,
   projects: [
-    { project_id: 1, project_name: 'Customer Portal', open_task_count: 2 },
-    { project_id: 2, project_name: 'Training Rollout', open_task_count: 1 },
-    { project_id: 3, project_name: 'Quiet Project', open_task_count: 0 },
+    {
+      project_id: 1,
+      project_name: 'Customer Portal',
+      open_task_count: 2,
+      done_task_count: 2,
+    },
+    {
+      project_id: 2,
+      project_name: 'Training Rollout',
+      open_task_count: 1,
+      done_task_count: 0,
+    },
+    {
+      project_id: 3,
+      project_name: 'Quiet Project',
+      open_task_count: 0,
+      done_task_count: 0,
+    },
   ],
 }
 
@@ -182,12 +197,16 @@ describe('DashboardPage', () => {
     expect(
       await screen.findByRole('heading', { name: 'Project board' }),
     ).toBeInTheDocument()
-    expect(
-      screen.getByText('3 open tasks across all projects'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('3 open tasks')).toBeInTheDocument()
 
     const portal = lane('Customer Portal')
-    expect(within(portal).getByText('2 open tasks')).toBeInTheDocument()
+    expect(within(portal).getByText('2 open')).toBeInTheDocument()
+    // Two of Customer Portal's four tasks are done.
+    expect(
+      within(portal).getByRole('progressbar', {
+        name: 'Customer Portal progress',
+      }),
+    ).toHaveAttribute('aria-valuenow', '50')
     expect(within(portal).getByText('Blocking')).toBeInTheDocument()
     const openColumn = within(portal).getByRole('region', {
       name: 'Customer Portal Open',
@@ -251,15 +270,26 @@ describe('DashboardPage', () => {
     expect(within(quiet).queryByText('A genuine subtask')).not.toBeInTheDocument()
   })
 
-  it('collapses quiet projects and expands them on demand', async () => {
+  it('folds projects with no tasks into one summary row', async () => {
     renderPage()
     await screen.findByRole('heading', { name: 'Project board' })
 
+    // No lane header of its own — a whole row to say zero is what the summary
+    // row replaces.
+    expect(
+      screen.queryByRole('link', { name: 'Quiet Project' }),
+    ).not.toBeInTheDocument()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: '1 empty project · Quiet Project' }),
+    )
+
+    // Expanded, it is an ordinary lane again: collapsed because it is quiet,
+    // and openable from its caret.
     const quiet = lane('Quiet Project')
     expect(
       within(quiet).queryByRole('region', { name: 'Quiet Project Open' }),
     ).not.toBeInTheDocument()
-
     await userEvent.click(
       within(quiet).getByRole('button', { name: 'Expand Quiet Project' }),
     )
@@ -441,7 +471,7 @@ describe('DashboardPage', () => {
     )
   })
 
-  it('adds a task from the board without leaving it', async () => {
+  it('files a task into the lane whose Add task was tapped', async () => {
     mockListProjects.mockResolvedValue([
       {
         id: 7,
@@ -464,14 +494,19 @@ describe('DashboardPage', () => {
     await screen.findByRole('heading', { name: 'Project board' })
     expect(mockGetDashboard).toHaveBeenCalledTimes(1)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Add task' }))
+    // There is no board-level create button: the lane supplies the project, so
+    // the dialog opens already filed to Training Rollout, not to General.
+    expect(screen.queryByRole('button', { name: 'Add task' })).not.toBeInTheDocument()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Add task to Training Rollout' }),
+    )
     const modal = await screen.findByRole('dialog', { name: 'Add task' })
     await userEvent.type(within(modal).getByLabelText('Title'), 'Refill toner')
     await userEvent.click(within(modal).getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
       expect(mockCreateUnscopedTask).toHaveBeenCalledWith(
-        expect.objectContaining({ title: 'Refill toner', project_id: 7 }),
+        expect.objectContaining({ title: 'Refill toner', project_id: 2 }),
       ),
     )
     // The modal closes, the board refetches, and we never left the dashboard.
@@ -517,17 +552,14 @@ describe('DashboardPage', () => {
       screen.getByText(
         (_, el) =>
           el?.tagName === 'P' &&
-          el.textContent ===
-            '1 open task with 1 subtask across all projects · 1 unfiled',
+          el.textContent === '1 open task · 1 subtask · 1 unfiled',
       ),
     ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '1 unfiled' })).toBeInTheDocument()
 
     // The lane header matches its cards: one root, with the subtask called out.
     const portal = lane('Customer Portal')
-    expect(
-      within(portal).getByText('1 open task · 1 subtask'),
-    ).toBeInTheDocument()
+    expect(within(portal).getByText('1 open · 1 subtask')).toBeInTheDocument()
   })
 
   it('routes the complete circle through the recurrence-safe done endpoint', async () => {

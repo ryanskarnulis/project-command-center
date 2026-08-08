@@ -15,16 +15,17 @@ router = APIRouter(tags=["dashboard"])
 
 @router.get("/dashboard", response_model=DashboardRead)
 def get_dashboard(db: Session = Depends(get_db)) -> DashboardRead:
-    """Aggregate open-task counts, overall and per project — no model call."""
+    """Aggregate open/done task counts, overall and per project — no model call."""
     total, per_project = dashboard_service.get_overview(db)
     return DashboardRead(
         total_open_tasks=total,
         projects=[
             ProjectOpenTasksRow(
-                project_id=project.id,
-                project_name=project.name,
-                open_task_count=count,
+                project_id=row.project.id,
+                project_name=row.project.name,
+                open_task_count=row.open_count,
+                done_task_count=row.done_count,
             )
-            for project, count in per_project
+            for row in per_project
         ],
     )

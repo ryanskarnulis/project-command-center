@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { Plus, Sun } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { createProject, reopenProject, reorderProjects } from '../../api/projects'
 import type { ProjectCreate } from '../../types/project'
@@ -37,7 +37,9 @@ export function DashboardPage() {
   const { bump: bumpTaskRefresh } = useTaskRefresh()
   const [signal, setSignal] = useState<DashboardSignal | null>(null)
   const [creatingProject, setCreatingProject] = useState(false)
-  const [addingTask, setAddingTask] = useState(false)
+  // Which lane asked for the task dialog. Creation is always lane-scoped now —
+  // the project comes from where you tapped rather than from a form field.
+  const [addingTaskTo, setAddingTaskTo] = useState<number | null>(null)
 
   // The lanes are exactly the backend's non-closed projects (get_overview
   // filters closed_at). Scoping counts to these ids ties the headline and
@@ -146,16 +148,17 @@ export function DashboardPage() {
     <TaskPanelProvider onMutated={reload}>
       <div className="dashboard" aria-busy={refreshing}>
         <div className="dashboard-board-heading">
-          <div>
+          <div className="dashboard-board-title">
             <h1>Project board</h1>
+            {/* Three counts, no connective prose: the lanes below are the
+                "across all projects" the sentence used to spell out. */}
             <p>
               {filedOpenRootCount} open{' '}
               {filedOpenRootCount === 1 ? 'task' : 'tasks'}
               {filedOpenSubtaskCount > 0 &&
-                ` with ${filedOpenSubtaskCount} ${
+                ` · ${filedOpenSubtaskCount} ${
                   filedOpenSubtaskCount === 1 ? 'subtask' : 'subtasks'
-                }`}{' '}
-              across all projects
+                }`}
               {unfiledOpenCount > 0 && (
                 <>
                   {' · '}
@@ -164,22 +167,28 @@ export function DashboardPage() {
               )}
             </p>
           </div>
+          {/* Two bordered icon buttons, no fill: neither is the screen's
+              primary action, and a labelled button here crushed the title.
+              Focus is promoted out of the phone-width nav — it is a mode, not
+              a destination alongside the board — and hidden on desktop, where
+              the topbar nav still carries it. */}
           <div className="dashboard-board-actions">
+            <Link
+              to="/focus"
+              className="dashboard-board-action dashboard-focus-link"
+              aria-label="Focus"
+              title="Focus"
+            >
+              <Sun size={18} aria-hidden="true" />
+            </Link>
             <button
               type="button"
-              className="dashboard-add-task"
+              className="dashboard-board-action"
+              aria-label="New project"
+              title="New project"
               onClick={() => setCreatingProject(true)}
             >
-              <Plus size={16} aria-hidden="true" />
-              New project
-            </button>
-            <button
-              type="button"
-              className="dashboard-add-task"
-              onClick={() => setAddingTask(true)}
-            >
-              <Plus size={16} aria-hidden="true" />
-              Add task
+              <Plus size={18} aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -198,6 +207,7 @@ export function DashboardPage() {
           onUpdate={handleUpdate}
           onReorder={handleReorder}
           onCreateProject={() => setCreatingProject(true)}
+          onAddTask={setAddingTaskTo}
         />
 
         {closedProjects.length > 0 && (
@@ -227,12 +237,13 @@ export function DashboardPage() {
           />
         )}
 
-        {addingTask && (
+        {addingTaskTo !== null && (
           <TaskFormModal
             mode="create"
+            defaults={{ project_id: addingTaskTo }}
             tasks={tasks}
             projects={projects}
-            onClose={() => setAddingTask(false)}
+            onClose={() => setAddingTaskTo(null)}
             onSave={async (data) => {
               await withToast(createUnscopedTask(data), {
                 success: 'Task created',

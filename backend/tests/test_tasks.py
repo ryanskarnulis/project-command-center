@@ -643,7 +643,7 @@ def test_completed_checklist_parent_leaves_open_list_and_counts(
     assert parent.id not in open_ids
     total, per_project = dashboard_service.get_overview(db_session)
     assert total == 0
-    assert {p.id: c for p, c in per_project}[project.id] == 0
+    assert {row.project.id: row.open_count for row in per_project}[project.id] == 0
 
     # It doesn't vanish: the completed view filters on effective status too, so the
     # rolled-up-done parent lands in the archive rather than nowhere.

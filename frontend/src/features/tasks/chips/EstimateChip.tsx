@@ -1,5 +1,10 @@
 import { useState } from 'react'
-import { formatDuration, formatDurationInput, parseDurationInput } from '../../../utils/duration'
+import {
+  formatDuration,
+  formatDurationInput,
+  formatDurationShort,
+  parseDurationInput,
+} from '../../../utils/duration'
 import { ChipPopover } from './ChipPopover'
 import { focusOnMount } from './focusOnMount'
 
@@ -8,6 +13,8 @@ interface Props {
   onChange: (minutes: number | null) => void
   disabled?: boolean
   disabledHint?: string
+  /** Abbreviate to "~45m" — for rows whose meta line is bare words. */
+  dense?: boolean
 }
 
 interface EditorProps {
@@ -65,13 +72,23 @@ function EstimateEditor({ value, onCommit, close }: EditorProps) {
   )
 }
 
-export function EstimateChip({ value, onChange, disabled, disabledHint }: Props) {
+export function EstimateChip({
+  value,
+  onChange,
+  disabled,
+  disabledHint,
+  dense,
+}: Props) {
   const empty = value === null
+  // In dense form the label tracks the abbreviation rather than spelling the
+  // unit out: WCAG 2.5.3 wants the accessible name to contain the visible one,
+  // and here that is "~45m".
+  const shown = dense ? `~${formatDurationShort(value)}` : formatDuration(value)
   return (
     <ChipPopover
-      chip={empty ? 'Estimate…' : `~${formatDuration(value)}`}
+      chip={empty ? 'Estimate…' : dense ? shown : `~${shown}`}
       chipClassName={`estimate${empty ? ' chip-empty' : ''}`}
-      label={empty ? 'Set estimate' : `Estimate: ${formatDuration(value)}`}
+      label={empty ? 'Set estimate' : `Estimate: ${shown}`}
       disabled={disabled}
       disabledHint={disabledHint}
     >

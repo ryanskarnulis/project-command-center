@@ -46,9 +46,13 @@
   --rule-field: rgba(199, 211, 228, 0.16); /* input borders */
   --rule-control: rgba(199, 211, 228, 0.18); /* ghost button borders */
   --rule-hover: rgba(199, 211, 228, 0.3); /* ghost border on hover */
-  --rule-ring: rgba(199, 211, 228, 0.42); /* check-circle ring. The design's
-     0.3 composites to 2.13:1 on --bg — under WCAG 1.4.11's 3:1 for a control
-     boundary, and this is the primary "mark done" affordance. */
+  --rule-ring: rgba(199, 211, 228, 0.62); /* check-circle ring. Was 0.42, itself
+     raised from the first handoff's 0.3 (2.13:1 on --bg, under WCAG 1.4.11's
+     3:1 for a control boundary). The mobile dashboard handoff calls for 0.62 on
+     the screen's primary affordance — strictly more contrast, so it lands
+     app-wide rather than at one breakpoint. */
+  --rule-ring-progress: rgba(201, 178, 244, 0.75); /* the same ring on an
+     in-progress row, tinted to match its group label */
 
   /* fills that survive the flattening */
   --fill-subtle: rgba(199, 211, 228, 0.05); /* fields, search bar */
@@ -112,6 +116,8 @@
   --frost: rgba(15, 19, 29, 0.9); /* frosted sticky panels (night veils) */
   --frost-soft: rgba(15, 19, 29, 0.84);
   --frost-bg: rgba(10, 12, 18, 0.8);
+  --frost-bar: rgba(10, 12, 18, 0.92); /* phone bottom nav: a step more opaque
+     than the topbar, because content scrolls under it rather than past it */
   --overlay: rgba(4, 6, 10, 0.55); /* modal/drawer scrims */
   --overlay-strong: rgba(4, 6, 10, 0.72);
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
