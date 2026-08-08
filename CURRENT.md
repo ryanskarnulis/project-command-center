@@ -1,39 +1,19 @@
 # Current focus
 
-**Checked out 2026-08-07: flat UI restyle.** A whole-app visual restyle from
-the `design_handoff_flat_ui_restyle` package — every route, desktop and
-mobile. Removes the bubbly chrome (nested cards, filled icon tiles, metadata
-pills, drop shadows) for a flat hairline-ruled system at a smaller type and
-control scale. No routes, data, or flows change. Shipping in eight chunks:
+**Flat UI restyle shipped 2026-08-07** (PRs #281–#288) and is archived in
+`DONE.md`, along with the decisions taken against the letter of the handoff
+and the four handoff inaccuracies found while building it. The design package
+itself is not in the repo; the standing rule it leaves behind is in the
+restyle's `DONE.md` entry — **no element inherits the 16px root size**, and
+every new metadata word is a colored word, not a pill.
 
-1. tokens + primitives · 2. shell + command search · 3. dashboard ·
-4. tasks list/board/filters · 5. task detail + modals · 6. focus + project
-detail + trash · 7. agent · 8. responsive + a11y sweep
-
-Three decisions taken up front, against the letter of the handoff:
-
-- **Row metadata chips stay editable.** The design renders them as inert
-  `<span>`s; in this codebase they are `StatusChip`/`PriorityChip`/
-  `DueDateChip`/`EstimateChip` — inline editors, plus the only route to "Skip
-  occurrence…". They keep the flat look and trade the resting fill for a
-  hover/focus affordance.
-- **The task-detail hero keeps its tinted chips.** Desktop and mobile design
-  files disagree; desktop wins, because there the chips *are* the primary edit
-  controls.
-- **Mobile keeps the controls the design dropped** — the in-list search field,
-  the sort select, and the Overdue/Due-soon toggles. Their absence from the
-  mobile file is a loss of function, not a restyle.
-
-Deviations from the literal spec, all a11y: mono micro-labels lightened and
-sized up (the spec's `#6f7889` at 9.5px is 4.01:1 over the vignette centre),
-check-circle ring strengthened to clear 3:1, and a global focus ring, since
-the restyle removed fills that were carrying focus.
+Back to the checkout the restyle displaced.
 
 ---
 
-**Superseded — checked out 2026-07-12: backlog features + one overdue
-decision.** Item 3 is now resolved (see below); items 1 and 2 return to the
-backlog. The
+**Checked out 2026-07-12: backlog features + one overdue
+decision.** Item 3 is now resolved (see below); items 1 and 2 are the live
+work. The
 fleet agent-standard alignment completed 2026-07-11 and is archived in
 `DONE.md` — `app.yaml` agent block (#54), layered Glitch personality (#55),
 `X-Agent-Actor` delegate attribution (#56). With the agent stack settled
