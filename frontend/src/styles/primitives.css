@@ -606,10 +606,32 @@
   gap: 12px;
 }
 
+/* Mono field labels, matching the filter block and the detail panels. The
+   `> label` bound keeps this off labels that wrap a control (checkbox rows),
+   which read as controls rather than captions. */
+.modal-body form > label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: -6px;
+}
+
 .modal-body input,
 .modal-body select,
 .modal-body textarea {
   width: 100%;
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .modal-body textarea {
