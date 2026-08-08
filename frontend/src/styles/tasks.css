@@ -76,19 +76,20 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 32px;
+  min-height: 28px;
   border: 0;
   background: transparent;
-  color: var(--text-muted);
-  font-size: 18px;
-  font-weight: 760;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 680;
   box-shadow: none;
-  padding: 4px 6px;
+  padding: 4px 0;
 }
 
 .activity-toggle:hover:not(:disabled) {
-  background: var(--surface-soft);
-  color: var(--blue);
+  border-color: transparent;
+  background: transparent;
+  color: var(--link);
 }
 
 .activity-feed ul {
@@ -102,8 +103,9 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
-  border-left: 3px solid var(--border-strong);
-  padding: 8px 0 8px 12px;
+  border-left: 2px solid var(--rule-field);
+  padding: 7px 0 7px 10px;
+  font-size: var(--fs-meta);
 }
 
 .activity-item.activity-created {
@@ -893,24 +895,29 @@
   padding: 5px 8px;
   margin: 0;
   font-weight: 760;
+  line-height: 1;
   text-decoration: none;
 }
 
-.task-detail .task-card-badges .status-pill.workflow-open { background: var(--blue-soft); }
-.task-detail .task-card-badges .status-pill.workflow-in_progress { background: var(--purple-soft); }
-.task-detail .task-card-badges .status-pill.workflow-done { background: var(--done-bg); }
-.task-detail .task-card-badges .status-pill.workflow-skipped { background: var(--orange-soft); }
-.task-detail .task-card-badges .priority-pill.priority-urgent { background: var(--urgent-bg); }
-.task-detail .task-card-badges .priority-pill.priority-high { background: var(--high-bg); }
-.task-detail .task-card-badges .priority-pill.priority-medium,
-.task-detail .task-card-badges .priority-pill.priority-low,
-.task-detail .task-card-badges .source-pill,
-.task-detail .task-card-badges .estimate,
-.task-detail .task-card-badges .due-none { background: var(--neutral-soft); }
-.task-detail .task-card-badges .due-today,
-.task-detail .task-card-badges .due-soon { background: var(--blue-soft); }
-.task-detail .task-card-badges .due-overdue { background: var(--orange-soft); }
-.task-detail .task-card-badges .repeat-badge { background: var(--purple-soft); }
+/* The `.chip-trigger` bound matters: the exception is about edit controls,
+   not about being inside a detail view. ProjectDetailPage is also a
+   `.task-detail`, and its header words ("8 open · 5 done", "Protected") are
+   plain spans — they stay flat, like every other read-only metadata word. */
+.task-detail .chip-trigger.status-pill.workflow-open { background: var(--blue-soft); }
+.task-detail .chip-trigger.status-pill.workflow-in_progress { background: var(--purple-soft); }
+.task-detail .chip-trigger.status-pill.workflow-done { background: var(--done-bg); }
+.task-detail .chip-trigger.status-pill.workflow-skipped { background: var(--orange-soft); }
+.task-detail .chip-trigger.priority-pill.priority-urgent { background: var(--urgent-bg); }
+.task-detail .chip-trigger.priority-pill.priority-high { background: var(--high-bg); }
+.task-detail .chip-trigger.priority-pill.priority-medium,
+.task-detail .chip-trigger.priority-pill.priority-low,
+.task-detail .chip-trigger.source-pill,
+.task-detail .chip-trigger.estimate,
+.task-detail .chip-trigger.due-none { background: var(--neutral-soft); }
+.task-detail .chip-trigger.due-today,
+.task-detail .chip-trigger.due-soon { background: var(--blue-soft); }
+.task-detail .chip-trigger.due-overdue { background: var(--orange-soft); }
+.task-detail .chip-trigger.repeat-badge { background: var(--purple-soft); }
 
 /* Portaled to <body> with an inline top/left(or right) anchored to the chip,
    so overflow-clipped ancestors (swimlanes, columns) can't cut it off. */

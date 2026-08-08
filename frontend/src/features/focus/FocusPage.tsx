@@ -2,7 +2,6 @@ import { Fragment, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
-  CalendarClock,
   Check,
   ChevronDown,
   ChevronRight,
@@ -462,10 +461,8 @@ export function FocusPage() {
     <TaskPanelProvider onMutated={refetch}>
     <main className="focus-page">
       <div className="section-heading">
+        {/* No icon tile — the page title carries the page. */}
         <div className="section-title">
-          <span className="heading-icon tone-blue">
-            <CalendarClock size={20} aria-hidden="true" />
-          </span>
           <div>
             <h1>Focus</h1>
             <p>Choose a session window and start with your highest-ranked work.</p>
