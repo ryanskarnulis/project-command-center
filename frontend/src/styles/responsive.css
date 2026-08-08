@@ -269,6 +269,24 @@
     margin-top: 2px;
   }
 
+  /* Show done sat bottom-heavy: symmetric padding put 8px between the last
+     task row's hairline and the label but 20px beneath it, because the 12px
+     lane-stack gap stacked on top of the button's own bottom padding. Push all
+     the padding to the top and let the gap be the space below — 12px above,
+     12px below. The lane body's 4px tail goes for the same reason; with it the
+     button no longer sits flush to the lane's bottom edge.
+     Deliberate trade: the row drops to ~31px tall. It is a low-frequency
+     toggle in open space with no neighbouring hit targets, the same exception
+     the 38px first-lane title row already makes. */
+  .dashboard-done-toggle {
+    min-height: 0;
+    padding: 12px 0 0;
+  }
+
+  .dashboard-swimlane-body {
+    padding: 0;
+  }
+
   .dashboard-done-archive > ul {
     column-gap: 0;
   }
