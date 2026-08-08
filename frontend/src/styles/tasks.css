@@ -151,6 +151,7 @@
 }
 
 .task-complete-circle {
+  position: relative;
   flex-shrink: 0;
   width: var(--check-size);
   height: var(--check-size);
@@ -167,6 +168,19 @@
   color: transparent;
   box-shadow: none;
   transition: border-color 0.15s, color 0.15s;
+}
+
+/* The ring is 17-18px for the look; the target underneath it is 24px, the
+   WCAG 2.2 (2.5.8) minimum. Drawn as an overlay rather than as padding so
+   the circle itself does not grow. */
+.task-complete-circle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
 }
 
 .task-complete-circle:hover:not(:disabled),
@@ -217,16 +231,6 @@
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.task-suggested-subtasks {
-  margin-bottom: 16px;
-}
-
-.task-suggested-lead {
-  margin: 0 0 8px;
-  font-size: 13px;
-  color: var(--muted);
 }
 
 .task-icon-action {

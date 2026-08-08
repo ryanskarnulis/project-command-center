@@ -125,7 +125,7 @@
    stays neutral — it is a fact about the graph, not an alarm. */
 .dashboard-signal strong {
   color: var(--text-h);
-  font-size: 16px;
+  font-size: var(--fs-signal);
   font-weight: 720;
 }
 

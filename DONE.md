@@ -1778,3 +1778,79 @@ shipped slices:
 - [x] Regression coverage for every door into effective completion, series
       uniqueness, restore conflict, and the duplicate-resolution migration
       (`tests/test_recurrence.py`, `tests/test_migrations.py`).
+
+---
+
+## Flat UI restyle (2026-08-07)
+> Whole-app visual restyle from the `design_handoff_flat_ui_restyle` package —
+> every route, desktop and mobile. Removes the bubbly chrome (nested cards,
+> filled icon tiles, metadata pills, drop shadows) for a flat hairline-ruled
+> system at a smaller type and control scale. No routes, data, or flows change.
+> Shipped in eight chunks, PRs #281–#288.
+
+- [x] **Token layer** (#281) — hairline ramp (`--rule-*`), surviving fills
+      (`--fill-*`), a text ramp below `--muted`, control metrics and an `--fs-*`
+      type scale in `tokens.css`, with the mobile step-down in `responsive.css`
+      at the 820px tier. `silk.css` untouched (verbatim gateway copy).
+- [x] **Metadata pills → flat colored words** everywhere they appear, via the
+      one shared geometry rule in `primitives.css`. The bare `<button>` became
+      the system's ghost control.
+- [x] **Row chips stay editable.** The design renders them as inert `<span>`s;
+      here they are `StatusChip`/`PriorityChip`/`DueDateChip`/`EstimateChip` —
+      inline editors, and the only route to "Skip occurrence…". They took the
+      flat look and traded the resting fill for a hover/focus affordance.
+- [x] **The task-detail hero keeps its tinted chips** — the desktop and mobile
+      design files disagreed; desktop won, because there the chips are the
+      primary edit controls. Scoped to `.chip-trigger` so `ProjectDetailPage`,
+      which shares the `.task-detail` wrapper, keeps its read-only words flat.
+- [x] **Shell** (#282) — topbar 76px → 58px; nav state carried in color alone;
+      the duplicate `web.png` replaced by a `home` glyph, leaving one web mark
+      on the gateway link.
+- [x] **Dashboard** (#283) — signal strip unboxed to a top/bottom rule;
+      swimlane header reordered in JSX so the name leads and controls trail;
+      folder tile removed; the shared task row flattened to a flush hairline row.
+- [x] **Tasks, detail, focus, projects, trash, agent** (#284–#287) — filter and
+      panel blocks ruled with mono micro-labels, kanban and lane columns stripped
+      of card chrome, drag-over reduced to a left rule and a faint wash, focus
+      timeline flattened, trash grid collapsed to one column, agent rail reduced
+      to a hairline.
+- [x] **Sweep** (#288) — 15 `rem` font sizes converted to the px scale (nothing
+      keys off the 16px root), 14 dead selectors deleted, toasts slotted into the
+      floating-surface exception, and touch targets raised to the WCAG 2.2
+      (2.5.8) 24px floor.
+
+Deviations from the literal spec, all accessibility, all deliberate:
+
+- [x] Mono micro-labels lightened to `#858e9f` and floored at 10.5px — the
+      spec's `#6f7889` at 9.5px is 4.40:1 on `--bg` and 4.01:1 over the vignette
+      centre, under AA, and with the section cards gone these labels are the only
+      thing naming a section.
+- [x] Check-circle ring to 0.42 alpha — the spec's 0.3 composites to 2.13:1,
+      under WCAG 1.4.11's 3:1 for a control boundary, on the primary "mark done"
+      affordance.
+- [x] A global `:focus-visible` ring at zero specificity, since the flattening
+      removed several fills that were carrying focus.
+- [x] Mobile keeps the in-list search field, sort select and Overdue/Due-soon
+      toggles that the mobile design file dropped — their absence was a loss of
+      function, not chrome.
+
+Handoff inaccuracies found and not implemented:
+
+- [x] The mobile file's "Done | Edit | Delete" row actions describe a UI this
+      page has never had (no Edit action; Done is the check circle).
+- [x] The README's `folder-kanban` icon in command-search project results does
+      not exist — results have always led with a type badge.
+- [x] The documented `main.agent-page` "no breakpoint" bug does not exist;
+      `agent.css` had a 900px block all along. It did overlap the 820px tier, so
+      both were consolidated into `responsive.css`.
+- [x] The emoji mic stays: `MicButton.tsx` is a vendored fleet module
+      ("re-copy, never edit"); that change belongs upstream per
+      `agent-standard/voice.md`.
+
+Verified per chunk in headless chromium via the `verifier-browser` skill, not
+just Vitest — including real HTML5 drags (lane reorder, kanban card move) that
+jsdom cannot exercise, and a final 8-route × 7-width breakpoint matrix. The
+sweep caught two bugs introduced earlier in the series: a 27px horizontal
+overflow on every task and trash row below 880px (`margin-left` on a
+`flex-basis: 100%` item, fixed to `padding-left`), and a hardcoded `16px` on the
+signal counts (tokenised, with the mobile 17px the design specifies).

@@ -16,6 +16,9 @@
     --fs-page-sub: 11.5px;
     --fs-task-title: 13.5px;
     --fs-meta: 11.5px;
+    /* The one value that goes *up* on mobile: the strip stacks count over
+       label there, so the count carries the cell on its own. */
+    --fs-signal: 17px;
   }
 
   /* Tighter meta rhythm at phone width. The mobile design separates these
@@ -31,11 +34,16 @@
   /* Rows stay rows. The old rule stacked the whole card into a column, which
      put the complete-circle on its own line above the title — that read as a
      card, and cards are what this restyle removed. Only the action row drops
-     below, indented to line up under the title. */
+     below, indented to line up under the title.
+
+     The indent is padding, not margin: `flex-basis: 100%` already claims the
+     row's full width, and under border-box padding is inside that basis while
+     a margin would be added on top of it — 27px of horizontal page overflow
+     on every task row and every trash row. */
   .task-card-actions {
     flex-basis: 100%;
     flex-wrap: wrap;
-    margin-left: 27px;
+    padding-left: 27px;
   }
 
   .task-filters,
@@ -121,13 +129,6 @@
 
   .command-search kbd {
     display: none;
-  }
-
-  .settings-profile-header,
-  .training-example-header,
-  .review-row-controls {
-    align-items: flex-start;
-    flex-direction: column;
   }
 }
 
