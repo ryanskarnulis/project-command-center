@@ -730,14 +730,31 @@
 }
 
 /* The pill classes (priority-pill, status-pill, …) carry the look; this
-   strips the native button chrome so a <button> renders as a pill. */
+   strips the native button chrome so a <button> renders as a metadata word.
+   Flattening those pills took away the resting fill that used to say
+   "clickable", so the affordance moves to hover/focus: a dotted underline
+   plus a tint. The negative margin cancels the padding so a chip still
+   occupies exactly the space its plain-<span> sibling would, keeping the
+   meta line's 3px/9px rhythm intact. */
 .chip-trigger {
   border: none;
+  border-radius: 4px;
+  background: transparent;
   cursor: pointer;
   font-family: inherit;
   gap: 4px;
   min-height: 0;
+  padding: 2px 5px;
+  margin: -2px -5px;
   box-shadow: none;
+  text-decoration: underline dotted transparent;
+  text-underline-offset: 3px;
+}
+
+.chip-trigger:hover:not(:disabled),
+.chip-trigger:focus-visible {
+  background: var(--fill-pill);
+  text-decoration-color: currentColor;
 }
 
 .chip-trigger:disabled {
@@ -746,13 +763,44 @@
 }
 
 /* Empty-state affordance ("Set due date", "Estimate…") for fields the old
-   hero simply hid when unset. */
+   hero simply hid when unset. Keeps its dashed outline — there is no value
+   here for color to attach to, so the box is the only thing to see. */
 .chip-trigger.chip-empty {
   background: transparent;
   border: 1px dashed var(--border-strong);
+  border-radius: 6px;
   color: var(--text-muted);
   font-weight: 600;
+  padding: 5px 8px;
+  margin: 0;
 }
+
+/* Deliberate exception: on the task-detail hero the chips *are* the primary
+   edit controls, not annotations on a row you came to read. They keep the
+   tinted pill so the click target is unmistakable. */
+.task-detail .task-card-badges .chip-trigger {
+  border-radius: 6px;
+  padding: 5px 8px;
+  margin: 0;
+  font-weight: 760;
+  text-decoration: none;
+}
+
+.task-detail .task-card-badges .status-pill.workflow-open { background: var(--blue-soft); }
+.task-detail .task-card-badges .status-pill.workflow-in_progress { background: var(--purple-soft); }
+.task-detail .task-card-badges .status-pill.workflow-done { background: var(--done-bg); }
+.task-detail .task-card-badges .status-pill.workflow-skipped { background: var(--orange-soft); }
+.task-detail .task-card-badges .priority-pill.priority-urgent { background: var(--urgent-bg); }
+.task-detail .task-card-badges .priority-pill.priority-high { background: var(--high-bg); }
+.task-detail .task-card-badges .priority-pill.priority-medium,
+.task-detail .task-card-badges .priority-pill.priority-low,
+.task-detail .task-card-badges .source-pill,
+.task-detail .task-card-badges .estimate,
+.task-detail .task-card-badges .due-none { background: var(--neutral-soft); }
+.task-detail .task-card-badges .due-today,
+.task-detail .task-card-badges .due-soon { background: var(--blue-soft); }
+.task-detail .task-card-badges .due-overdue { background: var(--orange-soft); }
+.task-detail .task-card-badges .repeat-badge { background: var(--purple-soft); }
 
 /* Portaled to <body> with an inline top/left(or right) anchored to the chip,
    so overflow-clipped ancestors (swimlanes, columns) can't cut it off. */

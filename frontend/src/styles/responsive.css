@@ -3,6 +3,22 @@
    (The prefers-color-scheme pill block is gone — the app is dark-only silk;
    pill tokens in tokens.css carry the night values directly.) */
 
+/* Mobile step-down for the flat scale. One tier, at the breakpoint where the
+   topbar already collapses, so controls and type shrink together rather than
+   drifting apart across four separate widths. Definitions live in tokens.css. */
+@media (max-width: 820px) {
+  :root {
+    --ctl-h: 28px;
+    --field-h: 34px;
+    --search-h: 38px;
+    --check-size: 17px;
+    --fs-page-title: 20px;
+    --fs-page-sub: 11.5px;
+    --fs-task-title: 13.5px;
+    --fs-meta: 11.5px;
+  }
+}
+
 @media (max-width: 880px) {
   .task-card {
     align-items: flex-start;

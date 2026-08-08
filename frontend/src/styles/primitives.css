@@ -11,35 +11,43 @@
   box-shadow: var(--shadow-xs);
 }
 
+/* The bare <button> is already the ghost control (base.css). These are the
+   opt-in variants: a filled primary, a borderless ghost, a destructive
+   outline. */
 .btn--primary {
   background: var(--blue);
-  border-color: var(--blue);
+  border-color: transparent;
   color: var(--on-accent);
+  font-weight: 750;
 }
 
 .btn--primary:hover:not(:disabled) {
   background: var(--accent);
-  border-color: var(--accent);
+  border-color: transparent;
 }
 
 .btn--ghost {
   background: transparent;
   border-color: transparent;
+  color: var(--text-meta);
   box-shadow: none;
 }
 
 .btn--ghost:hover:not(:disabled) {
-  background: var(--surface-soft);
+  border-color: transparent;
+  background: var(--fill-pill);
+  color: var(--text);
 }
 
 .btn--danger {
-  background: var(--red-soft);
-  border-color: var(--red-soft);
+  background: transparent;
+  border-color: rgba(242, 143, 164, 0.45);
   color: var(--red);
 }
 
 .btn--danger:hover:not(:disabled) {
   border-color: var(--red);
+  background: var(--red-soft);
 }
 
 /* Command search: the topbar bar plus its results dropdown. */
@@ -193,11 +201,13 @@
 /* Shared async-state lines (src/components/AsyncState). */
 .async-loading,
 .async-empty {
-  color: var(--text-muted);
+  color: var(--text-meta);
+  font-size: 13px;
 }
 
 .async-error {
   color: var(--red);
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -293,20 +303,26 @@
   gap: 10px;
 }
 
+/* Bare icon button: no border, no fill at rest — the hover tint is the whole
+   affordance. */
 .icon-link {
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--surface);
-  color: var(--blue);
+  width: var(--icon-btn);
+  min-width: var(--icon-btn);
+  height: var(--icon-btn);
+  min-height: var(--icon-btn);
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-meta);
 }
 
 .icon-link:hover {
-  border-color: var(--border-strong);
-  background: var(--blue-soft);
+  border-color: transparent;
+  background: var(--fill-pill);
+  color: var(--text-h);
 }
 
 .section-title {
@@ -335,6 +351,13 @@
   height: 38px;
 }
 
+/* Metadata words. The flat system carries status / priority / blocking / due /
+   estimate as plain colored words on one meta line — no fill, no radius, no
+   padding. Accent color carries the meaning; non-semantic values stay muted.
+   The chips underneath are still <button>s (see `.chip-trigger` in tasks.css):
+   they keep every inline editor, and trade the resting fill for a hover
+   affordance. The task-detail hero is the deliberate exception — it keeps the
+   tinted pills, because there the chips *are* the primary edit controls. */
 .status-pill,
 .badge,
 .count-badge,
@@ -347,11 +370,13 @@
   align-items: center;
   justify-content: center;
   width: fit-content;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 760;
-  line-height: 1;
-  padding: 5px 8px;
+  gap: 4px;
+  border-radius: 0;
+  background: transparent;
+  font-size: var(--fs-meta);
+  font-weight: 650;
+  line-height: 1.2;
+  padding: 0;
 }
 
 .suggested-project,
@@ -366,13 +391,13 @@
 }
 
 .count-badge {
-  background: var(--blue-soft);
+  background: transparent;
   color: var(--link);
 }
 
 .source-pill {
-  background: var(--neutral-soft);
-  color: var(--text-muted);
+  background: transparent;
+  color: var(--text-meta);
   text-transform: capitalize;
 }
 
@@ -387,12 +412,13 @@
 
 .empty-state,
 .page-loading {
-  border: 1px dashed var(--border-strong);
+  border: 1px dashed rgba(199, 211, 228, 0.2);
   border-radius: 8px;
-  background: var(--surface-soft);
-  color: var(--text-muted);
+  background: rgba(199, 211, 228, 0.03);
+  color: var(--text-meta);
+  font-size: 13px;
   font-weight: 650;
-  padding: 18px;
+  padding: 16px;
 }
 
 .page-loading {
@@ -442,38 +468,40 @@
   color: var(--text-muted);
 }
 
+/* Tone on a metadata word is text color only. (The generic `.tone-*` rules
+   above still carry fills — they dress icon tiles and swatches, not words.) */
 .status-pill.tone-blue,
 .badge.tone-blue,
 .due-today,
 .due-soon {
-  background: var(--blue-soft);
+  background: transparent;
   color: var(--link);
 }
 
 .status-pill.tone-green,
 .badge.tone-green,
 .dep-done {
-  background: var(--green-soft);
+  background: transparent;
   color: var(--green);
 }
 
 .status-pill.tone-orange,
 .badge.tone-orange,
 .due-overdue {
-  background: var(--orange-soft);
+  background: transparent;
   color: var(--orange-strong);
 }
 
 .status-pill.tone-red,
 .badge.tone-red,
 .blocked {
-  background: var(--red-soft);
+  background: transparent;
   color: var(--red);
 }
 
 .status-pill.tone-purple,
 .badge.tone-purple {
-  background: var(--purple-soft);
+  background: transparent;
   color: var(--purple);
 }
 
@@ -481,8 +509,8 @@
 .badge.tone-neutral,
 .estimate,
 .due-none {
-  background: var(--neutral-soft);
-  color: var(--text-muted);
+  background: transparent;
+  color: var(--text-meta);
 }
 
 .error {
@@ -493,25 +521,28 @@
 .priority-pill {
   display: inline-flex;
   align-items: center;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 760;
-  line-height: 1;
-  padding: 5px 8px;
-  background: var(--neutral-soft);
-  color: var(--text-muted);
+  border-radius: 0;
+  font-size: var(--fs-meta);
+  font-weight: 650;
+  line-height: 1.2;
+  padding: 0;
+  background: transparent;
+  color: var(--text-meta);
   text-transform: capitalize;
 }
 
-.priority-pill.priority-urgent { background: var(--urgent-bg); color: var(--urgent-text); }
-.priority-pill.priority-high   { background: var(--high-bg); color: var(--high-text); }
-.priority-pill.priority-medium { background: var(--neutral-soft); color: var(--text-muted); }
-.priority-pill.priority-low    { background: var(--neutral-soft); color: var(--text-muted); }
+/* Only urgent and high are semantic; medium/low read as ordinary metadata.
+   The priority name is spelled out, so the color is reinforcement, not the
+   only channel (WCAG 1.4.1). */
+.priority-pill.priority-urgent { background: transparent; color: var(--urgent-text); }
+.priority-pill.priority-high   { background: transparent; color: var(--high-text); }
+.priority-pill.priority-medium { background: transparent; color: var(--text-meta); }
+.priority-pill.priority-low    { background: transparent; color: var(--text-meta); }
 
-.status-pill.workflow-open        { background: var(--blue-soft); color: var(--link); }
-.status-pill.workflow-in_progress { background: var(--purple-soft); color: var(--purple); }
-.status-pill.workflow-done        { background: var(--done-bg); color: var(--green); }
-.status-pill.workflow-skipped     { background: var(--orange-soft); color: var(--orange); }
+.status-pill.workflow-open        { background: transparent; color: var(--link); }
+.status-pill.workflow-in_progress { background: transparent; color: var(--purple); }
+.status-pill.workflow-done        { background: transparent; color: var(--green); }
+.status-pill.workflow-skipped     { background: transparent; color: var(--orange); }
 
 .modal-overlay {
   position: fixed;
@@ -524,15 +555,17 @@
   padding: 20px;
 }
 
+/* Modals float above the page, so they keep a border, a radius and a shadow —
+   one of the handoff's deliberate exceptions to the no-elevation rule. */
 .modal {
   width: min(100%, 560px);
   max-height: calc(100svh - 40px);
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--surface);
-  box-shadow: var(--shadow);
-  padding: 20px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+  padding: 16px;
 }
 
 .modal-header {
@@ -540,23 +573,32 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
+}
+
+.modal-header h2 {
+  font-size: 16px;
+  font-weight: 700;
 }
 
 .modal-close {
-  width: 34px;
-  min-width: 34px;
-  height: 34px;
-  border-radius: 50%;
+  width: var(--icon-btn);
+  min-width: var(--icon-btn);
+  height: var(--icon-btn);
+  min-height: var(--icon-btn);
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-meta);
   padding: 0;
-  font-size: 22px;
+  font-size: 17px;
   line-height: 1;
 }
 
 .modal-body form {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .modal-body input,
