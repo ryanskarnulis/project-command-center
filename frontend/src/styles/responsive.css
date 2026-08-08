@@ -85,6 +85,32 @@
   .app-main {
     padding: 14px 14px 20px;
   }
+
+  /* The agent page's narrow-screen stack, moved here from a second @media
+     block inside agent.css. That one sat at 900px and overlapped this tier,
+     so its `min-height: 60vh` on the thread survived underneath any rule
+     written here and pushed the composer past the fold.
+
+     The rail stacks above the thread and caps its height; the thread takes
+     the rest of the row and scrolls internally, which keeps the composer
+     pinned on screen instead of at the end of a growing page. */
+  main.agent-page {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    height: calc(100svh - 150px);
+    min-height: 360px;
+  }
+
+  .agent-sidebar {
+    max-height: 30svh;
+    padding: 0 0 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .agent-thread {
+    min-height: 0;
+  }
 }
 
 @media (max-width: 560px) {
