@@ -129,15 +129,29 @@ Key decisions:
 ## Dashboard workflow
 
 The dashboard is a project-swimlane board built for moving work. Each active
-project has an Open / In progress lane with its open count and derived status
-tone; projects with no active work stay collapsed until needed. Task cards use
-the same dependency guards and recurrence-safe done/reopen paths as the project
-boards. Completed tasks are fetched lazily behind each lane's **Show done**
-toggle instead of occupying a permanent column.
+project has an Open / In progress lane with its open count, a progress bar
+(`done_task_count` / total, both from `GET /api/dashboard`) and a derived status
+tone. Task cards use the same dependency guards and recurrence-safe done/reopen
+paths as the project boards. Completed tasks are fetched lazily behind each
+lane's **Show done** toggle — at the foot of the lane body — instead of
+occupying a permanent column.
+
+Creating is lane-scoped: each lane header carries its own **Add task**, which
+opens the task dialog already filed to that project, so the board has no
+global create button. **New project** is the `+` beside the page title.
+Projects with no tasks at all collapse into a single expandable summary row at
+the end of the board rather than spending a header row each; lanes that a
+signal filter empties stay lanes, auto-collapsed.
 
 A slim signal strip above the lanes counts overdue, blocking, and due-today
 root tasks. Selecting a signal filters every project lane; selecting it again
-returns to the full board.
+returns to the full board. The strip stays three-up at every width.
+
+Below the topbar's collapse point (820px) the shell swaps its in-bar nav for a
+fixed bottom bar (Home / Tasks / Agent) and the topbar becomes a single row of
+gateway mark, search and trash. Focus is not in the bottom bar — it is a mode
+rather than a destination, so it sits in the dashboard's title row, which makes
+it two taps from any other route.
 
 ## MCP server (agent access)
 

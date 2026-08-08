@@ -1,5 +1,5 @@
 import { type DragEvent, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, Eye, GripVertical } from 'lucide-react'
+import { ChevronDown, ChevronRight, Eye, GripVertical, Plus } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../../components/ToastContext'
 import {
@@ -30,6 +30,8 @@ interface BoardProps {
   /** Persist a new full project order (display order of every project id). */
   onReorder: (projectIds: number[]) => Promise<void>
   onCreateProject: () => void
+  /** Open the task dialog filed to this project — the lane supplies it. */
+  onAddTask: (projectId: number) => void
 }
 
 interface LaneProps {
@@ -43,6 +45,7 @@ interface LaneProps {
   signal: DashboardSignal | null
   onSetStatus: BoardProps['onSetStatus']
   onUpdate: BoardProps['onUpdate']
+  onAddTask: () => void
   /** True while this lane is the one being drag-reordered. */
   laneDragging: boolean
   onLaneDragStart: (event: DragEvent) => void
@@ -64,6 +67,7 @@ function DashboardSwimlane({
   signal,
   onSetStatus,
   onUpdate,
+  onAddTask,
   laneDragging,
   onLaneDragStart,
   onLaneDragEnd,
@@ -86,6 +90,16 @@ function DashboardSwimlane({
   // larger than the visible cards reads as a wrong count.
   const openRootCount = activeTasks.filter(isEffectiveTopLevel).length
   const subtaskCount = activeTasks.length - openRootCount
+
+  // Progress reads off the server row rather than the rendered cards: both
+  // halves then count the same thing (every filed task, subtasks included), so
+  // the bar can't disagree with itself the way an open-roots-over-all-tasks
+  // ratio would.
+  const totalTaskCount = project.open_task_count + project.done_task_count
+  const donePercent =
+    totalTaskCount === 0
+      ? 0
+      : Math.round((project.done_task_count / totalTaskCount) * 100)
 
   const quiet = signal ? visibleTasks.length === 0 : openRootCount === 0
   const collapsed = (userCollapsed ?? quiet) && !doneOpen
@@ -188,7 +202,12 @@ function DashboardSwimlane({
     if (foreign) void moveAcross(foreign, target)
   }
 
-  function renderCard(task: Task) {
+  /**
+   * `dense` is for the two live columns, whose mono header already names the
+   * status. The done archive keeps the full meta line: its status chip is the
+   * only way to move a completed card back to In progress (#148).
+   */
+  function renderCard(task: Task, dense = true) {
     const pending = pendingId === task.id
     return (
       <li
@@ -202,6 +221,7 @@ function DashboardSwimlane({
       >
         <TaskCard
           task={task}
+          dense={dense}
           onComplete={() => void move(task, 'done')}
           onUpdate={(patch) => fireAndForget(onUpdate(task, patch))}
           onSetStatus={(target) => void move(task, target)}
@@ -221,7 +241,8 @@ function DashboardSwimlane({
     >
       {/* Name leads the row; the controls trail it. The decorative folder tile
           that used to sit in front of the name is gone — the status word
-          carries the same tone it did. */}
+          carries the same tone it did. "Add task" files into *this* project, so
+          the lane answers the question a project field used to ask. */}
       <header className="dashboard-swimlane-header">
         <div className="dashboard-project-title">
           <Link
@@ -231,23 +252,34 @@ function DashboardSwimlane({
           >
             {project.project_name}
           </Link>
-          <span>
-            {openRootCount} open {openRootCount === 1 ? 'task' : 'tasks'}
-            {subtaskCount > 0 &&
-              ` · ${subtaskCount} ${subtaskCount === 1 ? 'subtask' : 'subtasks'}`}
-          </span>
+          <div className="dashboard-lane-meta">
+            <span
+              className="dashboard-lane-progress"
+              role="progressbar"
+              aria-label={`${project.project_name} progress`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={donePercent}
+              aria-valuetext={`${project.done_task_count} of ${totalTaskCount} tasks done`}
+            >
+              <span style={{ width: `${donePercent}%` }} />
+            </span>
+            <span>
+              {openRootCount} open
+              {subtaskCount > 0 &&
+                ` · ${subtaskCount} ${subtaskCount === 1 ? 'subtask' : 'subtasks'}`}
+            </span>
+          </div>
         </div>
         <span className={`status-pill tone-${status.tone}`}>{status.label}</span>
         <button
           type="button"
-          className="dashboard-done-toggle"
-          aria-expanded={doneOpen}
-          onClick={() => setDoneOpen((open) => !open)}
+          className="dashboard-lane-add"
+          aria-label={`Add task to ${project.project_name}`}
+          onClick={onAddTask}
         >
-          <Eye size={12} aria-hidden="true" />
-          {doneOpen
-            ? `Hide done${completed.loading ? '' : ` (${completedTasks.length})`}`
-            : 'Show done'}
+          <Plus size={14} aria-hidden="true" />
+          Add task
         </button>
         <button
           type="button"
@@ -282,7 +314,7 @@ function DashboardSwimlane({
               return (
                 <section
                   key={columnStatus}
-                  className={`dashboard-lane-column${
+                  className={`dashboard-lane-column dashboard-lane-column-${columnStatus}${
                     dragOverStatus === columnStatus ? ' drag-over' : ''
                   }`}
                   aria-label={`${project.project_name} ${label}`}
@@ -304,12 +336,26 @@ function DashboardSwimlane({
                       {signal ? 'No matching tasks' : 'Nothing here'}
                     </p>
                   ) : (
-                    <ul>{columnTasks.map(renderCard)}</ul>
+                    <ul>{columnTasks.map((task) => renderCard(task))}</ul>
                   )}
                 </section>
               )
             })}
           </div>
+
+          {/* Foot of the lane, not the header: the last task row's hairline is
+              its divider, and the archive it discloses opens directly below. */}
+          <button
+            type="button"
+            className="dashboard-done-toggle"
+            aria-expanded={doneOpen}
+            onClick={() => setDoneOpen((open) => !open)}
+          >
+            <Eye size={16} aria-hidden="true" />
+            {doneOpen
+              ? `Hide done${completed.loading ? '' : ` (${completedTasks.length})`}`
+              : 'Show done'}
+          </button>
 
           {doneOpen && (
             <section
@@ -331,7 +377,7 @@ function DashboardSwimlane({
               ) : completedTasks.length === 0 ? (
                 <p className="dashboard-lane-empty">No completed tasks</p>
               ) : (
-                <ul>{completedTasks.map(renderCard)}</ul>
+                <ul>{completedTasks.map((task) => renderCard(task, false))}</ul>
               )}
             </section>
           )}
@@ -349,6 +395,7 @@ export function DashboardSwimlaneBoard({
   onUpdate,
   onReorder,
   onCreateProject,
+  onAddTask,
 }: BoardProps) {
   // Local copy so a lane drag can live-preview the new order; server data
   // (refetched after the reorder call) re-seeds it.
@@ -363,6 +410,7 @@ export function DashboardSwimlaneBoard({
     return map
   }, [tasks])
   const [draggedId, setDraggedId] = useState<number | null>(null)
+  const [emptyOpen, setEmptyOpen] = useState(false)
   // Distinguishes a completed reorder drop from a cancelled drag in dragend.
   const dropCommitted = useRef(false)
   // Re-seed from server data during render (the sanctioned "derived state
@@ -415,35 +463,70 @@ export function DashboardSwimlaneBoard({
     )
   }
 
+  // A project with nothing in it spends a whole header row saying zero. Those
+  // collapse into one summary line at the end of the board, expandable. The
+  // test is emptiness, never the signal filter: a lane with no *matching* task
+  // is filtered, not empty, and it stays a lane (auto-collapsed) so the count
+  // in the summary can't swing with the strip.
+  const laneTasks = (project: ProjectOpenTasksRow) =>
+    tasks.filter((task) => task.project_id === project.project_id)
+  const emptyLanes = lanes.filter((project) => laneTasks(project).length === 0)
+  const filledLanes = lanes.filter((project) => laneTasks(project).length > 0)
+
+  function renderLane(project: ProjectOpenTasksRow) {
+    // The status tone weighs the full project tree (matching project
+    // detail); cards stay root-only because lanes have no nesting UI.
+    const activeTasks = laneTasks(project)
+    const visibleTasks = activeTasks
+      .filter(isEffectiveTopLevel)
+      .filter((task) => matchesDashboardSignal(task, signal))
+    return (
+      <DashboardSwimlane
+        key={project.project_id}
+        project={project}
+        activeTasks={activeTasks}
+        visibleTasks={visibleTasks}
+        boardTasksById={boardTasksById}
+        signal={signal}
+        onSetStatus={onSetStatus}
+        onUpdate={onUpdate}
+        onAddTask={() => onAddTask(project.project_id)}
+        laneDragging={draggedId === project.project_id}
+        onLaneDragStart={(event) => laneDragStart(project.project_id, event)}
+        onLaneDragEnd={laneDragEnd}
+        onLaneDragOver={(event) => laneDragOver(project.project_id, event)}
+        onLaneDrop={laneDrop}
+      />
+    )
+  }
+
+  const emptyLabel = `${emptyLanes.length} empty ${
+    emptyLanes.length === 1 ? 'project' : 'projects'
+  } · ${emptyLanes.map((lane) => lane.project_name).join(', ')}`
+
   return (
     <div className="dashboard-swimlane-board">
-      {lanes.map((project) => {
-        // The status tone weighs the full project tree (matching project
-        // detail); cards stay root-only because lanes have no nesting UI.
-        const activeTasks = tasks.filter(
-          (task) => task.project_id === project.project_id,
-        )
-        const visibleTasks = activeTasks
-          .filter(isEffectiveTopLevel)
-          .filter((task) => matchesDashboardSignal(task, signal))
-        return (
-          <DashboardSwimlane
-            key={project.project_id}
-            project={project}
-            activeTasks={activeTasks}
-            visibleTasks={visibleTasks}
-            boardTasksById={boardTasksById}
-            signal={signal}
-            onSetStatus={onSetStatus}
-            onUpdate={onUpdate}
-            laneDragging={draggedId === project.project_id}
-            onLaneDragStart={(event) => laneDragStart(project.project_id, event)}
-            onLaneDragEnd={laneDragEnd}
-            onLaneDragOver={(event) => laneDragOver(project.project_id, event)}
-            onLaneDrop={laneDrop}
-          />
-        )
-      })}
+      {filledLanes.map(renderLane)}
+
+      {emptyLanes.length > 0 && (
+        <section className="dashboard-empty-lanes">
+          <button
+            type="button"
+            aria-expanded={emptyOpen}
+            onClick={() => setEmptyOpen((open) => !open)}
+          >
+            <span>{emptyLabel}</span>
+            {emptyOpen ? (
+              <ChevronDown size={16} aria-hidden="true" />
+            ) : (
+              <ChevronRight size={16} aria-hidden="true" />
+            )}
+          </button>
+        </section>
+      )}
+
+      {/* Below the row that reveals them, not above it. */}
+      {emptyOpen && emptyLanes.map(renderLane)}
     </div>
   )
 }

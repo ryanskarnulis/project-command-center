@@ -16,8 +16,21 @@ const topbarNav = [
   { to: '/agent', label: 'Agent', icon: GlitchMark },
 ]
 
+/* Phone-width primary nav. Home replaces the brand mark (which the single-row
+   top bar drops), and Focus is absent by design: it is a mode rather than a
+   destination alongside the board, so it sits in the dashboard's title row. */
+const bottomNav = [
+  { to: '/dashboard', label: 'Home', icon: Home },
+  { to: '/tasks', label: 'Tasks', icon: CheckSquare },
+  { to: '/agent', label: 'Agent', icon: GlitchMark },
+]
+
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? 'shell-nav-link active' : 'shell-nav-link'
+}
+
+function bottomNavClass({ isActive }: { isActive: boolean }) {
+  return isActive ? 'bottom-nav-link active' : 'bottom-nav-link'
 }
 
 export function AppShell({ children }: AppShellProps) {
@@ -76,6 +89,17 @@ export function AppShell({ children }: AppShellProps) {
       </header>
 
       <div className="app-main">{children}</div>
+
+      {/* Rendered at every width but displayed only below the topbar's collapse
+          point, where it takes over from `.shell-nav` — so exactly one of the
+          two is ever in the accessibility tree. */}
+      <nav className="bottom-nav" aria-label="Primary navigation">
+        {bottomNav.map(({ to, label, icon: Icon }) => (
+          <NavLink key={to} to={to} className={bottomNavClass} aria-label={label}>
+            <Icon size={18} aria-hidden="true" />
+          </NavLink>
+        ))}
+      </nav>
     </div>
   )
 }

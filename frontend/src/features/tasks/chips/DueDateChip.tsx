@@ -10,6 +10,8 @@ interface Props {
   onChange: (next: string | null) => void
   disabled?: boolean
   disabledHint?: string
+  /** Drop the "Due " prefix — for rows whose meta line is bare words. */
+  dense?: boolean
 }
 
 interface EditorProps {
@@ -97,11 +99,19 @@ function DueDateEditor({ value, onCommit, close }: EditorProps) {
   )
 }
 
-export function DueDateChip({ value, onChange, disabled, disabledHint }: Props) {
+export function DueDateChip({
+  value,
+  onChange,
+  disabled,
+  disabledHint,
+  dense,
+}: Props) {
   const empty = value === null
   return (
     <ChipPopover
-      chip={empty ? 'Set due date' : `Due ${formatDueDate(value)}`}
+      chip={
+        empty ? 'Set due date' : `${dense ? '' : 'Due '}${formatDueDate(value)}`
+      }
       chipClassName={empty ? 'due due-none chip-empty' : `due due-${dueStatus(value)}`}
       label={empty ? 'Set due date' : `Due date: ${formatDueDate(value)}`}
       disabled={disabled}

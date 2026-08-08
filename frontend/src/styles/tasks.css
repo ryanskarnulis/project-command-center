@@ -142,6 +142,30 @@
   background: var(--fill-row-hover);
 }
 
+/* Rows sitting under a status group header. They give the meta line back the
+   space the state word was taking, so the row can breathe a little wider. */
+.task-card.dense {
+  gap: 11px;
+  padding: 12px 0;
+}
+
+.task-card.dense .task-card-body {
+  gap: 5px;
+}
+
+.task-card.dense .task-card-badges {
+  gap: 3px 7px;
+  font-weight: 650;
+}
+
+/* The separator the dense line needs and the plain one doesn't: with three
+   facts and no state word to anchor them, the gap alone stops reading as a
+   break. A sibling <span>, never pseudo-content inside a chip <button>, where
+   a screen reader would fold it into the control's name. */
+.meta-sep {
+  opacity: 0.45;
+}
+
 .task-card-body {
   display: flex;
   flex-direction: column;
@@ -181,6 +205,12 @@
   width: 24px;
   height: 24px;
   transform: translate(-50%, -50%);
+}
+
+/* The ring picks up its row's group color, so a scan down the lane reads
+   status from the circles without the word being printed on every row. */
+.task-card.workflow-in_progress .task-complete-circle {
+  border-color: var(--rule-ring-progress);
 }
 
 .task-complete-circle:hover:not(:disabled),

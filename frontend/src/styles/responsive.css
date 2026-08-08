@@ -11,14 +11,16 @@
     --ctl-h: 28px;
     --field-h: 34px;
     --search-h: 38px;
-    --check-size: 17px;
+    /* Up from 17: the check circle is this screen's primary action and was the
+       faintest thing on it. */
+    --check-size: 19px;
     --fs-page-title: 20px;
     --fs-page-sub: 11.5px;
     --fs-task-title: 13.5px;
     --fs-meta: 11.5px;
-    /* The one value that goes *up* on mobile: the strip stacks count over
-       label there, so the count carries the cell on its own. */
-    --fs-signal: 17px;
+    /* The strip stays 3-up at phone width, so the count shares its line with
+       the label rather than carrying the cell alone. */
+    --fs-signal: 15px;
   }
 
   /* Tighter meta rhythm at phone width. The mobile design separates these
@@ -64,34 +66,86 @@
 }
 
 @media (max-width: 820px) {
-  /* Search drops to a second row; nav labels shrink to icons. */
+  /* One row: gateway mark, search, trash. The primary nav moves to the bottom
+     bar and the home glyph goes with it, which is what buys the search a place
+     on row 1 instead of a second row of its own — about 40px of chrome. */
   .topbar {
     grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 10px;
     min-height: 0;
-    padding: 8px 14px 10px;
+    padding: 9px 14px;
   }
 
-  .topbar .command-search-wrap {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    width: 100%;
-  }
-
-  .shell-nav-link > span {
+  .brand-mark,
+  .shell-nav {
     display: none;
   }
 
-  /* Label-less nav collapses to squares. 38px keeps the tap target comfortable
-     without the row growing — the icon itself stays 17px. */
-  .shell-nav-link {
-    width: 38px;
-    min-width: 38px;
-    min-height: 38px;
+  .topbar .command-search-wrap {
+    grid-column: auto;
+    grid-row: auto;
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  .command-search {
+    gap: 9px;
+    padding: 0 11px;
+  }
+
+  /* Trash is the only `.shell-nav-link` left in the bar. It keeps its count —
+     the old label-hiding rule matched the badge span too, so the number was
+     invisible at exactly the width where the bar is one glyph wide. */
+  .topbar > .shell-nav-link {
+    justify-content: flex-end;
+    gap: 4px;
+    width: auto;
+    min-width: 44px;
+    min-height: 44px;
     padding: 0;
   }
 
+  .bottom-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    justify-items: center;
+    align-items: center;
+    border-top: 1px solid var(--rule);
+    background: var(--frost-bar);
+    backdrop-filter: blur(18px);
+    padding: 6px 14px calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Reserve the bar's height (6 + 44 + 8) plus the page's own foot padding, so
+     the last row is never underneath it. */
   .app-main {
-    padding: 14px 14px 20px;
+    padding: 14px 14px calc(78px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Focus left the nav at this width, so the board's title row carries it —
+     paired with the icon-only "New project" that replaced two filled buttons.
+     Both are 38px here: bigger than the desktop control scale because they are
+     the only two targets in the row. */
+  .dashboard-focus-link {
+    display: grid;
+  }
+
+  .dashboard-board-action {
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+    min-height: 38px;
+  }
+
+  /* The title gets the 2px back that the two filled buttons were taking: with
+     nothing but two icons beside it, it no longer wraps at ~134px. */
+  .dashboard-board-heading h1 {
+    font-size: 22px;
   }
 
   /* The agent page's narrow-screen stack, moved here from a second @media
@@ -124,7 +178,7 @@
 @media (max-width: 560px) {
   .command-search {
     /* Cmd-K hint hidden; the mic keeps its slot (phones are voice's home). */
-    grid-template-columns: 16px minmax(0, 1fr) auto;
+    grid-template-columns: 15px minmax(0, 1fr) auto;
   }
 
   .command-search kbd {
@@ -135,21 +189,64 @@
 @media (max-width: 720px) {
   .kanban-board,
   .dashboard-lane-columns,
-  .dashboard-done-archive > ul,
-  .dashboard-signal-strip {
+  .dashboard-done-archive > ul {
     grid-template-columns: 1fr;
   }
 
-  .dashboard-signal + .dashboard-signal {
-    border-top: 1px solid var(--border);
-    border-left: 0;
+  /* The strip stays 3-up here. Stacking it into full-width rows cost three
+     46px rows for three numbers, and rows 2–3 kept an 18px indent the stacked
+     rule never cleared. Count first, label beside it, no icon: at this size the
+     glyph was decoration in front of the only thing worth reading. */
+  .dashboard-signal {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    min-height: 30px;
+    padding: 4px 0;
   }
 
-  /* Name | Done pill | caret. The status word and the drag grip both drop:
+  .dashboard-signal > svg {
+    display: none;
+  }
+
+  .dashboard-signal strong {
+    order: -1;
+  }
+
+  .dashboard-signal span {
+    font-size: 11px;
+  }
+
+  .dashboard-signal + .dashboard-signal {
+    padding: 4px 0 4px 11px;
+  }
+
+  /* The strip owns the rule beneath it: the first lane drops its own border
+     and the stack rides up against it, so the cell dividers meet the horizontal
+     rule instead of floating above a second one. */
+  .dashboard-swimlane-board {
+    margin-top: -8px;
+  }
+
+  .dashboard-swimlane-board > .dashboard-swimlane:first-child {
+    border-top: 0;
+  }
+
+  .dashboard-swimlane-board
+    > .dashboard-swimlane:first-child
+    > .dashboard-swimlane-header {
+    min-height: 38px;
+    padding: 0 0 7px;
+  }
+
+  /* Name | Add task | caret. The status word and the drag grip both drop:
      there is no room for the word, and HTML5 drag-and-drop does not fire on
      touch, so the grip was never a working control here. */
   .dashboard-swimlane-header {
     grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
+    min-height: 52px;
+    padding: 9px 0;
   }
 
   .dashboard-swimlane-header .status-pill,
@@ -157,10 +254,19 @@
     display: none;
   }
 
+  /* Up from the 26px desktop icon-button size: at phone width this is a thumb
+     target sitting beside another one, not a mouse target. */
+  .dashboard-lane-collapse {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+
   /* Both lane columns are full width now, so their rows would run together
      without a rule between the groups. */
   .dashboard-lane-column + .dashboard-lane-column {
-    margin-top: 10px;
+    margin-top: 2px;
   }
 
   .dashboard-done-archive > ul {

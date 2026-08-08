@@ -32,49 +32,61 @@
 /* --- Board heading --- */
 
 .dashboard-board-heading {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
+}
+
+.dashboard-board-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .dashboard-board-heading p {
-  margin-top: 3px;
   color: var(--text-meta);
   font-size: var(--fs-page-sub);
   font-weight: 600;
+  text-wrap: pretty;
 }
 
 .dashboard-board-actions {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
 }
 
-/* Primary action. "New project" sits next to it as a plain ghost <button>:
-   the desktop design file draws both filled, but the README and the mobile
-   file both call for ghost + primary, and two adjacent blue fills give the
-   row no hierarchy at all. */
-.dashboard-add-task {
+/* No filled button on this screen. The two create paths that used to compete
+   with the title are now an icon apiece — "New project" is rare, and adding a
+   task belongs in the lane that will hold it. */
+.dashboard-board-action {
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  display: grid;
+  place-items: center;
+  width: var(--ctl-h);
+  min-width: var(--ctl-h);
+  height: var(--ctl-h);
   min-height: var(--ctl-h);
-  border: 0;
-  border-radius: 7px;
-  background: var(--blue);
-  color: var(--on-accent);
-  font-size: var(--fs-btn);
-  font-weight: 750;
-  padding: 0 11px;
-  white-space: nowrap;
+  border: 1px solid var(--rule-control);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  padding: 0;
+  box-shadow: none;
 }
 
-.dashboard-add-task:hover {
-  border-color: transparent;
-  background: var(--accent);
-  color: var(--on-accent);
+.dashboard-board-action:hover {
+  border-color: var(--rule-hover);
+  background: transparent;
+  color: var(--text-h);
+}
+
+/* Focus is a mode, not a board-level destination, so it is promoted into this
+   row only where the nav has dropped it — below the topbar's collapse point. */
+.dashboard-focus-link {
+  display: none;
 }
 
 /* --- Signal strip: one slim row of global counts / board filters --- */
@@ -230,15 +242,14 @@
 }
 
 .dashboard-project-title {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   min-width: 0;
 }
 
-.dashboard-project-title a,
-.dashboard-project-title span {
+.dashboard-project-title > a {
   display: block;
-}
-
-.dashboard-project-title a {
   overflow: hidden;
   color: var(--text-h);
   font-size: 15px;
@@ -248,39 +259,132 @@
   white-space: nowrap;
 }
 
-.dashboard-project-title span {
-  margin-top: 1px;
+/* Counts, with a bar in front of them: how much is left is a number, how far
+   along the project is was previously nowhere on this screen. */
+.dashboard-lane-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--text-meta);
   font-size: 11.5px;
 }
 
-/* Micro pill — the one control that keeps a resting fill, because it is a
-   toggle and needs to read as pressable next to plain words. */
-.dashboard-done-toggle {
+.dashboard-lane-progress {
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  width: 64px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--track);
+  overflow: hidden;
+}
+
+.dashboard-lane-progress > span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: var(--green);
+}
+
+/* Borderless label button. The lane supplies the project, which is why it can
+   afford to say only "Add task". */
+.dashboard-lane-add {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  height: var(--pill-h);
-  min-height: var(--pill-h);
+  min-height: 44px;
   border: 0;
-  border-radius: 999px;
-  background: var(--fill-pill);
+  border-radius: 6px;
+  background: transparent;
   color: var(--muted);
   font-size: 11.5px;
   font-weight: 650;
-  padding: 0 9px;
+  padding: 0 8px;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.dashboard-lane-add:hover {
+  border-color: transparent;
+  background: var(--fill-pill);
+  color: var(--text-h);
+}
+
+/* Foot of the lane body, not a header pill: the last task row's hairline is
+   the divider above it, so it needs no border and no resting fill. */
+.dashboard-done-toggle {
+  display: flex;
+  align-items: center;
+  /* The shared <button> rule centres its content; this one is a full-width row
+     whose eye glyph lines up with the check circles above it. */
+  justify-content: flex-start;
+  gap: 9px;
+  width: 100%;
+  min-height: 40px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-meta);
+  font-size: var(--fs-body);
+  font-weight: 650;
+  padding: 9px 0 2px;
+  text-align: left;
   white-space: nowrap;
 }
 
 .dashboard-done-toggle:hover {
   border-color: transparent;
-  background: var(--neutral-strong);
+  background: transparent;
+  color: var(--text-h);
+}
+
+/* One line for every project with nothing in it, instead of a header row each
+   spent saying zero. */
+.dashboard-empty-lanes {
+  border-top: 1px solid var(--rule);
+}
+
+.dashboard-empty-lanes > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-grip);
+  padding: 10px 0;
+  text-align: left;
+  box-shadow: none;
+}
+
+.dashboard-empty-lanes > button > span {
+  overflow: hidden;
+  color: var(--text-meta);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-empty-lanes > button:hover {
+  border-color: transparent;
+  background: var(--fill-row-hover);
+}
+
+.dashboard-empty-lanes > button:hover > span {
   color: var(--text-h);
 }
 
 .dashboard-swimlane-body {
   border-top: 0;
-  padding: 0 0 12px;
+  padding: 0 0 4px;
 }
 
 .dashboard-lane-columns {
@@ -302,6 +406,13 @@
   background: transparent;
   padding: 0;
   transition: border-color 0.15s, background 0.15s, padding 0.15s;
+}
+
+/* The group's count wears the group's color, the same violet the in-progress
+   check rings carry — so a row's status reads off the page even though no row
+   prints the word any more. */
+.dashboard-lane-column-in_progress > header .count-badge {
+  color: var(--purple);
 }
 
 .dashboard-lane-column.drag-over {

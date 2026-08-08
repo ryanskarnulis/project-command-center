@@ -85,6 +85,9 @@ class TestGetDashboard:
         data = resp.json()
         assert data["total_open_tasks"] == 1
         assert data["projects"][0]["open_task_count"] == 1
+        # The done half is the complement of the open half over the same active
+        # set, so the trashed task is absent from both.
+        assert data["projects"][0]["done_task_count"] == 1
 
     def test_empty_projects_are_included_with_zero_counts(
         self, client: TestClient, db_session: Session
@@ -95,6 +98,43 @@ class TestGetDashboard:
 
         assert resp.status_code == 200
         assert _project_rows_by_name(resp.json()) == {"Empty": 0}
+
+    def test_done_counts_are_scoped_to_their_own_project(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        # The lane progress bar reads done / (open + done), so a done task must
+        # land on its own project's row and nowhere else.
+        alpha = _create_project(db_session, "Alpha")
+        beta = _create_project(db_session, "Beta")
+        _create_task(db_session, project_id=alpha.id, title="Alpha open")
+        for title in ("Alpha done 1", "Alpha done 2"):
+            _create_task(
+                db_session,
+                project_id=alpha.id,
+                title=title,
+                workflow_status=TaskWorkflowStatus.done,
+            )
+        _create_task(db_session, project_id=beta.id, title="Beta open")
+        # Unfiled work belongs to no lane at all.
+        _create_task(
+            db_session,
+            project_id=None,
+            title="Unfiled done",
+            workflow_status=TaskWorkflowStatus.done,
+        )
+
+        resp = client.get("/api/dashboard")
+
+        assert resp.status_code == 200
+        rows = {row["project_name"]: row for row in resp.json()["projects"]}
+        assert (rows["Alpha"]["open_task_count"], rows["Alpha"]["done_task_count"]) == (
+            1,
+            2,
+        )
+        assert (rows["Beta"]["open_task_count"], rows["Beta"]["done_task_count"]) == (
+            1,
+            0,
+        )
 
     def test_soft_deleted_projects_are_excluded(
         self, client: TestClient, db_session: Session
@@ -158,4 +198,5 @@ class TestGetDashboard:
 
         total, per_project = dashboard_service.get_overview(db_session)
         assert total == 0
-        assert sum(count for _project, count in per_project) == 0
+        assert sum(row.open_count for row in per_project) == 0
+        assert sum(row.done_count for row in per_project) == 0

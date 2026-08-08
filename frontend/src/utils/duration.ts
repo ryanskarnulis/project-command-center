@@ -42,6 +42,18 @@ export function formatDuration(minutes: number | null): string {
   return `${value} ${value === 1 ? singular : unit}`
 }
 
+/**
+ * Abbreviated label for a dense meta line: 45 → "45m", 240 → "4h", 10080 → "1w".
+ * Same unit split as `formatDuration`, one letter instead of a word — a task row
+ * has room for three facts, and "45 minutes" spends a whole one on the unit.
+ */
+export function formatDurationShort(minutes: number | null): string {
+  if (minutes === null) return ''
+  if (minutes === 0) return '0m'
+  const { value, unit } = splitDuration(minutes)
+  return `${value}${unit[0]}`
+}
+
 const INPUT_UNITS: Record<string, DurationUnit> = {
   '': 'minutes',
   m: 'minutes',
