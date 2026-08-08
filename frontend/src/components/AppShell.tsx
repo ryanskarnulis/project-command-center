@@ -17,10 +17,12 @@ const topbarNav = [
 
 /* Phone-width primary nav. Home replaces the brand mark (which the single-row
    top bar drops), and Focus is absent by design: it is a mode rather than a
-   destination alongside the board, so it sits in the dashboard's title row. */
+   destination alongside the board, so it sits in the dashboard's title row.
+   Sizes are per-item: Home is a stroke glyph that reads at icon scale, while
+   Glitch is a filled avatar and fills its whole 44px target. */
 const bottomNav = [
-  { to: '/dashboard', label: 'Home', icon: Home },
-  { to: '/agent', label: 'Agent', icon: GlitchMark },
+  { to: '/dashboard', label: 'Home', icon: Home, size: 22 },
+  { to: '/agent', label: 'Agent', icon: GlitchMark, size: 44 },
 ]
 
 function navClass({ isActive }: { isActive: boolean }) {
@@ -92,9 +94,9 @@ export function AppShell({ children }: AppShellProps) {
           point, where it takes over from `.shell-nav` — so exactly one of the
           two is ever in the accessibility tree. */}
       <nav className="bottom-nav" aria-label="Primary navigation">
-        {bottomNav.map(({ to, label, icon: Icon }) => (
+        {bottomNav.map(({ to, label, icon: Icon, size }) => (
           <NavLink key={to} to={to} className={bottomNavClass} aria-label={label}>
-            <Icon size={18} aria-hidden="true" />
+            <Icon size={size} aria-hidden="true" />
           </NavLink>
         ))}
       </nav>
