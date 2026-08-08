@@ -13,27 +13,29 @@
 
 /* In-topbar back-to-gateway button (GatewayLink.tsx). Same look as the
    floating button in chess/conductor, but it sits in the header because
-   PCC already has one. Renders nothing on localhost/IP dev. */
+   PCC already has one. Renders nothing on localhost/IP dev.
+   The flat restyle drops the bordered circle — the avatar is the mark, and
+   this is now the only place the web mark appears (the brand cluster's
+   duplicate became a home glyph). */
 .gateway-link {
-  width: 40px;
-  height: 40px;
+  width: 30px;
+  height: 30px;
+  border: 0;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: var(--surface-veil, rgba(15, 19, 29, 0.9));
-  border: 1px solid var(--border);
-  transition: border-color 0.25s, box-shadow 0.25s;
+  background: transparent;
+  transition: opacity 0.2s;
 }
 
 .gateway-link:hover,
 .gateway-link:focus-visible {
-  border-color: var(--accent);
-  box-shadow: 0 0 12px var(--blue-soft);
+  opacity: 0.82;
 }
 
 .gateway-link img {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   display: block;
 }
@@ -41,7 +43,7 @@
 .brand-mark {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 9px;
   color: inherit;
   text-decoration: none;
 }
@@ -52,65 +54,71 @@
 }
 
 .brand-text strong {
-  font-size: 16px;
-  line-height: 1.05;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.1;
 }
 
 .brand-text span {
-  color: var(--text-h);
-  font-size: 13px;
-  font-weight: 650;
+  color: var(--text-meta);
+  font-size: 11px;
+  font-weight: 600;
   line-height: 1.2;
 }
 
+/* Holds the dashboard `home` glyph. Was a 40px tile carrying a second copy
+   of the web mark; the mark now lives only on the gateway link. */
 .brand-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  min-width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  color: var(--muted);
 }
 
-.brand-icon img {
-  border-radius: 50%;
-  display: block;
-}
-
-.brand-mark:hover .brand-icon {
-  background: var(--blue-soft);
+.brand-mark:hover .brand-icon,
+.brand-mark.active .brand-icon {
+  background: transparent;
+  color: var(--link);
 }
 
 .shell-nav {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
 }
 
+/* Nav items carry state in their color alone — the active pill tint is one
+   of the fills the flat system drops. */
 .shell-nav-link {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  min-height: 44px;
+  gap: 7px;
+  min-height: 34px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
-  color: var(--text);
-  font-weight: 650;
-  padding: 10px 14px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 0 10px;
   box-shadow: none;
 }
 
-.shell-nav-link:hover:not(:disabled),
+.shell-nav-link:hover:not(:disabled) {
+  background: var(--fill-pill);
+  color: var(--text-h);
+}
+
 .shell-nav-link.active {
-  background: var(--blue-soft);
+  background: transparent;
   color: var(--link);
 }
 
 .shell-nav-link.disabled {
-  color: var(--text-muted);
+  color: var(--text-meta);
 }
 
 .topbar {
@@ -120,33 +128,40 @@
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 18px;
-  min-height: 76px;
-  padding: 12px 28px;
-  border-bottom: 1px solid var(--border);
+  gap: 20px;
+  min-height: 58px;
+  padding: 9px 24px;
+  border-bottom: 1px solid var(--rule);
   background: var(--frost-bg);
   backdrop-filter: blur(18px);
 }
 
 .topbar .command-search-wrap {
   justify-self: center;
-  width: min(100%, 640px);
+  width: min(100%, 560px);
 }
 
 .command-search {
   position: relative; /* anchors the mic's tucked-under error line */
   display: grid;
   /* icon | input | mic (absent in browsers without recording) | Cmd-K hint */
-  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+  grid-template-columns: 16px minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 12px;
-  min-height: 54px;
-  border: 1px solid var(--border-strong);
-  border-radius: 14px;
-  background: var(--surface);
-  color: var(--text-muted);
-  padding: 0 14px;
-  box-shadow: var(--shadow-soft);
+  gap: 10px;
+  min-height: var(--search-h);
+  border: 1px solid var(--rule-field);
+  border-radius: 9px;
+  background: var(--fill-subtle);
+  color: var(--text-meta);
+  padding: 0 12px;
+  box-shadow: none;
+}
+
+/* The bar is the one field that signals focus with its border rather than
+   the global ring — it wraps a composite of input + mic + hint, so the ring
+   would trace the input alone and read as misaligned. */
+.command-search:focus-within {
+  border-color: var(--focus-ring);
 }
 
 .command-search input {
@@ -154,6 +169,19 @@
   border: 0;
   background: transparent;
   padding: 0;
+  font-size: 13px;
+}
+
+.command-search input:focus {
+  outline: none;
+}
+
+.command-search kbd {
+  border-radius: 5px;
+  background: rgba(199, 211, 228, 0.06);
+  color: var(--text-faint);
+  font-size: 10.5px;
+  padding: 2px 5px;
 }
 
 /* Vendored MicButton, compacted for the bar; its inline error tucks under
@@ -194,7 +222,7 @@
 
 .app-main {
   min-width: 0;
-  padding: 22px 28px 56px;
+  padding: 20px 24px 44px;
 }
 
 .app-main > main,
@@ -212,20 +240,20 @@
 .trash {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
   text-align: left;
 }
 
+/* Bare count beside the trash glyph — the pill it used to sit in is gone. */
 .nav-count-badge {
   margin-left: auto;
-  min-width: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--blue-soft);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--link);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   text-align: center;
-  line-height: 20px;
+  line-height: 1;
 }
 

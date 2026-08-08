@@ -57,6 +57,8 @@
   max-width: 520px;
 }
 
+/* The dropdown floats above the page, so it keeps its surface, radius and
+   shadow — a deliberate exception to the no-elevation rule. */
 .command-search-dropdown {
   position: absolute;
   top: calc(100% + 8px);
@@ -65,8 +67,9 @@
   z-index: 200;
   max-height: 60vh;
   overflow-y: auto;
+  border-radius: 12px;
   padding: 8px;
-  box-shadow: var(--shadow-modal);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
 }
 
 .command-search-group + .command-search-group {
@@ -77,11 +80,12 @@
 
 .command-search-group-label {
   margin: 4px 8px;
-  font-size: 11px;
-  font-weight: 760;
-  letter-spacing: 0.04em;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-faint);
 }
 
 .command-search-group ul {
@@ -116,7 +120,8 @@
 }
 
 .command-search-result-title {
-  font-weight: 640;
+  font-size: var(--fs-task-title);
+  font-weight: 620;
   color: var(--text-h);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -125,7 +130,7 @@
 
 .command-search-result-subtitle {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -2,7 +2,7 @@ import { type ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useTrashCount } from '../features/trash/trashCountContext'
 import { CommandSearch } from '../features/search/CommandSearch'
-import { CheckSquare, Sun, Trash2 } from 'lucide-react'
+import { CheckSquare, Home, Sun, Trash2 } from 'lucide-react'
 import { GatewayLink } from './GatewayLink'
 import { GlitchMark } from './GlitchMark'
 
@@ -28,9 +28,19 @@ export function AppShell({ children }: AppShellProps) {
       <header className="topbar">
         <div className="brand-cluster">
           <GatewayLink />
-          <NavLink to="/dashboard" className="brand-mark" aria-label="Command Center">
+          {/* The web mark belongs to the gateway link alone; this slot carries
+              a home glyph so the two marks stop competing. */}
+          <NavLink
+            to="/dashboard"
+            // Function form: a plain string className suppresses NavLink's
+            // own `active` class, and the home glyph needs it to light up.
+            className={({ isActive }) =>
+              isActive ? 'brand-mark active' : 'brand-mark'
+            }
+            aria-label="Command Center"
+          >
             <span className="brand-icon">
-              <img src="/web.png" alt="" width={32} height={32} />
+              <Home size={17} aria-hidden="true" />
             </span>
             <span className="brand-text">
               <strong>Project</strong>
@@ -42,7 +52,7 @@ export function AppShell({ children }: AppShellProps) {
         <nav className="shell-nav" aria-label="Primary navigation">
           {topbarNav.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} className={navClass}>
-              <Icon size={19} aria-hidden="true" />
+              <Icon size={17} aria-hidden="true" />
               <span>{label}</span>
             </NavLink>
           ))}
@@ -56,7 +66,7 @@ export function AppShell({ children }: AppShellProps) {
           aria-label={trashCount > 0 ? `Trash (${trashCount} items)` : 'Trash'}
           title="Trash"
         >
-          <Trash2 size={19} aria-hidden="true" />
+          <Trash2 size={17} aria-hidden="true" />
           {trashCount > 0 && (
             <span className="nav-count-badge" aria-hidden="true">
               {trashCount}

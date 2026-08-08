@@ -51,8 +51,8 @@
   /* Search drops to a second row; nav labels shrink to icons. */
   .topbar {
     grid-template-columns: auto minmax(0, 1fr) auto;
-    min-height: 64px;
-    padding: 10px 16px;
+    min-height: 0;
+    padding: 8px 14px 10px;
   }
 
   .topbar .command-search-wrap {
@@ -65,16 +65,24 @@
     display: none;
   }
 
-  .app-main {
-    padding: 16px;
+  /* Label-less nav collapses to squares. 38px keeps the tap target comfortable
+     without the row growing — the icon itself stays 17px. */
+  .shell-nav-link {
+    width: 38px;
+    min-width: 38px;
+    min-height: 38px;
+    padding: 0;
   }
 
+  .app-main {
+    padding: 14px 14px 20px;
+  }
 }
 
 @media (max-width: 560px) {
   .command-search {
     /* Cmd-K hint hidden; the mic keeps its slot (phones are voice's home). */
-    grid-template-columns: 20px minmax(0, 1fr) auto;
+    grid-template-columns: 16px minmax(0, 1fr) auto;
   }
 
   .command-search kbd {

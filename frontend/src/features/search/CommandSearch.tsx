@@ -196,7 +196,7 @@ export function CommandSearch() {
   return (
     <div className="command-search-wrap" ref={containerRef}>
       <div className="command-search">
-        <Sparkles size={18} aria-hidden="true" />
+        <Sparkles size={15} aria-hidden="true" />
         <input
           ref={inputRef}
           value={query}
