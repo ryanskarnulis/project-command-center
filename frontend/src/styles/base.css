@@ -9,6 +9,10 @@ body {
   min-width: 320px;
   min-height: 100svh;
   margin: 0;
+  /* The flat system has no element at the browser default 16px. Leaves still
+     declare their own size (see the --fs-* scale); this stops anything that
+     forgets from landing two steps too large. */
+  font-size: var(--fs-body);
   /* Night vignette (The Web design language) — same recipe as the launcher
      and chess: a soft glow center fading into the page night. */
   background:
@@ -37,25 +41,29 @@ a:hover {
   color: var(--accent-strong);
 }
 
+/* The unadorned <button> is the flat system's ghost control: hairline border,
+   no fill, no shadow. `.btn--primary` / `.btn--danger` opt into a fill. */
 button {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text-h);
+  border: 1px solid var(--rule-control);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 8px 12px;
-  box-shadow: var(--shadow-xs);
+  gap: 5px;
+  min-height: var(--ctl-h);
+  padding: 0 10px;
+  font-size: var(--fs-btn);
+  font-weight: 650;
+  box-shadow: none;
 }
 
 button:hover:not(:disabled) {
-  border-color: var(--glow);
-  background: var(--surface-soft);
-  box-shadow: 0 0 12px var(--glow-soft);
+  border-color: var(--rule-hover);
+  background: var(--fill-pill);
+  box-shadow: none;
 }
 
 button:disabled,
@@ -67,24 +75,30 @@ input:disabled {
 input,
 select,
 textarea {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  border: 1px solid var(--rule-field);
+  border-radius: 7px;
+  background: var(--fill-subtle);
   color: var(--text-h);
-  min-height: 38px;
-  padding: 8px 10px;
+  min-height: var(--field-h);
+  padding: 7px 10px;
+  font-size: 13px;
 }
 
 textarea {
   resize: vertical;
+  font-size: var(--fs-body);
+  line-height: 1.5;
 }
 
+/* One ring for everything focusable. The flat restyle removed the resting
+   fills that used to double as a focus cue, so this is the only signal left —
+   `:where` keeps it at zero specificity so partials can still override the
+   offset without fighting it. */
 input:focus,
 select:focus,
 textarea:focus,
-button:focus-visible,
-a:focus-visible {
-  outline: 3px solid var(--focus-ring);
+:where(button, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -103,21 +117,36 @@ strong {
 }
 
 h1 {
-  font-size: 26px;
-  line-height: 1.2;
-  font-weight: 760;
-}
-
-h2 {
-  font-size: 16px;
-  line-height: 1.25;
+  font-size: var(--fs-page-title);
+  line-height: 1.15;
+  letter-spacing: -0.015em;
   font-weight: 720;
 }
 
-h3 {
-  font-size: 14px;
+h2 {
+  font-size: 15px;
   line-height: 1.25;
   font-weight: 700;
+}
+
+h3 {
+  font-size: 13px;
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+/* Mono micro-label: the flat system's section heading. Replaces the icon +
+   16px title pairing that the card chrome used to carry. */
+.micro-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
 code,

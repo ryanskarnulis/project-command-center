@@ -105,7 +105,7 @@ the items below are scope, not order.
 *(Non-agent feature work — all three items checked out 2026-07-12, see
 `CURRENT.md`.)*
 
-- [ ] **Decide the fate of the Tasks page.** The sidebar is gone (2026-07-10);
+- [x] **Decide the fate of the Tasks page.** The sidebar is gone (2026-07-10);
       Focus/Tasks/Trash live in the topbar. Usage so far is board + Focus only.
       If the cross-project filter/list view stays unused, delete `TasksPage`
       and its filter machinery wholesale (rule 4 of definition-of-done) — but
@@ -113,6 +113,10 @@ the items below are scope, not order.
       project detail survived the Projects-page removal.
       *Decision 2026-07-10: keep as-is for now; re-evaluate once the Phase 2
       agent surfaces settle real usage.*
+      **Decision 2026-08-07: the page stays.** Settled while scoping the flat
+      UI restyle, which restyles `TasksPage` / `TaskListView` / `KanbanBoard` /
+      `TaskFilters` rather than leave a third of the app on the old vocabulary.
+      No further re-evaluation trigger.
 - [ ] **Revisit `_find_occurrence_on`'s deleted-row guard.** It ignores
       `deleted_at`, so a *normally trashed* occurrence still blocks its date from
       respawning — the "a skipped occurrence still happened" rationale in its

@@ -1,6 +1,39 @@
 # Current focus
 
-**Checked out 2026-07-12: backlog features + one overdue decision.** The
+**Checked out 2026-08-07: flat UI restyle.** A whole-app visual restyle from
+the `design_handoff_flat_ui_restyle` package — every route, desktop and
+mobile. Removes the bubbly chrome (nested cards, filled icon tiles, metadata
+pills, drop shadows) for a flat hairline-ruled system at a smaller type and
+control scale. No routes, data, or flows change. Shipping in eight chunks:
+
+1. tokens + primitives · 2. shell + command search · 3. dashboard ·
+4. tasks list/board/filters · 5. task detail + modals · 6. focus + project
+detail + trash · 7. agent · 8. responsive + a11y sweep
+
+Three decisions taken up front, against the letter of the handoff:
+
+- **Row metadata chips stay editable.** The design renders them as inert
+  `<span>`s; in this codebase they are `StatusChip`/`PriorityChip`/
+  `DueDateChip`/`EstimateChip` — inline editors, plus the only route to "Skip
+  occurrence…". They keep the flat look and trade the resting fill for a
+  hover/focus affordance.
+- **The task-detail hero keeps its tinted chips.** Desktop and mobile design
+  files disagree; desktop wins, because there the chips *are* the primary edit
+  controls.
+- **Mobile keeps the controls the design dropped** — the in-list search field,
+  the sort select, and the Overdue/Due-soon toggles. Their absence from the
+  mobile file is a loss of function, not a restyle.
+
+Deviations from the literal spec, all a11y: mono micro-labels lightened and
+sized up (the spec's `#6f7889` at 9.5px is 4.01:1 over the vignette centre),
+check-circle ring strengthened to clear 3:1, and a global focus ring, since
+the restyle removed fills that were carrying focus.
+
+---
+
+**Superseded — checked out 2026-07-12: backlog features + one overdue
+decision.** Item 3 is now resolved (see below); items 1 and 2 return to the
+backlog. The
 fleet agent-standard alignment completed 2026-07-11 and is archived in
 `DONE.md` — `app.yaml` agent block (#54), layered Glitch personality (#55),
 `X-Agent-Actor` delegate attribution (#56). With the agent stack settled
@@ -16,12 +49,10 @@ non-agent backlog:
    the agent tool registry (an export tool could join the 25) and with the
    deploy-from-clean-clone workflow, where a text export is the cheap
    portability story.
-3. **[decision] The Tasks page's fate** — the 2026-07-10 deferral was
-   "re-evaluate once the Phase 2 agent surfaces settle real usage"; that
-   trigger has now fired. Decide per the `TODO.md` entry: if the
-   cross-project filter/list view stays unused, delete `TasksPage` and its
-   filter machinery wholesale (rule 4 of definition-of-done), keeping
-   `/tasks/:id` detail routes alive for search and deep links.
+3. ~~**[decision] The Tasks page's fate**~~ — **resolved 2026-08-07: the page
+   stays.** Settled while scoping the restyle rather than leave a third of the
+   app on the old visual vocabulary. `TasksPage` and its filter machinery are
+   restyled in chunk 4. No further re-evaluation trigger.
 
 Next up after this checkout: **eval-harness expansion** — a delegate-actor
 end-to-end scenario (#56 shipped with unit tests only; no eval yet asserts a
