@@ -1,6 +1,5 @@
 import { type DragEvent, useMemo, useState } from 'react'
 import { useToast } from '../../components/ToastContext'
-import type { Project } from '../../types/project'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { fireAndForget } from '../../utils/async'
 import { compareTasks } from '../../utils/dates'
@@ -24,8 +23,6 @@ interface Props {
   activeTasks: Task[]
   // The lazily-fetched completed archive, already filtered.
   completedTasks: Task[]
-  projects?: Project[]
-  isGlobal: boolean
   // Route a task to a target column. Source status lives on the task, so the
   // page can pick the recurrence-safe done/reopen endpoints vs a plain PATCH.
   onSetStatus: (task: Task, target: TaskWorkflowStatus) => Promise<void>
@@ -36,8 +33,6 @@ interface Props {
 export function KanbanBoard({
   activeTasks,
   completedTasks,
-  projects,
-  isGlobal,
   onSetStatus,
   onUpdate,
 }: Props) {
@@ -110,7 +105,6 @@ export function KanbanBoard({
       >
         <TaskCard
           task={task}
-          projects={isGlobal ? projects : undefined}
           onComplete={() => void move(task, 'done')}
           onUpdate={(patch) => fireAndForget(onUpdate(task, patch))}
           onSetStatus={(target) => void move(task, target)}

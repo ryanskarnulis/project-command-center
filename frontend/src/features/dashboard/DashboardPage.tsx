@@ -53,30 +53,23 @@ export function DashboardPage() {
   // Signal counts cover exactly what the board can surface: root tasks filed
   // in a currently-shown (non-closed) project. "Root" is the effective rule
   // (isEffectiveTopLevel), matching the lanes — an orphan promoted by its
-  // parent's deletion is a card, so it must be counted as one. Unfiled tasks live on /tasks,
-  // and closed-project tasks live in no lane — neither belongs in a signal.
+  // parent's deletion is a card, so it must be counted as one. Closed-project
+  // tasks live in no lane, so they belong in no signal.
   const boardTasks = useMemo(
     () =>
       tasks.filter(
-        (task) =>
-          isEffectiveTopLevel(task) &&
-          task.project_id !== null &&
-          laneProjectIds.has(task.project_id),
+        (task) => isEffectiveTopLevel(task) && laneProjectIds.has(task.project_id),
       ),
     [tasks, laneProjectIds],
   )
 
-  // The headline describes what the lanes hold: unfiled tasks appear in no lane
-  // (counted separately as a /tasks link) and closed-project tasks in none at
-  // all, so both are excluded from the filed total the board renders. Subtasks
+  // The headline describes what the lanes hold: closed-project tasks live in no
+  // lane, so they are excluded from the filed total the board renders. Subtasks
   // are called out separately rather than folded into "open tasks" (same rule
   // as the lane headers) — a count larger than the visible cards reads wrong.
-  const filedOpenCount = tasks.filter(
-    (t) => t.project_id !== null && laneProjectIds.has(t.project_id),
-  ).length
+  const filedOpenCount = tasks.filter((t) => laneProjectIds.has(t.project_id)).length
   const filedOpenRootCount = boardTasks.length
   const filedOpenSubtaskCount = filedOpenCount - filedOpenRootCount
-  const unfiledOpenCount = tasks.filter((t) => t.project_id === null).length
 
   // Route a lane move to the right endpoint: Done uses the recurrence-safe
   // done endpoint, Done → Open reopens, everything else (including
@@ -159,12 +152,6 @@ export function DashboardPage() {
                 ` · ${filedOpenSubtaskCount} ${
                   filedOpenSubtaskCount === 1 ? 'subtask' : 'subtasks'
                 }`}
-              {unfiledOpenCount > 0 && (
-                <>
-                  {' · '}
-                  <Link to="/tasks">{unfiledOpenCount} unfiled</Link>
-                </>
-              )}
             </p>
           </div>
           {/* Two bordered icon buttons, no fill: neither is the screen's

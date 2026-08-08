@@ -113,10 +113,16 @@ the items below are scope, not order.
       project detail survived the Projects-page removal.
       *Decision 2026-07-10: keep as-is for now; re-evaluate once the Phase 2
       agent surfaces settle real usage.*
-      **Decision 2026-08-07: the page stays.** Settled while scoping the flat
+      *Decision 2026-08-07: the page stays.* Settled while scoping the flat
       UI restyle, which restyles `TasksPage` / `TaskListView` / `KanbanBoard` /
       `TaskFilters` rather than leave a third of the app on the old vocabulary.
-      No further re-evaluation trigger.
+      **Reversed 2026-08-08: the global route is retired.** That rationale was
+      a reason to restyle what we keep, not evidence of use — and the original
+      criterion above was *usage*, which the owner supplied ("I never use it").
+      Shipped as two slices, both archived in `DONE.md`. Not the wholesale
+      delete this item imagined: `TasksPage` survives as the per-project Tasks
+      tab, which shares the component. The `projectId` filter went with the
+      global route; the "Project" sort mode stayed, being older than it.
 - [ ] **Revisit `_find_occurrence_on`'s deleted-row guard.** It ignores
       `deleted_at`, so a *normally trashed* occurrence still blocks its date from
       respawning — the "a skipped occurrence still happened" rationale in its

@@ -149,8 +149,10 @@ root tasks. Selecting a signal filters every project lane; selecting it again
 returns to the full board. The strip stays three-up at every width.
 
 Below the topbar's collapse point (820px) the shell swaps its in-bar nav for a
-fixed bottom bar (Home / Tasks / Agent) and the topbar becomes a single row of
-gateway mark, search and trash. Focus is not in the bottom bar — it is a mode
+fixed bottom bar (Home / Agent) and the topbar becomes a single row of
+gateway mark, search and trash. Tasks is in neither nav: there is no
+cross-project task list, only a project's own Tasks tab
+(`/projects/:id/tasks`), reached from its lane on the board. Focus is not in the bottom bar — it is a mode
 rather than a destination, so it sits in the dashboard's title row, which makes
 it two taps from any other route.
 

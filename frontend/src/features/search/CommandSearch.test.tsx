@@ -29,7 +29,7 @@ const RESULTS: SearchResults = {
       id: 7,
       title: 'Firewall Upgrade',
       subtitle: null,
-      project_id: null,
+      project_id: 1,
       workflow_status: null,
     },
   ],

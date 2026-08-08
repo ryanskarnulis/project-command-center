@@ -21,7 +21,6 @@ interface TaskListViewProps {
   filters: Filters
   sortMode: SortMode
   projects: Project[]
-  isGlobal: boolean
   showingCompleted: boolean
   loading: boolean
   error: string | null
@@ -50,7 +49,6 @@ export function TaskListView({
   filters,
   sortMode,
   projects,
-  isGlobal,
   showingCompleted,
   loading,
   error,
@@ -138,7 +136,6 @@ export function TaskListView({
       <li key={t.id}>
         <TaskCard
           task={t}
-          projects={isGlobal ? projects : undefined}
           actions={actions}
           onComplete={() => fireAndForget(markDone(t.id).then(bumpActivity))}
           onUpdate={(patch) => fireAndForget(update(t, patch))}
@@ -198,7 +195,6 @@ export function TaskListView({
       <li key={t.id}>
         <TaskCard
           task={t}
-          projects={isGlobal ? projects : undefined}
           actions={actions}
           onUpdate={(patch) => fireAndForget(update(t, patch))}
           onSetStatus={(target) => fireAndForget(onSetStatus(t, target))}

@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 import { AsyncState } from '../../components/AsyncState'
-import type { Project } from '../../types/project'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { KanbanBoard } from './KanbanBoard'
 import { isActive, matchesFilters, type Filters } from './taskFilters'
@@ -10,8 +9,6 @@ interface TaskBoardViewProps {
   tasks: Task[]
   completedTasks: Task[]
   filters: Filters
-  projects: Project[]
-  isGlobal: boolean
   loading: boolean
   error: string | null
   completedLoading: boolean
@@ -25,8 +22,6 @@ export function TaskBoardView({
   tasks,
   completedTasks,
   filters,
-  projects,
-  isGlobal,
   loading,
   error,
   completedLoading,
@@ -73,8 +68,6 @@ export function TaskBoardView({
       <KanbanBoard
         activeTasks={boardActive}
         completedTasks={boardDone}
-        projects={projects}
-        isGlobal={isGlobal}
         onSetStatus={onSetStatus}
         onUpdate={onUpdate}
       />

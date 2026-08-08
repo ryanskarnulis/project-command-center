@@ -2,7 +2,7 @@ import { type ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useTrashCount } from '../features/trash/trashCountContext'
 import { CommandSearch } from '../features/search/CommandSearch'
-import { CheckSquare, Home, Sun, Trash2 } from 'lucide-react'
+import { Home, Sun, Trash2 } from 'lucide-react'
 import { GatewayLink } from './GatewayLink'
 import { GlitchMark } from './GlitchMark'
 
@@ -12,7 +12,6 @@ interface AppShellProps {
 
 const topbarNav = [
   { to: '/focus', label: 'Focus', icon: Sun },
-  { to: '/tasks', label: 'Tasks', icon: CheckSquare },
   { to: '/agent', label: 'Agent', icon: GlitchMark },
 ]
 
@@ -21,7 +20,6 @@ const topbarNav = [
    destination alongside the board, so it sits in the dashboard's title row. */
 const bottomNav = [
   { to: '/dashboard', label: 'Home', icon: Home },
-  { to: '/tasks', label: 'Tasks', icon: CheckSquare },
   { to: '/agent', label: 'Agent', icon: GlitchMark },
 ]
 

@@ -54,7 +54,10 @@ const trash: Trash = {
   tasks: [
     {
       id: 5,
-      project_id: null,
+      // A project that is NOT in the trash: this task was trashed on its own,
+      // so the card resolves no name from `trash.projects` and the section's
+      // only "Firewall" is the trashed project's own row.
+      project_id: 2,
       parent_task_id: null,
       estimated_minutes: null,
       repeat_interval: null,

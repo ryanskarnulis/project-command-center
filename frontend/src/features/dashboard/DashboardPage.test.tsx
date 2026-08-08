@@ -521,7 +521,7 @@ describe('DashboardPage', () => {
     ).toBeInTheDocument()
   })
 
-  it('counts only rendered roots in lane headers and splits unfiled tasks out of the headline', async () => {
+  it('counts only rendered roots in lane headers', async () => {
     mockListAllTasks.mockResolvedValue([
       baseTask,
       {
@@ -532,30 +532,16 @@ describe('DashboardPage', () => {
         is_blocking: false,
         blocked_task_count: 0,
       },
-      {
-        ...baseTask,
-        id: 5,
-        project_id: null,
-        title: 'Unfiled chore',
-        due_date: null,
-        is_blocking: false,
-        blocked_task_count: 0,
-      },
     ])
     renderPage()
     await screen.findByRole('heading', { name: 'Project board' })
 
-    // Two filed tasks (root + subtask), split the way the lane headers split
-    // them; the unfiled one is linked separately instead of inflating the
-    // "across all projects" number.
+    // Root and subtask are split the way the lane headers split them.
     expect(
       screen.getByText(
-        (_, el) =>
-          el?.tagName === 'P' &&
-          el.textContent === '1 open task · 1 subtask · 1 unfiled',
+        (_, el) => el?.tagName === 'P' && el.textContent === '1 open task · 1 subtask',
       ),
     ).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '1 unfiled' })).toBeInTheDocument()
 
     // The lane header matches its cards: one root, with the subtask called out.
     const portal = lane('Customer Portal')

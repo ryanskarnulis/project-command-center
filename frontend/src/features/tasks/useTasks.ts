@@ -4,7 +4,6 @@ import {
   createTask,
   createUnscopedTask,
   deleteTask,
-  listAllTasks,
   listTasks,
   markTaskDone,
   skipOccurrence,
@@ -33,15 +32,15 @@ interface UseTasks {
   reload: () => void
 }
 
-/** Tasks as loaded, tagged with the scope (project id, or undefined for all). */
+/** Tasks as loaded, tagged with the project scope that produced them. */
 interface LoadedTasks {
-  scope: number | undefined
+  scope: number
   tasks: Task[]
 }
 
 const NO_TASKS: Task[] = []
 
-export function useTasks(projectId?: number): UseTasks {
+export function useTasks(projectId: number): UseTasks {
   const [loaded, setLoaded] = useState<LoadedTasks | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -72,7 +71,7 @@ export function useTasks(projectId?: number): UseTasks {
       setLoading(true)
       setError(null)
     }
-    const request = projectId === undefined ? listAllTasks() : listTasks(projectId)
+    const request = listTasks(projectId)
     request
       .then((data) => {
         if (!active) return

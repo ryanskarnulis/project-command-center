@@ -13,12 +13,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../../api/projects'
 import { listDependencies, listDependents } from '../../api/taskDependencies'
 import {
+  createTask,
   createUnscopedTask,
   deleteTask,
   getSubtasks,
   getTask,
   listAllTasks,
   listCompletedTasks,
+  listTasks,
   markTaskDone,
   reopenTask,
   skipOccurrence,
@@ -59,7 +61,9 @@ vi.mock('../../api/taskDependencies', () => ({
   removeDependency: vi.fn(),
 }))
 
+const mockListTasks = vi.mocked(listTasks)
 const mockListAllTasks = vi.mocked(listAllTasks)
+const mockCreateTask = vi.mocked(createTask)
 const mockListCompletedTasks = vi.mocked(listCompletedTasks)
 const mockListProjects = vi.mocked(listProjects)
 const mockCreateUnscopedTask = vi.mocked(createUnscopedTask)
@@ -75,7 +79,7 @@ const mockListDependents = vi.mocked(listDependents)
 
 const baseTask: Task = {
   id: 1,
-  project_id: null,
+  project_id: 1,
   parent_task_id: null,
   title: 'Fix the VPN',
   description: null,
@@ -109,6 +113,8 @@ const baseProject: Project = {
 describe('TasksPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockListTasks.mockResolvedValue([baseTask])
+    // Read by the peek panel's dependency picker, not by the page itself.
     mockListAllTasks.mockResolvedValue([baseTask])
     mockListProjects.mockResolvedValue([baseProject])
     mockMarkTaskDone.mockResolvedValue({ ...baseTask, workflow_status: 'done' })
@@ -123,21 +129,35 @@ describe('TasksPage', () => {
     cleanup()
   })
 
-  function renderGlobal(initialEntries: string[] = ['/tasks'], initialIndex = 0) {
+  const PROJECT_PATH = '/projects/1/tasks'
+
+  /**
+   * Render the project's Tasks tab. Entries are written as `/tasks?...` for
+   * readability and rewritten onto the project route here; the list view is
+   * pinned unless an entry picks one, because this surface defaults to the
+   * board and most cases below assert list rendering.
+   */
+  function renderProject(initialEntries: string[] = ['/tasks'], initialIndex = 0) {
+    const entries = initialEntries.map((entry) => {
+      const [, query = ''] = entry.split('?')
+      const params = new URLSearchParams(query)
+      if (!params.has('view')) params.set('view', 'list')
+      return `${PROJECT_PATH}?${params.toString()}`
+    })
     const router = createMemoryRouter(
-      [{ path: '/tasks', element: <TasksPage /> }],
-      { initialEntries, initialIndex },
+      [{ path: '/projects/:projectId/tasks', element: <TasksPage /> }],
+      { initialEntries: entries, initialIndex },
     )
     return { router, ...render(<RouterProvider router={router} />) }
   }
 
   it('renders the task list', async () => {
-    renderGlobal()
+    renderProject()
     expect(await screen.findByText('Fix the VPN')).toBeInTheDocument()
   })
 
   it('does not show per-row Edit buttons', async () => {
-    renderGlobal()
+    renderProject()
     await screen.findByText('Fix the VPN')
     expect(
       screen.queryByRole('button', { name: 'Edit' }),
@@ -145,14 +165,14 @@ describe('TasksPage', () => {
   })
 
   it('shows overdue badge for a past due_date', async () => {
-    mockListAllTasks.mockResolvedValue([{ ...baseTask, due_date: '2026-01-01' }])
-    renderGlobal()
+    mockListTasks.mockResolvedValue([{ ...baseTask, due_date: '2026-01-01' }])
+    renderProject()
     const badge = await screen.findByText(/^Due Jan/)
     expect(badge.className).toContain('due-overdue')
   })
 
   it('shows no due badge for a null due_date', async () => {
-    renderGlobal()
+    renderProject()
     await screen.findByText('Fix the VPN')
     // "Due soon" is the filter checkbox label — look for task due badges specifically
     const dueBadges = screen.queryAllByText(/^Due \w+ \d+/)
@@ -160,33 +180,33 @@ describe('TasksPage', () => {
   })
 
   it('shows a human duration label when estimated_minutes is set', async () => {
-    mockListAllTasks.mockResolvedValue([{ ...baseTask, estimated_minutes: 60 }])
-    renderGlobal()
+    mockListTasks.mockResolvedValue([{ ...baseTask, estimated_minutes: 60 }])
+    renderProject()
     expect(await screen.findByText('~1 hour')).toBeInTheDocument()
   })
 
   it('shows a Blocked badge for a task with an unfinished dependency', async () => {
-    mockListAllTasks.mockResolvedValue([{ ...baseTask, is_blocked: true }])
-    renderGlobal()
+    mockListTasks.mockResolvedValue([{ ...baseTask, is_blocked: true }])
+    renderProject()
     expect(await screen.findByText('Blocked')).toBeInTheDocument()
   })
 
   it('shows a Blocking badge for a top-level blocker', async () => {
-    mockListAllTasks.mockResolvedValue([
+    mockListTasks.mockResolvedValue([
       { ...baseTask, is_blocking: true, blocked_task_count: 2 },
     ])
-    renderGlobal()
+    renderProject()
     expect(await screen.findByText('Blocking 2 tasks')).toBeInTheDocument()
   })
 
   it('filter by status shows only matching tasks', async () => {
     const user = userEvent.setup()
-    mockListAllTasks.mockResolvedValue([baseTask])
+    mockListTasks.mockResolvedValue([baseTask])
     // The "Done" view loads the completed archive lazily, not the active list.
     mockListCompletedTasks.mockResolvedValue([
       { ...baseTask, id: 2, title: 'A done task', workflow_status: 'done' },
     ])
-    renderGlobal()
+    renderProject()
 
     await screen.findByText('Fix the VPN')
     await user.selectOptions(screen.getByLabelText('Filter by status'), 'done')
@@ -197,7 +217,7 @@ describe('TasksPage', () => {
 
   it('filter by Blocking status shows only top-level blockers', async () => {
     const user = userEvent.setup()
-    mockListAllTasks.mockResolvedValue([
+    mockListTasks.mockResolvedValue([
       baseTask,
       {
         ...baseTask,
@@ -207,7 +227,7 @@ describe('TasksPage', () => {
         blocked_task_count: 3,
       },
     ])
-    renderGlobal()
+    renderProject()
 
     await screen.findByText('Fix the VPN')
     await user.selectOptions(screen.getByLabelText('Filter by status'), 'blocking')
@@ -219,11 +239,11 @@ describe('TasksPage', () => {
 
   it('filter by priority shows only matching tasks', async () => {
     const user = userEvent.setup()
-    mockListAllTasks.mockResolvedValue([
+    mockListTasks.mockResolvedValue([
       baseTask, // medium
       { ...baseTask, id: 2, title: 'Urgent work', priority: 'urgent' },
     ])
-    renderGlobal()
+    renderProject()
 
     await screen.findByText('Fix the VPN')
     await user.selectOptions(screen.getByLabelText('Filter by priority'), 'urgent')
@@ -236,9 +256,9 @@ describe('TasksPage', () => {
     const user = userEvent.setup()
     const doneTask = { ...baseTask, id: 2, title: 'A done task', workflow_status: 'done' as const }
     // Active list omits done tasks; the "Done" view loads them from the archive.
-    mockListAllTasks.mockResolvedValue([baseTask])
+    mockListTasks.mockResolvedValue([baseTask])
     mockListCompletedTasks.mockResolvedValue([doneTask])
-    renderGlobal()
+    renderProject()
 
     await screen.findByText('Fix the VPN')
     await user.selectOptions(screen.getByLabelText('Filter by status'), 'done')
@@ -252,7 +272,7 @@ describe('TasksPage', () => {
 
   it('empty filter result shows distinct message', async () => {
     const user = userEvent.setup()
-    renderGlobal()
+    renderProject()
 
     await screen.findByText('Fix the VPN')
     await user.selectOptions(screen.getByLabelText('Filter by priority'), 'urgent')
@@ -263,11 +283,11 @@ describe('TasksPage', () => {
 
   it('filters by search text in titles and descriptions', async () => {
     const user = userEvent.setup()
-    mockListAllTasks.mockResolvedValue([
+    mockListTasks.mockResolvedValue([
       { ...baseTask, description: 'Repair the private tunnel' },
       { ...baseTask, id: 2, title: 'Urgent work', description: 'Patch hosts' },
     ])
-    renderGlobal()
+    renderProject()
 
     await screen.findByText('Fix the VPN')
     await user.type(screen.getByLabelText('Search tasks'), 'tunnel')
@@ -277,7 +297,7 @@ describe('TasksPage', () => {
   })
 
   it('hydrates filters and sort mode from query params', async () => {
-    mockListAllTasks.mockResolvedValue([
+    mockListTasks.mockResolvedValue([
       { ...baseTask, title: 'Medium tunnel', description: 'Repair the private tunnel' },
       {
         ...baseTask,
@@ -288,7 +308,7 @@ describe('TasksPage', () => {
       },
     ])
 
-    renderGlobal(['/tasks?search=tunnel&priority=urgent&sort=newest'])
+    renderProject(['/tasks?search=tunnel&priority=urgent&sort=newest'])
 
     expect(await screen.findByText('Urgent tunnel')).toBeInTheDocument()
     expect(screen.queryByText('Medium tunnel')).not.toBeInTheDocument()
@@ -299,7 +319,7 @@ describe('TasksPage', () => {
 
   it('writes filter and sort changes back to canonical URL params', async () => {
     const user = userEvent.setup()
-    const { router } = renderGlobal()
+    const { router } = renderProject()
 
     await screen.findByText('Fix the VPN')
     await user.type(screen.getByLabelText('Search tasks'), 'vpn')
@@ -316,10 +336,10 @@ describe('TasksPage', () => {
 
   it('clears task filter query params when Clear filters is clicked', async () => {
     const user = userEvent.setup()
-    mockListAllTasks.mockResolvedValue([
+    mockListTasks.mockResolvedValue([
       { ...baseTask, priority: 'urgent' },
     ])
-    const { router } = renderGlobal(['/tasks?priority=urgent'])
+    const { router } = renderProject(['/tasks?priority=urgent'])
 
     await screen.findByText('Fix the VPN')
     await user.click(screen.getByRole('button', { name: 'Clear filters' }))
@@ -330,11 +350,11 @@ describe('TasksPage', () => {
   })
 
   it('restores filters from browser back and forward navigation', async () => {
-    mockListAllTasks.mockResolvedValue([
+    mockListTasks.mockResolvedValue([
       { ...baseTask, title: 'Urgent work', priority: 'urgent' },
       { ...baseTask, id: 2, title: 'High work', priority: 'high' },
     ])
-    const { router } = renderGlobal(
+    const { router } = renderProject(
       ['/tasks?priority=urgent', '/tasks?priority=high'],
       1,
     )
@@ -353,11 +373,11 @@ describe('TasksPage', () => {
 
   it('sorts tasks with the selected sort mode', async () => {
     const user = userEvent.setup()
-    mockListAllTasks.mockResolvedValue([
+    mockListTasks.mockResolvedValue([
       { ...baseTask, due_date: '2026-06-20' },
       { ...baseTask, id: 2, title: 'Soon work', due_date: '2026-06-10' },
     ])
-    renderGlobal()
+    renderProject()
 
     await screen.findByText('Fix the VPN')
     await user.selectOptions(screen.getByLabelText('Sort tasks'), 'due_date')
@@ -365,12 +385,15 @@ describe('TasksPage', () => {
     const taskLinks = screen
       .getAllByRole('link')
       .map((link) => link.getAttribute('aria-label'))
+      // Drop the surface's own chrome: the back link and the two project tabs
+      // are unlabelled links, and only task cards carry an aria-label.
+      .filter((label) => label !== null)
     expect(taskLinks).toEqual(['Soon work', 'Fix the VPN'])
   })
 
   it('marks a task done from the compact row action', async () => {
     const user = userEvent.setup()
-    renderGlobal()
+    renderProject()
 
     await screen.findByText('Fix the VPN')
     await user.click(
@@ -382,11 +405,11 @@ describe('TasksPage', () => {
 
   it('keeps subtasks collapsed until the parent toggle is clicked', async () => {
     const user = userEvent.setup()
-    mockListAllTasks.mockResolvedValue([
+    mockListTasks.mockResolvedValue([
       baseTask,
       { ...baseTask, id: 2, parent_task_id: 1, title: 'Rotate the keys' },
     ])
-    renderGlobal()
+    renderProject()
 
     await screen.findByText('Fix the VPN')
     expect(screen.queryByText('Rotate the keys')).not.toBeInTheDocument()
@@ -398,12 +421,12 @@ describe('TasksPage', () => {
 
   it('keeps nested subtasks hidden until their parent subtask is expanded', async () => {
     const user = userEvent.setup()
-    mockListAllTasks.mockResolvedValue([
+    mockListTasks.mockResolvedValue([
       baseTask,
       { ...baseTask, id: 2, parent_task_id: 1, title: 'Rotate the keys' },
       { ...baseTask, id: 3, parent_task_id: 2, title: 'Verify rotation' },
     ])
-    renderGlobal()
+    renderProject()
 
     await screen.findByText('Fix the VPN')
     await user.click(screen.getByRole('button', { name: 'Subtasks (1)' }))
@@ -417,19 +440,21 @@ describe('TasksPage', () => {
 
   it('excludes subtasks from the board view, showing only parent tasks', async () => {
     const user = userEvent.setup()
-    mockListAllTasks.mockResolvedValue([
+    mockListTasks.mockResolvedValue([
       baseTask,
       { ...baseTask, id: 2, parent_task_id: 1, title: 'Rotate the keys' },
     ])
-    const { router } = renderGlobal()
+    const { router } = renderProject()
 
     await screen.findByText('Fix the VPN')
     await user.click(screen.getByRole('button', { name: 'Board' }))
 
     expect(screen.getByText('Fix the VPN')).toBeInTheDocument()
     expect(screen.queryByText('Rotate the keys')).not.toBeInTheDocument()
+    // Board is the default view here, so selecting it drops the param rather
+    // than pinning it — the list view is the one that has to be spelled out.
     await waitFor(() =>
-      expect(new URLSearchParams(router.state.location.search).get('view')).toBe('board'),
+      expect(new URLSearchParams(router.state.location.search).get('view')).toBeNull(),
     )
   })
 
@@ -438,7 +463,7 @@ describe('TasksPage', () => {
     // effective root — the server says so via is_effective_top_level, and the
     // board must show it rather than filter it out with the real subtasks.
     const user = userEvent.setup()
-    mockListAllTasks.mockResolvedValue([
+    mockListTasks.mockResolvedValue([
       baseTask,
       { ...baseTask, id: 2, parent_task_id: 1, title: 'Rotate the keys' },
       {
@@ -459,7 +484,7 @@ describe('TasksPage', () => {
         title: 'Orphaned and finished',
       },
     ])
-    renderGlobal()
+    renderProject()
 
     await screen.findByText('Fix the VPN')
     await user.click(screen.getByRole('button', { name: 'Board' }))
@@ -471,13 +496,13 @@ describe('TasksPage', () => {
 
   it('creates a subtask with the parent_task_id when Add subtask is used', async () => {
     const user = userEvent.setup()
-    mockCreateUnscopedTask.mockResolvedValue({
+    mockCreateTask.mockResolvedValue({
       ...baseTask,
       id: 2,
       parent_task_id: 1,
       title: 'Rotate the keys',
     })
-    renderGlobal()
+    renderProject()
 
     await screen.findByText('Fix the VPN')
     await user.click(screen.getByRole('button', { name: 'Add subtask' }))
@@ -487,7 +512,10 @@ describe('TasksPage', () => {
     const composer = titleInput.closest('form') as HTMLFormElement
     await user.click(within(composer).getByRole('button', { name: 'Add' }))
 
-    expect(mockCreateUnscopedTask).toHaveBeenCalledWith(
+    // No explicit project in the payload, so it files through the page's own
+    // project via the scoped endpoint.
+    expect(mockCreateTask).toHaveBeenCalledWith(
+      1,
       expect.objectContaining({ title: 'Rotate the keys', parent_task_id: 1 }),
     )
   })
@@ -501,7 +529,7 @@ describe('TasksPage', () => {
       priority: 'high',
       project_id: 42,
     })
-    renderGlobal()
+    renderProject()
 
     await screen.findByText('Fix the VPN')
     await user.type(
@@ -526,18 +554,18 @@ describe('TasksPage', () => {
     mockDeleteTask.mockRejectedValue(new Error('Delete failed'))
     mockMarkTaskDone.mockRejectedValue(new Error('Complete failed'))
     mockUpdateTask.mockRejectedValue(new Error('Update failed'))
-    renderGlobal()
+    renderProject()
     await screen.findByText('Fix the VPN')
 
     await user.click(screen.getByRole('button', { name: 'Delete Fix the VPN' }))
     await waitFor(() => expect(mockDeleteTask).toHaveBeenCalledWith(1))
-    expect(mockListAllTasks).toHaveBeenCalledTimes(1)
+    expect(mockListTasks).toHaveBeenCalledTimes(1)
 
     await user.click(
       screen.getByRole('button', { name: 'Mark Fix the VPN done' }),
     )
     await waitFor(() => expect(mockMarkTaskDone).toHaveBeenCalledWith(1))
-    expect(mockListAllTasks).toHaveBeenCalledTimes(1)
+    expect(mockListTasks).toHaveBeenCalledTimes(1)
 
     await user.click(screen.getByRole('button', { name: 'Priority: medium' }))
     await user.click(screen.getByRole('button', { name: 'high' }))
@@ -559,8 +587,8 @@ describe('TasksPage', () => {
 
   it('keeps a failed subtask draft open for retry', async () => {
     const user = userEvent.setup()
-    mockCreateUnscopedTask.mockRejectedValue(new Error('Create failed'))
-    renderGlobal()
+    mockCreateTask.mockRejectedValue(new Error('Create failed'))
+    renderProject()
 
     await screen.findByText('Fix the VPN')
     await user.click(screen.getByRole('button', { name: 'Add subtask' }))
@@ -570,7 +598,8 @@ describe('TasksPage', () => {
     await user.click(within(composer).getByRole('button', { name: 'Add' }))
 
     await waitFor(() =>
-      expect(mockCreateUnscopedTask).toHaveBeenCalledWith(
+      expect(mockCreateTask).toHaveBeenCalledWith(
+        1,
         expect.objectContaining({ title: 'Keep this subtask' }),
       ),
     )
@@ -580,7 +609,7 @@ describe('TasksPage', () => {
   })
 
   it('swallows a rejected recurring-task skip', async () => {
-    mockListAllTasks.mockResolvedValue([
+    mockListTasks.mockResolvedValue([
       {
         ...baseTask,
         repeat_interval: { unit: 'week', every: 1 },
@@ -588,7 +617,7 @@ describe('TasksPage', () => {
       },
     ])
     mockSkipOccurrence.mockRejectedValue(new Error('Skip failed'))
-    renderGlobal()
+    renderProject()
     await screen.findByText('Fix the VPN')
 
     const taskCard = screen.getByRole('link', { name: 'Fix the VPN' })
@@ -614,7 +643,7 @@ describe('TasksPage', () => {
       { ...baseTask, workflow_status: 'done' },
     ])
     mockUpdateTask.mockRejectedValue(new Error('Update failed'))
-    renderGlobal(['/tasks?status=done'])
+    renderProject(['/tasks?status=done'])
     await screen.findByText('Fix the VPN')
 
     await user.click(screen.getByRole('button', { name: 'Priority: medium' }))
@@ -634,7 +663,7 @@ describe('TasksPage', () => {
       title: 'File me right',
       project_id: 42,
     })
-    renderGlobal(['/tasks?new=1'])
+    renderProject(['/tasks?new=1'])
 
     const modal = await screen.findByRole('dialog', { name: 'Add task' })
     await user.type(within(modal).getByLabelText('Title'), 'File me right')
@@ -650,7 +679,7 @@ describe('TasksPage', () => {
   })
 
   it('deep-links ?task= to the peek panel over the list', async () => {
-    renderGlobal(['/tasks?task=1'])
+    renderProject(['/tasks?task=1'])
 
     const panel = await screen.findByRole('dialog', { name: 'Task details' })
     expect(panel).toBeInTheDocument()
@@ -658,23 +687,23 @@ describe('TasksPage', () => {
       expect(screen.getByLabelText('Task title')).toHaveValue('Fix the VPN'),
     )
     // The list is still rendered behind the panel.
-    expect(screen.getByRole('heading', { name: 'Open Tasks' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Tasks' })).toBeInTheDocument()
   })
 
   it('opens the peek panel from a task card without navigating away', async () => {
     const user = userEvent.setup()
-    const { router } = renderGlobal()
+    const { router } = renderProject()
 
     await user.click(await screen.findByRole('link', { name: 'Fix the VPN' }))
 
     expect(await screen.findByRole('dialog', { name: 'Task details' })).toBeInTheDocument()
-    expect(router.state.location.pathname).toBe('/tasks')
+    expect(router.state.location.pathname).toBe('/projects/1/tasks')
     expect(new URLSearchParams(router.state.location.search).get('task')).toBe('1')
   })
 
   it('closes the peek panel on Escape and drops the task param', async () => {
     const user = userEvent.setup()
-    const { router } = renderGlobal(['/tasks?task=1'])
+    const { router } = renderProject(['/tasks?task=1'])
 
     await screen.findByRole('dialog', { name: 'Task details' })
     await user.keyboard('{Escape}')
@@ -694,7 +723,7 @@ describe('TasksPage', () => {
       workflow_status: 'done' as const,
     }
     mockListCompletedTasks.mockResolvedValue([doneTask])
-    renderGlobal(['/tasks?view=board'])
+    renderProject(['/tasks?view=board'])
 
     await screen.findByText('A done task')
     await user.click(screen.getByRole('button', { name: 'Status: Done' }))
@@ -717,7 +746,7 @@ describe('TasksPage', () => {
     }
     mockListCompletedTasks.mockResolvedValue([doneTask])
     mockUpdateTask.mockRejectedValue(new Error('Task is blocked'))
-    renderGlobal(['/tasks?view=board'])
+    renderProject(['/tasks?view=board'])
 
     await screen.findByText('A done task')
     await user.click(screen.getByRole('button', { name: 'Status: Done' }))
@@ -731,31 +760,22 @@ describe('TasksPage', () => {
     expect(screen.getByRole('button', { name: 'Status: Done' })).toBeInTheDocument()
   })
 
-  it('labels and filters a task whose project is closed (#133)', async () => {
-    const user = userEvent.setup()
+  it('still asks for closed projects so the Project sort can name one (#133)', async () => {
     const closedProject: Project = {
       ...baseProject,
       id: 7,
       name: 'Archived Migration',
       closed_at: '2026-06-15T10:00:00Z',
     }
-    // The page must ask for closed projects; closing one leaves its tasks open.
+    // Closing a project leaves its tasks open, and the "Project" sort resolves
+    // names from this list — omit the closed ones and those tasks sort as
+    // "Unassigned". The cross-project label and filter went with `/tasks`.
     mockListProjects.mockResolvedValue([baseProject, closedProject])
-    mockListAllTasks.mockResolvedValue([
-      { ...baseTask, id: 5, title: 'Left behind', project_id: 7 },
-      { ...baseTask, id: 6, title: 'Still open', project_id: 42 },
-    ])
-    renderGlobal()
+    renderProject()
 
-    await screen.findByText('Left behind')
+    await screen.findByText('Fix the VPN')
     expect(mockListProjects).toHaveBeenCalledWith(true)
-    const card = screen.getByRole('link', { name: 'Left behind' })
-    expect(within(card).getByText('Archived Migration')).toBeInTheDocument()
-
-    // The closed project is selectable in the filter and narrows the list.
-    await user.selectOptions(screen.getByLabelText('Filter by project'), '7')
-    expect(screen.getByText('Left behind')).toBeInTheDocument()
-    expect(screen.queryByText('Still open')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Filter by project')).not.toBeInTheDocument()
   })
 
   it('omits closed projects from the create modal picker (#133)', async () => {
@@ -766,7 +786,7 @@ describe('TasksPage', () => {
       closed_at: '2026-06-15T10:00:00Z',
     }
     mockListProjects.mockResolvedValue([baseProject, closedProject])
-    renderGlobal(['/tasks?new=1'])
+    renderProject(['/tasks?new=1'])
 
     const modal = await screen.findByRole('dialog', { name: 'Add task' })
     const picker = within(modal).getByLabelText('Project')
@@ -778,13 +798,14 @@ describe('TasksPage', () => {
 
   it('keeps the peek panel open when switching to the board view', async () => {
     const user = userEvent.setup()
-    const { router } = renderGlobal(['/tasks?task=1'])
+    const { router } = renderProject(['/tasks?task=1'])
 
     await screen.findByRole('dialog', { name: 'Task details' })
     await user.click(screen.getByRole('button', { name: 'Board' }))
 
     const params = new URLSearchParams(router.state.location.search)
-    expect(params.get('view')).toBe('board')
+    // Board is the default view, so it is spelled by the param's absence.
+    expect(params.get('view')).toBeNull()
     expect(params.get('task')).toBe('1')
     expect(screen.getByRole('dialog', { name: 'Task details' })).toBeInTheDocument()
   })
