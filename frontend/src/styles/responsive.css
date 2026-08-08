@@ -17,17 +17,25 @@
     --fs-task-title: 13.5px;
     --fs-meta: 11.5px;
   }
+
+  /* Tighter meta rhythm at phone width. The mobile design separates these
+     words with a faint "·"; left out deliberately — the separator would have
+     to be pseudo-content inside the chip <button>s, where screen readers
+     announce it as part of the control's name. */
+  .task-card-badges {
+    gap: 3px 8px;
+  }
 }
 
 @media (max-width: 880px) {
-  .task-card {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
+  /* Rows stay rows. The old rule stacked the whole card into a column, which
+     put the complete-circle on its own line above the title — that read as a
+     card, and cards are what this restyle removed. Only the action row drops
+     below, indented to line up under the title. */
   .task-card-actions {
+    flex-basis: 100%;
     flex-wrap: wrap;
-    width: 100%;
+    margin-left: 27px;
   }
 
   .task-filters,

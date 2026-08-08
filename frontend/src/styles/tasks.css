@@ -118,6 +118,7 @@
 .task-card {
   display: flex;
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 10px 0;
   border: 0;
@@ -202,9 +203,9 @@
 }
 
 .task-action {
-  min-height: 34px;
-  font-size: 13px;
-  font-weight: 700;
+  min-height: var(--ctl-h);
+  font-size: var(--fs-btn);
+  font-weight: 650;
 }
 
 .task-section-actions {
@@ -224,10 +225,10 @@
 }
 
 .task-icon-action {
-  width: 36px;
-  min-width: 36px;
-  height: 36px;
-  min-height: 36px;
+  width: var(--ctl-h);
+  min-width: var(--ctl-h);
+  height: var(--ctl-h);
+  min-height: var(--ctl-h);
   padding: 0;
 }
 
@@ -268,15 +269,20 @@
   font-style: italic;
 }
 
+/* Filter blocks are ruled top and bottom — the one place the flat system
+   uses two rules, because the block interrupts the page rather than opening
+   a section. */
 .task-filters {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--frost);
-  box-shadow: var(--shadow-soft);
-  padding: 14px;
+  gap: 10px;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 12px 0;
   margin: 12px 0;
 }
 
@@ -294,31 +300,59 @@
 }
 
 .task-filters-title {
-  color: var(--text-h);
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
+/* Field labels are mono micro-labels, matching every other section marker. */
 .task-search-field,
 .task-filter-grid label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* The field itself opts back out of the label's mono/uppercase. */
+.task-search-field input,
+.task-filter-grid select {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--text-h);
-  font-size: 12px;
-  font-weight: 760;
 }
 
 .task-search-field > div {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
-  min-height: 40px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text-muted);
-  padding: 0 12px;
+  gap: 9px;
+  min-height: var(--field-h);
+  border: 1px solid var(--rule-field);
+  border-radius: 7px;
+  background: var(--fill-subtle);
+  color: var(--text-meta);
+  padding: 0 10px;
+}
+
+.task-search-field > div:focus-within {
+  border-color: var(--focus-ring);
+}
+
+.task-search-field input:focus {
+  outline: none;
 }
 
 .task-search-field input {
@@ -326,7 +360,7 @@
   width: 100%;
   border: 0;
   background: transparent;
-  padding: 0 0 0 6px;
+  padding: 0;
 }
 
 .task-filter-grid {
@@ -352,21 +386,24 @@
 .task-filter-toggles label {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  min-height: 34px;
-  border: 1px solid var(--border);
+  gap: 6px;
+  min-height: var(--ctl-h);
+  border: 1px solid var(--rule-control);
   border-radius: 999px;
-  background: var(--surface);
+  background: transparent;
   color: var(--text);
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 720;
-  padding: 6px 11px;
+  font-family: var(--sans);
+  font-size: var(--fs-btn);
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 0 11px;
 }
 
 .task-filter-toggles label.selected {
-  border-color: var(--blue-border-strong);
-  background: var(--blue-soft);
+  border-color: transparent;
+  background: rgba(143, 190, 242, 0.16);
   color: var(--link);
 }
 
@@ -376,10 +413,11 @@
   cursor: pointer;
 }
 
+/* Rows carry their own bottom hairline, so the list has no gap of its own. */
 .task-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
   list-style: none;
   padding: 0;
   margin: 0;
@@ -425,34 +463,37 @@
 }
 
 .task-subtasks {
-  margin-top: 6px;
-  padding-left: 12px;
+  margin-top: 0;
+  padding-left: 27px;
 }
 
 .task-subtasks-toggle {
-  min-height: 30px;
+  min-height: 26px;
   border: 0;
   background: transparent;
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 760;
+  color: var(--text-meta);
+  font-size: var(--fs-meta);
+  font-weight: 650;
   box-shadow: none;
-  padding: 4px 6px;
+  padding: 4px 0;
 }
 
 .task-subtasks-toggle:hover:not(:disabled) {
-  background: var(--surface-soft);
-  color: var(--blue);
+  border-color: transparent;
+  background: transparent;
+  color: var(--link);
 }
 
+/* Subtasks indent to 27px with no left rail — the indent alone reads as
+   nesting once the rows are flush. */
 .task-children {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
   list-style: none;
-  margin: 6px 0 0 8px;
-  border-left: 2px solid var(--border);
-  padding: 2px 0 2px 14px;
+  margin: 0;
+  border-left: 0;
+  padding: 0;
 }
 
 .task-dependencies {
@@ -634,8 +675,11 @@
   margin: 0;
 }
 
+/* Centred, not stretched: the buttons keep their 30px control height instead
+   of growing to match the 36px field beside them. */
 .quick-add-row {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -651,71 +695,94 @@
   gap: 6px;
 }
 
+/* Tabs, not a segmented control: no container border, no dividing rule —
+   the active pill is the only chrome. */
 .view-toggle {
   display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
+  gap: 4px;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
 }
 
 .view-toggle button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  height: var(--tab-h);
+  min-height: var(--tab-h);
+  padding: 0 11px;
   border: none;
-  background: var(--surface);
-  color: var(--text);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-meta);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--fs-btn);
+  font-weight: 680;
 }
 
 .view-toggle button + button {
-  border-left: 1px solid var(--border);
+  border-left: 0;
+}
+
+.view-toggle button:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--fill-pill);
+  color: var(--text-h);
 }
 
 .view-toggle button.selected {
-  background: var(--blue);
-  color: var(--on-accent);
+  background: rgba(143, 190, 242, 0.16);
+  color: var(--link);
 }
 
-/* Kanban board: three status columns. */
+/* Kanban board: three status columns. They lose their card chrome entirely —
+   a mono label with a count, then divider-separated rows. */
 .kanban-board {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
   align-items: start;
 }
 
 .kanban-column {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-2, var(--surface));
-  min-height: 120px;
-  transition: border-color 0.15s, background 0.15s;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  min-height: 0;
+  transition: border-color 0.15s, background 0.15s, padding 0.15s;
 }
 
+/* A drop target, not a container: a left rule and a faint wash, where the
+   old treatment filled the whole column blue. */
 .kanban-column.drag-over {
-  border-color: var(--blue);
-  background: var(--blue-tint);
+  border-left-color: var(--blue-border-strong);
+  background: rgba(143, 190, 242, 0.05);
+  padding-left: 10px;
 }
 
 .kanban-column-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 7px;
+  padding: 2px 0 3px;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
   font-weight: 600;
-  color: var(--text-h);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
 .kanban-column-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -730,9 +797,9 @@
 }
 
 .kanban-empty {
-  color: var(--text-muted);
-  font-size: 13px;
-  margin: 4px 2px;
+  color: var(--text-meta);
+  font-size: 12.5px;
+  margin: 4px 0;
 }
 
 /* --- Metadata chips: pill triggers that open an anchored editor.
