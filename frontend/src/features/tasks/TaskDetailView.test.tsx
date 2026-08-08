@@ -106,7 +106,13 @@ describe('TaskDetailView', () => {
     mockListProjects.mockResolvedValue([project])
     mockListDependencies.mockResolvedValue([])
     mockListDependents.mockResolvedValue([])
-    mockUpdateTask.mockImplementation(async (_id, patch) => ({ ...task, ...patch }))
+    mockUpdateTask.mockImplementation(async (_id, patch) => ({
+      ...task,
+      ...patch,
+      // A patch may carry an explicit null project_id; the server resolves that
+      // to General rather than storing it, so the stubbed response does too.
+      project_id: patch.project_id ?? task.project_id,
+    }))
   })
 
   afterEach(cleanup)

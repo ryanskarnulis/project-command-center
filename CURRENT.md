@@ -37,10 +37,12 @@ non-agent backlog:
    the agent tool registry (an export tool could join the 25) and with the
    deploy-from-clean-clone workflow, where a text export is the cheap
    portability story.
-3. ~~**[decision] The Tasks page's fate**~~ — **resolved 2026-08-07: the page
-   stays.** Settled while scoping the restyle rather than leave a third of the
-   app on the old visual vocabulary. `TasksPage` and its filter machinery are
-   restyled in chunk 4. No further re-evaluation trigger.
+3. ~~**[decision] The Tasks page's fate**~~ — **resolved 2026-08-08: the global
+   route is retired** (reversing the 2026-08-07 "it stays", which rested on the
+   restyle's sunk cost rather than on usage). Shipped in two slices, archived in
+   `DONE.md`. `TasksPage` itself lives on as the per-project Tasks tab — the two
+   routes always shared the component, so the wholesale delete `TODO.md`
+   imagined was never the right shape.
 
 Next up after this checkout: **eval-harness expansion** — a delegate-actor
 end-to-end scenario (#56 shipped with unit tests only; no eval yet asserts a

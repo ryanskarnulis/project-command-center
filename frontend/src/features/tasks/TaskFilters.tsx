@@ -1,5 +1,4 @@
 import { Search, SlidersHorizontal } from 'lucide-react'
-import type { Project } from '../../types/project'
 import type { TaskPriority } from '../../types/task'
 import {
   EMPTY_FILTERS,
@@ -20,8 +19,6 @@ interface TaskFiltersProps {
   filters: Filters
   sortMode: SortMode
   view: ViewMode
-  isGlobal: boolean
-  projects: Project[]
   filtersActive: boolean
   activeFilterCount: number
   updateTaskQuery: (next: TaskQueryUpdate) => void
@@ -31,8 +28,6 @@ export function TaskFilters({
   filters,
   sortMode,
   view,
-  isGlobal,
-  projects,
   filtersActive,
   activeFilterCount,
   updateTaskQuery,
@@ -117,32 +112,6 @@ export function TaskFilters({
             <option value="low">Low</option>
           </select>
         </label>
-
-        {isGlobal && (
-          <label>
-            <span>Project</span>
-            <select
-              aria-label="Filter by project"
-              value={filters.projectId === '' ? '' : String(filters.projectId)}
-              onChange={(e) =>
-                updateTaskQuery({
-                  filters: {
-                    ...filters,
-                    projectId:
-                      e.target.value === '' ? '' : Number(e.target.value),
-                  },
-                })
-              }
-            >
-              <option value="">All projects</option>
-              {projects.map((p) => (
-                <option key={p.id} value={String(p.id)}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
 
         {view !== 'board' && (
         <label>

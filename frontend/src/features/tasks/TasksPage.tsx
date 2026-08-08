@@ -20,10 +20,12 @@ import { useCompletedTasks } from './useCompletedTasks'
 import { useTaskUrlState } from './useTaskUrlState'
 import { useTasks } from './useTasks'
 
+/** The per-project task surface: `/projects/:projectId/tasks`, one of two tabs. */
 export function TasksPage() {
+  // Always project-scoped — the cross-project `/tasks` route was retired, and
+  // `RequireRouteId` guarantees a positive integer before this renders.
   const { projectId } = useParams()
-  const id = projectId === undefined ? undefined : Number(projectId)
-  const isGlobal = id === undefined
+  const id = Number(projectId)
   const { tasks, loading, error, create, update, markDone, skip, remove, reload } =
     useTasks(id)
   // The recurring task whose skip is awaiting confirmation (null = no dialog).
@@ -39,7 +41,7 @@ export function TasksPage() {
     activeFilterCount,
     updateTaskQuery,
     selectView,
-  } = useTaskUrlState(isGlobal ? 'list' : 'board')
+  } = useTaskUrlState('board')
   const [projects, setProjects] = useState<Project[]>([])
 
   // "Done" swaps the list to the completed archive (lazily fetched); the board
@@ -59,9 +61,8 @@ export function TasksPage() {
     useState<Partial<TaskCreate> | null>(null)
 
   useEffect(() => {
-    // Closing a project leaves its unfinished tasks active, so the global list
-    // still shows them — it needs the closed projects too or those tasks lose
-    // their name, sort key, and filter option (#133).
+    // Closed projects are included so the "Project" sort key can still name a
+    // task filed in one (#133); they are dropped from the filing targets below.
     listProjects(true).then(setProjects).catch(() => {})
   }, [])
 
@@ -128,13 +129,11 @@ export function TasksPage() {
       }}
     >
     <main>
-      {!isGlobal && id !== undefined && (
-        <p>
-          <Link to={`/projects/${id}`}>← Project</Link>
-        </p>
-      )}
-      <h1>{isGlobal ? 'Open Tasks' : 'Tasks'}</h1>
-      {!isGlobal && id !== undefined && <ProjectTabs projectId={id} />}
+      <p>
+        <Link to={`/projects/${id}`}>← Project</Link>
+      </p>
+      <h1>Tasks</h1>
+      <ProjectTabs projectId={id} />
 
       <div className="task-toolbar">
         <QuickAddBar
@@ -173,8 +172,6 @@ export function TasksPage() {
         filters={filters}
         sortMode={sortMode}
         view={view}
-        isGlobal={isGlobal}
-        projects={projects}
         filtersActive={filtersActive}
         activeFilterCount={activeFilterCount}
         updateTaskQuery={updateTaskQuery}
@@ -185,8 +182,6 @@ export function TasksPage() {
           tasks={tasks}
           completedTasks={completedTasks}
           filters={filters}
-          projects={projects}
-          isGlobal={isGlobal}
           loading={loading}
           error={error}
           completedLoading={completedLoading}
@@ -202,7 +197,6 @@ export function TasksPage() {
           filters={filters}
           sortMode={sortMode}
           projects={projects}
-          isGlobal={isGlobal}
           showingCompleted={showingCompleted}
           loading={loading}
           error={error}
@@ -232,12 +226,12 @@ export function TasksPage() {
         }}
       />
 
-      {!isGlobal && <ActivityFeed projectId={id} refreshKey={activityKey} />}
+      <ActivityFeed projectId={id} refreshKey={activityKey} />
 
       {addingTask && (
         <TaskFormModal
           mode="create"
-          defaults={isGlobal ? undefined : { project_id: id }}
+          defaults={{ project_id: id }}
           tasks={tasks}
           projects={openProjects}
           onClose={() => updateTaskQuery({ addingTask: false })}
@@ -254,7 +248,7 @@ export function TasksPage() {
           defaults={
             // A draft without its own project (no #project token) pre-selects
             // the page's project, matching where quick-add would file it.
-            draftModalDefaults.project_id === undefined && !isGlobal
+            draftModalDefaults.project_id === undefined
               ? { ...draftModalDefaults, project_id: id }
               : draftModalDefaults
           }

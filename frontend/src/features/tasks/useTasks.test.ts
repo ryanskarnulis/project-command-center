@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createUnscopedTask, listAllTasks, listTasks } from '../../api/tasks'
+import { createUnscopedTask, listTasks } from '../../api/tasks'
 import type { Task } from '../../types/task'
 import { useTasks } from './useTasks'
 
@@ -16,37 +16,36 @@ vi.mock('../../api/tasks', () => ({
 }))
 
 const mockCreateUnscopedTask = vi.mocked(createUnscopedTask)
-const mockListAllTasks = vi.mocked(listAllTasks)
 const mockListTasks = vi.mocked(listTasks)
 
 describe('useTasks', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockListAllTasks.mockResolvedValue([])
+    mockListTasks.mockResolvedValue([])
   })
 
   it('refetches after a mutation via reload()', async () => {
     mockCreateUnscopedTask.mockResolvedValue({ id: 1 } as Task)
-    const { result } = renderHook(() => useTasks())
+    const { result } = renderHook(() => useTasks(1))
     await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(mockListAllTasks).toHaveBeenCalledTimes(1)
+    expect(mockListTasks).toHaveBeenCalledTimes(1)
 
     await act(async () => {
       await result.current.create({ title: 'New task' })
     })
 
-    await waitFor(() => expect(mockListAllTasks).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mockListTasks).toHaveBeenCalledTimes(2))
   })
 
   it('keeps loading false on refetch and toggles refreshing instead', async () => {
     let resolveSecond!: (tasks: Task[]) => void
-    mockListAllTasks
+    mockListTasks
       .mockResolvedValueOnce([])
       .mockImplementationOnce(
         () => new Promise<Task[]>((resolve) => (resolveSecond = resolve)),
       )
 
-    const { result } = renderHook(() => useTasks())
+    const { result } = renderHook(() => useTasks(1))
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(result.current.refreshing).toBe(false)
 

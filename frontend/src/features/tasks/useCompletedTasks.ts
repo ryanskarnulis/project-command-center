@@ -12,24 +12,24 @@ interface UseCompletedTasks {
 
 /** Completed tasks as loaded, tagged with the scope that produced them. */
 interface LoadedCompletedTasks {
-  scope: number | undefined
+  scope: number
   tasks: Task[]
 }
 
 /** An error tagged with the scope whose request produced it. */
 interface ScopedError {
-  scope: number | undefined
+  scope: number
   message: string
 }
 
 const NO_TASKS: Task[] = []
 
-function completedTasksKey(projectId: number | undefined, refreshKey: number): string {
-  return JSON.stringify([projectId ?? null, refreshKey])
+function completedTasksKey(projectId: number, refreshKey: number): string {
+  return JSON.stringify([projectId, refreshKey])
 }
 
 export function useCompletedTasks(
-  projectId?: number,
+  projectId: number,
   enabled = true,
 ): UseCompletedTasks {
   const [loaded, setLoaded] = useState<LoadedCompletedTasks | null>(null)

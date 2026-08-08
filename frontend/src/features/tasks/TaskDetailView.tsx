@@ -173,8 +173,10 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
       .catch((e: unknown) => {
         if (!active) return
         if (e instanceof ApiError && e.status === 404) {
+          // No task means no project to fall back to, so the dashboard is the
+          // only place left to go. Every real host passes `onClose`.
           if (onClose) onClose()
-          else navigate('/tasks', { replace: true })
+          else navigate('/dashboard', { replace: true })
         } else {
           setError(e instanceof Error ? e.message : 'Failed to load task')
           setLoadedTaskId(id)
@@ -289,7 +291,7 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
       onMutated?.()
       if (!isCurrent()) return
       if (onClose) onClose()
-      else navigate('/tasks')
+      else navigate(`/projects/${task.project_id}/tasks`)
     } catch (e: unknown) {
       if (!isCurrent()) return
       setSaveState('error')

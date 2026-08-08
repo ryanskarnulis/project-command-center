@@ -38,7 +38,7 @@ function clickTwiceInOneTick(el: HTMLElement) {
 
 const task: Task = {
   id: 1,
-  project_id: null,
+  project_id: 1,
   parent_task_id: null,
   title: 'Ship release',
   description: null,

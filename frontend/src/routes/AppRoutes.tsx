@@ -20,7 +20,6 @@ export const routes = [
       { path: '/dashboard', element: <DashboardPage /> },
       { path: '/focus', element: <FocusPage /> },
       { path: '/today', element: <Navigate to="/focus" replace /> },
-      { path: '/tasks', element: <TasksPage /> },
       {
         path: '/tasks/:taskId',
         element: (

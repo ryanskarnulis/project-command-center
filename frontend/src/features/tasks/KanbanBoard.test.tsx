@@ -2,7 +2,7 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
-import type { Task } from '../../types/task'
+import type { Task, TaskUpdate } from '../../types/task'
 import { KanbanBoard } from './KanbanBoard'
 
 afterEach(cleanup)
@@ -43,7 +43,6 @@ function renderBoard(
       <KanbanBoard
         activeTasks={active}
         completedTasks={completed}
-        isGlobal={false}
         onSetStatus={onSetStatus}
         onUpdate={vi.fn(() => Promise.resolve())}
       />
@@ -167,7 +166,6 @@ describe('KanbanBoard', () => {
         <KanbanBoard
           activeTasks={[task({ id: 1, title: 'Open one', workflow_status: 'open' })]}
           completedTasks={[]}
-          isGlobal={false}
           onSetStatus={onSetStatus}
           onUpdate={vi.fn(() => Promise.resolve())}
         />
@@ -186,8 +184,8 @@ describe('KanbanBoard', () => {
   // wrapped so a rejected patch doesn't leak. Covers KanbanBoard.tsx:115.
   it('swallows a failing chip edit (onUpdate rejects) without leaking', async () => {
     const user = userEvent.setup()
-    const patches: Partial<Task>[] = []
-    const onUpdate = (_t: Task, patch: Partial<Task>) => {
+    const patches: TaskUpdate[] = []
+    const onUpdate = (_t: Task, patch: TaskUpdate) => {
       patches.push(patch)
       return Promise.reject(new Error('boom'))
     }
@@ -198,7 +196,6 @@ describe('KanbanBoard', () => {
             task({ id: 1, title: 'Open one', workflow_status: 'open', priority: 'medium' }),
           ]}
           completedTasks={[]}
-          isGlobal={false}
           onSetStatus={vi.fn(() => Promise.resolve())}
           onUpdate={onUpdate}
         />

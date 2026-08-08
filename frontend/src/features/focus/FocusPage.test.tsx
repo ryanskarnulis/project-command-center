@@ -48,7 +48,7 @@ const mockGetTask = vi.mocked(getTask)
 
 const panelTask: Task = {
   id: 7,
-  project_id: null,
+  project_id: 1,
   parent_task_id: null,
   title: 'Draft launch checklist',
   description: null,
@@ -250,7 +250,7 @@ describe('FocusPage', () => {
           {
             task_id: 1,
             title: 'Scheduled work',
-            project_id: null,
+            project_id: 1,
             start_time: '09:00',
             end_time: '10:00',
             start_day_offset: 0,
@@ -271,7 +271,7 @@ describe('FocusPage', () => {
           {
             task_id: 2,
             title: 'Overflow task',
-            project_id: null,
+            project_id: 1,
             priority: 'low',
             workflow_status: 'open',
             due_date: null,
@@ -286,7 +286,7 @@ describe('FocusPage', () => {
           {
             task_id: 3,
             title: 'Blocked task',
-            project_id: null,
+            project_id: 1,
             priority: 'urgent',
             due_date: null,
             blocking_tasks: [
@@ -497,7 +497,7 @@ describe('FocusPage', () => {
           {
             task_id: 2,
             title: 'Big parent',
-            project_id: null,
+            project_id: 1,
             priority: 'high',
             workflow_status: 'open',
             due_date: null,
@@ -547,7 +547,7 @@ describe('FocusPage', () => {
           {
             task_id: 2,
             title: 'Oversized task',
-            project_id: null,
+            project_id: 1,
             priority: 'high',
             workflow_status: 'open',
             due_date: null,

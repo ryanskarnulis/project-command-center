@@ -1912,3 +1912,74 @@ computed styles, meta content, the lane-scoped create pre-fill, the Show done
 disclosure, the empty-projects expansion and the signal filter, plus a
 no-horizontal-overflow check on `/dashboard`, `/tasks`, `/focus`, `/agent` and
 `/trash`.
+
+---
+
+## Retire the global Tasks page (2026-08-08)
+> Owner's call: "I never use it." Reverses the 2026-08-07 "the page stays",
+> which rested on the restyle's sunk cost rather than on the usage criterion
+> `TODO.md` actually set. Two slices, merged separately.
+
+### Slice 1 — tasks are always filed (#291)
+
+- [x] **`project_id` is NOT NULL** (migration `93bfbc8f40ab`). The service layer
+      had filed into General since Sprint 6/7 (`tasks._default_project_id`), but
+      the column stayed nullable, so the invariant lived only in code.
+- [x] **Backfilled the survivors.** The 2026-06-01 default-project migration only
+      rehomed `status IN ('accepted','done')`; 50 rows in the dev DB were still
+      unfiled, all created before 2026-07-08. Soft-deleted rows were taken too —
+      a trashed unfiled task would otherwise restore into an illegal state.
+- [x] **Settled `TaskUpdate`'s deferred explicit-null question**: null means
+      "file in General", not a 422. It resolves *before* the change comparison,
+      not after the assignment loop — assigning the null first tripped NOT NULL
+      on the next autoflush, and comparing against the resolved id makes a null
+      patch on a task already in General the no-op it is.
+- [x] **Deleted the handling of a state that can no longer exist**: the unfiled
+      early-returns in `log_task_event` / `_log_dependency_event`, the re-filing
+      bookkeeping in `update_task` / `complete_task`, the nullable `project_id`
+      params on the three purge audit helpers, and two tests that built unfiled
+      rows by hand.
+
+Migration run against a copy of the real dev DB, not just a fresh one: 50 → 0,
+all five indexes preserved (the batch rebuild recreates the partial unique
+occurrence index intact), `foreign_key_check` and `integrity_check` clean,
+downgrade round-trips.
+
+### Slice 2 — the route and the nav
+
+- [x] **`/tasks` is gone**, along with both nav entries (topbar and phone-width
+      bottom bar). `TasksPage` itself survives: it always served
+      `/projects/:id/tasks` too, so the wholesale delete `TODO.md` imagined was
+      never the right shape.
+- [x] **`TaskDetailRedirect` now resolves.** `/tasks/:id` deep links (command
+      search, the agent's tool receipts, the `useTaskLinkTo` fallback) can't
+      derive their target from the URL any more — it needs the task's project —
+      so it fetches the task first and lands on `/projects/:pid/tasks?task=:id`.
+      Slice 1 is what makes that total: there is no unfiled task to strand.
+      A dead id renders Not Found rather than a spinner.
+- [x] **The global quick-add went with it** — the app's only cross-project
+      capture surface. Deliberate: it matches the lane-scoped-creation rule the
+      mobile dashboard left behind.
+- [x] **`isGlobal` collapsed** out of `TasksPage`, `TaskFilters`, `TaskListView`,
+      `TaskBoardView` and `KanbanBoard`, and both hooks lost their
+      "no project" branch.
+
+Two judgment calls on the filter machinery: the **`projectId` filter** went
+(it was `isGlobal`-gated, so it died with the route), the **"Project" sort mode**
+stayed (it predates the global page and still runs on the project tab, which is
+why `listProjects(true)` still asks for closed projects).
+
+`TasksPage.test.tsx` was 791 lines of exclusively global-mode cases, so the
+surviving route had **zero coverage**. Converted rather than deleted: all 38
+tests now drive `/projects/1/tasks`. Three needed real rework — subtask creates
+go through the scoped `createTask`, not `createUnscopedTask`; the board is this
+surface's default view, so selecting it clears the `view` param instead of
+setting it; and the closed-project case lost its label and filter assertions,
+keeping only the `listProjects(true)` one the sort still needs.
+
+Verified in headless chromium at 1400px and 390px: 12 checks — `/tasks` 404s,
+neither nav carries Tasks, the dashboard's "unfiled" link is gone, the project
+tab renders with board default / working list toggle / quick-add / no
+cross-project filter, `/tasks/2` redirects to `/projects/7/tasks?task=2` with
+the peek panel open, and a dead deep link renders Not Found. No JS errors on
+any route.

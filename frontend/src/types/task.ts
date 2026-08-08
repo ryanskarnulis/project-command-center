@@ -12,7 +12,9 @@ export type EditScope = 'this' | 'future'
 
 export interface Task {
   id: number
-  project_id: number | null
+  // Always set: `tasks.project_id` is NOT NULL server-side, and a create or
+  // update that omits it files the task in General.
+  project_id: number
   parent_task_id: number | null
   title: string
   description: string | null
@@ -98,6 +100,8 @@ export interface TaskUpdate {
   due_date?: string | null
   // Day-plan snooze; explicit null clears the deferral.
   deferred_until?: string | null
+  // Null is a value here, not a clear: it files the task in General, the same
+  // as omitting it on create. The column itself is NOT NULL.
   project_id?: number | null
   parent_task_id?: number | null
   estimated_minutes?: number | null
