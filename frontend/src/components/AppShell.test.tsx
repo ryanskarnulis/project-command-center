@@ -50,6 +50,23 @@ describe('AppShell', () => {
     expect(within(bottom).queryByRole('link', { name: 'Focus' })).not.toBeInTheDocument()
   })
 
+  it('fills the Agent target with the Glitch mark', () => {
+    render(
+      <MemoryRouter>
+        <AppShell>
+          <main>Page</main>
+        </AppShell>
+      </MemoryRouter>,
+    )
+
+    // The avatar spans its whole 44px touch target rather than sitting at the
+    // stroke-icon size the row used to share — it is the app's personality mark,
+    // and a 44px `.bottom-nav-link` is as large as the bar allows.
+    const agent = document.querySelector('.bottom-nav a[aria-label="Agent"] img')
+    expect(agent).toHaveAttribute('width', '44')
+    expect(agent).toHaveAttribute('height', '44')
+  })
+
   it('shows the summed trash count beside the Trash link', async () => {
     mockGetTrashCount.mockResolvedValue({ projects: 2, tasks: 1, purge_total: 3 })
 

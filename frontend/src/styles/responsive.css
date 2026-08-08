@@ -112,7 +112,12 @@
     bottom: 0;
     z-index: 20;
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    /* Auto columns, not a hardcoded count: the bar held three destinations
+       until Tasks was retired, and a fixed `repeat(3, 1fr)` left the survivors
+       bunched into the first two thirds. One column per item, whatever the
+       count. */
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
     justify-items: center;
     align-items: center;
     border-top: 1px solid var(--rule);
