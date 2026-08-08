@@ -399,3 +399,64 @@ def test_heal_revision_clears_markers_stale_from_pre_fix_purges(
         (3, None),
     ]
     assert markers_again == markers
+
+
+def test_always_filed_migration_backfills_legacy_unfiled_tasks(tmp_path: Path) -> None:
+    """Rows the 2026-06-01 default-project backfill missed land in General.
+
+    That migration only rehomed ``status IN ('accepted', 'done')``, so a database
+    written before the service layer started filing on write still holds unfiled
+    rows in other states. They are what the dashboard's "N unfiled" count has been
+    reading. This migration takes all of them — soft-deleted ones too, which would
+    otherwise restore into a state the NOT NULL column no longer allows — and then
+    makes the column refuse a fresh null.
+    """
+    db_path = tmp_path / "unfiled.db"
+    # Stop one revision short of the NOT NULL column, then plant the legacy shape.
+    assert _alembic(db_path, "upgrade", "0b40bab55cb4").returncode == 0
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as conn:
+            for title, deleted in (("open unfiled", None), ("trashed unfiled", "2026-07-01")):
+                conn.execute(
+                    text(
+                        "INSERT INTO tasks (project_id, title, workflow_status, "
+                        "priority, deleted_at, created_at, updated_at) "
+                        "VALUES (NULL, :title, 'open', 'medium', :deleted, "
+                        "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                    ),
+                    {"title": title, "deleted": deleted},
+                )
+
+        result = _alembic(db_path, "upgrade", "head")
+        assert result.returncode == 0, result.stderr
+
+        with engine.begin() as conn:
+            general_id = conn.execute(
+                text("SELECT id FROM projects WHERE system_key = 'general'")
+            ).scalar_one()
+            filed = conn.execute(
+                text("SELECT title, project_id FROM tasks ORDER BY id")
+            ).all()
+            still_unfiled = conn.execute(
+                text("SELECT COUNT(*) FROM tasks WHERE project_id IS NULL")
+            ).scalar_one()
+            # The column now refuses a fresh unfiled row.
+            with pytest.raises(IntegrityError):
+                conn.execute(
+                    text(
+                        "INSERT INTO tasks (project_id, title, workflow_status, "
+                        "priority, created_at, updated_at) "
+                        "VALUES (NULL, 'new', 'open', 'medium', "
+                        "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                    )
+                )
+    finally:
+        engine.dispose()
+
+    assert still_unfiled == 0
+    assert [(title, pid == general_id) for title, pid in filed] == [
+        ("open unfiled", True),
+        ("trashed unfiled", True),
+    ]

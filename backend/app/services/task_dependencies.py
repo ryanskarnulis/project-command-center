@@ -203,13 +203,7 @@ def _would_cycle(db: Session, task_id: int, depends_on_id: int) -> bool:
 def _log_dependency_event(
     db: Session, task: Task, other_title: str, action: str, summary: str
 ) -> None:
-    """Record a dependency change on the dependent task's project feed.
-
-    Mirrors ``tasks.log_task_event``'s unfiled rule: a task with no project has
-    no feed to show the event on, so nothing is recorded.
-    """
-    if task.project_id is None:
-        return
+    """Record a dependency change on the dependent task's project feed."""
     activity.record_event(
         db,
         project_id=task.project_id,

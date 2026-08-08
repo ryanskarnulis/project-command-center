@@ -142,10 +142,7 @@ def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> T
     # Fallback (non-recurring, or a series with no live occurrence): plain restore.
     # A restored task may point at a since-deleted project; rehome it to General
     # so it stays reachable, mirroring the project-delete rehoming rule.
-    if (
-        task.project_id is not None
-        and projects_service.get_project(db, task.project_id) is None
-    ):
+    if projects_service.get_project(db, task.project_id) is None:
         task.project_id = projects_service.ensure_default_project_id(db)
     # An individually-restored task drops its cascade markers: it is back on its
     # own terms and must not be dragged around by a later parent/project restore.
@@ -202,8 +199,7 @@ def log_rewound_by_unskip(
     ``restored`` — the more meaningful event for the row the user acted on, and
     logging both would double-log one write. Only rows ``reschedule_occurrence``
     reported as *changed* are passed in, so a descendant already sitting on the
-    target date gains no false event. ``log_task_event`` handles actor binding and
-    unfiled (``project_id is None``) rows.
+    target date gains no false event. ``log_task_event`` handles actor binding.
     """
     for node in rewound:
         if node.id == root.id:
@@ -367,12 +363,6 @@ def deleted_subtree_ids(db: Session, task: Task) -> list[int]:
 def log_task_purged(db: Session, task: Task) -> None:
     """Record the irreversible destruction of ``task`` in the audit log.
 
-    Unlike ``tasks.log_task_event`` this does *not* skip unfiled tasks
-    (``project_id is None``). That helper's silence is a feed-noise trade-off for
-    reversible edits; a purge is the one mutation nothing can undo, so it is
-    always written — with ``project_id=None`` it simply lives outside every
-    per-project feed while still being durable history.
-
     ``activity_events.entity_id`` is a plain column, not a foreign key, so the
     event survives the row it describes. The title is snapshotted into the summary
     because after the purge nothing else remembers it.
@@ -388,7 +378,7 @@ def log_task_purged(db: Session, task: Task) -> None:
 
 
 def log_task_detached_by_purge(
-    db: Session, *, task_id: int, title: str, project_id: int | None, parent_title: str
+    db: Session, *, task_id: int, title: str, project_id: int, parent_title: str
 ) -> None:
     """Record that a purge cut ``task_id`` loose from a parent it destroyed.
 
@@ -396,11 +386,6 @@ def log_task_detached_by_purge(
     the row survives and what changed is one of its fields. ``"purged"`` would be a
     lie about a task that still exists, and a new action string would surface in the
     activity feed with no frontend handling. The summary carries the specifics.
-
-    Like ``log_task_purged`` (and unlike ``tasks.log_task_event``) this does *not*
-    skip unfiled tasks: the parent is gone forever, so this is the only record that
-    the task was ever nested, and that is worth writing even where no per-project
-    feed can show it.
     """
     activity.record_event(
         db,
@@ -426,7 +411,7 @@ class _SeveredEdge:
 
     survivor_id: int
     survivor_title: str
-    survivor_project_id: int | None
+    survivor_project_id: int
     destroyed_id: int
     survivor_waits: bool
 
@@ -486,7 +471,7 @@ def log_dependency_severed_by_purge(
     *,
     task_id: int,
     title: str,
-    project_id: int | None,
+    project_id: int,
     other_title: str,
     waits_on: bool,
 ) -> None:
@@ -503,11 +488,6 @@ def log_dependency_severed_by_purge(
     dependency, a purge destroyed the task on the other end. That title is
     snapshotted here because afterwards it exists nowhere else — the same reason
     ``log_task_detached_by_purge`` snapshots the destroyed parent's.
-
-    Like the other purge helpers (and unlike
-    ``task_dependencies._log_dependency_event``) an unfiled survivor
-    (``project_id is None``) is *not* skipped: no per-project feed can show the
-    event, but it is the only surviving record that the edge ever existed.
     """
     relation = "no longer waits on" if waits_on else "no longer blocks"
     activity.record_event(

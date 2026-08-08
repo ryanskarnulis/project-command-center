@@ -1087,3 +1087,30 @@ def test_purge_detach_event_carries_the_actor(
     detach = _events_for(db_session, "task", child)[-1]
     assert detach.action == "updated"
     assert detach.actor == "agent:mcp"
+
+
+def test_restoring_a_task_whose_project_is_trashed_rehomes_it_to_general(
+    client: TestClient, db_session: Session
+) -> None:
+    """A task must not restore into a project that is itself in the trash.
+
+    Soft-deleting a project rehomes its *active* tasks to General, but one already
+    trashed on its own keeps pointing at it. Restoring that task later would put it
+    somewhere no list can show, so it rehomes — the same rule, applied at the other
+    end. ``project_id`` is NOT NULL, so there is no "leave it unfiled" option here.
+    """
+    pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
+    tid = client.post(f"/api/projects/{pid}/tasks", json={"title": "Survivor"}).json()[
+        "id"
+    ]
+
+    assert client.delete(f"/api/tasks/{tid}").status_code == 204  # trashed on its own
+    assert client.delete(f"/api/projects/{pid}").status_code == 204  # project follows
+
+    restored = client.post(f"/api/tasks/{tid}/restore")
+    assert restored.status_code == 200
+
+    general = db_session.execute(
+        select(Project).where(Project.system_key == "general")
+    ).scalar_one()
+    assert restored.json()["project_id"] == general.id

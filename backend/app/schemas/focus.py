@@ -27,7 +27,7 @@ class ScheduledBlock(BaseModel):
 
     task_id: int
     title: str
-    project_id: int | None
+    project_id: int
     start_time: str  # HH:MM, local clock time
     end_time: str  # HH:MM, local clock time
     # Whole local calendar days after FocusPlan.date. Fixed-duration sessions
@@ -64,7 +64,7 @@ class OverflowTask(BaseModel):
 
     task_id: int
     title: str
-    project_id: int | None
+    project_id: int
     priority: TaskPriority
     workflow_status: TaskWorkflowStatus
     due_date: date | None
@@ -96,7 +96,7 @@ class BlockedTask(BaseModel):
 
     task_id: int
     title: str
-    project_id: int | None
+    project_id: int
     priority: TaskPriority
     due_date: date | None
     # Active dependencies that are not yet done — what the UI warns about. Each

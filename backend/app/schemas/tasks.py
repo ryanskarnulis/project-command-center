@@ -83,8 +83,11 @@ class TaskUpdate(MutationModel):
     # ``model_dump(exclude_unset=True)``); instead we distinguish omit from
     # explicit null via ``model_fields_set`` — present-and-None is rejected,
     # absent is fine. (The other nullable fields above may legitimately be
-    # cleared to null.) ``project_id`` is intentionally not here: its
-    # explicit-null behaviour is a separate decision.
+    # cleared to null.) ``project_id`` is NOT-NULL-backed too but stays out of
+    # this list on purpose: an explicit null there means "file in General" (the
+    # service layer's ``_default_project_id`` coerces it), matching what omitting
+    # it on create does. That is a defined value, not a cleared column, so 422
+    # would be wrong.
     @model_validator(mode="after")
     def _reject_null_non_nullable(self) -> "TaskUpdate":
         for name in _TASK_UPDATE_NON_NULLABLE_FIELDS:
@@ -97,7 +100,7 @@ class TaskRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    project_id: int | None
+    project_id: int
     parent_task_id: int | None
     title: str
     description: str | None

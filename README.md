@@ -72,8 +72,9 @@ Key decisions:
   `agent:loop`, a conductor-delegated run `agent:conductor`).
 - Task progress lives in `workflow_status` (`open | in_progress | done`). The
   AI-era `review_status`/`confidence`/`assignee_hint` columns are dropped;
-  every task is user-facing and always filed in a project (no project on
-  create/update means General).
+  every task is user-facing and always filed in a project: `project_id` is
+  **NOT NULL**, and no project on create/update means General (an explicit
+  `null` on either is a request to file there, not a 422).
 - **Subtasks** nest via nullable `parent_task_id` (a tree — cycles refused with
   `409`). Deleting a parent cascade-soft-deletes the subtree; restore is
   per-task. A parent's estimate and status **roll up from its subtasks**

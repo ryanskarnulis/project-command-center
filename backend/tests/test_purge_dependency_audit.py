@@ -402,48 +402,6 @@ def test_a_trashed_survivor_is_audited_too(
     ]
 
 
-def test_an_unfiled_survivor_is_audited_with_no_project(
-    client: TestClient, db_session: Session
-) -> None:
-    """Unfiled tasks are skipped by the ordinary feed helpers, not by this one.
-
-    ``log_task_event`` and ``_log_dependency_event`` stay quiet for a task with no
-    project because no feed can show the row — a noise trade-off for reversible
-    edits. A purge is not reversible: this is the only surviving record that the
-    edge existed, so it is written with a NULL ``project_id`` like the ``purged``
-    and detach events.
-
-    ``create_task`` files every new task into General, so the row is unfiled here
-    by hand — that shape only survives as legacy data now, but every purge helper
-    still guards for it and this one deliberately guards the other way.
-    """
-    pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
-    survivor = client.post(f"/api/projects/{pid}/tasks", json={"title": "A"}).json()[
-        "id"
-    ]
-    blocker = client.post(f"/api/projects/{pid}/tasks", json={"title": "B"}).json()[
-        "id"
-    ]
-    _add_edge(client, survivor, blocker)
-    db_session.expire_all()
-    unfiled = db_session.get(Task, survivor)
-    assert unfiled is not None
-    unfiled.project_id = None
-    db_session.commit()
-
-    assert client.delete(f"/api/tasks/{blocker}").status_code == 204
-    assert client.delete(f"/api/tasks/{blocker}/purge").status_code == 204
-
-    events = _events_for(db_session, survivor)
-    assert [e.action for e in events] == [
-        "created",
-        "dependency_added",
-        "dependency_removed",
-    ]
-    assert events[-1].project_id is None
-    assert events[-1].summary == 'Task "A" no longer waits on permanently deleted "B"'
-
-
 def test_the_severed_edge_event_carries_the_actor(
     client: TestClient, db_session: Session
 ) -> None:
