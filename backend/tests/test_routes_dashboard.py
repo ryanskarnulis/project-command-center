@@ -27,7 +27,7 @@ def _create_project(db: Session, name: str) -> Project:
 def _create_task(
     db: Session,
     *,
-    project_id: int | None,
+    project_id: int,
     title: str,
     workflow_status: TaskWorkflowStatus = TaskWorkflowStatus.open,
 ) -> Task:
@@ -115,13 +115,6 @@ class TestGetDashboard:
                 workflow_status=TaskWorkflowStatus.done,
             )
         _create_task(db_session, project_id=beta.id, title="Beta open")
-        # Unfiled work belongs to no lane at all.
-        _create_task(
-            db_session,
-            project_id=None,
-            title="Unfiled done",
-            workflow_status=TaskWorkflowStatus.done,
-        )
 
         resp = client.get("/api/dashboard")
 

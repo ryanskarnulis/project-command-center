@@ -111,9 +111,12 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    project_id: Mapped[int | None] = mapped_column(
-        ForeignKey("projects.id"), default=None
-    )
+    # NOT NULL: every task is filed. The service layer has coerced a missing
+    # project to General since Sprint 6/7 (``tasks._default_project_id``); the
+    # column stopped being nullable in 93bfbc8f40ab so unfiled is unrepresentable
+    # rather than merely unlikely. No ``default`` — callers go through the
+    # service layer, which always resolves one.
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
     # Self-referential nesting (Sprint 7 task-model slice). A null parent is a
     # top-level task; cycle prevention (no A->B->A) lives in services/tasks.py,
     # not the DB. Soft-deleting a parent cascade-soft-deletes its subtree.

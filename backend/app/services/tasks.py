@@ -127,22 +127,20 @@ class OccurrenceConflictError(RecurrenceError):
     """
 
 
-def _default_project_id(db: Session, project_id: int | None) -> int | None:
-    """Tasks are always filed: no project means the General default project."""
+def _default_project_id(db: Session, project_id: int | None) -> int:
+    """Tasks are always filed: no project means the General default project.
+
+    The ``None`` this absorbs is an *input* — an omitted or explicitly null
+    ``project_id`` on a create/update payload. ``Task.project_id`` itself is
+    NOT NULL (93bfbc8f40ab), so this is the boundary that keeps it that way.
+    """
     if project_id is None:
         return projects_service.ensure_default_project_id(db)
     return project_id
 
 
 def log_task_event(db: Session, task: Task, action: str) -> None:
-    """Record an activity event for a task, but only once it belongs to a project.
-
-    A task with ``project_id=None`` is unfiled; logging it would flood the
-    per-project feed with rows no feed can show. Filing it into a project later
-    logs an ``updated`` event through the normal update path.
-    """
-    if task.project_id is None:
-        return
+    """Record an activity event for a task on its project's feed."""
     activity.record_event(
         db,
         project_id=task.project_id,
@@ -912,30 +910,37 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     # derived parent is a 409 even when it matches the hidden stored column —
     # issue #191), and before the assignment loop, which would erase the
     # comparison.
+    #
+    # An explicit ``project_id: null`` means "file in General", the same as
+    # omitting it on create — resolved *here*, before the comparison, for two
+    # reasons: assigning the null first would trip the NOT NULL constraint on the
+    # next autoflush (``ensure_default_project_id`` queries, and that autoflushes
+    # the dirty row), and comparing against the resolved id makes a null patch on
+    # a task already in General the no-op it actually is.
+    if control.get("project_id", ...) is None:
+        control["project_id"] = _default_project_id(db, None)
+
     effective_changes = {
         key: value for key, value in control.items() if getattr(task, key) != value
     }
 
-    # Two things still make a same-valued patch real work, so neither short-
-    # circuits. "This and all future occurrences" patches *other* rows, which may
-    # be out of step with this one even when this one is already correct — a
-    # deliberately conservative pre-image of the forward block's own condition
-    # below (that one reads the post-assignment row). And an unfiled task is
-    # filed into General by any update (tasks are always filed), a change of its
-    # own that ``log_task_event`` documents as landing on the update path.
+    # A same-valued patch is still real work when it is "this and all future
+    # occurrences": that patches *other* rows, which may be out of step with this
+    # one even when this one is already correct — a deliberately conservative
+    # pre-image of the forward block's own condition below (that one reads the
+    # post-assignment row).
     forwards_to_future = (
         edit_scope == "future"
         and task.recurrence_id is not None
         and task.due_date is not None
         and any(key not in _FORWARD_PATCH_EXCLUDE for key in control)
     )
-    row_changed = bool(effective_changes) or task.project_id is None
+    row_changed = bool(effective_changes)
     if not row_changed and not forwards_to_future:
         return task
 
     for key, value in control.items():
         setattr(task, key, value)
-    task.project_id = _default_project_id(db, task.project_id)
 
     # First time recurrence is set, mint the series id; copied to every occurrence.
     # Clearing repeat_interval leaves recurrence_id intact so the chain stays readable.
@@ -1037,20 +1042,15 @@ def mark_done(db: Session, task: Task) -> Task:
     # The call stays a success and still reconciles — the series roll-forward is
     # idempotent, and a stalled series is worth repairing on the way through.
     completed = task.workflow_status != TaskWorkflowStatus.done
-    filed = task.project_id is None
     if completed:
         _assert_not_blocked(db, task.id)
     task.workflow_status = TaskWorkflowStatus.done
-    task.project_id = _default_project_id(db, task.project_id)
     db.flush()
     task_recurrence.reconcile(db, [task.id])
     db.flush()
     db.refresh(task)
     if completed:
         log_task_event(db, task, "completed")
-    elif filed:
-        # No status transition, but the task was unfiled and is now in General.
-        log_task_event(db, task, "updated")
     return task
 
 

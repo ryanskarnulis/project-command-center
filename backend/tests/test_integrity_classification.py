@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import Task, TaskDependency, TaskWorkflowStatus
+from app.services import projects as projects_service
 from app.services import task_dependencies as deps_service
 from app.services import task_recurrence as recurrence_service
 from app.services import tasks as tasks_service
@@ -22,10 +23,17 @@ from app.services.integrity import violates_unique_columns
 
 
 def _duplicate_occurrence_error(db: Session) -> IntegrityError:
-    """Trip ``uq_tasks_active_occurrence`` for real and return the error."""
+    """Trip ``uq_tasks_active_occurrence`` for real and return the error.
+
+    These rows are built by hand rather than through the service layer, so they
+    need an explicit project: ``tasks.project_id`` is NOT NULL, and without one
+    the flush would fail on *that* constraint instead of the one under test.
+    """
+    project_id = projects_service.ensure_default_project_id(db)
     for _ in range(2):
         db.add(
             Task(
+                project_id=project_id,
                 title="water the plants",
                 recurrence_id="series-1",
                 due_date=date(2026, 7, 25),
