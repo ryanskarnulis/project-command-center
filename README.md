@@ -289,7 +289,6 @@ llama.cpp runtime + provider layer, agent loop, chat panel, eval harness,
 and the fleet agent-standard alignment (layered personality, `app.yaml`
 agent block, delegate attribution). What's next lives in the planning files:
 
-- `CURRENT.md` — the checked-out focus
 - `TODO.md` — the backlog
 - `DONE.md` — changelog
 - [`docs/agent-design.md`](docs/agent-design.md) — the agent design record

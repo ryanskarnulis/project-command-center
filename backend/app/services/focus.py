@@ -92,7 +92,7 @@ def _effective_status(task: Task, rollups: Rollups) -> TaskWorkflowStatus:
 def _rank_key(
     task: Task, target_date: date, rollups: Rollups
 ) -> tuple[int, int, int, int, int]:
-    """Deterministic sort key (ascending). Mirrors the v1 rules in CURRENT.md.
+    """Deterministic sort key (ascending). The v1 focus-ranking rules.
 
     Order: in-progress first, then due urgency, then priority, then shorter tasks
     as a tie-breaker, then id for a stable final ordering.
