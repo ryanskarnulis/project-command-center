@@ -2,7 +2,7 @@
 
 ``POST /agent/conversations/{id}/messages`` is the one model-calling endpoint:
 it stores the user turn, runs the agent loop (synchronously — v1 is
-non-streaming, see CURRENT.md), stores the assistant turn, and returns both.
+non-streaming by decision), stores the assistant turn, and returns both.
 It is rate-limited per client IP; every log line of a run carries the
 request ID the middleware bound.
 """
