@@ -270,6 +270,10 @@ describe('TaskDetailView', () => {
     const estimate = screen.getByRole('button', { name: 'Estimate: 90 minutes' })
     expect(estimate).toBeDisabled()
     expect(estimate).toHaveAttribute('title', 'Sum of subtask estimates')
+    // The header quick action mirrors the same guard instead of 409ing.
+    const markDone = screen.getByRole('button', { name: 'Mark done' })
+    expect(markDone).toBeDisabled()
+    expect(markDone).toHaveAttribute('title', 'Complete its subtasks to complete it')
   })
 
   it('locks the status chip once every subtask is done', async () => {
@@ -284,6 +288,9 @@ describe('TaskDetailView', () => {
     const status = await screen.findByRole('button', { name: 'Status: Done' })
     expect(status).toBeDisabled()
     expect(status).toHaveAttribute('title', 'Reopen a subtask to reopen it')
+    const reopen = screen.getByRole('button', { name: 'Reopen' })
+    expect(reopen).toBeDisabled()
+    expect(reopen).toHaveAttribute('title', 'Reopen a subtask to reopen it')
   })
 
   it('shows dependents when the task is blocking downstream work', async () => {
