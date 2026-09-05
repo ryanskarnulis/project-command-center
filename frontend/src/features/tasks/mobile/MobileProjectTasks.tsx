@@ -50,8 +50,10 @@ export function MobileProjectTasks({ projectId, projects, tasks, completedTasks,
   const chips = mobileFilterChips(filters, sortMode)
   const openRoots = tasks.filter(isEffectiveTopLevel).length
   const subtasks = tasks.length - openRoots
-  const total = tasks.length + completedTasks.length
-  const percent = total ? Math.round(completedTasks.length / total * 100) : 0
+  // Counted off the deduped union, not the two raw snapshots: an id present in
+  // both mid-refresh would otherwise inflate the denominator and dip the bar.
+  const doneCount = allTasks.filter((task) => task.workflow_status === 'done').length
+  const percent = allTasks.length ? Math.round(doneCount / allTasks.length * 100) : 0
   const doneVisible = showDone || filters.status === 'done'
 
   function toggleExpanded(id: number): void {
@@ -85,7 +87,7 @@ export function MobileProjectTasks({ projectId, projects, tasks, completedTasks,
           <button type="button" className="task-complete-circle" disabled={!!refusal || pendingIds.has(task.id)} title={refusal ?? (isDone ? 'Reopen task' : 'Mark done')} aria-label={isDone ? `Reopen ${task.title}` : `Mark ${task.title} done`} onClick={() => void complete(task)}>
             <Check size={13} aria-hidden="true" />
           </button>
-          <TaskCard task={task} dense directLink subtaskCount={count} />
+          <TaskCard task={task} dense subtaskCount={count} />
           {children.length > 0 && (
             <button type="button" className="mobile-subtask-toggle" aria-label={`${expanded.has(task.id) ? 'Collapse' : 'Expand'} subtasks of ${task.title}`} aria-expanded={expanded.has(task.id)} onClick={() => toggleExpanded(task.id)}>
               {expanded.has(task.id) ? <ChevronDown size={18} aria-hidden="true" /> : <ChevronRight size={18} aria-hidden="true" />}
@@ -106,7 +108,7 @@ export function MobileProjectTasks({ projectId, projects, tasks, completedTasks,
             <span className="dashboard-lane-progress" role="progressbar" aria-label={`${projectName} progress`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={completedLoading || completedError ? undefined : percent}>
               <span style={{ width: `${percent}%` }} />
             </span>
-            <span>{loading ? 'Loading tasks…' : `${openRoots} open · ${subtasks} subtasks`}{!completedLoading && !completedError && ` · ${completedTasks.length} done`}</span>
+            <span>{loading ? 'Loading tasks…' : `${openRoots} open · ${subtasks} subtasks`}{!completedLoading && !completedError && ` · ${doneCount} done`}</span>
           </div>
         </div>
         <button type="button" className={`mobile-filter-control${chips.length ? ' applied' : ''}`} aria-label="Filter tasks" aria-haspopup="dialog" aria-expanded={sheetOpen} onClick={() => setSheetOpen(true)}>
@@ -143,7 +145,7 @@ export function MobileProjectTasks({ projectId, projects, tasks, completedTasks,
           <button type="button" className="mobile-show-done" aria-expanded={doneVisible} onClick={() => {
             if (filters.status === 'done') updateQuery({ filters: { ...filters, status: '' } })
             setShowDone(!doneVisible)
-          }}><Eye size={16} aria-hidden="true" />{doneVisible ? 'Hide done' : 'Show done'}{!completedLoading && !completedError && ` · ${completedTasks.length}`}</button>
+          }}><Eye size={16} aria-hidden="true" />{doneVisible ? 'Hide done' : 'Show done'}{!completedLoading && !completedError && ` · ${doneCount}`}</button>
           <ActivityFeed projectId={projectId} refreshKey={activityKey} />
         </div>
       </div>

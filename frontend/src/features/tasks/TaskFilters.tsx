@@ -107,9 +107,14 @@ export function TaskFilters({
             }
           >
             <option value="">All priorities</option>
-            {filters.priorities?.length && (
-              <option value="multiple">{filters.priorities.join(' + ')}</option>
-            )}
+            {/* Display-only: shows a mobile multi-selection this single-select
+                cannot represent. Disabled so it can never be chosen back, which
+                would set `priority` to a value no Task ever has. */}
+            {filters.priorities !== undefined && filters.priorities.length > 0 ? (
+              <option value="multiple" disabled>
+                {filters.priorities.join(' + ')}
+              </option>
+            ) : null}
             <option value="urgent">Urgent</option>
             <option value="high">High</option>
             <option value="medium">Medium</option>

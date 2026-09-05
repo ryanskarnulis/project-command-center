@@ -838,11 +838,23 @@ describe('TasksPage', () => {
       expect(await screen.findByRole('heading', { level: 1, name: 'Homelab Migration' })).toBeInTheDocument()
       expect(screen.queryByRole('group', { name: 'View mode' })).toBeNull()
       expect(screen.queryByRole('search', { name: 'Filter tasks' })).toBeNull()
-      expect(screen.getByRole('link', { name: 'Fix the VPN' })).toHaveAttribute('href', '/tasks/1')
+      expect(screen.getByRole('link', { name: 'Fix the VPN' })).toHaveAttribute('href', '/projects/1/tasks?view=board&task=1')
       expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull()
       await user.click(screen.getByRole('button', { name: 'Add task' }))
       const modal = screen.getByRole('dialog', { name: 'Add task' })
       expect(within(modal).getByLabelText('Project')).toHaveValue('1')
+    })
+
+    // Rows used to point at the legacy `/tasks/:id` redirect, which resolved the
+    // project over the network only to land back here with the panel open.
+    it('opens a row in the peek panel without leaving the list', async () => {
+      const user = userEvent.setup()
+      const { router } = renderProject()
+      await user.click(await screen.findByRole('link', { name: 'Fix the VPN' }))
+
+      expect(router.state.location.pathname).toBe('/projects/1/tasks')
+      expect(new URLSearchParams(router.state.location.search).get('task')).toBe('1')
+      expect(await screen.findByRole('dialog', { name: 'Task details' })).toBeInTheDocument()
     })
 
     it('keeps multi-priority edits pending, discards dismissal, applies and removes visible URL filters', async () => {
