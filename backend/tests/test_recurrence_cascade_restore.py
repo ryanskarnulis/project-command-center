@@ -60,7 +60,9 @@ def test_cascade_restore_does_not_advance_an_incomplete_checklist(
     assert successor.due_date == date(2026, 8, 2)
     successor_id = successor.id
 
-    # 3. add an open subtask: root stays stored-done, effectively open
+    # 3. add an open subtask: root stays stored-done but is no longer effectively
+    #    done — its own done clamps to in_progress under an untouched subtask
+    #    (work had been done on it; only the subtasks can complete it again).
     child = tasks_service.create_task(
         db_session,
         project_id=project.id,
@@ -72,7 +74,7 @@ def test_cascade_restore_does_not_advance_an_incomplete_checklist(
     assert root.workflow_status is TaskWorkflowStatus.done
     assert (
         deps_service.effective_statuses(db_session, [root_id])[root_id]
-        is TaskWorkflowStatus.open
+        is TaskWorkflowStatus.in_progress
     )
 
     # 4. trash and purge the existing successor
@@ -100,10 +102,11 @@ def test_cascade_restore_does_not_advance_an_incomplete_checklist(
     assert restored.id == root_id
     assert restored_count == 1
     assert task_trash.get_deleted_task(db_session, child_id) is None
-    # The checklist is open again, so the series must NOT have advanced.
+    # The checklist is short of done again (in_progress: stored-done root under
+    # an open subtask), so the series must NOT have advanced.
     assert (
         deps_service.effective_statuses(db_session, [root_id])[root_id]
-        is TaskWorkflowStatus.open
+        is TaskWorkflowStatus.in_progress
     )
     assert [t.id for t in _live_series(db_session, recurrence_id)] == [root_id]
 

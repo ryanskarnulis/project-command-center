@@ -117,6 +117,27 @@ def test_subtask_of_a_merely_completed_parent_stays_nested(
     assert subtask.id not in [o.task_id for o in plan.overflow]
 
 
+def test_started_parent_outranks_an_untouched_parent(db_session: Session) -> None:
+    # A parent's own in_progress (set before any subtask moved) ranks like any
+    # other in-progress work: the plan reads status through the roll-up.
+    started = _task(db_session, "started parent")
+    untouched = _task(db_session, "untouched parent")
+    for parent_id in (started, untouched):
+        tasks_service.create_task(
+            db_session, project_id=None, title="step", parent_task_id=parent_id
+        )
+    db_session.commit()
+    parent = tasks_service.get_task(db_session, started)
+    assert parent is not None
+    tasks_service.update_task(
+        db_session, parent, {"workflow_status": TaskWorkflowStatus.in_progress}
+    )
+    db_session.commit()
+
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
+    assert [b.task_id for b in plan.scheduled] == [started, untouched]
+
+
 def test_in_progress_outranks_open_at_equal_due_and_priority(
     db_session: Session,
 ) -> None:

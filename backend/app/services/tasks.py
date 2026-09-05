@@ -86,10 +86,12 @@ class DerivedFieldError(ValueError):
 
 
 class DerivedStatusError(DerivedFieldError):
-    """A status-changing write was attempted on a task whose status is derived.
+    """A status write on a task with subtasks that its subtasks would override.
 
-    A task with subtasks rolls its progress up from them, so it can't be
-    marked open/in-progress/done directly. The caller surfaces a 409.
+    A parent's ``done`` is derived — only its subtasks can complete it — so a
+    direct ``done`` is always refused. ``open``/``in_progress`` are the parent's
+    own to set, but only while its subtasks leave the question open (see
+    ``_parent_status_write_takes_effect``). The caller surfaces a 409.
     """
 
 
@@ -349,26 +351,60 @@ class Rollup:
 
     ``has_subtasks`` is true only when the task has at least one active child;
     the route uses it both to override the read model and to gate writes.
+    ``subtask_status`` is what the children alone say (``_rollup_status``), or
+    ``None`` for a leaf; ``workflow_status`` is the effective status once the
+    parent's own stored status is folded in (``_effective_parent_status``).
     """
 
-    __slots__ = ("estimated_minutes", "workflow_status", "has_subtasks")
+    __slots__ = (
+        "estimated_minutes",
+        "workflow_status",
+        "has_subtasks",
+        "subtask_status",
+    )
 
     def __init__(
         self,
         estimated_minutes: int | None,
         workflow_status: TaskWorkflowStatus,
         has_subtasks: bool,
+        subtask_status: TaskWorkflowStatus | None = None,
     ) -> None:
         self.estimated_minutes = estimated_minutes
         self.workflow_status = workflow_status
         self.has_subtasks = has_subtasks
+        self.subtask_status = subtask_status
 
 
 def _rollup_status(child_statuses: Sequence[TaskWorkflowStatus]) -> TaskWorkflowStatus:
-    """All done -> done; all open -> open; anything mixed/in-progress -> in_progress."""
+    """What the subtasks alone say.
+
+    All done -> done; all open -> open; anything mixed/in-progress -> in_progress.
+    """
     if all(s == TaskWorkflowStatus.done for s in child_statuses):
         return TaskWorkflowStatus.done
     if all(s == TaskWorkflowStatus.open for s in child_statuses):
+        return TaskWorkflowStatus.open
+    return TaskWorkflowStatus.in_progress
+
+
+def _effective_parent_status(
+    subtask_status: TaskWorkflowStatus, own_status: TaskWorkflowStatus
+) -> TaskWorkflowStatus:
+    """Fold a parent's own stored status into what its subtasks say.
+
+    The subtasks decide ``done`` and ``in_progress``: a parent is done exactly
+    when every subtask is, and under way as soon as any subtask has moved. Only
+    while every subtask is still ``open`` does the parent's own stored status
+    count, and then only as a floor — a parent the user has started reads
+    ``in_progress`` before any subtask moves. A stored ``done`` (a done leaf that
+    later gained an open subtask) is clamped the same way: work had been done on
+    it, so it is not untouched. ``done`` is the one value a parent can never
+    assert on its own.
+    """
+    if subtask_status != TaskWorkflowStatus.open:
+        return subtask_status
+    if own_status == TaskWorkflowStatus.open:
         return TaskWorkflowStatus.open
     return TaskWorkflowStatus.in_progress
 
@@ -438,8 +474,9 @@ def _resolve_rollup(
     child_rollups = [_resolve_rollup(c, by_parent, memo) for c in children]
     minutes = [r.estimated_minutes for r in child_rollups if r.estimated_minutes]
     total = sum(minutes) if minutes else None
-    status = _rollup_status([r.workflow_status for r in child_rollups])
-    rollup = Rollup(total, status, True)
+    subtask_status = _rollup_status([r.workflow_status for r in child_rollups])
+    status = _effective_parent_status(subtask_status, task.workflow_status)
+    rollup = Rollup(total, status, True, subtask_status)
     memo[task.id] = rollup
     return rollup
 
@@ -504,8 +541,9 @@ def get_rollup(db: Session, task: Task) -> Rollup:
 def has_active_children(db: Session, task_id: int) -> bool:
     """True if the task has at least one active subtask.
 
-    Such a task's status/estimate are derived and read-only, so status-changing
-    writes against it are rejected.
+    Such a task's estimate is derived and read-only, and its status is only
+    partly its own (``_effective_parent_status``), so writes against either are
+    gated.
     """
     return (
         db.execute(
@@ -578,6 +616,44 @@ def last_future_occurrence(
         )
         .scalars()
         .first()
+    )
+
+
+def _parent_status_write_takes_effect(
+    db: Session, task: Task, target: TaskWorkflowStatus
+) -> bool:
+    """Gate a status write on a parent against what its subtasks say.
+
+    A parent's ``done`` is derived — only its subtasks can complete it — so a
+    direct ``done`` is always refused. ``open`` and ``in_progress`` are the
+    parent's own to set (``_effective_parent_status``), but only while the
+    subtasks leave the question open: once any subtask has moved they pin the
+    parent at ``in_progress``, and once all are done they pin it at ``done``.
+    A write the pin would swallow is refused rather than silently stored — the
+    issue #191 stance that no write the caller can't see should land.
+
+    Returns False when the subtasks already say exactly what the write asks
+    for: the parent reads that way whatever its own column holds, so the caller
+    skips the write and the append-only activity trail records nothing — the
+    same rule ``mark_done`` applies to an already-done task (issue #218).
+
+    The caller has already established that the task has active children.
+    """
+    if target == TaskWorkflowStatus.done:
+        raise DerivedStatusError(
+            "This task is completed by its subtasks; complete them to complete it"
+        )
+    pinned = get_rollup(db, task).subtask_status
+    if pinned is None or pinned == TaskWorkflowStatus.open:
+        return True
+    if pinned == target:
+        return False
+    if pinned == TaskWorkflowStatus.done:
+        raise DerivedStatusError(
+            "This task's subtasks are all done; reopen one to reopen it"
+        )
+    raise DerivedStatusError(
+        "This task's subtasks are under way; reopen them to reopen it"
     )
 
 
@@ -779,22 +855,28 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     )
     previous_parent_id = task.parent_task_id if moved else None
 
-    # A parent's status *and* estimate are derived from its subtasks (read-only);
-    # reject a direct write to either rather than silently dropping it. The check is
-    # on the key's presence, not on a diff against the stored column: a parent's
-    # stored value is not what it reads as, so a request that happens to match the
-    # hidden column is still a write the caller can't see — and it would resurface
-    # as the parent's real state once the last child is trashed or reparented.
-    # (issue #191)
+    # A parent's estimate is derived from its subtasks (read-only); reject a direct
+    # write rather than silently dropping it. The check is on the key's presence,
+    # not on a diff against the stored column: a parent's stored estimate is not
+    # what it reads as, so a request that happens to match the hidden column is
+    # still a write the caller can't see — and it would resurface as the parent's
+    # real estimate once the last child is trashed or reparented. (issue #191)
+    #
+    # Status is only partly derived: ``open``/``in_progress`` are the parent's own
+    # while its subtasks leave the question open, ``done`` never is
+    # (``_parent_status_write_takes_effect``). A status the subtasks already
+    # express is dropped from the patch: it changes nothing the caller can see,
+    # so it must not move the hidden column or earn an activity event.
     derived_keys = {"workflow_status", "estimated_minutes"} & control.keys()
     if derived_keys and has_active_children(db, task.id):
-        if "workflow_status" in derived_keys:
-            raise DerivedStatusError(
-                "This task's status is derived from its subtasks and can't be set directly"
+        if "estimated_minutes" in derived_keys:
+            raise DerivedEstimateError(
+                "This task's estimate is derived from its subtasks and can't be set directly"
             )
-        raise DerivedEstimateError(
-            "This task's estimate is derived from its subtasks and can't be set directly"
-        )
+        if not _parent_status_write_takes_effect(
+            db, task, control["workflow_status"]
+        ):
+            control.pop("workflow_status")
 
     # A blocked task (waiting on an unfinished dependency) can't be completed.
     if (
@@ -906,8 +988,8 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     # activity trail must not claim otherwise (issue #218).
     #
     # Computed *after* every guard above, so a write that is rejected on its
-    # shape stays rejected whatever values it carries (a status write against a
-    # derived parent is a 409 even when it matches the hidden stored column —
+    # shape stays rejected whatever values it carries (an estimate write against
+    # a checklist parent is a 409 even when it matches the hidden stored column —
     # issue #191), and before the assignment loop, which would erase the
     # comparison.
     #
@@ -1032,10 +1114,9 @@ def mark_done(db: Session, task: Task) -> Task:
     # page's PATCH path.) Local import: same deliberate inversion as update_task.
     from app.services import task_recurrence
 
+    # A parent is completed by its subtasks, never directly (always raises).
     if has_active_children(db, task.id):
-        raise DerivedStatusError(
-            "This task's status is derived from its subtasks and can't be set directly"
-        )
+        _parent_status_write_takes_effect(db, task, TaskWorkflowStatus.done)
     # Completing an already-done task changes nothing, so it records nothing: the
     # activity trail describes transitions, not requests (issue #218). Mirrors
     # ``projects.close_project``, which has always been quiet about a re-close.
@@ -1055,10 +1136,13 @@ def mark_done(db: Session, task: Task) -> Task:
 
 
 def reopen_task(db: Session, task: Task) -> Task:
-    if has_active_children(db, task.id):
-        raise DerivedStatusError(
-            "This task's status is derived from its subtasks and can't be set directly"
-        )
+    # Reopening a parent clears its own "started" floor; refused while its
+    # subtasks pin it at in-progress or done. (A parent whose subtasks are all
+    # open already reads as the floor says, so the write below is what reopens.)
+    if has_active_children(db, task.id) and not _parent_status_write_takes_effect(
+        db, task, TaskWorkflowStatus.open
+    ):
+        return task
     # Same rule as ``mark_done``: an already-open task is not reopened by asking
     # again, so no ``reopened`` event is appended (issue #218).
     if task.workflow_status == TaskWorkflowStatus.open:

@@ -41,9 +41,18 @@ export interface Task {
   // Derived server-side: transitive count of unfinished tasks waiting on it.
   blocked_task_count: number
   // Derived server-side: true when the task has subtasks. When true,
-  // `estimated_minutes` and `workflow_status` carry rolled-up values and are
-  // read-only (set them by editing the subtasks instead).
+  // `estimated_minutes` is the subtree sum and read-only (edit the subtasks
+  // instead), and `workflow_status` is the roll-up: done only once every
+  // subtask is, in progress as soon as any subtask moves or the task itself is
+  // started.
   has_subtasks: boolean
+  // Derived server-side: what the subtasks alone say — 'open' means none has
+  // moved (the task's own status decides), 'in_progress' / 'done' pin it and
+  // the server refuses status writes the pin would swallow. Null without
+  // subtasks. Optional only so locally-constructed tasks stay assignable; the
+  // API always sends it. Read it through `subtaskMoveRefusal`
+  // (features/tasks/taskStatusRules), never directly.
+  subtask_status?: TaskWorkflowStatus | null
   // Derived server-side: true when the task behaves as a root — no parent, or a
   // parent that is trashed/purged (an orphan is promoted). Flat surfaces filter
   // roots on this rather than `parent_task_id === null`. Optional only so

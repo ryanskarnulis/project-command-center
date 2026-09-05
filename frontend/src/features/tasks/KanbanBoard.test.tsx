@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
@@ -132,6 +132,97 @@ describe('KanbanBoard', () => {
       expect.objectContaining({ id: 1 }),
       'open',
     )
+  })
+
+  // A parent owns Open / In progress while its subtasks are untouched; Done is
+  // reached only through them (the server's 409 guard, mirrored up front).
+  describe('a task with subtasks', () => {
+    const drop = (columnName: string, id: number) =>
+      fireEvent.drop(screen.getByRole('region', { name: columnName }), {
+        dataTransfer: { getData: () => String(id), types: ['text/plain'] },
+      })
+
+    it('can be started via the status chip before any subtask moves', async () => {
+      const user = userEvent.setup()
+      const onSetStatus = renderBoard([
+        task({ id: 1, title: 'Release', has_subtasks: true, subtask_status: 'open' }),
+      ])
+      await moveViaStatusChip(user, 'Open', 'In progress')
+      expect(onSetStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 1 }),
+        'in_progress',
+      )
+    })
+
+    it('can be dragged onto In progress', () => {
+      const onSetStatus = renderBoard([
+        task({ id: 1, title: 'Release', has_subtasks: true, subtask_status: 'open' }),
+      ])
+      expect(screen.getByText('Release').closest('li')).toHaveAttribute(
+        'draggable',
+        'true',
+      )
+      drop('In progress', 1)
+      expect(onSetStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 1 }),
+        'in_progress',
+      )
+    })
+
+    it('refuses Done from both the chip and a drop', async () => {
+      const user = userEvent.setup()
+      const onSetStatus = renderBoard([
+        task({
+          id: 1,
+          title: 'Release',
+          workflow_status: 'in_progress',
+          has_subtasks: true,
+          subtask_status: 'open',
+        }),
+      ])
+      await user.click(screen.getByRole('button', { name: 'Status: In progress' }))
+      const done = within(screen.getByRole('dialog')).getByRole('button', {
+        name: 'Done',
+      })
+      expect(done).toBeDisabled()
+      expect(done).toHaveAttribute('title', 'Complete its subtasks to complete it')
+      await user.keyboard('{Escape}')
+      drop('Done', 1)
+      expect(onSetStatus).not.toHaveBeenCalled()
+    })
+
+    it('refuses Open while a subtask is under way', () => {
+      const onSetStatus = renderBoard([
+        task({
+          id: 1,
+          title: 'Release',
+          workflow_status: 'in_progress',
+          has_subtasks: true,
+          subtask_status: 'in_progress',
+        }),
+      ])
+      drop('Open', 1)
+      expect(onSetStatus).not.toHaveBeenCalled()
+    })
+
+    it('is not draggable once every subtask is done', () => {
+      renderBoard(
+        [],
+        [
+          task({
+            id: 2,
+            title: 'Finished',
+            workflow_status: 'done',
+            has_subtasks: true,
+            subtask_status: 'done',
+          }),
+        ],
+      )
+      expect(screen.getByText('Finished').closest('li')).toHaveAttribute(
+        'draggable',
+        'false',
+      )
+    })
   })
 
   it('routes a done-column task back out via onSetStatus', async () => {

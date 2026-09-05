@@ -2113,7 +2113,9 @@ def test_moving_last_open_child_away_spawns_successor_for_old_parent(
         db_session, project_id=old_parent.project_id, title="somewhere else"
     )
     db_session.commit()
-    # The parent's own row is done; only the open child keeps its roll-up open.
+    # The parent's own row is done; the open child keeps its roll-up short of done
+    # (a stored ``done`` under an untouched child reads in_progress: work had been
+    # done on it, but the subtasks decide completion).
     old_parent.workflow_status = TaskWorkflowStatus.done
     db_session.flush()
     tasks_service.update_task(
@@ -2122,7 +2124,7 @@ def test_moving_last_open_child_away_spawns_successor_for_old_parent(
     db_session.commit()
     recurrence_id = old_parent.recurrence_id
     assert recurrence_id is not None
-    assert _effective(db_session, old_parent) == TaskWorkflowStatus.open
+    assert _effective(db_session, old_parent) == TaskWorkflowStatus.in_progress
 
     tasks_service.update_task(db_session, child, {"parent_task_id": new_parent.id})
     db_session.commit()

@@ -128,9 +128,16 @@ class TaskRead(BaseModel):
     is_blocking: bool = False
     blocked_task_count: int = 0
     # Derived (not stored): true when the task has subtasks, in which case
-    # ``estimated_minutes`` and ``workflow_status`` above carry the rolled-up values
-    # and are read-only in the UI. Defaults to False for the same reason as above.
+    # ``estimated_minutes`` above is the subtree sum (read-only in the UI) and
+    # ``workflow_status`` is the roll-up: ``done`` only once every subtask is,
+    # ``in_progress`` as soon as any subtask moves or the task itself is started.
+    # Defaults to False for the same reason as above.
     has_subtasks: bool = False
+    # Derived (not stored): what the subtasks alone say — ``open`` means none has
+    # moved, so the task's own status decides; ``in_progress``/``done`` pin it and
+    # the server refuses status writes the pin would swallow. ``None`` for a task
+    # without subtasks. Lets the UI mirror the server's guard up front.
+    subtask_status: TaskWorkflowStatus | None = None
     # Derived (not stored): true when the task behaves as a root
     # (``tasks.is_effective_top_level``) — no parent, *or* a parent that is
     # trashed/purged, which promotes the orphan. Flat surfaces (Kanban board,

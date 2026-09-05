@@ -26,9 +26,15 @@ def _rollup_update(
     ``effective_statuses``). For an unblocked leaf the cap is a no-op (the
     roll-up equals its stored status). Only a task with subtasks overrides its
     estimate, so the ``estimated_minutes`` override stays parent-only.
+
+    ``subtask_status`` — what the subtasks alone say, ``None`` for a leaf — rides
+    along uncapped so the UI can mirror which status writes the server would
+    refuse (``tasks._parent_status_write_takes_effect``) instead of round-tripping to
+    a 409.
     """
     update: dict[str, object] = {
         "has_subtasks": rollup.has_subtasks,
+        "subtask_status": rollup.subtask_status,
         "workflow_status": tasks_service.capped_status(
             rollup.workflow_status, is_blocked
         ),

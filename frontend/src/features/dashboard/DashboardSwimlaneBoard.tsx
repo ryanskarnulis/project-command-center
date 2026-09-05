@@ -13,7 +13,11 @@ import { fireAndForget } from '../../utils/async'
 import { compareTasks } from '../../utils/dates'
 import { projectStatus } from '../../utils/projectStatus'
 import { TaskCard } from '../tasks/TaskCard'
-import { isMoveBlocked } from '../tasks/taskStatusRules'
+import {
+  isMoveBlocked,
+  statusLockedReason,
+  subtaskMoveRefusal,
+} from '../tasks/taskStatusRules'
 import { isEffectiveTopLevel } from '../tasks/taskTree'
 import { useCompletedTasks } from '../tasks/useCompletedTasks'
 import {
@@ -132,10 +136,11 @@ function DashboardSwimlane({
 
   async function move(task: Task, target: TaskWorkflowStatus): Promise<void> {
     if (task.workflow_status === target) return
-    // A parent's status is derived from its subtasks (read-only) — mirrors the
-    // server's 409 guard.
-    if (task.has_subtasks) {
-      notify('error', 'Status is rolled up from subtasks')
+    // A parent is completed by its subtasks, and reopened only while they leave
+    // the question open — mirrors the server's 409 guard.
+    const refusal = subtaskMoveRefusal(task, target)
+    if (refusal) {
+      notify('error', refusal)
       return
     }
     if (isMoveBlocked(task, target)) {
@@ -164,15 +169,18 @@ function DashboardSwimlane({
     task: Task,
     target: TaskWorkflowStatus,
   ): Promise<void> {
-    // Parents aren't draggable, but guard anyway (mirrors move()) so a stray
-    // drop can't send a derived-status PATCH the server would 409.
-    if (task.has_subtasks) {
-      notify('error', 'Status is rolled up from subtasks')
-      return
-    }
-    if (task.workflow_status !== target && isMoveBlocked(task, target)) {
-      notify('error', 'Blocked by an unfinished dependency')
-      return
+    // Same guards as move() — a drop that only refiles (same column status)
+    // asks nothing of the status, so they apply only when the column differs.
+    if (task.workflow_status !== target) {
+      const refusal = subtaskMoveRefusal(task, target)
+      if (refusal) {
+        notify('error', refusal)
+        return
+      }
+      if (isMoveBlocked(task, target)) {
+        notify('error', 'Blocked by an unfinished dependency')
+        return
+      }
     }
     const patch: TaskUpdate = { project_id: project.project_id }
     if (task.workflow_status !== target) patch.workflow_status = target
@@ -213,7 +221,7 @@ function DashboardSwimlane({
       <li
         key={task.id}
         className={`dashboard-lane-card${pending ? ' pending' : ''}`}
-        draggable={!pending && !task.has_subtasks}
+        draggable={!pending && statusLockedReason(task) === null}
         onDragStart={(event) => {
           event.dataTransfer.setData('text/plain', String(task.id))
           event.dataTransfer.effectAllowed = 'move'

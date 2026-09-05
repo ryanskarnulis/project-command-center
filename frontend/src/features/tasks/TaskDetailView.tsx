@@ -24,6 +24,11 @@ import { PriorityChip } from './chips/PriorityChip'
 import { ProjectChip } from './chips/ProjectChip'
 import { RepeatChip } from './chips/RepeatChip'
 import { StatusChip } from './chips/StatusChip'
+import {
+  refusedStatusOptions,
+  statusLockedReason,
+  subtaskMoveRefusal,
+} from './taskStatusRules'
 
 function blockingLabel(count: number): string {
   return `Blocking ${count} ${count === 1 ? 'task' : 'tasks'}`
@@ -311,6 +316,16 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
         ? 'Could not save'
         : ''
 
+  // The header quick action toggles done <-> open. Same guards as the status
+  // chip and the boards: a parent is completed (and, once complete, reopened)
+  // only through its subtasks, and a blocked task can't be completed.
+  const toggleTarget = task.workflow_status === 'done' ? 'open' : 'done'
+  const toggleRefusal =
+    subtaskMoveRefusal(task, toggleTarget) ??
+    (task.is_blocked && task.workflow_status !== 'done'
+      ? 'Blocked by an unfinished dependency'
+      : null)
+
   return (
     <div className="task-detail">
       <div className="task-detail-header">
@@ -325,17 +340,9 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
           )}
           <button
             type="button"
-            disabled={task.is_blocked && task.workflow_status !== 'done'}
-            title={
-              task.is_blocked && task.workflow_status !== 'done'
-                ? 'Blocked by an unfinished dependency'
-                : undefined
-            }
-            onClick={() =>
-              savePatch({
-                workflow_status: task.workflow_status === 'done' ? 'open' : 'done',
-              })
-            }
+            disabled={toggleRefusal !== null}
+            title={toggleRefusal ?? undefined}
+            onClick={() => savePatch({ workflow_status: toggleTarget })}
           >
             {task.workflow_status === 'done' ? (
               <Circle size={16} aria-hidden="true" />
@@ -395,8 +402,9 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
           <StatusChip
             value={task.workflow_status}
             onChange={(status) => savePatch({ workflow_status: status })}
-            disabled={task.has_subtasks}
-            disabledHint="Rolled up from subtasks"
+            disabled={statusLockedReason(task) !== null}
+            disabledHint={statusLockedReason(task) ?? undefined}
+            disabledOptions={refusedStatusOptions(task)}
             onSkipOccurrence={
               task.repeat_interval && task.workflow_status !== 'done'
                 ? () => setConfirmingSkip(true)

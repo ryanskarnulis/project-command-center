@@ -238,9 +238,10 @@ def create_task(data: TaskCreate) -> TaskRead:
 def update_task(task_id: EntityId, changes: TaskUpdate) -> TaskRead:
     """Partially update a task; only the fields present in `changes` are touched.
 
-    A parent's workflow_status and estimated_minutes are derived from its subtasks
-    and cannot be set directly; a blocked task cannot be marked done. Recurring tasks accept
-    edit_scope "this" (default) or "future".
+    A parent's estimated_minutes is derived from its subtasks and cannot be set. Its
+    workflow_status may be set to open or in_progress while every subtask is still
+    open; done is reached only by completing the subtasks. A blocked task cannot be
+    marked done. Recurring tasks accept edit_scope "this" (default) or "future".
     """
     with tool_session("update_task") as db:
         task = _task_or_error(db, task_id)

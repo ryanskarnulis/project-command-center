@@ -138,11 +138,16 @@ describe('TaskCard', () => {
       ).toBeDisabled()
     })
 
-    it('is disabled when status rolls up from subtasks', () => {
-      render_with_complete({ has_subtasks: true })
-      expect(
-        screen.getByRole('button', { name: 'Mark Patch the router done' }),
-      ).toBeDisabled()
+    it('is disabled when the subtasks are what complete the task', () => {
+      render_with_complete({ has_subtasks: true, subtask_status: 'open' })
+      const complete = screen.getByRole('button', {
+        name: 'Mark Patch the router done',
+      })
+      expect(complete).toBeDisabled()
+      expect(complete).toHaveAttribute(
+        'title',
+        'Complete its subtasks to complete it',
+      )
     })
 
     it('is hidden on a done task', () => {
@@ -150,6 +155,66 @@ describe('TaskCard', () => {
       expect(
         screen.queryByRole('button', { name: 'Mark Patch the router done' }),
       ).not.toBeInTheDocument()
+    })
+  })
+
+  // A parent owns Open / In progress while its subtasks are untouched; Done is
+  // theirs alone, and once they pin the status the chip mirrors the server's
+  // refusals instead of round-tripping to a 409.
+  describe('status chip on a task with subtasks', () => {
+    function render_with_status(task: Partial<Task>) {
+      const onSetStatus = vi.fn()
+      render(
+        <MemoryRouter>
+          <TaskCard
+            task={{ ...base, ...task }}
+            onUpdate={vi.fn()}
+            onSetStatus={onSetStatus}
+          />
+        </MemoryRouter>,
+      )
+      return onSetStatus
+    }
+
+    it('can be started before any subtask moves, but not completed', () => {
+      const onSetStatus = render_with_status({
+        has_subtasks: true,
+        subtask_status: 'open',
+      })
+      const trigger = screen.getByRole('button', { name: 'Status: Open' })
+      expect(trigger).toBeEnabled()
+      fireEvent.click(trigger)
+      const done = screen.getByRole('button', { name: 'Done' })
+      expect(done).toBeDisabled()
+      expect(done).toHaveAttribute('title', 'Complete its subtasks to complete it')
+      fireEvent.click(screen.getByRole('button', { name: 'In progress' }))
+      expect(onSetStatus).toHaveBeenCalledExactlyOnceWith('in_progress')
+    })
+
+    it('cannot be reopened while a subtask is under way', () => {
+      render_with_status({
+        has_subtasks: true,
+        workflow_status: 'in_progress',
+        subtask_status: 'in_progress',
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Status: In progress' }))
+      const open = screen.getByRole('button', { name: 'Open' })
+      expect(open).toBeDisabled()
+      expect(open).toHaveAttribute(
+        'title',
+        'Its subtasks are under way; reopen them first',
+      )
+    })
+
+    it('is read-only once every subtask is done', () => {
+      render_with_status({
+        has_subtasks: true,
+        workflow_status: 'done',
+        subtask_status: 'done',
+      })
+      const trigger = screen.getByRole('button', { name: 'Status: Done' })
+      expect(trigger).toBeDisabled()
+      expect(trigger).toHaveAttribute('title', 'Reopen a subtask to reopen it')
     })
   })
 

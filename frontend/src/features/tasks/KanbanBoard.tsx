@@ -4,7 +4,11 @@ import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { fireAndForget } from '../../utils/async'
 import { compareTasks } from '../../utils/dates'
 import { TaskCard } from './TaskCard'
-import { isMoveBlocked } from './taskStatusRules'
+import {
+  isMoveBlocked,
+  statusLockedReason,
+  subtaskMoveRefusal,
+} from './taskStatusRules'
 
 interface Column {
   status: TaskWorkflowStatus
@@ -62,10 +66,11 @@ export function KanbanBoard({
 
   async function move(task: Task, target: TaskWorkflowStatus) {
     if (task.workflow_status === target) return
-    // A parent's status is derived from its subtasks (read-only) — move the
-    // subtasks instead. Mirrors the server's 409 guard.
-    if (task.has_subtasks) {
-      notify('error', 'Status is rolled up from subtasks')
+    // A parent is completed by its subtasks, and reopened only while they leave
+    // the question open — mirrors the server's 409 guard.
+    const refusal = subtaskMoveRefusal(task, target)
+    if (refusal) {
+      notify('error', refusal)
       return
     }
     if (isMoveBlocked(task, target)) {
@@ -98,7 +103,7 @@ export function KanbanBoard({
       <li
         key={task.id}
         className="kanban-card"
-        draggable={!pending && !task.has_subtasks}
+        draggable={!pending && statusLockedReason(task) === null}
         onDragStart={(e) =>
           e.dataTransfer.setData('text/plain', String(task.id))
         }

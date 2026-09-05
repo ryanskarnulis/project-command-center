@@ -571,33 +571,46 @@ def test_leaf_rollup_keeps_own_values(db_session: Session) -> None:
     assert rollup.workflow_status == TaskWorkflowStatus.open
 
 
+_OPEN = TaskWorkflowStatus.open
+_WIP = TaskWorkflowStatus.in_progress
+_DONE = TaskWorkflowStatus.done
+
+
 @pytest.mark.parametrize(
-    ("child_statuses", "expected"),
+    ("child_statuses", "own_status", "subtask_status", "expected"),
     [
-        ([TaskWorkflowStatus.open, TaskWorkflowStatus.open], TaskWorkflowStatus.open),
-        ([TaskWorkflowStatus.done, TaskWorkflowStatus.done], TaskWorkflowStatus.done),
-        (
-            [TaskWorkflowStatus.open, TaskWorkflowStatus.in_progress],
-            TaskWorkflowStatus.in_progress,
-        ),
-        (
-            [TaskWorkflowStatus.open, TaskWorkflowStatus.done],
-            TaskWorkflowStatus.in_progress,
-        ),
+        # The subtasks decide done and in_progress, whatever the parent's own
+        # column holds...
+        ([_OPEN, _OPEN], _OPEN, _OPEN, _OPEN),
+        ([_DONE, _DONE], _OPEN, _DONE, _DONE),
+        ([_DONE, _DONE], _WIP, _DONE, _DONE),
+        ([_OPEN, _WIP], _OPEN, _WIP, _WIP),
+        ([_OPEN, _DONE], _OPEN, _WIP, _WIP),
+        # ...and while every subtask is still open the parent's own status is a
+        # floor: started reads in_progress; a stored done (a done leaf that later
+        # gained a subtask) is work that had been done, so it clamps the same way.
+        ([_OPEN, _OPEN], _WIP, _OPEN, _WIP),
+        ([_OPEN, _OPEN], _DONE, _OPEN, _WIP),
     ],
 )
 def test_status_rolls_up(
     db_session: Session,
     child_statuses: list[TaskWorkflowStatus],
+    own_status: TaskWorkflowStatus,
+    subtask_status: TaskWorkflowStatus,
     expected: TaskWorkflowStatus,
 ) -> None:
-    parent = tasks_service.create_task(db_session, project_id=None, title="parent")
+    parent = tasks_service.create_task(
+        db_session, project_id=None, title="parent", workflow_status=own_status
+    )
     for i, status in enumerate(child_statuses):
         _subtask(
             db_session, parent.id, title=f"c{i}", workflow_status=status
         )
     db_session.commit()
-    assert tasks_service.get_rollup(db_session, parent).workflow_status == expected
+    rollup = tasks_service.get_rollup(db_session, parent)
+    assert rollup.workflow_status == expected
+    assert rollup.subtask_status == subtask_status
 
 
 def test_completed_checklist_parent_leaves_open_list_and_counts(
@@ -766,13 +779,22 @@ def test_parent_read_exposes_rolled_up_values(client: TestClient) -> None:
     assert body["has_subtasks"] is True
     assert body["estimated_minutes"] == 60
     assert body["workflow_status"] == "in_progress"
+    assert body["subtask_status"] == "in_progress"
+
+    # A leaf has no subtasks to speak for it.
+    leaf_id = client.post("/api/tasks", json={"title": "leaf"}).json()["id"]
+    assert client.get(f"/api/tasks/{leaf_id}").json()["subtask_status"] is None
 
 
 # --- Derived fields are read-only on a parent (issue #191) -------------------
 
 
 def _derived_parent(db: Session) -> Task:
-    """A parent whose effective status/estimate differ from its stored columns."""
+    """A parent whose effective status/estimate differ from its stored columns.
+
+    Its one subtask is done, so the subtasks pin it at ``done``: no status write
+    can take effect, and the estimate is theirs.
+    """
     parent = tasks_service.create_task(db, project_id=None, title="parent")
     _subtask(
         db,
@@ -805,8 +827,9 @@ def test_status_equal_to_stored_column_on_derived_parent_rejected(
 ) -> None:
     """The stored column isn't what the parent reads as, so "no change" is a write.
 
-    Left accepted, the hidden ``open`` would resurface as the parent's real
-    status once the last child is trashed.
+    The subtasks pin this parent at ``done``; an ``open`` they would swallow is
+    refused rather than parked on the hidden column, where it would resurface
+    as the parent's real status once the last child is trashed.
     """
     parent = _derived_parent(db_session)
 
@@ -882,6 +905,270 @@ def test_agent_tool_rejects_derived_field_writes(
             "update_task",
             {"task_id": parent_id, "changes": {"workflow_status": "open"}},
             actor="agent",
+        )
+
+
+# --- A parent owns open/in-progress; done stays derived ----------------------
+
+
+def _parent_with_open_children(db: Session, count: int = 2) -> Task:
+    parent = tasks_service.create_task(db, project_id=None, title="parent")
+    for i in range(count):
+        _subtask(db, parent.id, title=f"step {i}")
+    db.commit()
+    return parent
+
+
+def _event_count(db: Session) -> int:
+    db.expire_all()
+    count = db.scalar(select(func.count()).select_from(ActivityEvent))
+    assert count is not None
+    return count
+
+
+def test_parent_can_be_started_before_any_subtask(
+    client: TestClient, db_session: Session
+) -> None:
+    parent = _parent_with_open_children(db_session)
+    before = _event_count(db_session)
+
+    res = client.patch(
+        f"/api/tasks/{parent.id}", json={"workflow_status": "in_progress"}
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["workflow_status"] == "in_progress"
+    assert body["has_subtasks"] is True
+    # The subtasks haven't moved; the parent's own status is what reads.
+    assert body["subtask_status"] == "open"
+
+    # Stored as the parent's own signal, on the activity trail, and seen by the
+    # effective-status filters every surface shares.
+    db_session.expire_all()
+    stored = db_session.get(Task, parent.id)
+    assert stored is not None
+    assert stored.workflow_status == TaskWorkflowStatus.in_progress
+    assert _event_count(db_session) == before + 1
+    in_progress_ids = {
+        t.id
+        for t in tasks_service.list_tasks(
+            db_session, workflow_status=TaskWorkflowStatus.in_progress
+        )
+    }
+    assert parent.id in in_progress_ids
+    open_ids = {
+        t.id
+        for t in tasks_service.list_tasks(
+            db_session, workflow_status=TaskWorkflowStatus.open
+        )
+    }
+    assert parent.id not in open_ids
+
+
+def test_started_parent_returns_to_open_by_either_door(db_session: Session) -> None:
+    parent = _parent_with_open_children(db_session)
+
+    tasks_service.update_task(
+        db_session, parent, {"workflow_status": TaskWorkflowStatus.in_progress}
+    )
+    db_session.commit()
+    tasks_service.reopen_task(db_session, parent)
+    db_session.commit()
+    assert (
+        tasks_service.get_rollup(db_session, parent).workflow_status
+        == TaskWorkflowStatus.open
+    )
+
+    tasks_service.update_task(
+        db_session, parent, {"workflow_status": TaskWorkflowStatus.in_progress}
+    )
+    db_session.commit()
+    tasks_service.update_task(
+        db_session, parent, {"workflow_status": TaskWorkflowStatus.open}
+    )
+    db_session.commit()
+    assert (
+        tasks_service.get_rollup(db_session, parent).workflow_status
+        == TaskWorkflowStatus.open
+    )
+
+
+def test_started_parent_is_still_completed_by_its_subtasks(
+    db_session: Session,
+) -> None:
+    parent = _parent_with_open_children(db_session)
+    tasks_service.update_task(
+        db_session, parent, {"workflow_status": TaskWorkflowStatus.in_progress}
+    )
+    db_session.commit()
+
+    for child in tasks_service.list_subtasks(db_session, parent.id):
+        tasks_service.mark_done(db_session, child)
+    db_session.commit()
+
+    rollup = tasks_service.get_rollup(db_session, parent)
+    assert rollup.workflow_status == TaskWorkflowStatus.done
+    assert rollup.subtask_status == TaskWorkflowStatus.done
+    assert parent.workflow_status == TaskWorkflowStatus.in_progress  # stored, hidden
+    open_ids = {t.id for t in tasks_service.list_tasks(db_session, exclude_done=True)}
+    assert parent.id not in open_ids
+
+
+def test_parent_done_is_never_direct(client: TestClient, db_session: Session) -> None:
+    # Even a started parent can't be completed directly: 409 at both doors, with
+    # the reason pointing at the subtasks, and nothing moves.
+    parent = _parent_with_open_children(db_session)
+    tasks_service.update_task(
+        db_session, parent, {"workflow_status": TaskWorkflowStatus.in_progress}
+    )
+    db_session.commit()
+
+    patched = client.patch(
+        f"/api/tasks/{parent.id}", json={"workflow_status": "done"}
+    )
+    assert patched.status_code == 409
+    assert "subtasks" in patched.json()["detail"]
+    assert client.post(f"/api/tasks/{parent.id}/done").status_code == 409
+    assert (
+        client.get(f"/api/tasks/{parent.id}").json()["workflow_status"]
+        == "in_progress"
+    )
+
+
+def test_reopening_a_parent_whose_subtasks_are_under_way_rejected(
+    client: TestClient, db_session: Session
+) -> None:
+    parent = tasks_service.create_task(db_session, project_id=None, title="parent")
+    _subtask(
+        db_session,
+        parent.id,
+        title="moving",
+        workflow_status=TaskWorkflowStatus.in_progress,
+    )
+    _subtask(db_session, parent.id, title="waiting")
+    db_session.commit()
+    before = _event_count(db_session)
+
+    patched = client.patch(
+        f"/api/tasks/{parent.id}", json={"workflow_status": "open"}
+    )
+    assert patched.status_code == 409
+    assert "subtasks" in patched.json()["detail"]
+    assert client.post(f"/api/tasks/{parent.id}/reopen").status_code == 409
+
+    body = client.get(f"/api/tasks/{parent.id}").json()
+    assert body["workflow_status"] == "in_progress"
+    assert body["subtask_status"] == "in_progress"
+    assert _event_count(db_session) == before
+
+
+def test_restarting_a_parent_whose_subtasks_are_all_done_rejected(
+    client: TestClient, db_session: Session
+) -> None:
+    parent = tasks_service.create_task(db_session, project_id=None, title="parent")
+    _subtask(
+        db_session, parent.id, title="a", workflow_status=TaskWorkflowStatus.done
+    )
+    _subtask(
+        db_session, parent.id, title="b", workflow_status=TaskWorkflowStatus.done
+    )
+    db_session.commit()
+
+    for target in ("in_progress", "open"):
+        res = client.patch(
+            f"/api/tasks/{parent.id}", json={"workflow_status": target}
+        )
+        assert res.status_code == 409, target
+    assert client.post(f"/api/tasks/{parent.id}/reopen").status_code == 409
+
+    body = client.get(f"/api/tasks/{parent.id}").json()
+    assert body["workflow_status"] == "done"
+    assert body["subtask_status"] == "done"
+
+
+def test_status_the_subtasks_already_express_is_a_quiet_no_op(
+    client: TestClient, db_session: Session
+) -> None:
+    # The parent reads in_progress because a subtask is; asking for in_progress
+    # changes nothing visible, so it neither moves the hidden column nor earns an
+    # activity event (issue #218). Other fields on the same patch still land.
+    parent = tasks_service.create_task(db_session, project_id=None, title="parent")
+    _subtask(
+        db_session,
+        parent.id,
+        title="moving",
+        workflow_status=TaskWorkflowStatus.in_progress,
+    )
+    db_session.commit()
+    before = _event_count(db_session)
+
+    res = client.patch(
+        f"/api/tasks/{parent.id}", json={"workflow_status": "in_progress"}
+    )
+    assert res.status_code == 200
+    assert res.json()["workflow_status"] == "in_progress"
+    stored = db_session.get(Task, parent.id)
+    assert stored is not None
+    assert stored.workflow_status == TaskWorkflowStatus.open
+    assert _event_count(db_session) == before
+
+    res = client.patch(
+        f"/api/tasks/{parent.id}",
+        json={"workflow_status": "in_progress", "title": "renamed"},
+    )
+    assert res.status_code == 200
+    assert res.json()["title"] == "renamed"
+    assert _event_count(db_session) == before + 1
+
+
+def test_done_leaf_that_gains_a_subtask_reads_in_progress(
+    db_session: Session,
+) -> None:
+    # Work had been done on it, so it is not untouched — but only its subtasks
+    # can make it done again. Reopening clears its own signal.
+    leaf = tasks_service.create_task(db_session, project_id=None, title="leaf")
+    tasks_service.mark_done(db_session, leaf)
+    db_session.commit()
+    _subtask(db_session, leaf.id, title="follow-up")
+    db_session.commit()
+
+    rollup = tasks_service.get_rollup(db_session, leaf)
+    assert rollup.workflow_status == TaskWorkflowStatus.in_progress
+    assert rollup.subtask_status == TaskWorkflowStatus.open
+
+    tasks_service.reopen_task(db_session, leaf)
+    db_session.commit()
+    assert leaf.workflow_status == TaskWorkflowStatus.open
+    assert (
+        tasks_service.get_rollup(db_session, leaf).workflow_status
+        == TaskWorkflowStatus.open
+    )
+
+
+def test_agent_tool_can_start_a_parent(
+    db_session: Session,
+    test_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = _parent_with_open_children(db_session)
+    parent_id = parent.id
+    db_session.close()
+    factory: sessionmaker[Session] = sessionmaker(
+        autocommit=False, autoflush=False, bind=test_engine
+    )
+    monkeypatch.setattr(runtime, "session_factory", factory)
+
+    registry.call_tool(
+        "update_task",
+        {"task_id": parent_id, "changes": {"workflow_status": "in_progress"}},
+        actor="agent",
+    )
+    with factory() as db:
+        task = tasks_service.get_task(db, parent_id)
+        assert task is not None
+        assert (
+            tasks_service.get_rollup(db, task).workflow_status
+            == TaskWorkflowStatus.in_progress
         )
 
 

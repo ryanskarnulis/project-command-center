@@ -78,8 +78,14 @@ Key decisions:
 - **Subtasks** nest via nullable `parent_task_id` (a tree — cycles refused with
   `409`). Deleting a parent cascade-soft-deletes the subtree; restore is
   per-task. A parent's estimate and status **roll up from its subtasks**
-  (derived in `services/tasks.compute_rollups`, never stored); direct status
-  writes on such a parent return `409`. A subtask may be filed in a different
+  (derived in `services/tasks.compute_rollups`, never stored): the estimate is
+  the subtree sum and read-only; the status is `done` only once every subtask
+  is, `in_progress` as soon as any subtask moves, and otherwise the parent's
+  own — a parent can be started (`open` → `in_progress`) before any subtask
+  is. A direct `done` on a parent, or an `open`/`in_progress` its subtasks
+  already override, returns `409`. The read model carries `subtask_status`
+  (what the subtasks alone say) so the UI can mirror that guard. A subtask
+  may be filed in a different
   project than its parent; membership (`project_id`), not hierarchy, decides
   what a project deletion takes (below). A live task whose parent is soft-deleted
   is an **orphan** and is treated as *effective top-level*
