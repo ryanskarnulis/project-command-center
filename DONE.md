@@ -3,6 +3,7 @@
 Shipped work, newest first, one line per sprint/epic. Full narratives are in
 this file's git history.
 
+- [x] 2026-09-05 — Mobile project Tasks (M02f/M03f): project header, grouped rows, session-persisted subtasks, pending filter sheet with URL-backed multi-priority chips
 - [x] 2026-09-05 — Parents own Open / In progress before any subtask moves; Done stays derived from the subtasks (`subtask_status` on the read model)
 - [x] 2026-08-08 — Retire the global Tasks page (`TasksPage` survives as the per-project Tasks tab)
 - [x] 2026-08-08 — Mobile dashboard (M01f): lane-scoped creation, dense task cards

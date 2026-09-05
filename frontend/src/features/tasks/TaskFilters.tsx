@@ -95,17 +95,21 @@ export function TaskFilters({
           <span>Priority</span>
           <select
             aria-label="Filter by priority"
-            value={filters.priority}
+            value={filters.priorities?.length ? 'multiple' : filters.priority}
             onChange={(e) =>
               updateTaskQuery({
                 filters: {
                   ...filters,
                   priority: e.target.value as TaskPriority | '',
+                  priorities: undefined,
                 },
               })
             }
           >
             <option value="">All priorities</option>
+            {filters.priorities?.length && (
+              <option value="multiple">{filters.priorities.join(' + ')}</option>
+            )}
             <option value="urgent">Urgent</option>
             <option value="high">High</option>
             <option value="medium">Medium</option>
