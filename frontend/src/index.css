@@ -3,8 +3,8 @@
  * The app uses plain global CSS (no CSS modules / Tailwind / CSS-in-JS), so the
  * cascade is governed purely by source order. These @imports are inlined by Vite
  * in the order below; keep that order — `tokens`/`base` define the foundation,
- * feature partials build on the shared `primitives`, and `responsive` loads last
- * so its @media overrides win over the base rules they adjust.
+ * feature partials build on the shared `primitives`, then `responsive` overrides
+ * their base rules. `mobile-tasks` is scoped to the mobile-only route and sheet.
  *
  * Edit feature styles in the matching src/styles/<feature>.css file, not here. */
 @import './styles/silk.css';
@@ -19,3 +19,4 @@
 @import './styles/focus.css';
 @import './styles/agent.css';
 @import './styles/responsive.css';
+@import './styles/mobile-tasks.css';

@@ -11,6 +11,8 @@ export interface Filters {
   search: string
   status: StatusView
   priority: TaskPriority | ''
+  /** Multiple selections from the mobile sheet; single-priority URLs stay compatible. */
+  priorities?: TaskPriority[]
   projectId: number | ''
   overdue: boolean
   dueSoon: boolean
@@ -55,6 +57,7 @@ export function isTruthyParam(value: string | null): boolean {
 export function filtersFromParams(params: URLSearchParams): Filters {
   const status = params.get('status')
   const priority = params.get('priority')
+  const priorities = PRIORITY_VALUES.filter((value) => priority?.split(',').includes(value))
   const project = params.get('project')
   const projectId = project !== null && /^\d+$/.test(project) ? Number(project) : ''
   return {
@@ -62,9 +65,10 @@ export function filtersFromParams(params: URLSearchParams): Filters {
     status: STATUS_VALUES.includes(status as StatusView)
       ? (status as StatusView)
       : EMPTY_FILTERS.status,
-    priority: PRIORITY_VALUES.includes(priority as TaskPriority)
-      ? (priority as TaskPriority)
+    priority: priorities.length === 1
+      ? priorities[0]
       : EMPTY_FILTERS.priority,
+    ...(priorities.length > 1 ? { priorities } : {}),
     projectId,
     overdue: isTruthyParam(params.get('overdue')),
     dueSoon: isTruthyParam(params.get('dueSoon')),
@@ -96,7 +100,8 @@ export function paramsFromState(
   const search = filters.search.trim()
   if (search !== '') params.set('search', search)
   if (filters.status !== '') params.set('status', filters.status)
-  if (filters.priority !== '') params.set('priority', filters.priority)
+  const priorities = selectedPriorities(filters)
+  if (priorities.length) params.set('priority', priorities.join(','))
   if (filters.projectId !== '') params.set('project', String(filters.projectId))
   if (filters.overdue) params.set('overdue', '1')
   if (filters.dueSoon) params.set('dueSoon', '1')
@@ -110,11 +115,16 @@ export function isActive(f: Filters): boolean {
   return (
     f.search.trim() !== '' ||
     f.status !== '' ||
-    f.priority !== '' ||
+    selectedPriorities(f).length > 0 ||
     f.projectId !== '' ||
     f.overdue ||
     f.dueSoon
   )
+}
+
+export function selectedPriorities(f: Filters): TaskPriority[] {
+  const selected = f.priorities?.length ? f.priorities : f.priority ? [f.priority] : []
+  return PRIORITY_VALUES.filter((priority) => selected.includes(priority))
 }
 
 export function matchesFilters(t: Task, f: Filters): boolean {
@@ -133,7 +143,8 @@ export function matchesFilters(t: Task, f: Filters): boolean {
   }
   if (f.status === 'blocking' && !t.is_blocking) return false
   if (f.status === 'blocked' && !t.is_blocked) return false
-  if (f.priority && t.priority !== f.priority) return false
+  const priorities = selectedPriorities(f)
+  if (priorities.length && !priorities.includes(t.priority)) return false
   if (f.projectId !== '' && t.project_id !== f.projectId) return false
   // Overdue and Due soon combine as OR when both are set: a task passes the due
   // gate if it matches any enabled due predicate. (They describe mutually

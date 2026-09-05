@@ -47,6 +47,9 @@ interface Props {
    * "Aug 4", "~45m") into a "·"-separated line of one to three facts.
    */
   dense?: boolean
+  subtaskCount?: number
+  /** Mobile rows navigate to the full detail, where their actions live. */
+  directLink?: boolean
 }
 
 function blockingLabel(count: number): string {
@@ -62,6 +65,8 @@ export function TaskCard({
   onSetStatus,
   onSkipOccurrence,
   dense = false,
+  subtaskCount,
+  directLink = false,
 }: Props) {
   const taskLinkTo = useTaskLinkTo()
   const due = dueStatus(task.due_date)
@@ -210,10 +215,13 @@ export function TaskCard({
   if (projectName !== undefined) {
     meta.push(<span className="source-pill">{projectName}</span>)
   }
+  if (subtaskCount) {
+    meta.push(<span>{subtaskCount} {subtaskCount === 1 ? 'subtask' : 'subtasks'}</span>)
+  }
 
   return (
     <Link
-      to={taskLinkTo(task.id)}
+      to={directLink ? `/tasks/${task.id}` : taskLinkTo(task.id)}
       className={`task-card workflow-${task.workflow_status}${dense ? ' dense' : ''}`}
       aria-label={task.title}
       draggable

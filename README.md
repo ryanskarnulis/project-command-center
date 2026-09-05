@@ -162,6 +162,23 @@ cross-project task list, only a project's own Tasks tab
 rather than a destination, so it sits in the dashboard's title row, which makes
 it two taps from any other route.
 
+## Mobile project tasks
+
+At 720px and below, `/projects/:id/tasks` uses the M02f/M03f handoff:
+the project name and progress lead a grouped task list, with lane-scoped
+**Add task**, inline expandable subtasks, **Show done**, and **Activity**.
+Task titles open the full detail page, where Add subtask and Delete live.
+Subtask expansion persists per project for the browser session.
+
+The filter button opens a bottom sheet. Search, status, multiple priorities,
+sort, and date toggles remain pending until **Show n tasks**; Reset edits the
+pending selection, while dismissal discards it. Applied filters and sorting
+persist in the URL and appear as removable chips. Mobile always renders the
+grouped list, including links with `view=board`; desktop retains List/Board.
+The completed archive also supplies the mobile header's done count and the
+sheet's live result count. Progress counts all filed tasks, including subtasks,
+using the same denominator as the dashboard.
+
 ## MCP server (agent access)
 
 The service layer is exposed as ~25 agent tools (task CRUD + complete,

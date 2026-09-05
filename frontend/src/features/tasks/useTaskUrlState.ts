@@ -6,6 +6,7 @@ import {
   isTruthyParam,
   paramsFromState,
   sortFromParams,
+  selectedPriorities,
   viewFromParams,
   type Filters,
   type SortMode,
@@ -62,14 +63,14 @@ export function useTaskUrlState(defaultView: ViewMode = 'list'): UseTaskUrlState
   const filtersActive = isActive(filters)
   const hasNonStatusFilters =
     filters.search.trim() !== '' ||
-    filters.priority !== '' ||
+    selectedPriorities(filters).length > 0 ||
     filters.projectId !== '' ||
     filters.overdue ||
     filters.dueSoon
   const activeFilterCount = [
     filters.search.trim() !== '',
     filters.status !== '',
-    filters.priority !== '',
+    selectedPriorities(filters).length > 0,
     filters.projectId !== '',
     filters.overdue,
     filters.dueSoon,

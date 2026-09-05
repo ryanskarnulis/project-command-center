@@ -19,6 +19,8 @@ import { TaskPanelProvider } from './panel/TaskPanelProvider'
 import { useCompletedTasks } from './useCompletedTasks'
 import { useTaskUrlState } from './useTaskUrlState'
 import { useTasks } from './useTasks'
+import { useMobileTasks } from './useMobileTasks'
+import { MobileProjectTasks } from './mobile/MobileProjectTasks'
 
 /** The per-project task surface: `/projects/:projectId/tasks`, one of two tabs. */
 export function TasksPage() {
@@ -26,6 +28,7 @@ export function TasksPage() {
   // `RequireRouteId` guarantees a positive integer before this renders.
   const { projectId } = useParams()
   const id = Number(projectId)
+  const mobile = useMobileTasks()
   const { tasks, loading, error, create, update, markDone, skip, remove, reload } =
     useTasks(id)
   // The recurring task whose skip is awaiting confirmation (null = no dialog).
@@ -44,8 +47,8 @@ export function TasksPage() {
   } = useTaskUrlState('board')
   const [projects, setProjects] = useState<Project[]>([])
 
-  // "Done" swaps the list to the completed archive (lazily fetched); the board
-  // always needs it for its Done column.
+  // Desktop lazily loads the archive for its Done view/column. Mobile also
+  // needs it for progress and the filter sheet's live result count.
   const showingCompleted = filters.status === 'done'
   const {
     tasks: completedTasks,
@@ -53,7 +56,7 @@ export function TasksPage() {
     error: completedError,
     reopen,
     reload: reloadCompleted,
-  } = useCompletedTasks(id, showingCompleted || view === 'board')
+  } = useCompletedTasks(id, mobile || showingCompleted || view === 'board')
 
   // "More options" hands an in-progress draft (quick-add or subtask composer)
   // to the full task modal.
@@ -104,6 +107,9 @@ export function TasksPage() {
       } else {
         await reopen(t.id)
         reload()
+        // Reopening a child can also reopen its completed parent. Pruning
+        // only the child locally leaves that parent and the done count stale.
+        reloadCompleted()
       }
     } else {
       await update(t.id, { workflow_status: target })
@@ -128,7 +134,25 @@ export function TasksPage() {
         bumpActivity()
       }}
     >
-    <main>
+    <main className={mobile ? 'mobile-project-tasks' : undefined}>
+      {mobile ? (
+        <MobileProjectTasks
+          key={id}
+          projectId={id}
+          projects={projects}
+          tasks={tasks}
+          completedTasks={completedTasks}
+          completedLoading={completedLoading}
+          completedError={completedError}
+          loading={loading}
+          error={error}
+          filters={filters}
+          sortMode={sortMode}
+          activityKey={activityKey}
+          updateQuery={updateTaskQuery}
+          onSetStatus={handleSetStatus}
+        />
+      ) : <>
       <p>
         <Link to={`/projects/${id}`}>← Project</Link>
       </p>
@@ -217,6 +241,9 @@ export function TasksPage() {
         />
       )}
 
+      <ActivityFeed projectId={id} refreshKey={activityKey} />
+      </>}
+
       <SkipOccurrenceConfirm
         taskTitle={skipTarget?.title ?? null}
         onCancel={() => setSkipTarget(null)}
@@ -225,8 +252,6 @@ export function TasksPage() {
           setSkipTarget(null)
         }}
       />
-
-      <ActivityFeed projectId={id} refreshKey={activityKey} />
 
       {addingTask && (
         <TaskFormModal
