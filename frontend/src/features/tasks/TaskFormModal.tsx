@@ -4,6 +4,11 @@ import type { Project } from '../../types/project'
 import type { Task, TaskCreate, TaskPriority, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { formatDurationInput, parseDurationInput } from '../../utils/duration'
 import { TaskDependencies } from './TaskDependencies'
+import {
+  refusedStatusOptions,
+  statusLockedReason,
+  subtaskMoveRefusal,
+} from './taskStatusRules'
 
 const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
 const WORKFLOW_STATUSES: TaskWorkflowStatus[] = ['open', 'in_progress', 'done']
@@ -102,11 +107,15 @@ export function TaskFormModal(props: Props) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // A task with active subtasks derives its status and estimate from them; the
-  // backend rejects a PATCH that carries either field (409). Disable both
-  // controls and leave the fields out of the payload so the rest of the form
-  // stays editable — mirrors TaskDetailView/TaskCard. (issue #191)
+  // A task with active subtasks sums its estimate from them (the backend 409s a
+  // PATCH carrying the field) and reaches Done only through them; Open and In
+  // progress are its own while the subtasks leave the question open. Disable
+  // the estimate, mirror the status guard per option, and leave refused values
+  // out of the payload so the rest of the form stays editable — mirrors
+  // TaskDetailView/TaskCard. (issue #191)
   const derivedFromSubtasks = existingTask?.has_subtasks === true
+  const statusLock = existingTask ? statusLockedReason(existingTask) : null
+  const refusedStatuses = existingTask ? refusedStatusOptions(existingTask) : undefined
 
   const blockedParents = useMemo(
     () => (existingTask ? descendantIds(existingTask, tasks) : new Set<number>()),
@@ -135,12 +144,10 @@ export function TaskFormModal(props: Props) {
           due_date: dueDate || null,
           project_id: projectId === '' ? null : Number(projectId),
           parent_task_id: parentId === '' ? null : Number(parentId),
-          ...(derivedFromSubtasks
+          ...(derivedFromSubtasks ? {} : { estimated_minutes: estimatedMinutes }),
+          ...(subtaskMoveRefusal(existingTask, workflowStatus)
             ? {}
-            : {
-                workflow_status: workflowStatus,
-                estimated_minutes: estimatedMinutes,
-              }),
+            : { workflow_status: workflowStatus }),
         })
       } else {
         await (props as CreateMode).onSave({
@@ -181,11 +188,12 @@ export function TaskFormModal(props: Props) {
             <select
               id="tf-workflow-status"
               value={workflowStatus}
-              disabled={derivedFromSubtasks}
+              disabled={statusLock !== null}
+              title={statusLock ?? undefined}
               onChange={(e) => setWorkflowStatus(e.target.value as TaskWorkflowStatus)}
             >
               {WORKFLOW_STATUSES.map((s) => (
-                <option key={s} value={s}>
+                <option key={s} value={s} disabled={refusedStatuses?.[s] !== undefined}>
                   {s === 'in_progress' ? 'in progress' : s}
                 </option>
               ))}
@@ -222,7 +230,7 @@ export function TaskFormModal(props: Props) {
           onChange={(e) => setEstimateDraft(e.target.value)}
         />
         {derivedFromSubtasks && (
-          <p>Status and estimate are rolled up from this task's subtasks.</p>
+          <p>Estimate is the sum of this task's subtasks; Done is reached by completing them.</p>
         )}
 
         {error && <p role="alert">{error}</p>}

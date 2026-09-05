@@ -12,6 +12,11 @@ import { DueDateChip } from './chips/DueDateChip'
 import { EstimateChip } from './chips/EstimateChip'
 import { PriorityChip } from './chips/PriorityChip'
 import { StatusChip } from './chips/StatusChip'
+import {
+  refusedStatusOptions,
+  statusLockedReason,
+  subtaskMoveRefusal,
+} from './taskStatusRules'
 import { useTaskLinkTo } from './panel/taskPanelContext'
 
 /** dataTransfer type carrying a task id; sidebar projects accept drops of it. */
@@ -70,14 +75,16 @@ export function TaskCard({
   const showPriority =
     !dense || task.priority === 'urgent' || task.priority === 'high'
 
-  // Parents roll status up from subtasks; blocked tasks can't move to done —
+  // Parents are completed by their subtasks; blocked tasks can't move to done —
   // same guards the list's old hover action and the board's move() enforce.
-  const completeDisabled = task.has_subtasks || task.is_blocked
-  const completeTitle = task.has_subtasks
-    ? 'Status is rolled up from subtasks'
-    : task.is_blocked
-      ? 'Blocked by an unfinished dependency'
-      : 'Mark done'
+  const completeRefusal =
+    subtaskMoveRefusal(task, 'done') ??
+    (task.is_blocked ? 'Blocked by an unfinished dependency' : null)
+  const completeDisabled = completeRefusal !== null
+  const completeTitle = completeRefusal ?? 'Mark done'
+  // A parent whose subtasks are all done has no status move left; otherwise the
+  // chip stays live and only the refused targets are switched off.
+  const statusLock = statusLockedReason(task)
 
   function onDragStart(e: DragEvent<HTMLAnchorElement>) {
     // text/plain keeps the kanban column drop working; the custom type lets
@@ -119,8 +126,9 @@ export function TaskCard({
           onChange={(status) =>
             onSetStatus ? onSetStatus(status) : onUpdate?.({ workflow_status: status })
           }
-          disabled={task.has_subtasks}
-          disabledHint="Rolled up from subtasks"
+          disabled={statusLock !== null}
+          disabledHint={statusLock ?? undefined}
+          disabledOptions={refusedStatusOptions(task)}
           onSkipOccurrence={
             onSkipOccurrence && task.repeat_interval && task.workflow_status !== 'done'
               ? onSkipOccurrence

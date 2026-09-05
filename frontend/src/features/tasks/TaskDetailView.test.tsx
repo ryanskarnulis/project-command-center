@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -250,21 +250,40 @@ describe('TaskDetailView', () => {
     )
   })
 
-  it('disables the status and estimate chips when values roll up from subtasks', async () => {
+  it('lets a parent be started but not completed, and keeps its estimate read-only', async () => {
     mockGetTask.mockResolvedValue({
       ...task,
       has_subtasks: true,
+      subtask_status: 'open',
       estimated_minutes: 90,
-      workflow_status: 'in_progress',
+      workflow_status: 'open',
     })
     renderDetail()
 
-    const status = await screen.findByRole('button', { name: 'Status: In progress' })
-    expect(status).toBeDisabled()
-    expect(status).toHaveAttribute('title', 'Rolled up from subtasks')
+    const status = await screen.findByRole('button', { name: 'Status: Open' })
+    expect(status).toBeEnabled()
+    fireEvent.click(status)
+    const done = screen.getByRole('button', { name: 'Done' })
+    expect(done).toBeDisabled()
+    expect(done).toHaveAttribute('title', 'Complete its subtasks to complete it')
+    expect(screen.getByRole('button', { name: 'In progress' })).toBeEnabled()
     const estimate = screen.getByRole('button', { name: 'Estimate: 90 minutes' })
     expect(estimate).toBeDisabled()
     expect(estimate).toHaveAttribute('title', 'Sum of subtask estimates')
+  })
+
+  it('locks the status chip once every subtask is done', async () => {
+    mockGetTask.mockResolvedValue({
+      ...task,
+      has_subtasks: true,
+      subtask_status: 'done',
+      workflow_status: 'done',
+    })
+    renderDetail()
+
+    const status = await screen.findByRole('button', { name: 'Status: Done' })
+    expect(status).toBeDisabled()
+    expect(status).toHaveAttribute('title', 'Reopen a subtask to reopen it')
   })
 
   it('shows dependents when the task is blocking downstream work', async () => {

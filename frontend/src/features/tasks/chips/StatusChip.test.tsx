@@ -31,17 +31,37 @@ describe('StatusChip', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('is read-only with a hint when disabled (subtask rollup)', () => {
+  it('is read-only with a hint when disabled (every subtask done)', () => {
     render(
       <StatusChip
-        value="in_progress"
+        value="done"
         onChange={vi.fn()}
         disabled
-        disabledHint="Rolled up from subtasks"
+        disabledHint="Reopen a subtask to reopen it"
       />,
     )
-    const trigger = screen.getByRole('button', { name: 'Status: In progress' })
+    const trigger = screen.getByRole('button', { name: 'Status: Done' })
     expect(trigger).toBeDisabled()
-    expect(trigger).toHaveAttribute('title', 'Rolled up from subtasks')
+    expect(trigger).toHaveAttribute('title', 'Reopen a subtask to reopen it')
+  })
+
+  it('switches off only the refused targets, each with its reason', () => {
+    const onChange = vi.fn()
+    render(
+      <StatusChip
+        value="open"
+        onChange={onChange}
+        disabledOptions={{ done: 'Complete its subtasks to complete it' }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Status: Open' }))
+    const done = screen.getByRole('button', { name: 'Done' })
+    expect(done).toBeDisabled()
+    expect(done).toHaveAttribute('title', 'Complete its subtasks to complete it')
+    expect(screen.getByRole('button', { name: 'In progress' })).toBeEnabled()
+    fireEvent.click(done)
+    expect(onChange).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'In progress' }))
+    expect(onChange).toHaveBeenCalledExactlyOnceWith('in_progress')
   })
 })

@@ -24,6 +24,7 @@ import { PriorityChip } from './chips/PriorityChip'
 import { ProjectChip } from './chips/ProjectChip'
 import { RepeatChip } from './chips/RepeatChip'
 import { StatusChip } from './chips/StatusChip'
+import { refusedStatusOptions, statusLockedReason } from './taskStatusRules'
 
 function blockingLabel(count: number): string {
   return `Blocking ${count} ${count === 1 ? 'task' : 'tasks'}`
@@ -395,8 +396,9 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
           <StatusChip
             value={task.workflow_status}
             onChange={(status) => savePatch({ workflow_status: status })}
-            disabled={task.has_subtasks}
-            disabledHint="Rolled up from subtasks"
+            disabled={statusLockedReason(task) !== null}
+            disabledHint={statusLockedReason(task) ?? undefined}
+            disabledOptions={refusedStatusOptions(task)}
             onSkipOccurrence={
               task.repeat_interval && task.workflow_status !== 'done'
                 ? () => setConfirmingSkip(true)

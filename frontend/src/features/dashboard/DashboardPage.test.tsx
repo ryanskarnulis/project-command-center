@@ -367,6 +367,39 @@ describe('DashboardPage', () => {
     )
   })
 
+  it('drags a card with subtasks onto In progress', async () => {
+    // A parent's Open / In progress is its own while the subtasks are untouched
+    // — the card is draggable and the drop is a plain status PATCH.
+    const parent: Task = {
+      ...baseTask,
+      id: 4,
+      title: 'Release checklist',
+      due_date: null,
+      is_blocking: false,
+      blocked_task_count: 0,
+      has_subtasks: true,
+      subtask_status: 'open',
+    }
+    mockListAllTasks.mockResolvedValue([...tasks, parent])
+    renderPage()
+    await screen.findByRole('heading', { name: 'Project board' })
+
+    expect(
+      screen.getByText('Release checklist').closest('li'),
+    ).toHaveAttribute('draggable', 'true')
+    const progressColumn = within(lane('Customer Portal')).getByRole('region', {
+      name: 'Customer Portal In progress',
+    })
+    fireEvent.drop(progressColumn, {
+      dataTransfer: { getData: () => '4', types: ['text/plain'] },
+    })
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(4, {
+        workflow_status: 'in_progress',
+      }),
+    )
+  })
+
   it('clears pending state when a same-lane status mutation rejects', async () => {
     mockMarkTaskDone.mockRejectedValue(new Error('Could not move task'))
     renderPage()
