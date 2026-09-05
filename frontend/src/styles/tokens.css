@@ -125,6 +125,8 @@
   --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.5);
   --shadow-modal: 0 16px 40px rgba(0, 0, 0, 0.6);
   --shadow-drawer: -18px 0 42px rgba(0, 0, 0, 0.55);
+  --shadow-sheet: 0 -18px 42px rgba(0, 0, 0, 0.55); /* the drawer shadow
+     turned on its side: mobile bottom sheets lift from below, not the right */
   --shadow-lift-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
   --shadow-lift: 0 3px 8px rgba(0, 0, 0, 0.45);
   /* priority/status pills (single dark scheme; the old --dark-* overrides

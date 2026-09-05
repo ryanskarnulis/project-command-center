@@ -167,7 +167,8 @@ it two taps from any other route.
 At 720px and below, `/projects/:id/tasks` uses the M02f/M03f handoff:
 the project name and progress lead a grouped task list, with lane-scoped
 **Add task**, inline expandable subtasks, **Show done**, and **Activity**.
-Task titles open the full detail page, where Add subtask and Delete live.
+Task titles open the peek panel over the list, where Add subtask and Delete
+live; Back closes it without leaving the project.
 Subtask expansion persists per project for the browser session.
 
 The filter button opens a bottom sheet. Search, status, multiple priorities,
