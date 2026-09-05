@@ -4,7 +4,10 @@ export type ToastKind = 'success' | 'error'
 
 export interface ToastApi {
   notify: (kind: ToastKind, message: string) => void
-  /** Convenience wrapper: notify success, or an error toast if the promise rejects. */
+  /** Convenience wrapper: notify success, or an error toast if the promise
+   * rejects. The error toast is `messages.error` when given, else the server's
+   * `detail` for an `ApiError` that carries one, else the error's own message
+   * (see `apiErrorMessage`). The rejection is rethrown unchanged. */
   withToast: <T>(
     promise: Promise<T>,
     messages: { success: string; error?: string },
