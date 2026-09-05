@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Repeat, SkipForward } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { getTaskSeries, stopRecurrence } from '../../api/tasks'
@@ -29,8 +29,27 @@ function occurrenceState(o: Task): { label: string; className: string } {
   return { label: 'Open', className: 'workflow-open' }
 }
 
+/**
+ * Identity of the server-side series as far as this task can tell: any of these
+ * changing means the occurrence list we hold may no longer match the backend.
+ * Completing the occurrence spawns its successor, "Stop recurrence" ends the
+ * chain, and an edit-scope-"future" change moves sibling due dates — all three
+ * land in `workflow_status` / `repeat_interval` / `updated_at`, and `updated_at`
+ * also covers the rest (a retitled sibling is rendered in the list).
+ *
+ * Flattened to a string so it can key an effect: `repeat_interval` is an object
+ * whose identity changes on every parent render, which as a raw dependency would
+ * refetch in a loop. (issue #259)
+ */
+function seriesKeyFor(task: Task): string {
+  const repeat = task.repeat_interval
+  const cadence = repeat ? `${repeat.unit}:${repeat.every}` : 'none'
+  return `${task.id}|${task.updated_at}|${task.workflow_status}|${cadence}`
+}
+
 /** Series timeline + "Stop recurrence" for a task that belongs to a recurrence
- *  chain. The occurrence list is fetched lazily on first expand. */
+ *  chain. The occurrence list is fetched lazily on expand, and refetched
+ *  whenever the panel is open and the task changes underneath it. */
 export function RecurrenceSeries({ task, onStopped, onSkip }: RecurrenceSeriesProps) {
   // Skip is offered on the current occurrence only while the series is live and
   // this occurrence is still open (not done, not already skipped).
@@ -40,38 +59,59 @@ export function RecurrenceSeries({ task, onStopped, onSkip }: RecurrenceSeriesPr
     !task.deleted_at
   const taskLinkTo = useTaskLinkTo()
   const [expanded, setExpanded] = useState(false)
-  const [occurrences, setOccurrences] = useState<Task[] | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [series, setSeries] = useState<{ key: string; occurrences: Task[] } | null>(null)
+  const [loadError, setLoadError] = useState<{ key: string; message: string } | null>(null)
+  const [stopError, setStopError] = useState<string | null>(null)
   const [confirmingStop, setConfirmingStop] = useState(false)
   const [stopping, setStopping] = useState(false)
 
-  async function toggle() {
-    const next = !expanded
-    setExpanded(next)
-    if (next && occurrences === null && !loading) {
-      setLoading(true)
-      setError(null)
-      try {
-        const series = await getTaskSeries(task.id)
-        setOccurrences(series.occurrences)
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Failed to load series')
-      } finally {
-        setLoading(false)
-      }
+  const taskId = task.id
+  const seriesKey = seriesKeyFor(task)
+  // Both the list and its failure are tagged with the key they belong to, so a
+  // result left over from a previous revision (or from a previous task, when the
+  // peek panel repoints without remounting) is dropped rather than shown stale.
+  const occurrences = series?.key === seriesKey ? series.occurrences : null
+  const loadFailure = loadError?.key === seriesKey ? loadError.message : null
+  // Derived rather than stored: while the panel is open with neither a matching
+  // list nor a matching failure, a load is by definition in flight.
+  const loading = expanded && occurrences === null && loadFailure === null
+
+  // Load whenever the panel is open, re-running on every expand and on every
+  // change to the task that could have moved the series. There is deliberately
+  // no "already fetched" short-circuit — the previous one-shot cache was the
+  // whole bug (issue #259).
+  useEffect(() => {
+    if (!expanded) return
+    let cancelled = false
+    getTaskSeries(taskId)
+      .then((loaded) => {
+        if (cancelled) return
+        setSeries({ key: seriesKey, occurrences: loaded.occurrences })
+        setLoadError(null)
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return
+        setSeries(null)
+        setLoadError({
+          key: seriesKey,
+          message: e instanceof Error ? e.message : 'Failed to load series',
+        })
+      })
+    // A superseded or collapsed load must not land.
+    return () => {
+      cancelled = true
     }
-  }
+  }, [expanded, taskId, seriesKey])
 
   async function handleStop() {
     setConfirmingStop(false)
     setStopping(true)
-    setError(null)
+    setStopError(null)
     try {
       const updated = await stopRecurrence(task.id)
       onStopped(updated)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to stop recurrence')
+      setStopError(e instanceof Error ? e.message : 'Failed to stop recurrence')
     } finally {
       setStopping(false)
     }
@@ -84,7 +124,11 @@ export function RecurrenceSeries({ task, onStopped, onSkip }: RecurrenceSeriesPr
           <Repeat size={16} aria-hidden="true" /> Recurrence
         </h2>
         <div className="task-section-actions">
-          <button type="button" onClick={() => void toggle()} aria-expanded={expanded}>
+          <button
+            type="button"
+            onClick={() => setExpanded((open) => !open)}
+            aria-expanded={expanded}
+          >
             {expanded ? 'Hide occurrences' : 'Show occurrences'}
           </button>
           {task.repeat_interval && (
@@ -123,7 +167,9 @@ export function RecurrenceSeries({ task, onStopped, onSkip }: RecurrenceSeriesPr
         </div>
       )}
 
-      {error && <p role="alert" className="error">{error}</p>}
+      {(stopError ?? loadFailure) && (
+        <p role="alert" className="error">{stopError ?? loadFailure}</p>
+      )}
 
       {expanded && (
         <>
