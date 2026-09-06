@@ -401,6 +401,13 @@ read/write access to your projects and tasks.
 The backend itself publishes no host port; it is reachable only via nginx and
 the compose network.
 
+**Cache headers.** `frontend/nginx.conf` splits the SPA in two: `/assets/*` is
+content-hashed by Vite and goes out `immutable` for a year, while `index.html`
+(and every client-side route falling back to it) is `no-cache`, so the document
+naming those hashed bundles revalidates on each load. Serving the entry point
+without a `Cache-Control` header left it to the browser heuristic, which pinned
+phones to the previous deploy's JS until a manual reload.
+
 **Data & backups.** SQLite lives on the bind-mounted `./data` volume
 (`app.db` + WAL sidecars survive restarts). `./scripts/backup_db.sh` is still the
 snapshot path — run it on the host against `data/app.db`, or from inside the
