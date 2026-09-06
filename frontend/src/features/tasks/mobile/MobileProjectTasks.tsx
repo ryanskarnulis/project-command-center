@@ -3,11 +3,12 @@ import type { CSSProperties, ReactNode } from 'react'
 import { Check, ChevronDown, ChevronRight, Eye, Plus, SlidersHorizontal, X } from 'lucide-react'
 import type { Project } from '../../../types/project'
 import type { Task, TaskWorkflowStatus } from '../../../types/task'
+import { buildProjectStats } from '../../../utils/projectStatus'
 import { ActivityFeed } from '../../projects/ActivityFeed'
 import { ProjectTabs } from '../../projects/ProjectTabs'
 import { TaskCard } from '../TaskCard'
 import { EMPTY_FILTERS, sortTasks, type Filters, type SortMode } from '../taskFilters'
-import { buildTaskTree, isEffectiveTopLevel } from '../taskTree'
+import { buildTaskTree } from '../taskTree'
 import { subtaskMoveRefusal } from '../taskStatusRules'
 import { matchingMobileTasks, mobileFilterChips } from './mobileTaskFilters'
 import { TaskFilterSheet } from './TaskFilterSheet'
@@ -48,11 +49,11 @@ export function MobileProjectTasks({ projectId, projects, tasks, completedTasks,
   const tree = buildTaskTree(visible)
   const allChildren = buildTaskTree(allTasks).childrenOf
   const chips = mobileFilterChips(filters, sortMode)
-  const openRoots = tasks.filter(isEffectiveTopLevel).length
-  const subtasks = tasks.length - openRoots
   // Counted off the deduped union, not the two raw snapshots: an id present in
   // both mid-refresh would otherwise inflate the denominator and dip the bar.
   const doneCount = allTasks.filter((task) => task.workflow_status === 'done').length
+  // Same root/subtask split as the Overview header and the dashboard lane.
+  const { open: openRoots, subtasks } = buildProjectStats(tasks, doneCount)
   const percent = allTasks.length ? Math.round(doneCount / allTasks.length * 100) : 0
   const doneVisible = showDone || filters.status === 'done'
 
@@ -108,7 +109,7 @@ export function MobileProjectTasks({ projectId, projects, tasks, completedTasks,
             <span className="dashboard-lane-progress" role="progressbar" aria-label={`${projectName} progress`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={completedLoading || completedError ? undefined : percent}>
               <span style={{ width: `${percent}%` }} />
             </span>
-            <span>{loading ? 'Loading tasks…' : `${openRoots} open · ${subtasks} subtasks`}{!completedLoading && !completedError && ` · ${doneCount} done`}</span>
+            <span>{loading ? 'Loading tasks…' : `${openRoots} open · ${subtasks} ${subtasks === 1 ? 'subtask' : 'subtasks'}`}{!completedLoading && !completedError && ` · ${doneCount} done`}</span>
           </div>
         </div>
         <button type="button" className={`mobile-filter-control${chips.length ? ' applied' : ''}`} aria-label="Filter tasks" aria-haspopup="dialog" aria-expanded={sheetOpen} onClick={() => setSheetOpen(true)}>

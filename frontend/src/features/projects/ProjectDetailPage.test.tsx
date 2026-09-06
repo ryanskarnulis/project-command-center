@@ -674,8 +674,56 @@ describe('ProjectDetailPage (mobile, M06f)', () => {
     await user.tab()
 
     expect(await screen.findByText('Not saved')).toBeInTheDocument()
-    expect(await screen.findByLabelText('Project name')).toHaveValue('Edge')
+    const reopened = await screen.findByLabelText('Project name')
+    expect(reopened).toHaveValue('Edge')
     expect(screen.getByText('boom')).toBeInTheDocument()
+    // Reopened for recovery, not by a tap: it must not pull focus from wherever the user went.
+    expect(reopened).not.toHaveFocus()
+  })
+
+  it('keeps the page heading while the name is being edited', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Firewall' }))
+
+    const heading = screen.getByRole('heading', { level: 1 })
+    expect(within(heading).getByLabelText('Project name')).toHaveValue('Firewall')
+  })
+
+  it('clears the blank-name error when the original name is retyped', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Firewall' }))
+    const name = screen.getByLabelText('Project name')
+    await user.clear(name)
+    await user.tab()
+    expect(await screen.findByText('Name is required')).toBeInTheDocument()
+    // A rule, not a failed write: the save indicator stays quiet.
+    expect(screen.queryByText('Not saved')).not.toBeInTheDocument()
+
+    await user.type(name, 'Firewall')
+    await user.tab()
+
+    expect(await screen.findByRole('button', { name: 'Firewall' })).toBeInTheDocument()
+    expect(screen.queryByText('Name is required')).not.toBeInTheDocument()
+    expect(mockUpdateProject).not.toHaveBeenCalled()
+  })
+
+  it('does not paint progress before the task list arrives', async () => {
+    const pendingTasks = deferred<Task[]>()
+    mockListTasks.mockReturnValue(pendingTasks.promise)
+    renderDetail()
+
+    const bar = await screen.findByRole('progressbar')
+    expect(screen.getByText('Loading tasks…')).toBeInTheDocument()
+    // The done count is already in; without the list the ratio would read 100%.
+    expect(bar).not.toHaveAttribute('aria-valuenow')
+    expect(bar.firstElementChild).toHaveStyle({ width: '0%' })
+
+    pendingTasks.resolve([task, subtask])
+    await waitFor(() => expect(bar).toHaveAttribute('aria-valuenow', '50'))
   })
 
   it('edits the description on tap and saves on blur', async () => {
@@ -765,7 +813,7 @@ describe('ProjectDetailPage (mobile, M06f)', () => {
     expect(screen.queryByRole('button', { name: 'Project actions' })).not.toBeInTheDocument()
   })
 
-  it('shows the status word alone when the task fetch fails', async () => {
+  it('shows only the error when the task fetch fails', async () => {
     mockListTasks.mockRejectedValue(new Error('Tasks unavailable'))
     renderDetail()
 
@@ -773,6 +821,26 @@ describe('ProjectDetailPage (mobile, M06f)', () => {
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
     expect(screen.queryByText(/open/)).not.toBeInTheDocument()
     expect(screen.queryByText(/done/)).not.toBeInTheDocument()
+    // No tasks means no health to report — "Clear" would claim there is nothing to do.
+    expect(screen.queryByText('Clear')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 1, name: 'Firewall' })).toBeInTheDocument()
+  })
+
+  it('drops the previous project’s tasks when the next project’s fetch fails', async () => {
+    const user = userEvent.setup()
+    const otherProject: Project = { ...project, id: 8, name: 'Perimeter', description: 'Other' }
+    mockGetProject.mockImplementation(async (pid: number) => (pid === 8 ? otherProject : project))
+    mockListTasks.mockImplementation(async (pid: number) => {
+      if (pid === 8) throw new Error('Tasks unavailable')
+      return [{ ...task, is_blocking: true }]
+    })
+    renderDetailWithSwitcher()
+
+    expect(await screen.findByText('Blocking')).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: 'Open project 8' }))
+    await screen.findByRole('heading', { level: 1, name: 'Perimeter' })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Tasks unavailable')
+    expect(screen.queryByText('Blocking')).not.toBeInTheDocument()
   })
 })

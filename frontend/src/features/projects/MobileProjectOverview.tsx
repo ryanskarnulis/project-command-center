@@ -8,6 +8,15 @@ import { ProjectTabs } from './ProjectTabs'
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 export type SaveField = 'name' | 'description'
+/** Inline error per field: a failed write's message, or the blank-name rule. */
+export type SaveErrors = Partial<Record<SaveField, string>>
+
+/**
+ * Why a field is open. A tap ('user') takes focus. A failed write reopening the
+ * field ('recovery') must not: the user may have moved on to the other field,
+ * and stealing focus would blur it and commit a half-typed edit.
+ */
+type EditMode = false | 'user' | 'recovery'
 
 interface Props {
   project: Project
@@ -23,10 +32,9 @@ interface Props {
   saveDescription: () => Promise<boolean>
   /** Escape: drop the name draft back to the saved name. */
   revertName: () => void
+  /** State of the newest write, shown as a transient meta-line item. */
   saveState: SaveState
-  /** Which field the save state and error belong to, so the error sits under the right one. */
-  saveField: SaveField | null
-  saveError: string | null
+  saveErrors: SaveErrors
   activityKey: number
   onToggleClosed: () => void
   onDelete: () => void
@@ -54,17 +62,18 @@ export function MobileProjectOverview({
   saveDescription,
   revertName,
   saveState,
-  saveField,
-  saveError,
+  saveErrors,
   activityKey,
   onToggleClosed,
   onDelete,
 }: Props) {
-  const [editingName, setEditingName] = useState(false)
-  const [editingDescription, setEditingDescription] = useState(false)
+  const [editingName, setEditingName] = useState<EditMode>(false)
+  const [editingDescription, setEditingDescription] = useState<EditMode>(false)
   const [sheetOpen, setSheetOpen] = useState(false)
-  // Escape reverts the draft and unmounts the input; a blur that follows must
-  // not commit the stale draft. Re-armed each time the field opens.
+  // Escape reverts the draft and unmounts the input. Chromium dispatches blur
+  // for a focused element as it is removed — while it is still attached, so the
+  // event reaches React with the pre-revert draft in its closure. This flag
+  // makes that blur a no-op; it is re-armed each time the field opens.
   const skipNameBlur = useRef(false)
   const doneButton = useRef<HTMLButtonElement>(null)
 
@@ -88,19 +97,21 @@ export function MobileProjectOverview({
   const status = closed ? { label: 'Closed', tone: 'neutral' as const } : stats.status
   const percent = Math.round(stats.progress * 100)
 
-  // One meta line: status word first, then only the non-zero counts. A failed
-  // task fetch leaves the word alone rather than printing broken numbers.
+  // One meta line: status word first, then only the non-zero counts. While the
+  // list loads there is nothing to derive from; when it failed, the alert below
+  // says so and the line carries no word we cannot stand behind ("Closed" is
+  // known from the project itself).
   const items: ReactNode[] = []
   if (tasksLoading) {
     if (closed) items.push(<span key="status" className="status-pill tone-neutral">Closed</span>)
     items.push(<span key="loading">Loading tasks…</span>)
+  } else if (tasksError) {
+    if (closed) items.push(<span key="status" className="status-pill tone-neutral">Closed</span>)
   } else {
     items.push(<span key="status" className={`status-pill tone-${status.tone}`}>{status.label}</span>)
-    if (!tasksError) {
-      if (stats.open > 0) items.push(<span key="open">{stats.open} open</span>)
-      if (stats.subtasks > 0) items.push(<span key="subtasks">{stats.subtasks} {stats.subtasks === 1 ? 'subtask' : 'subtasks'}</span>)
-      if (stats.done > 0) items.push(<span key="done">{stats.done} done</span>)
-    }
+    if (stats.open > 0) items.push(<span key="open">{stats.open} open</span>)
+    if (stats.subtasks > 0) items.push(<span key="subtasks">{stats.subtasks} {stats.subtasks === 1 ? 'subtask' : 'subtasks'}</span>)
+    if (stats.done > 0) items.push(<span key="done">{stats.done} done</span>)
   }
   if (visibleSaveState === 'saving') items.push(<span key="save" role="status">Saving…</span>)
   if (visibleSaveState === 'saved') items.push(<span key="save" role="status">Saved</span>)
@@ -108,7 +119,7 @@ export function MobileProjectOverview({
 
   function startEditingName(): void {
     skipNameBlur.current = false
-    setEditingName(true)
+    setEditingName('user')
   }
 
   function commitName(): void {
@@ -122,7 +133,7 @@ export function MobileProjectOverview({
       return
     }
     setEditingName(false)
-    void saveName().then((ok) => { if (!ok) setEditingName(true) })
+    void saveName().then((ok) => { if (!ok) setEditingName('recovery') })
   }
 
   function handleNameKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
@@ -135,38 +146,36 @@ export function MobileProjectOverview({
   }
 
   function commitDescription(event: FocusEvent<HTMLTextAreaElement>): void {
-    void saveDescription().then((ok) => { if (!ok) setEditingDescription(true) })
+    void saveDescription().then((ok) => { if (!ok) setEditingDescription('recovery') })
     // Tabbing onto Done keeps the field open until Done is pressed (otherwise the
     // button would vanish under the focus it just received); any other blur closes it.
     if (event.relatedTarget !== doneButton.current) setEditingDescription(false)
   }
 
-  const nameError = saveField === 'name' ? saveError : null
-  const descriptionError = saveField === 'description' ? saveError : null
-
   return (
     <main className="mobile-project-overview">
       <header className="mobile-project-heading">
         <div className="mobile-project-title">
-          {editingName ? (
-            <input
-              className="task-title-input"
-              aria-label="Project name"
-              value={nameDraft}
-              autoFocus
-              onFocus={(event) => event.currentTarget.select()}
-              onChange={(event) => onNameChange(event.target.value)}
-              onBlur={commitName}
-              onKeyDown={handleNameKeyDown}
-            />
-          ) : (
-            <h1>
+          {/* The h1 stays mounted through an edit so the page never loses its heading. */}
+          <h1>
+            {editingName ? (
+              <input
+                className="task-title-input"
+                aria-label="Project name"
+                value={nameDraft}
+                autoFocus={editingName === 'user'}
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) => onNameChange(event.target.value)}
+                onBlur={commitName}
+                onKeyDown={handleNameKeyDown}
+              />
+            ) : (
               <button type="button" className="mobile-project-name" title="Edit name" onClick={startEditingName}>
                 {nameDraft}
               </button>
-            </h1>
-          )}
-          {editingName && nameError && <p role="alert" className="error mobile-inline-error">{nameError}</p>}
+            )}
+          </h1>
+          {editingName && saveErrors.name && <p role="alert" className="error mobile-inline-error">{saveErrors.name}</p>}
           <div className="mobile-project-progress">
             {!tasksError && (
               <span
@@ -177,7 +186,8 @@ export function MobileProjectOverview({
                 aria-valuemax={100}
                 aria-valuenow={tasksLoading ? undefined : percent}
               >
-                <span style={{ width: `${percent}%` }} />
+                {/* The done count can arrive first; without the list the ratio is meaningless, so paint nothing yet. */}
+                <span style={{ width: `${tasksLoading ? 0 : percent}%` }} />
               </span>
             )}
             <span className="mobile-project-meta">
@@ -215,7 +225,7 @@ export function MobileProjectOverview({
               Done
             </button>
           ) : (
-            <button type="button" className="mobile-description-edit" aria-label="Edit description" onClick={() => setEditingDescription(true)}>
+            <button type="button" className="mobile-description-edit" aria-label="Edit description" onClick={() => setEditingDescription('user')}>
               <Pencil size={15} aria-hidden="true" />
             </button>
           )}
@@ -227,7 +237,7 @@ export function MobileProjectOverview({
               value={descriptionDraft}
               placeholder="Add a description"
               rows={5}
-              autoFocus
+              autoFocus={editingDescription === 'user'}
               onFocus={(event) => {
                 const end = event.currentTarget.value.length
                 event.currentTarget.setSelectionRange(end, end)
@@ -235,12 +245,12 @@ export function MobileProjectOverview({
               onChange={(event) => onDescriptionChange(event.target.value)}
               onBlur={commitDescription}
             />
-            {descriptionError && <p role="alert" className="error mobile-inline-error">{descriptionError}</p>}
+            {saveErrors.description && <p role="alert" className="error mobile-inline-error">{saveErrors.description}</p>}
           </>
         ) : (
           // The pencil is the accessible control; the paragraph is the larger
           // pointer target for the same edit.
-          <p className={descriptionDraft ? 'mobile-project-body' : 'mobile-project-body empty'} onClick={() => setEditingDescription(true)}>
+          <p className={descriptionDraft ? 'mobile-project-body' : 'mobile-project-body empty'} onClick={() => setEditingDescription('user')}>
             {descriptionDraft || 'Add a description'}
           </p>
         )}

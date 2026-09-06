@@ -23,7 +23,7 @@ import { useTaskRefresh } from '../tasks/taskRefreshContext'
 import { buildTaskTree } from '../tasks/taskTree'
 import { useTrashCount } from '../trash/trashCountContext'
 import { ActivityFeed } from './ActivityFeed'
-import { MobileProjectOverview, type SaveField, type SaveState } from './MobileProjectOverview'
+import { MobileProjectOverview, type SaveErrors, type SaveField, type SaveState } from './MobileProjectOverview'
 import { ProjectTabs } from './ProjectTabs'
 
 interface ProjectDraft {
@@ -61,11 +61,11 @@ export function ProjectDetailPage() {
   const [doneCount, setDoneCount] = useState<{ projectId: number; count: number } | null>(null)
   const [loadedProjectId, setLoadedProjectId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // State of the newest write, for the "Saving… / Saved" indicator.
   const [saveState, setSaveState] = useState<SaveState>('idle')
-  const [saveError, setSaveError] = useState<string | null>(null)
-  // The field the save state describes, so the mobile view can seat the error
-  // under the right one.
-  const [saveField, setSaveField] = useState<SaveField | null>(null)
+  // Inline errors by field — a failed write's message, or the blank-name rule.
+  // Per field, so one field's error survives the other field's save.
+  const [saveErrors, setSaveErrors] = useState<SaveErrors>({})
   // Project the save status belongs to; the status is hidden once the route
   // moves to another project so a write for the old id can't label the new one.
   const [saveProjectId, setSaveProjectId] = useState<number | null>(null)
@@ -127,6 +127,9 @@ export function ProjectDetailPage() {
       })
       .catch((e: unknown) => {
         if (!active) return
+        // Never leave the previous project's rows behind a failed fetch: the
+        // counts and the status word would describe the wrong project.
+        setTasks([])
         setTasksError(e instanceof Error ? e.message : 'Failed to load tasks')
         setTasksLoadedProjectId(id)
       })
@@ -163,15 +166,24 @@ export function ProjectDetailPage() {
     setActivityKey((k) => k + 1)
   }
 
+  function setFieldError(field: SaveField, message: string | null) {
+    setSaveErrors((prev) => {
+      if ((prev[field] ?? null) === message) return prev
+      const next = { ...prev }
+      if (message === null) delete next[field]
+      else next[field] = message
+      return next
+    })
+  }
+
   /** Resolves false only when this write failed and is still the newest one. */
   async function savePatch(field: SaveField, data: ProjectUpdate): Promise<boolean> {
     if (!project) return true
     const targetId = project.id
     const requestId = ++latestRequestId.current
     setSaveProjectId(targetId)
-    setSaveField(field)
     setSaveState('saving')
-    setSaveError(null)
+    setFieldError(field, null)
     try {
       const updated = await updateProject(targetId, data)
       if (requestId !== latestRequestId.current) return true
@@ -182,40 +194,43 @@ export function ProjectDetailPage() {
     } catch (e: unknown) {
       if (requestId !== latestRequestId.current) return true
       setSaveState('error')
-      setSaveError(e instanceof Error ? e.message : 'Failed to save project')
+      setFieldError(field, e instanceof Error ? e.message : 'Failed to save project')
       return false
     }
   }
 
   /** Commit the name draft. False = the field should stay editable: blank, or the write failed. */
-  function saveName(): Promise<boolean> {
-    if (!project) return Promise.resolve(true)
+  async function saveName(): Promise<boolean> {
+    if (!project) return true
     const next = nameDraft.trim()
     if (!next) {
+      // A rule, not a write: the field keeps its error and stays open, and the
+      // save indicator (which describes writes) is left alone.
       setSaveProjectId(project.id)
-      setSaveField('name')
-      setSaveState('error')
-      setSaveError('Name is required')
-      return Promise.resolve(false)
+      setFieldError('name', 'Name is required')
+      return false
     }
-    if (next === project.name) return Promise.resolve(true)
+    if (next === project.name) {
+      setFieldError('name', null)
+      return true
+    }
     return savePatch('name', { name: next })
   }
 
-  function saveDescription(): Promise<boolean> {
-    if (!project) return Promise.resolve(true)
+  async function saveDescription(): Promise<boolean> {
+    if (!project) return true
     const next = descriptionDraft.trim() || null
-    if (next === project.description) return Promise.resolve(true)
+    if (next === project.description) {
+      setFieldError('description', null)
+      return true
+    }
     return savePatch('description', { description: next })
   }
 
   /** Escape in the name field: back to the saved name, and drop a blank-name error with it. */
   function revertName() {
     setProjectDraft({ ...activeProjectDraft, name: loadedProjectDraft.name })
-    if (saveState === 'error' && saveField === 'name') {
-      setSaveState('idle')
-      setSaveError(null)
-    }
+    setFieldError('name', null)
   }
 
   async function handleDeleteProject(): Promise<void> {
@@ -281,7 +296,9 @@ export function ProjectDetailPage() {
   const currentDoneCount = doneCount?.projectId === id ? doneCount.count : 0
   const stats = buildProjectStats(currentTasks, currentDoneCount)
   const currentSaveState = saveProjectId === id ? saveState : 'idle'
-  const currentSaveError = saveProjectId === id ? saveError : null
+  const currentSaveErrors: SaveErrors = saveProjectId === id ? saveErrors : {}
+  // Desktop has one inline error line under the hero; the name's outranks the description's.
+  const currentSaveError = currentSaveErrors.name ?? currentSaveErrors.description ?? null
 
   if (mobile) {
     return (
@@ -299,8 +316,7 @@ export function ProjectDetailPage() {
         saveDescription={saveDescription}
         revertName={revertName}
         saveState={currentSaveState}
-        saveField={saveProjectId === id ? saveField : null}
-        saveError={currentSaveError}
+        saveErrors={currentSaveErrors}
         activityKey={activityKey}
         onToggleClosed={() =>
           fireAndForget(project.closed_at ? handleReopenProject() : handleCloseProject())
