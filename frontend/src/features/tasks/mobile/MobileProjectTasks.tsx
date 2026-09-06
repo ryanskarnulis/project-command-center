@@ -101,7 +101,7 @@ export function MobileProjectTasks({ projectId, projects, tasks, completedTasks,
 
   return (
     <>
-      <header className="mobile-tasks-heading">
+      <header className="mobile-project-heading">
         <div className="mobile-project-title">
           <h1 title={projectName}>{projectName}</h1>
           <div className="mobile-project-progress">

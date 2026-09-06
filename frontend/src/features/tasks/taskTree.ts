@@ -23,7 +23,9 @@ export interface TaskTree {
  * subtask. Falls back to raw nullness only for a task that never came from the
  * API (test fixtures, optimistic local rows).
  */
-export function isEffectiveTopLevel(task: Task): boolean {
+export function isEffectiveTopLevel(
+  task: Pick<Task, 'parent_task_id' | 'is_effective_top_level'>,
+): boolean {
   return task.is_effective_top_level ?? task.parent_task_id === null
 }
 
