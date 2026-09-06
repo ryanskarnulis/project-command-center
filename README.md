@@ -180,6 +180,24 @@ The completed archive also supplies the mobile header's done count and the
 sheet's live result count. Progress counts all filed tasks, including subtasks,
 using the same denominator as the dashboard.
 
+## Mobile project overview
+
+At 720px and below, `/projects/:id` uses the M06f handoff: the route is the
+project's brief, not a second task list. The title row carries the name, a
+progress bar and one meta line — the status word, then `n open · n subtasks ·
+n done` from the same root-only derivation the Tasks tab and the dashboard
+lane use, zero items omitted. Name and description render as text and become
+fields on tap: Enter or blur commits, Escape reverts the name, and a failed
+write reopens the field with its error. Save state (**Saving…**, **Saved**,
+**Not saved**) joins the meta line and clears after two seconds.
+
+The `⋯` control opens a bottom sheet with Close/Reopen project and Delete
+project — the same confirm and trash behaviour as before; a protected project
+gets no control. The breadcrumb is gone: Home in the bottom bar is the way
+back. Activity stays collapsed under a foot row. Desktop keeps its layout,
+task list included; only its open count changed, to root tasks with subtasks
+called out beside them.
+
 ## MCP server (agent access)
 
 The service layer is exposed as ~25 agent tools (task CRUD + complete,

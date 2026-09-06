@@ -134,17 +134,31 @@ function renderDetailWithSwitcher() {
   )
 }
 
+function primeMocks() {
+  vi.clearAllMocks()
+  mockGetProject.mockResolvedValue(project)
+  mockListTasks.mockResolvedValue([task])
+  mockListCompleted.mockResolvedValue([])
+  mockUpdateProject.mockImplementation(async (_id, patch) => ({ ...project, ...patch }))
+  mockGetProjectActivity.mockResolvedValue([])
+}
+
 describe('ProjectDetailPage', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockGetProject.mockResolvedValue(project)
-    mockListTasks.mockResolvedValue([task])
-    mockListCompleted.mockResolvedValue([])
-    mockUpdateProject.mockImplementation(async (_id, patch) => ({ ...project, ...patch }))
-    mockGetProjectActivity.mockResolvedValue([])
-  })
+  beforeEach(primeMocks)
 
   afterEach(cleanup)
+
+  it('counts root tasks as open and calls subtasks out beside them', async () => {
+    mockListTasks.mockResolvedValue([
+      task,
+      { ...task, id: 4, parent_task_id: 3, title: 'Order the patch cable' },
+      { ...task, id: 5, parent_task_id: 3, title: 'Schedule the window' },
+    ])
+    mockListCompleted.mockResolvedValue([{ ...task, id: 100, workflow_status: 'done' }])
+    renderDetail()
+
+    expect(await screen.findByText('1 open · 2 subtasks · 1 done')).toBeInTheDocument()
+  })
 
   it('renders the project name, its tasks, and a View-all link', async () => {
     renderDetail()
@@ -536,5 +550,297 @@ describe('ProjectDetailPage', () => {
       }),
     )
     expect(mockListTasks).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ProjectDetailPage (mobile, M06f)', () => {
+  const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal')
+  const originalClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'close')
+  const subtask: Task = { ...task, id: 4, parent_task_id: 3, title: 'Order the patch cable' }
+  const done = [
+    { ...task, id: 100, workflow_status: 'done' as const },
+    { ...task, id: 101, workflow_status: 'done' as const },
+  ]
+
+  beforeEach(() => {
+    primeMocks()
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    )
+    // jsdom has no native dialog lifecycle; focus/backdrop/swipe are verified in Chromium.
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+      configurable: true,
+      value: function (this: HTMLDialogElement) { this.open = true },
+    })
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+      configurable: true,
+      value: function (this: HTMLDialogElement) { this.open = false },
+    })
+    mockListTasks.mockResolvedValue([task, subtask])
+    mockListCompleted.mockResolvedValue(done)
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    if (originalShowModal) Object.defineProperty(HTMLDialogElement.prototype, 'showModal', originalShowModal)
+    else Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal')
+    if (originalClose) Object.defineProperty(HTMLDialogElement.prototype, 'close', originalClose)
+    else Reflect.deleteProperty(HTMLDialogElement.prototype, 'close')
+  })
+
+  it('renders the brief with root-only counts and no task list', async () => {
+    renderDetail()
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Firewall' })).toBeInTheDocument()
+    // The Tasks tab's derivation: one root open, its subtask called out, done separately.
+    expect(await screen.findByText('1 open')).toBeInTheDocument()
+    expect(screen.getByText('1 subtask')).toBeInTheDocument()
+    expect(screen.getByText('2 done')).toBeInTheDocument()
+    expect(screen.getByText('On Track')).toBeInTheDocument()
+    // Progress keeps every filed task in the denominator: 2 done of 4.
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50')
+
+    expect(screen.queryByText('Patch the router')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /View all tasks/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Dashboard/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Tasks' })).toHaveAttribute('href', '/projects/7/tasks')
+    expect(screen.getByText('Edge hardening')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Activity' })).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('omits zero counts from the meta line', async () => {
+    mockListTasks.mockResolvedValue([task])
+    mockListCompleted.mockResolvedValue([])
+    renderDetail()
+
+    expect(await screen.findByText('1 open')).toBeInTheDocument()
+    expect(screen.queryByText(/subtask/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/done/)).not.toBeInTheDocument()
+  })
+
+  it('edits the name on tap and commits on Enter', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Firewall' }))
+    const name = screen.getByLabelText('Project name')
+    expect(name).toHaveValue('Firewall')
+    expect(name).toHaveFocus()
+    await user.clear(name)
+    await user.type(name, 'Edge Firewall{Enter}')
+
+    await waitFor(() => expect(mockUpdateProject).toHaveBeenCalledWith(7, { name: 'Edge Firewall' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Edge Firewall' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Project name')).not.toBeInTheDocument()
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
+  })
+
+  it('reverts the name draft on Escape without saving', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Firewall' }))
+    await user.type(screen.getByLabelText('Project name'), ' v2{Escape}')
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Firewall' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Project name')).not.toBeInTheDocument()
+    expect(mockUpdateProject).not.toHaveBeenCalled()
+  })
+
+  it('keeps the name field open with its error when cleared to blank', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Firewall' }))
+    await user.clear(screen.getByLabelText('Project name'))
+    await user.tab()
+
+    expect(await screen.findByText('Name is required')).toBeInTheDocument()
+    expect(screen.getByLabelText('Project name')).toBeInTheDocument()
+    expect(mockUpdateProject).not.toHaveBeenCalled()
+  })
+
+  it('reopens the name field with the draft intact when the write fails', async () => {
+    const user = userEvent.setup()
+    mockUpdateProject.mockRejectedValueOnce(new Error('boom'))
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Firewall' }))
+    const name = screen.getByLabelText('Project name')
+    await user.clear(name)
+    await user.type(name, 'Edge')
+    await user.tab()
+
+    expect(await screen.findByText('Not saved')).toBeInTheDocument()
+    const reopened = await screen.findByLabelText('Project name')
+    expect(reopened).toHaveValue('Edge')
+    expect(screen.getByText('boom')).toBeInTheDocument()
+    // Reopened for recovery, not by a tap: it must not pull focus from wherever the user went.
+    expect(reopened).not.toHaveFocus()
+  })
+
+  it('keeps the page heading while the name is being edited', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Firewall' }))
+
+    const heading = screen.getByRole('heading', { level: 1 })
+    expect(within(heading).getByLabelText('Project name')).toHaveValue('Firewall')
+  })
+
+  it('clears the blank-name error when the original name is retyped', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Firewall' }))
+    const name = screen.getByLabelText('Project name')
+    await user.clear(name)
+    await user.tab()
+    expect(await screen.findByText('Name is required')).toBeInTheDocument()
+    // A rule, not a failed write: the save indicator stays quiet.
+    expect(screen.queryByText('Not saved')).not.toBeInTheDocument()
+
+    await user.type(name, 'Firewall')
+    await user.tab()
+
+    expect(await screen.findByRole('button', { name: 'Firewall' })).toBeInTheDocument()
+    expect(screen.queryByText('Name is required')).not.toBeInTheDocument()
+    expect(mockUpdateProject).not.toHaveBeenCalled()
+  })
+
+  it('does not paint progress before the task list arrives', async () => {
+    const pendingTasks = deferred<Task[]>()
+    mockListTasks.mockReturnValue(pendingTasks.promise)
+    renderDetail()
+
+    const bar = await screen.findByRole('progressbar')
+    expect(screen.getByText('Loading tasks…')).toBeInTheDocument()
+    // The done count is already in; without the list the ratio would read 100%.
+    expect(bar).not.toHaveAttribute('aria-valuenow')
+    expect(bar.firstElementChild).toHaveStyle({ width: '0%' })
+
+    pendingTasks.resolve([task, subtask])
+    await waitFor(() => expect(bar).toHaveAttribute('aria-valuenow', '50'))
+  })
+
+  it('edits the description on tap and saves on blur', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+
+    await user.click(await screen.findByText('Edge hardening'))
+    const description = screen.getByLabelText('Project description')
+    expect(description).toHaveValue('Edge hardening')
+    expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument()
+    await user.type(description, ' and more')
+    await user.tab()
+    await user.tab()
+
+    await waitFor(() =>
+      expect(mockUpdateProject).toHaveBeenCalledWith(7, { description: 'Edge hardening and more' }),
+    )
+    expect(await screen.findByText('Edge hardening and more')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Project description')).not.toBeInTheDocument()
+  })
+
+  it('prompts for a missing description and opens the editor from the pencil', async () => {
+    const user = userEvent.setup()
+    mockGetProject.mockResolvedValue({ ...project, description: null })
+    renderDetail()
+
+    expect(await screen.findByText('Add a description')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Edit description' }))
+    expect(screen.getByLabelText('Project description')).toHaveValue('')
+    await user.click(screen.getByRole('button', { name: 'Done' }))
+
+    expect(screen.queryByLabelText('Project description')).not.toBeInTheDocument()
+    expect(mockUpdateProject).not.toHaveBeenCalled()
+  })
+
+  it('closes the project from the action sheet', async () => {
+    const user = userEvent.setup()
+    mockCloseProject.mockResolvedValue({ ...project, closed_at: '2026-09-05T00:00:00Z' })
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Project actions' }))
+    const sheet = screen.getByRole('dialog', { name: 'Project actions' })
+    expect(within(sheet).getByRole('button', { name: 'Delete project' })).toBeInTheDocument()
+    await user.click(within(sheet).getByRole('button', { name: 'Close project' }))
+
+    await waitFor(() => expect(mockCloseProject).toHaveBeenCalledWith(7))
+    expect(screen.queryByRole('dialog', { name: 'Project actions' })).not.toBeInTheDocument()
+    expect(await screen.findByText('Closed')).toBeInTheDocument()
+  })
+
+  it('offers Reopen for a closed project', async () => {
+    const user = userEvent.setup()
+    mockGetProject.mockResolvedValue({ ...project, closed_at: '2026-07-01T00:00:00Z' })
+    mockReopenProject.mockResolvedValue(project)
+    renderDetail()
+
+    expect(await screen.findByText('Closed')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Project actions' }))
+    await user.click(screen.getByRole('button', { name: 'Reopen project' }))
+
+    await waitFor(() => expect(mockReopenProject).toHaveBeenCalledWith(7))
+    expect(await screen.findByText('On Track')).toBeInTheDocument()
+  })
+
+  it('deletes from the sheet after confirmation and navigates home', async () => {
+    const user = userEvent.setup()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mockDeleteProject.mockResolvedValue(undefined)
+    renderDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'Project actions' }))
+    await user.click(screen.getByRole('button', { name: 'Delete project' }))
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      'Delete “Firewall”? Its active tasks move to Trash with it. You can restore them together.',
+    )
+    await waitFor(() => expect(mockDeleteProject).toHaveBeenCalledWith(7))
+    expect(await screen.findByText('Dashboard page')).toBeInTheDocument()
+    confirmSpy.mockRestore()
+  })
+
+  it('renders no actions control for a protected project but keeps the name editable', async () => {
+    mockGetProject.mockResolvedValue({ ...project, is_protected: true })
+    renderDetail()
+
+    expect(await screen.findByRole('button', { name: 'Firewall' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Project actions' })).not.toBeInTheDocument()
+  })
+
+  it('shows only the error when the task fetch fails', async () => {
+    mockListTasks.mockRejectedValue(new Error('Tasks unavailable'))
+    renderDetail()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Tasks unavailable')
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    expect(screen.queryByText(/open/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/done/)).not.toBeInTheDocument()
+    // No tasks means no health to report — "Clear" would claim there is nothing to do.
+    expect(screen.queryByText('Clear')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Firewall' })).toBeInTheDocument()
+  })
+
+  it('drops the previous project’s tasks when the next project’s fetch fails', async () => {
+    const user = userEvent.setup()
+    const otherProject: Project = { ...project, id: 8, name: 'Perimeter', description: 'Other' }
+    mockGetProject.mockImplementation(async (pid: number) => (pid === 8 ? otherProject : project))
+    mockListTasks.mockImplementation(async (pid: number) => {
+      if (pid === 8) throw new Error('Tasks unavailable')
+      return [{ ...task, is_blocking: true }]
+    })
+    renderDetailWithSwitcher()
+
+    expect(await screen.findByText('Blocking')).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: 'Open project 8' }))
+    await screen.findByRole('heading', { level: 1, name: 'Perimeter' })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Tasks unavailable')
+    expect(screen.queryByText('Blocking')).not.toBeInTheDocument()
   })
 })

@@ -19,7 +19,7 @@ import { TaskPanelProvider } from './panel/TaskPanelProvider'
 import { useCompletedTasks } from './useCompletedTasks'
 import { useTaskUrlState } from './useTaskUrlState'
 import { useTasks } from './useTasks'
-import { useMobileTasks } from './useMobileTasks'
+import { useMobileViewport } from '../../hooks/useMobileViewport'
 import { MobileProjectTasks } from './mobile/MobileProjectTasks'
 
 /** The per-project task surface: `/projects/:projectId/tasks`, one of two tabs. */
@@ -28,7 +28,7 @@ export function TasksPage() {
   // `RequireRouteId` guarantees a positive integer before this renders.
   const { projectId } = useParams()
   const id = Number(projectId)
-  const mobile = useMobileTasks()
+  const mobile = useMobileViewport()
   const { tasks, loading, error, create, update, markDone, skip, remove, reload } =
     useTasks(id)
   // The recurring task whose skip is awaiting confirmation (null = no dialog).

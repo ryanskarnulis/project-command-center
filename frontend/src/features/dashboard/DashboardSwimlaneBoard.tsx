@@ -11,7 +11,7 @@ import type { ProjectOpenTasksRow } from '../../types/dashboard'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { fireAndForget } from '../../utils/async'
 import { compareTasks } from '../../utils/dates'
-import { projectStatus } from '../../utils/projectStatus'
+import { buildProjectStats } from '../../utils/projectStatus'
 import { TaskCard } from '../tasks/TaskCard'
 import {
   isMoveBlocked,
@@ -87,13 +87,15 @@ function DashboardSwimlane({
   const [dragOverStatus, setDragOverStatus] =
     useState<TaskWorkflowStatus | null>(null)
   const completed = useCompletedTasks(project.project_id, doneOpen)
-  const status = projectStatus(activeTasks, activeTasks.length)
 
   // The header count describes what the columns render: root tasks. Subtasks
   // are called out separately rather than folded into "open tasks" — a header
-  // larger than the visible cards reads as a wrong count.
-  const openRootCount = activeTasks.filter(isEffectiveTopLevel).length
-  const subtaskCount = activeTasks.length - openRootCount
+  // larger than the visible cards reads as a wrong count. The split (and the
+  // status word) is the shared derivation the project routes use too.
+  const { status, open: openRootCount, subtasks: subtaskCount } = buildProjectStats(
+    activeTasks,
+    project.done_task_count,
+  )
 
   // Progress reads off the server row rather than the rendered cards: both
   // halves then count the same thing (every filed task, subtasks included), so
