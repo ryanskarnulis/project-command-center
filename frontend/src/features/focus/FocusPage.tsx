@@ -12,6 +12,7 @@ import {
   SkipForward,
 } from 'lucide-react'
 import { markTaskDone, skipOccurrence, updateTask } from '../../api/tasks'
+import { useMobileViewport } from '../../hooks/useMobileViewport'
 import { useToast } from '../../components/ToastContext'
 import { fireAndForget } from '../../utils/async'
 import type { TaskPriority, TaskWorkflowStatus } from '../../types/task'
@@ -26,6 +27,7 @@ import { formatDuration } from '../../utils/duration'
 import { addDaysISO, formatDueDate } from '../../utils/dates'
 import { TaskPanelProvider } from '../tasks/panel/TaskPanelProvider'
 import { useTaskLinkTo } from '../tasks/panel/taskPanelContext'
+import { MobileFocus } from './mobile/MobileFocus'
 import { DEFAULT_START_TIME, useFocusPlan } from './useFocusPlan'
 
 // Capacity presets keep the control daily-scannable while staying inside the
@@ -417,9 +419,14 @@ export function FocusPage() {
     setCapacityMinutes,
     setCapacityMode,
     setEndOfDay,
+    setConsumedMinutes,
     refetch,
   } = useFocusPlan()
 
+  // Below the phone breakpoint the route swaps to the M05i timeline: one object
+  // per block, duration as height, swipe to act. Desktop keeps its controls and
+  // its four-column rows.
+  const mobile = useMobileViewport()
   const nowMinutes = useNowMinutes()
   const viewingToday = date === localToday()
   const { withToast } = useToast()
@@ -456,6 +463,37 @@ export function FocusPage() {
   const nowLabel = `${String(Math.floor(nowMinutes / 60)).padStart(2, '0')}:${String(
     nowMinutes % 60,
   ).padStart(2, '0')}`
+
+  // Returned early rather than branched inside the tree: the two surfaces share
+  // the plan, the skip confirm and the peek panel, and nothing else.
+  if (mobile) {
+    return (
+      <TaskPanelProvider onMutated={refetch}>
+        <main className="focus-page focus-page-mobile">
+          <MobileFocus
+            plan={plan}
+            loading={loading}
+            error={error}
+            date={date}
+            today={localToday()}
+            startTime={startTime}
+            capacity={availableMinutes}
+            setDate={setDate}
+            setStartTime={setStartTime}
+            setCapacityMinutes={setCapacityMinutes}
+            setConsumedMinutes={setConsumedMinutes}
+            refetch={refetch}
+            onSkip={(id, title) => setSkipTarget({ id, title })}
+          />
+          <SkipOccurrenceConfirm
+            taskTitle={skipTarget?.title ?? null}
+            onCancel={() => setSkipTarget(null)}
+            onConfirm={() => fireAndForget(confirmSkip())}
+          />
+        </main>
+      </TaskPanelProvider>
+    )
+  }
 
   return (
     <TaskPanelProvider onMutated={refetch}>

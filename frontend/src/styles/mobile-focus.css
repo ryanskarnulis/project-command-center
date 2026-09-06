@@ -1,0 +1,433 @@
+/* M05i — /focus at phone width (≤720px).
+ *
+ * A vertical timeline in which duration is height. The page swaps trees on
+ * `useMobileViewport`, and every rule here is keyed off `.mobile-focus`, the
+ * tree the route chose, so the breakpoint stays in that hook alone.
+ *
+ * Colours come from the silk accents (--ok, --warn, --danger, --info, --glow,
+ * --violet). All six stay load-bearing: green for done, amber for capacity
+ * pressure, pink for urgent and overrun, blue for the one filled action, cyan
+ * for live remaining time, violet for workflow state. */
+.mobile-focus {
+  --focus-gutter: 46px;
+  /* The current block's state colour, as channels so borders and tints can be
+     derived from one value. Overwritten per state below. */
+  --focus-state: 143, 220, 170;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.mobile-focus[data-state='paused'] { --focus-state: 238, 201, 138; }
+.mobile-focus[data-state='overrun'] { --focus-state: 242, 143, 164; }
+
+/* ── Title + capacity bar ─────────────────────────────────────────────── */
+.focus-heading { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.focus-heading h1 { font-size: 22px; line-height: 1.15; letter-spacing: -.015em; font-weight: 720; color: var(--text-h); }
+
+/* Three segments over the capacity track: spent, still scheduled, past
+   capacity. The only element on the route that shows over-capacity before you
+   scroll to the tail. */
+.focus-capacity-bar {
+  display: flex;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(199, 211, 228, .11);
+  overflow: hidden;
+}
+.focus-capacity-bar > span { display: block; }
+.focus-capacity-bar .cap-done { background: rgba(143, 220, 170, .55); }
+.focus-capacity-bar .cap-planned { background: var(--blue); }
+.focus-capacity-bar .cap-over { background: var(--orange); }
+
+.focus-capacity-caption {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px 7px;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+.focus-capacity-caption .over { color: var(--orange); }
+.focus-meta-sep { opacity: .45; }
+
+/* ── Session row ──────────────────────────────────────────────────────── */
+.focus-session-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 650;
+  text-align: left;
+}
+.focus-session-row:hover { background: transparent; color: var(--text-h); }
+.focus-session-row > span { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
+.focus-session-row > svg:last-child { color: var(--text-meta); }
+
+/* ── Day clear / empty / overrun notice ───────────────────────────────── */
+.focus-day-clear { display: flex; flex-direction: column; gap: 10px; margin-top: -2px; }
+.focus-day-clear h2 { font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--text-faint); }
+.focus-clear-head { font-size: 17px; line-height: 1.25; letter-spacing: -.01em; font-weight: 720; color: var(--text-h); }
+.focus-clear-sub { font-size: 11.5px; font-weight: 650; color: var(--text-meta); font-variant-numeric: tabular-nums; }
+.focus-clear-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 2px; }
+.focus-clear-actions button { justify-content: center; min-height: 44px; padding: 0 10px; border-radius: 9px; font-size: 13.5px; }
+.focus-clear-primary { border: 0; background: var(--blue); color: var(--on-accent); font-weight: 750; }
+.focus-clear-ghost { border: 1px solid var(--rule-control); background: transparent; color: var(--text); font-weight: 650; }
+.focus-empty-line,
+.focus-loading { font-size: 12.5px; font-weight: 650; color: var(--text-meta); }
+
+.focus-push-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid rgba(238, 201, 138, .28);
+  border-radius: 10px;
+  background: rgba(238, 201, 138, .07);
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 600;
+  color: var(--text-h);
+  text-wrap: pretty;
+}
+.focus-push-notice > svg { flex-shrink: 0; margin-top: 1px; color: var(--orange); }
+
+/* ── Timeline ─────────────────────────────────────────────────────────── */
+/* No gap: rows are separated by their own bottom hairline, so a gap would put
+   daylight between the spine segments that make up the day's ruler. */
+.focus-timeline { display: flex; flex-direction: column; gap: 0; margin-top: -2px; }
+
+.focus-row,
+.focus-tail {
+  display: grid;
+  grid-template-columns: var(--focus-gutter) minmax(0, 1fr);
+  gap: 12px;
+  padding: 9px 0 0;
+  border-bottom: 1px solid var(--rule-row);
+}
+
+/* The gutter is the ruler: one time per hairline, a row's end is the next
+   row's start. It never moves, which is why only the content column slides. */
+.focus-gutter { display: flex; justify-content: flex-end; gap: 8px; min-width: 0; }
+.focus-time { font-size: 11.5px; font-weight: 650; color: var(--text-meta); font-variant-numeric: tabular-nums; }
+.focus-row[data-kind='current'] .focus-time { color: var(--text); }
+
+/* The spine carries progress. It was originally a fill on the band's face,
+   which cut the boundary through a line of type — progress must not share a
+   plane with copy. */
+.focus-spine {
+  display: flex;
+  flex-direction: column;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--rule);
+  overflow: hidden;
+}
+.focus-spine > span { display: block; background: rgba(143, 220, 170, .5); }
+.focus-row[data-kind='current'] .focus-spine { width: 3px; }
+.focus-row[data-kind='current'] .focus-spine > span { background: rgb(var(--focus-state)); }
+
+/* ── Swipe ────────────────────────────────────────────────────────────── */
+.focus-swipe { position: relative; overflow: hidden; min-width: 0; }
+.focus-swipe-reveal {
+  position: absolute;
+  inset: 0 0 9px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+  font-size: 12px;
+  font-weight: 700;
+}
+.focus-swipe-reveal > span { display: flex; align-items: center; gap: 7px; }
+.focus-reveal-done { color: var(--green); }
+.focus-reveal-defer { color: var(--orange); }
+/* No transition while dragging — translateX follows the pointer 1:1. The snap
+   back on release is the only motion. */
+.focus-swipe-content { position: relative; touch-action: pan-y; }
+.focus-swipe-content.snapping { transition: transform 180ms ease-out; }
+
+/* ── Rows ─────────────────────────────────────────────────────────────── */
+.focus-row-body { display: grid; grid-template-columns: 19px minmax(0, 1fr) 44px; align-items: start; gap: 11px; min-width: 0; }
+.focus-ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 19px;
+  margin-top: 1px;
+  border: 1.5px solid var(--rule-ring);
+  border-radius: 50%;
+  background: transparent;
+}
+.focus-ring[data-done='true'] { border-color: var(--green); background: var(--green); color: var(--bg); }
+.focus-row-main { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.focus-row-title { font-size: 13.5px; font-weight: 620; line-height: 1.3; color: var(--text-h); text-wrap: pretty; }
+a.focus-row-title:hover { color: var(--link); }
+.focus-row[data-kind='done'] .focus-row-title { color: var(--text-muted); }
+
+/* Two meta items, hard cap: one coloured signal, then the context string.
+   Three chips wrapped to two lines at 390px, which is what the cap is for. */
+.focus-row-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px 7px;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--text-meta);
+}
+.focus-signal.tone-danger { color: var(--red); }
+.focus-signal.tone-warning { color: var(--orange); }
+.focus-signal.tone-workflow { color: var(--purple); }
+.focus-signal.tone-live { color: var(--glow); }
+
+/* 44px target, ~18px of ink. The handoff pulls the extra target width past the
+   row's right edge with a negative margin; here it grows leftward instead and
+   the glyph is aligned flush right. Same look, but the swipe cell that contains
+   it is `overflow: hidden`, and a box hanging past that edge has its hit area
+   clipped along with its paint — which would have left a 32px target wearing a
+   44px box. The vertical -13px is the handoff's, rescaled from its 32px
+   button: it puts the glyph's centre 9px below the content top either way. */
+.focus-more {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  margin: -13px 0 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-meta);
+}
+.focus-more:hover { background: var(--fill-pill); color: var(--text-h); }
+
+/* ── The band: the current block, inside the timeline ─────────────────── */
+.focus-band {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 9px;
+  padding: 10px 11px 11px;
+  border: 1px solid rgba(var(--focus-state), .26);
+  border-radius: 9px;
+  /* Flat tint, no gradient. */
+  background: rgba(var(--focus-state), .06);
+}
+.focus-band-head,
+.focus-band-foot { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.focus-now { font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: rgb(var(--focus-state)); }
+.focus-band-title { font-size: 16px; line-height: 1.25; font-weight: 720; letter-spacing: -.01em; color: var(--text-h); text-wrap: pretty; }
+.focus-band-title:hover { color: var(--link); }
+.focus-band-foot .focus-more { margin: -12px 0; }
+
+/* The remaining-time readout is the start/pause control — there is no play
+   button. 44px target, 28px of ink. The accessible name carries the verb,
+   because the label alone reads as a status chip. */
+.focus-clock-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0;
+  margin: -10px -2px -10px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+}
+.focus-clock-chip:hover { background: transparent; }
+.focus-clock-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--rule-control);
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.focus-clock-chip[data-state='idle'] .focus-clock-pill { border-color: rgba(143, 190, 242, .34); background: rgba(143, 190, 242, .1); color: var(--text-meta); }
+.focus-clock-chip[data-state='running'] .focus-clock-pill { border-color: rgba(199, 211, 228, .17); background: transparent; color: var(--glow); }
+.focus-clock-chip[data-state='paused'] .focus-clock-pill { border-color: rgba(238, 201, 138, .34); background: rgba(238, 201, 138, .08); color: var(--orange); }
+.focus-clock-chip[data-state='overrun'] .focus-clock-pill { border-color: rgba(242, 143, 164, .34); background: rgba(242, 143, 164, .08); color: var(--red); }
+
+/* ── Free tail ────────────────────────────────────────────────────────── */
+.focus-tail { padding: 9px 0 12px; border-bottom: 1px dashed rgba(199, 211, 228, .2); }
+/* Terminal row, so it prints both boundaries. */
+.focus-tail-times { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; font-size: 11.5px; font-weight: 650; color: var(--text-meta); font-variant-numeric: tabular-nums; }
+.focus-tail-spine { width: 2px; border-radius: 1px; background: repeating-linear-gradient(to bottom, rgba(199, 211, 228, .2) 0 4px, transparent 4px 8px); }
+.focus-tail-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.focus-tail-label { font-size: 12.5px; font-weight: 650; color: var(--text-meta); }
+.focus-tail[data-over='true'] { border-bottom-color: rgba(238, 201, 138, .35); }
+.focus-tail[data-over='true'] .focus-tail-spine { background: repeating-linear-gradient(to bottom, rgba(238, 201, 138, .45) 0 4px, transparent 4px 8px); }
+.focus-tail[data-over='true'] .focus-tail-label { color: var(--orange); }
+.focus-pull {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--blue);
+  font-size: 12.5px;
+  font-weight: 650;
+  text-align: left;
+}
+.focus-pull:hover { background: transparent; color: var(--link); }
+
+/* ── Foot sections ────────────────────────────────────────────────────── */
+.focus-foot { display: flex; flex-direction: column; margin-top: 2px; }
+.focus-disclosure {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-meta);
+  font-size: 12.5px;
+  font-weight: 650;
+  text-align: left;
+}
+.focus-disclosure:hover { background: transparent; color: var(--text); }
+.focus-foot-list { display: flex; flex-direction: column; list-style: none; margin: 0; padding: 0 0 6px; }
+.focus-foot-list > li { display: flex; align-items: flex-start; gap: 11px; min-width: 0; padding: 11px 0; border-top: 1px solid var(--rule-row); }
+.focus-foot-list .focus-row-main { flex: 1; }
+.focus-schedule {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 12px;
+  margin: -8px -4px -8px 0;
+  border: 1px solid var(--rule-control);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+/* ── Undo ─────────────────────────────────────────────────────────────── */
+/* A hard dependency of the swipe, not polish: an accidental swipe is far
+   easier than an accidental two-tap through a sheet. Sits above the bottom
+   nav (6 + 44 + 8) with room to read as a separate object. */
+.focus-undo {
+  position: fixed;
+  left: 14px;
+  right: 14px;
+  bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+  z-index: 21;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px 9px 13px;
+  border: 1px solid rgba(199, 211, 228, .2);
+  border-radius: 10px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-card);
+}
+.focus-undo > span { font-size: 12px; font-weight: 620; color: var(--text-h); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.focus-undo > button {
+  min-height: 36px;
+  padding: 0 12px;
+  margin: -4px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 750;
+}
+.focus-undo > button:hover { background: transparent; color: var(--link); }
+
+/* ── Sheets ───────────────────────────────────────────────────────────── */
+.focus-sheet .bottom-sheet-content { gap: 16px; }
+.focus-sheet-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.focus-sheet-head h2 { font-size: 15px; font-weight: 720; letter-spacing: -.01em; color: var(--text-h); text-wrap: pretty; }
+.focus-sheet-done { min-height: 44px; padding: 0 6px; margin: -8px -6px; border: 0; background: transparent; color: var(--blue); font-size: 13px; font-weight: 700; }
+.focus-sheet-group { display: flex; flex-direction: column; gap: 9px; }
+.focus-sheet-group h4 { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--text-faint); }
+.focus-sheet-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.focus-sheet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--rule-control);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.focus-chip-dot { display: block; width: 7px; height: 7px; border-radius: 50%; background: rgba(199, 211, 228, .22); }
+.focus-sheet-chip[aria-pressed='true'] { border-color: var(--blue-border-strong); background: rgba(143, 190, 242, .12); color: var(--text-h); }
+.focus-sheet-chip[aria-pressed='true'] .focus-chip-dot { background: var(--blue); }
+
+.focus-row-sheet .bottom-sheet-content { gap: 12px; }
+.focus-row-sheet-head { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.focus-row-sheet-head > span { font-size: 11.5px; font-weight: 650; color: var(--text-meta); font-variant-numeric: tabular-nums; }
+.focus-sheet-actions { display: flex; flex-direction: column; border-top: 1px solid rgba(199, 211, 228, .12); }
+.focus-sheet-action {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 52px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--rule-row);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-h);
+  font-size: 14px;
+  font-weight: 650;
+  text-align: left;
+}
+.focus-sheet-action:hover { background: var(--fill-row-hover); }
+.focus-sheet-action.danger { color: var(--red); }
+.focus-sheet-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--rule-control);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 650;
+}
