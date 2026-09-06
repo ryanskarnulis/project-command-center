@@ -198,6 +198,47 @@ back. Activity stays collapsed under a foot row. Desktop keeps its layout,
 task list included; only its open count changed, to root tasks with subtasks
 called out beside them.
 
+## Mobile focus
+
+At 720px and below, `/focus` uses the M05i handoff: a vertical timeline in
+which **duration is height**. A row's min-height is linear in its estimate
+(30m ≈ 67px, 2h ≈ 124px, capped at 184px), the gutter prints one clock time per
+hairline — a row's end is the next row's start — and a dashed tail at the
+bottom is the capacity not yet spent. Above it, a 4px three-segment bar (spent,
+still scheduled, past capacity) and two facts: when the day ends and how much
+is left.
+
+The current block is a tinted band **inside** the timeline, not a card above
+it, and it carries no action buttons. Ending it is a swipe: drag a row right
+past 88px to mark it done, left to defer it, with the gutter pinned so only the
+content column moves. Every gesture posts a five-second undo bar that issues
+the inverse write (reopen, or clear the deferral) and restores the clock.
+Starting and pausing is a tap on the remaining-time readout itself — the same
+control the `⋯` sheet spells out as Start / Pause / Resume, since a chip that
+reads as a status line is not a discoverable button. Nothing destructive is
+reachable by gesture: **Skip occurrence** stays behind `⋯` and its confirm.
+
+Three things the design assumes are stored, and how they behave here:
+
+- **Elapsed time** has no column. The clock lives in `localStorage`, keyed by
+  task and day, and is always recomputed from the start timestamp rather than
+  accumulated — a backgrounded tab comes back with the right number. Completing
+  a timed block records its actual minutes in the same session log; nothing is
+  written to the server yet.
+- **Finished blocks** leave the plan (`get_focus_plan` ranks open work only),
+  so the timeline's finished rows — collapsed to 44px receipts — come from that
+  session log too. It also shifts the next request's window: the plan is asked
+  to fill what is *left* of the day, not to re-plan a full one on top of the
+  part already spent.
+- **Deferring** writes `deferred_until`, the same verb desktop uses, so a
+  deferred block leaves the day rather than landing in "Didn't fit". "Didn't
+  fit" is the plan's overflow — work that didn't fit the capacity you set — so
+  **Schedule** extends the session to hold that item and everything ranked
+  above it. Pinning one task into a deterministically packed day would need a
+  stored plan; that is not built.
+
+Desktop keeps its controls, its four-column rows and its now-marker.
+
 ## MCP server (agent access)
 
 The service layer is exposed as ~25 agent tools (task CRUD + complete,
