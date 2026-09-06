@@ -41,11 +41,11 @@ export function BottomSheet({ label, labelledBy, className, handleLabel, onClose
       className={className ? `bottom-sheet ${className}` : 'bottom-sheet'}
       aria-label={label}
       aria-labelledby={labelledBy}
+      // Escape arrives as `cancel`; the owner unmounts the sheet and the effect
+      // cleanup closes the element. Deliberately no `onClose`: that cleanup's
+      // close() fires the native `close` event too, and StrictMode's dev-only
+      // mount→cleanup→mount would then dismiss a freshly opened sheet.
       onCancel={(event) => { event.preventDefault(); onClose() }}
-      // Escape arrives as `cancel` above, but a close that skips it (Chromium's
-      // non-cancelable close-watcher path, `requestClose`) must still reach the
-      // owner, or the element closes while React believes the sheet is open.
-      onClose={onClose}
       onClick={(event) => {
         // The dialog element is the click target only when the tap landed on
         // its backdrop (the scrim), which is outside the sheet's own box.
