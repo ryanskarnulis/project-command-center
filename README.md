@@ -273,6 +273,43 @@ Not built: the handoff's retention countdown (`removed after 30 days`,
 so the sub-line carries one fact and the meta line stops at two; the rest of
 the design stands without it. Desktop keeps the current page unchanged.
 
+## Mobile agent
+
+At 720px and below, `/agent` uses the M07f handoff: the thread owns the
+viewport. The 240px rail is gone from the route — a 44px title row names the
+current conversation, its chevron opens the conversation list as a bottom
+sheet, and `⋯` opens an actions sheet (Rename, Spoken replies, Delete). Under
+that row everything is thread and composer, and the thread is the only scroll
+region on the page.
+
+The agent's reply is not a bubble: a label line (mark, `Agent · n min ago`),
+then the trajectory, then the body across the full column at 14px. The user
+keeps the inset bubble. Every successful read the loop made collapses into one
+`Read n things` row that expands on tap; mutations keep a row each with a 44px
+`Undo` (the same `undoFor` inverse as desktop, so undo is audited); failed
+calls stay visible, struck through, with their error. While a run is in
+flight the pending tail is the user's bubble plus one status block with an
+elapsed `m:ss` clock, and past five seconds a note that a cold model load is
+slow — the run is synchronous and nothing streams, so elapsed time is the only
+honest signal. The composer is one field and one 44px slot: the mic while the
+draft is empty, send once there is one. Spoken replies moved to the actions
+sheet as the device preference it always was.
+
+Deleting a conversation has a touch path and no `window.confirm`: swipe a row
+left past 88px in the conversations sheet, or pick Delete from `⋯` (a 500ms
+hold on any row opens that row's `⋯`). The delete is the existing soft delete
+and lands immediately; a five-second undo bar calls
+`POST /api/agent/conversations/{id}/restore`, which 404s unless the thread is
+actually in the trash. Deleting the active conversation navigates to `/agent`,
+and undo navigates back. Deleting from inside the sheet closes it, because the
+sheet is a native modal `<dialog>` whose top layer would sit over the undo bar.
+Rename is `PATCH /api/agent/conversations/{id}` and does not touch the
+conversation's recency. Desktop keeps the current page unchanged.
+
+Not built: nothing cancels a run (a Stop needs backend support; the clock makes
+the wait legible, not escapable), and the mobile `Load older …` buttons are
+44px text buttons in the obvious places without a design pass of their own.
+
 ## MCP server (agent access)
 
 The service layer is exposed as ~25 agent tools (task CRUD + complete,
@@ -320,7 +357,7 @@ the model emits an invalid call. Its writes are stamped `agent:loop` in
 `activity_events` and every delete is a restorable soft delete.
 
 The loop is driven over REST (`app/api/routes_agent.py`): create/list/fetch/
-delete conversations under `/api/agent/conversations`, and
+rename/delete/restore conversations under `/api/agent/conversations`, and
 `POST /api/agent/conversations/{id}/messages` — the one model-calling
 endpoint — which stores the user turn, runs the loop synchronously, and
 returns the exchange with the full tool-call trajectory. It is rate-limited
@@ -384,7 +421,8 @@ the agent made rendered on the assistant turn — failed calls included — and
 an undo affordance on each mutation (create → trash, trash → restore,
 complete → reopen), routed through the same REST endpoints as the rest of
 the UI so undo is audited too. v1 is non-streaming: a working indicator
-shows while the loop runs.
+shows while the loop runs. At phone width the panel swaps to the M07f tree
+(see [Mobile agent](#mobile-agent)).
 
 Two opt-in live suites (the default test run never touches the GPU): the
 provider smoke, and the agent eval harness — six scripted scenarios through

@@ -130,6 +130,81 @@ def test_conversation_crud_over_api(client: TestClient) -> None:
     )
 
 
+def test_deleted_conversation_can_be_restored(
+    client: TestClient, db_session: Session
+) -> None:
+    """The undo behind the phone's swipe-to-delete (M07f): DELETE then restore
+    brings the thread — messages included — back exactly as it was."""
+    conversation_id = client.post(
+        "/api/agent/conversations", json={"title": "Weekly triage"}
+    ).json()["id"]
+    assert (
+        client.delete(f"/api/agent/conversations/{conversation_id}").status_code == 204
+    )
+    assert client.get("/api/agent/conversations").json() == []
+
+    restored = client.post(f"/api/agent/conversations/{conversation_id}/restore")
+    assert restored.status_code == 200
+    assert restored.json()["id"] == conversation_id
+    assert restored.json()["title"] == "Weekly triage"
+    assert [c["id"] for c in client.get("/api/agent/conversations").json()] == [
+        conversation_id
+    ]
+    assert client.get(f"/api/agent/conversations/{conversation_id}").status_code == 200
+
+    # Restore is audited like the delete it reverses.
+    actions = [
+        e.action
+        for e in db_session.execute(
+            select(ActivityEvent)
+            .where(ActivityEvent.entity_type == "conversation")
+            .where(ActivityEvent.entity_id == conversation_id)
+            .order_by(ActivityEvent.id)
+        ).scalars()
+    ]
+    assert actions == ["created", "deleted", "restored"]
+
+    # A live thread has nothing to restore; a stale undo must not be told it did.
+    assert (
+        client.post(f"/api/agent/conversations/{conversation_id}/restore").status_code
+        == 404
+    )
+    assert client.post("/api/agent/conversations/999999/restore").status_code == 404
+
+
+def test_conversation_rename_over_api(client: TestClient) -> None:
+    created = client.post("/api/agent/conversations", json={}).json()
+    conversation_id = created["id"]
+
+    renamed = client.patch(
+        f"/api/agent/conversations/{conversation_id}", json={"title": "  Homelab  "}
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["title"] == "Homelab"
+    # A rename is not a new turn: recency is untouched.
+    assert renamed.json()["updated_at"] == created["updated_at"]
+
+    assert (
+        client.patch(
+            f"/api/agent/conversations/{conversation_id}", json={"title": "   "}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.patch(
+            f"/api/agent/conversations/{conversation_id}", json={"titel": "x"}
+        ).status_code
+        == 422
+    )
+    assert client.delete(f"/api/agent/conversations/{conversation_id}").status_code == 204
+    assert (
+        client.patch(
+            f"/api/agent/conversations/{conversation_id}", json={"title": "Gone"}
+        ).status_code
+        == 404
+    )
+
+
 def test_conversation_list_pages_past_the_default_limit(client: TestClient) -> None:
     """Beyond one page every conversation stays reachable via limit/offset (#193)."""
     ids = [

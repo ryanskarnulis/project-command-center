@@ -3,7 +3,7 @@ import { getConversation, postMessage } from '../../api/agent'
 import type { ConversationDetail, MessageExchange } from '../../types/agent'
 import { refreshErrorMessage, sendErrorMessage } from './errorMessage'
 
-interface UseConversation {
+export interface UseConversation {
   detail: ConversationDetail | null
   loading: boolean
   error: string | null

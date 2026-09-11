@@ -7,6 +7,8 @@ import { CONVERSATION_PAGE_SIZE, useConversations } from './useConversations'
 vi.mock('../../api/agent', () => ({
   createConversation: vi.fn(),
   deleteConversation: vi.fn(),
+  renameConversation: vi.fn(),
+  restoreConversation: vi.fn(),
   listConversations: vi.fn(),
 }))
 

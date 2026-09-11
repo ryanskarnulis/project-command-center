@@ -1,0 +1,503 @@
+/* M07f — /agent at phone width (≤720px).
+ *
+ * The thread owns the viewport: a 44px title row, the thread as the only
+ * scroll region, the composer pinned above the bottom nav. The page swaps
+ * trees on `useMobileViewport`, and every rule here is keyed off
+ * `.mobile-agent`, the tree the route chose, so the breakpoint stays in that
+ * hook alone. Class names carry a `magent-` prefix so nothing here inherits
+ * the desktop thread's `.agent-*` rules. */
+
+/* ── Frame ────────────────────────────────────────────────────────────── */
+/* Element+class+class outranks both agent.css's desktop grid and the ≤820px
+   stack in responsive.css. The page pulls out of `.app-main`'s padding so the
+   composer sits directly on the bottom nav, and sizes itself to the viewport
+   under the single-row topbar: 9px padding, the 44px trash link that sets the
+   row's height, 9px padding, 1px rule = 63px. The nav is 6 + 44 + 8 under a
+   1px rule = 59px. Both measured in the browser; a mismatch shows up as the
+   page body scrolling by the difference. */
+main.agent-page.mobile-agent {
+  --magent-topbar: 63px;
+  --magent-nav: calc(59px + env(safe-area-inset-bottom, 0px));
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: auto;
+  height: calc(100svh - var(--magent-topbar));
+  min-height: 0;
+  margin: -14px -14px calc(-1 * (78px + env(safe-area-inset-bottom, 0px)));
+  padding: 0 0 var(--magent-nav);
+}
+
+/* ── Title row ────────────────────────────────────────────────────────── */
+.magent-title-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 0 6px 0 14px;
+  border-bottom: 1px solid var(--rule);
+  background: rgba(10, 12, 18, .55);
+}
+/* The visible label is the current conversation — context, not an action —
+   so the accessible name is `Switch conversation`. The chevron is the only
+   signal that other conversations exist; it does not shrink below 15px. */
+.magent-title {
+  display: flex;
+  align-items: center;
+  /* The shared button rule centres content; the title reads from the left. */
+  justify-content: flex-start;
+  gap: 7px;
+  min-width: 0;
+  min-height: 44px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-h);
+  font-size: 13.5px;
+  font-weight: 650;
+  text-align: left;
+}
+.magent-title:hover { background: transparent; color: var(--text-h); }
+.magent-title > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.magent-title > svg { flex: none; color: var(--text-meta); }
+.magent-more {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-meta);
+}
+.magent-more:hover:not(:disabled) { background: var(--fill-pill); color: var(--text-h); }
+.magent-more:disabled { opacity: .5; }
+
+.mobile-agent .magent-error { flex: none; margin: 10px 14px 0; }
+
+/* ── Thread ───────────────────────────────────────────────────────────── */
+.magent-thread {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  list-style: none;
+  margin: 0;
+  padding: 14px 14px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.magent-thread-sentinel { height: 0; }
+.magent-thread-note { margin: auto 0; font-size: 12.5px; font-weight: 650; color: var(--text-muted); text-align: center; }
+.magent-thread-older { display: flex; justify-content: center; }
+.magent-thread-older > button {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.magent-thread-older > button:hover:not(:disabled) { background: transparent; color: var(--link); }
+.magent-thread-older > button:disabled { opacity: .6; }
+
+.magent-turn { display: flex; flex-direction: column; min-width: 0; }
+/* The user keeps the inset bubble — the one speaker who isn't the page. */
+.magent-turn--user { align-items: flex-end; gap: 6px; }
+.magent-bubble {
+  max-width: 82%;
+  padding: 10px 13px;
+  border: 1px solid var(--blue-border);
+  border-radius: 13px;
+  border-bottom-right-radius: 4px;
+  background: var(--blue-tint);
+  color: var(--text-h);
+  font-size: 13.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.magent-time { font-size: 11px; color: var(--text-meta); font-variant-numeric: tabular-nums; }
+
+/* The agent's reply is not a bubble: no border, no background, no avatar
+   gutter. Widening the bubble to 100% would have kept a border around 90% of
+   the page's text; removing it gives the reply the full 362px column. */
+.magent-turn--agent { gap: 9px; }
+.magent-label { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 650; color: var(--text-meta); }
+.magent-body { display: flex; flex-direction: column; gap: 8px; font-size: 14px; line-height: 1.5; color: #dce4f0; text-wrap: pretty; overflow-wrap: anywhere; }
+.magent-body > * { margin: 0; }
+.magent-body h1, .magent-body h2, .magent-body h3, .magent-body h4 { font-size: 1em; font-weight: 650; color: var(--text-h); }
+.magent-body ul, .magent-body ol { display: flex; flex-direction: column; gap: 5px; padding-left: 1.15em; }
+.magent-body li { text-wrap: pretty; }
+.magent-body code {
+  font-family: var(--mono);
+  font-size: .86em;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-strong);
+}
+.magent-body pre { padding: 9px 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-strong); overflow-x: auto; }
+.magent-body pre code { padding: 0; border: 0; background: none; }
+.magent-body blockquote { padding: 2px 0 2px 10px; border-left: 3px solid var(--border-strong); color: var(--text-muted); }
+.magent-body a { color: var(--blue); text-decoration: underline; }
+.magent-stop-note { font-size: 12px; font-weight: 600; color: var(--orange); text-wrap: pretty; }
+
+/* ── Trajectory ───────────────────────────────────────────────────────── */
+/* One bordered group. Reads first, collapsed; then mutations in call order. */
+.magent-trace { display: flex; flex-direction: column; border: 1px solid var(--rule); border-radius: 9px; overflow: hidden; }
+.magent-trace > * + * { border-top: 1px solid var(--rule-row); }
+.magent-reads {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr) 15px;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 650;
+  text-align: left;
+}
+.magent-reads:hover { background: var(--fill-row-hover); color: var(--text-muted); }
+.magent-reads > svg:last-child { color: var(--text-meta); }
+.magent-reads-detail { display: flex; flex-direction: column; list-style: none; margin: 0; padding: 2px 11px 8px 35px; font-size: 12px; line-height: 1.5; color: var(--text-meta); overflow-wrap: anywhere; }
+.magent-reads-detail a { color: inherit; }
+.magent-reads-detail a:hover { color: var(--blue); text-decoration: underline; }
+.magent-call {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 7px 11px;
+}
+.magent-call > svg { color: var(--blue); }
+.magent-call-summary { min-width: 0; font-size: 12.5px; line-height: 1.35; color: var(--text); text-wrap: pretty; overflow-wrap: anywhere; }
+.magent-call-summary a { color: inherit; text-decoration: none; }
+.magent-call-summary a:hover { color: var(--blue); text-decoration: underline; }
+.magent-call--undone .magent-call-summary { color: var(--text-meta); }
+.magent-call--failed > svg { color: var(--red); }
+.magent-call--failed .magent-call-summary { color: var(--text-meta); text-decoration: line-through; }
+.magent-call-error { color: var(--text-meta); }
+/* 44px target, 15px of ink: the negative margins keep the row's line tight
+   while the button stays a full-height target (M05i's technique). */
+.magent-undo {
+  min-height: 44px;
+  margin: -9px -8px -9px 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--blue);
+  font-size: 12.5px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+.magent-undo:hover { background: transparent; color: var(--link); }
+.magent-call-undone { padding-right: 2px; font-size: 11.5px; font-weight: 650; color: var(--text-meta); }
+
+/* ── Working state ────────────────────────────────────────────────────── */
+/* One status block, not three dots: the run is synchronous and a cold model
+   load is ~100s, so elapsed time is the only honest signal. */
+.magent-working {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 13px;
+  border: 1px solid var(--rule-control);
+  border-radius: 10px;
+  background: rgba(199, 211, 228, .04);
+}
+.magent-working > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.magent-working-line { font-size: 13px; font-weight: 650; color: var(--text-h); }
+.magent-working-sub { font-size: 11.5px; font-weight: 650; color: var(--text-meta); }
+.magent-clock { font-size: 15px; font-weight: 700; color: var(--glow); font-variant-numeric: tabular-nums; }
+
+/* ── Composer ─────────────────────────────────────────────────────────── */
+.magent-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  flex: none;
+  padding: 9px 12px 11px;
+  border-top: 1px solid var(--rule);
+  background: rgba(10, 12, 18, .7);
+}
+.magent-composer textarea {
+  min-width: 0;
+  min-height: 44px;
+  max-height: 96px;
+  padding: 12px 13px;
+  border: 1px solid var(--rule-field);
+  border-radius: 11px;
+  background: var(--fill-subtle);
+  color: var(--text-h);
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.35;
+  resize: none;
+}
+.magent-composer textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+/* One 44px slot: the mic while the draft is empty, send once there is one.
+   The mic is the shared `MicButton`; its 34px desktop metrics are overridden
+   here only. */
+.magent-send,
+.mobile-agent .mic-button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 1px solid var(--rule-control);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text);
+  font-size: 17px;
+  line-height: 1;
+}
+.magent-send:not(:disabled) { border-color: var(--blue); background: var(--blue); color: var(--on-accent); }
+.magent-send:hover:not(:disabled) { border-color: var(--accent); background: var(--accent); }
+.magent-send:disabled { opacity: .5; }
+.mobile-agent .mic-error { align-self: center; max-width: none; }
+
+/* ── Empty state ──────────────────────────────────────────────────────── */
+.magent-empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 13px;
+  padding: 24px 30px;
+  text-align: center;
+}
+.magent-empty h1 { font-size: 19px; font-weight: 720; letter-spacing: -.01em; color: var(--text-h); }
+.magent-empty p { max-width: 40ch; font-size: 13px; line-height: 1.5; color: var(--text-muted); text-wrap: pretty; }
+.magent-empty-start {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  margin-top: 2px;
+  padding: 0 15px;
+  border: 1px solid rgba(199, 211, 228, .22);
+  border-radius: 10px;
+  background: #0f131d;
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 650;
+}
+.magent-empty-recents { min-height: 44px; padding: 0 6px; border: 0; background: transparent; color: var(--blue); font-size: 12.5px; font-weight: 650; }
+.magent-empty-recents:hover { background: transparent; color: var(--link); }
+
+/* ── Undo bar ─────────────────────────────────────────────────────────── */
+/* A hard dependency of the swipe and of dropping `window.confirm()`: delete
+   acts, then offers five seconds to take it back. Sits above the bottom nav
+   (6 + 44 + 8) with room to read as a separate object. */
+.magent-undo-bar {
+  position: fixed;
+  left: 14px;
+  right: 14px;
+  bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+  z-index: 21;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px 9px 13px;
+  border: 1px solid rgba(199, 211, 228, .2);
+  border-radius: 10px;
+  background: #161a24;
+  box-shadow: var(--shadow-card);
+}
+.magent-undo-bar > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 620; color: var(--text-h); }
+.magent-undo-bar > button {
+  min-height: 36px;
+  margin: -4px 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 750;
+}
+.magent-undo-bar > button:hover { background: transparent; color: var(--link); }
+
+/* ── Sheets ───────────────────────────────────────────────────────────── */
+.magent-sheet { background: #0d1018; }
+.magent-sheet::backdrop { background: rgba(6, 7, 11, .62); }
+.magent-sheet .bottom-sheet-content { gap: 0; }
+.magent-conversations-sheet { max-height: 82dvh; }
+.magent-sheet-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 4px 0 6px; }
+.magent-sheet-head h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 720; letter-spacing: -.01em; color: var(--text-h); }
+.magent-sheet-done { min-height: 44px; margin: -10px -6px; padding: 0 6px; border: 0; background: transparent; color: var(--blue); font-size: 13px; font-weight: 750; }
+.magent-sheet-done:hover { background: transparent; color: var(--link); }
+.magent-sheet-new {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--rule-row);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-h);
+  font-size: 14px;
+  font-weight: 650;
+  text-align: left;
+}
+.magent-sheet-new:hover { background: transparent; color: var(--text-h); }
+.magent-sheet-new > svg { color: var(--blue); }
+.magent-sheet-note { padding: 12px 0; font-size: 12.5px; font-weight: 650; color: var(--text-meta); }
+.magent-sheet .error { margin: 10px 0 0; }
+.magent-sheet-list { display: flex; flex-direction: column; list-style: none; margin: 0; padding: 0; }
+.magent-sheet-list > li { border-bottom: 1px solid var(--rule-row); }
+
+/* Swipe: only the row translates; the reveal sits under it and fades in with
+   the drag. No transition while dragging; the snap back is the only motion. */
+.magent-swipe { position: relative; overflow: hidden; min-width: 0; }
+.magent-swipe-reveal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0 14px;
+  border-radius: 9px;
+  background: rgba(242, 143, 164, .14);
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 700;
+  pointer-events: none;
+}
+.magent-swipe-content { position: relative; background: #0d1018; touch-action: pan-y; }
+.magent-swipe-content.snapping { transition: transform 180ms ease-out; }
+
+.magent-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 52px; padding: 7px 0; }
+.magent-row-open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+.magent-row-open:hover { background: transparent; }
+.magent-row-title { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 650; color: var(--text-h); }
+.magent-row-time { font-size: 11.5px; font-weight: 650; color: var(--text-meta); font-variant-numeric: tabular-nums; }
+.magent-row-check { color: var(--blue); }
+.magent-sheet-more {
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.magent-sheet-more:hover:not(:disabled) { background: transparent; color: var(--link); }
+.magent-sheet-more:disabled { opacity: .6; }
+.magent-sheet-hint { padding-top: 10px; font-size: 11.5px; line-height: 1.45; color: var(--text-meta); }
+
+/* Actions sheet */
+.magent-actions-head { grid-template-columns: minmax(0, 1fr); gap: 2px; padding-bottom: 10px; }
+.magent-actions-head > span { font-size: 11.5px; font-weight: 650; color: var(--text-meta); }
+.magent-sheet-actions { display: flex; flex-direction: column; }
+.magent-sheet-action {
+  display: grid;
+  grid-template-columns: 17px minmax(0, 1fr) auto;
+  align-items: center;
+  justify-items: start;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--rule-row);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-h);
+  font-size: 14px;
+  font-weight: 650;
+  text-align: left;
+}
+.magent-sheet-action:hover:not(:disabled) { background: var(--fill-row-hover); color: var(--text-h); }
+.magent-sheet-action:disabled { opacity: .5; }
+.magent-sheet-action > svg { color: var(--text-meta); }
+.magent-sheet-action.danger, .magent-sheet-action.danger > svg { color: var(--red); }
+.magent-voice-pill { justify-self: end; padding: 3px 9px; border-radius: 7px; background: rgba(199, 211, 228, .08); color: var(--text-meta); font-size: 11.5px; font-weight: 700; }
+.magent-voice-pill[data-on='true'] { background: rgba(143, 190, 242, .14); color: var(--glow); }
+.magent-sheet-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 12px;
+  border: 1px solid var(--rule-control);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+/* Rename sheet */
+.magent-rename-form { display: flex; flex-direction: column; gap: 10px; }
+.magent-rename-field {
+  min-height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--rule-field);
+  border-radius: 11px;
+  background: var(--fill-subtle);
+  color: var(--text-h);
+  font-size: 14px;
+  font-weight: 600;
+}
+.magent-rename-field:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.magent-rename-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.magent-rename-actions .magent-sheet-cancel { margin-top: 0; }
+.magent-sheet-save {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border: 1px solid var(--blue);
+  border-radius: 9px;
+  background: var(--blue);
+  color: var(--on-accent);
+  font-size: 13px;
+  font-weight: 750;
+}
+.magent-sheet-save:disabled { opacity: .5; }

@@ -280,3 +280,12 @@ export function undoFor(record: ToolCallRecord): UndoAction | null {
       return null
   }
 }
+
+/** The visible text of a phone-width undo button: `Undo (move to trash)` →
+ * `Undo`, while the recurrence variants that are deliberately *not* called
+ * undo keep their verb (`Reopen (keeps next occurrence)` → `Reopen`). The full
+ * label stays on the button's title and accessible name. */
+export function shortUndoLabel(label: string): string {
+  const cut = label.indexOf(' (')
+  return cut === -1 ? label : label.slice(0, cut)
+}

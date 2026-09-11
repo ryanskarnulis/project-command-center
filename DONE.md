@@ -3,6 +3,7 @@
 Shipped work, newest first, one line per sprint/epic. Full narratives are in
 this file's git history.
 
+- [x] 2026-09-10 — Mobile Agent (M07f): the rail becomes a sheet behind a 44px title row, the reply gets the full column with reads collapsed to one row and 44px undos, an elapsed clock for the wait, swipe-left delete with a five-second undo backed by a new conversation restore endpoint, rename and spoken-replies in the `⋯` sheet
 - [x] 2026-09-10 — Mobile Trash (M08f): M01f rows with a two-fact meta line, ring and swipe-right restore backed by a five-second undo, `⋯` sheet for restore-without-tasks and purge, cross-kind selection mode, filter sheet with chips
 - [x] 2026-09-06 — Mobile Focus (M05i): duration-as-height timeline, the current block as a band inside it, swipe-to-act with undo, and the remaining-time readout as the start/pause control
 - [x] 2026-09-05 — Mobile project Overview (M06f): the brief replaces the duplicated task list; tap-to-edit name and description, `⋯` lifecycle sheet, root-only open count shared with the lane and the Tasks tab

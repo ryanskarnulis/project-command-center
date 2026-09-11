@@ -1,28 +1,9 @@
-import ReactMarkdown, { type Components } from 'react-markdown'
+import ReactMarkdown from 'react-markdown'
 import { GlitchMark } from '../../components/GlitchMark'
-import type { AgentMessage, AgentStopReason } from '../../types/agent'
+import type { AgentMessage } from '../../types/agent'
 import { formatRelative } from '../../utils/dates'
+import { MARKDOWN_COMPONENTS, STOP_FALLBACK } from './markdown'
 import { ToolCallList } from './ToolCallList'
-
-// react-markdown is safe by default (raw HTML never rendered). Links open in
-// a new tab so a stray absolute URL in a reply can't navigate the SPA away.
-const MARKDOWN_COMPONENTS: Components = {
-  a: ({ node, ...props }) => {
-    void node // hast node isn't a DOM prop; strip it before spreading.
-    return <a {...props} target="_blank" rel="noopener noreferrer" />
-  },
-}
-
-const STOP_FALLBACK: Record<Exclude<AgentStopReason, 'completed'>, string> = {
-  max_iterations:
-    'The agent hit its step limit before finishing — the tool calls above still ran.',
-  correction_limit:
-    'The agent kept producing invalid tool calls and gave up on this request.',
-  provider_error:
-    'The run failed partway — the tool calls above still ran (undo any from the trash).',
-  timed_out:
-    'The run ran out of time — the tool calls above still ran (undo any from the trash).',
-}
 
 export function MessageBubble({ message }: { message: AgentMessage }) {
   if (message.role === 'user') {

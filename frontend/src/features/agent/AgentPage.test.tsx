@@ -15,6 +15,8 @@ import { AgentPage } from './AgentPage'
 vi.mock('../../api/agent', () => ({
   createConversation: vi.fn(),
   deleteConversation: vi.fn(),
+  renameConversation: vi.fn(),
+  restoreConversation: vi.fn(),
   getConversation: vi.fn(),
   listConversations: vi.fn(),
   postMessage: vi.fn(),
