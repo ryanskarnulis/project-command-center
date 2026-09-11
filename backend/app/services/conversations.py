@@ -13,12 +13,13 @@ from collections.abc import Sequence
 import structlog
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.ai import context_budget
 from app.ai.loop import AgentRunResult
 from app.db.models import Conversation, ConversationMessage, ConversationRole, utcnow
 from app.services import activity
-from app.services.common import active, soft_delete
+from app.services.common import active, deleted, restore, soft_delete
 
 logger = structlog.get_logger(__name__)
 
@@ -56,6 +57,13 @@ def get_conversation(db: Session, conversation_id: int) -> Conversation | None:
     ).scalar_one_or_none()
 
 
+def get_deleted_conversation(db: Session, conversation_id: int) -> Conversation | None:
+    """A conversation currently in the trash, or None if it is live or unknown."""
+    return db.execute(
+        deleted(Conversation).where(Conversation.id == conversation_id)
+    ).scalar_one_or_none()
+
+
 def create_conversation(db: Session, *, title: str | None = None) -> Conversation:
     conversation = Conversation(title=title)
     db.add(conversation)
@@ -85,6 +93,50 @@ def soft_delete_conversation(db: Session, conversation: Conversation) -> None:
         entity_id=conversation.id,
         action="deleted",
         summary=f'Conversation "{conversation.title or conversation.id}" deleted',
+    )
+
+
+def restore_conversation(db: Session, conversation: Conversation) -> None:
+    """Bring a trashed conversation back (the inverse of ``soft_delete_conversation``).
+
+    This is what makes the phone's swipe-to-delete recoverable: the row is
+    deleted immediately and the undo bar calls this within its five seconds.
+    Messages were never touched by the delete, so nothing else moves.
+    """
+    restore(conversation)
+    db.flush()
+    activity.record_event(
+        db,
+        project_id=None,
+        entity_type="conversation",
+        entity_id=conversation.id,
+        action="restored",
+        summary=f'Conversation "{conversation.title or conversation.id}" restored',
+    )
+
+
+def rename_conversation(db: Session, conversation: Conversation, title: str) -> None:
+    """Give a conversation a user-chosen title, replacing the derived one.
+
+    ``updated_at`` is deliberately held still: the list is ordered by recency of
+    *conversation*, and renaming a week-old thread should not float it to the
+    top as though something had been said in it. The timestamp mixin's
+    ``onupdate`` would bump it on this UPDATE, so the current value is written
+    back explicitly — a column present in SET is not defaulted.
+    """
+    if conversation.title == title:
+        return
+    previous = conversation.title
+    conversation.title = title
+    flag_modified(conversation, "updated_at")
+    db.flush()
+    activity.record_event(
+        db,
+        project_id=None,
+        entity_type="conversation",
+        entity_id=conversation.id,
+        action="renamed",
+        summary=f'Conversation "{previous or conversation.id}" renamed to "{title}"',
     )
 
 

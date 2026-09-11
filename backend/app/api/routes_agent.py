@@ -28,6 +28,7 @@ from app.schemas.conversations import (
     ConversationCreate,
     ConversationDetail,
     ConversationRead,
+    ConversationUpdate,
     MessageCreate,
     MessageExchange,
     MessageRead,
@@ -146,6 +147,44 @@ def delete_conversation(conversation_id: EntityId, db: Session = Depends(get_db_
         conversations_service.soft_delete_conversation(db, conversation)
         db.commit()
     logger.info("conversation_deleted", conversation_id=conversation_id)
+
+
+@router.post("/conversations/{conversation_id}/restore", response_model=ConversationRead)
+def restore_conversation(
+    conversation_id: EntityId, db: Session = Depends(get_db_write)
+) -> Conversation:
+    """Bring a soft-deleted conversation back; **404** unless it is in the trash.
+
+    The undo behind the phone's swipe-to-delete (M07f): the delete lands
+    immediately and this reverses it within the undo bar's window. A live
+    conversation 404s here too — there is nothing to restore, and answering 200
+    would let a stale undo claim it did something.
+    """
+    conversation = conversations_service.get_deleted_conversation(db, conversation_id)
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not in trash"
+        )
+    conversations_service.restore_conversation(db, conversation)
+    db.commit()
+    db.refresh(conversation)
+    logger.info("conversation_restored", conversation_id=conversation_id)
+    return conversation
+
+
+@router.patch("/conversations/{conversation_id}", response_model=ConversationRead)
+def update_conversation(
+    conversation_id: EntityId,
+    data: ConversationUpdate,
+    db: Session = Depends(get_db_write),
+) -> Conversation:
+    """Rename a live conversation. Does not touch its recency."""
+    conversation = _get_or_404(db, conversation_id)
+    conversations_service.rename_conversation(db, conversation, data.title)
+    db.commit()
+    db.refresh(conversation)
+    logger.info("conversation_renamed", conversation_id=conversation_id)
+    return conversation
 
 
 @router.post(

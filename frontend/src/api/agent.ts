@@ -48,6 +48,25 @@ export async function deleteConversation(id: number): Promise<void> {
   await apiClient(`/api/agent/conversations/${id}`, { method: 'DELETE' })
 }
 
+/** Reverse a delete — the undo behind the phone's swipe-to-delete (M07f).
+ * 404s unless the conversation is actually in the trash. */
+export async function restoreConversation(id: number): Promise<Conversation> {
+  return apiClient<Conversation>(`/api/agent/conversations/${id}/restore`, {
+    method: 'POST',
+  })
+}
+
+export async function renameConversation(
+  id: number,
+  title: string,
+): Promise<Conversation> {
+  return apiClient<Conversation>(`/api/agent/conversations/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+}
+
 export async function postMessage(
   conversationId: number,
   content: string,

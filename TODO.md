@@ -39,12 +39,29 @@ The backlog, grouped. One task = one branch = one PR; finished work moves to
       It is a data-loss policy for production, so it is a deliberate decision,
       not a chore.
 - [ ] **Shared swipe primitive** [S] — `focus/mobile/SwipeRow` (right = done,
-      left = defer) and `trash/mobile/TrashSwipeRow` (right = restore, left
-      dead) carry the same pointer mechanics twice. Extract one row gesture
-      with configurable reveals once a third route wants it; the first-run
-      swipe hint in the Focus follow-ups should then be shared too.
+      left = defer), `trash/mobile/TrashSwipeRow` (right = restore, left
+      dead) and `agent/mobile/ConversationSwipeRow` (left = delete, right
+      dead) now carry the same pointer mechanics three times. The third route
+      has arrived; extract one row gesture with configurable reveals, and
+      share the first-run swipe hint from the Focus follow-ups with it.
 - [ ] **Desktop `/trash` follows M08f** — desktop keeps the pre-M08f page, the
       same debt M02f and M06f took on. Decide when.
+
+## Agent follow-ups (from the M07f handoff)
+
+- [ ] **Stop a run** [M] — nothing cancels an agent run; the mobile clock makes
+      the wait legible but not escapable. Needs the loop to honour a cancel
+      between provider/tool calls and an endpoint to request it, then a
+      `Stop` beside the clock.
+- [ ] **Mobile `Load older …` treatment** [S] — both paging buttons are real
+      and undrawn at 390px; they ship as 44px text buttons without a design
+      pass.
+- [ ] **Mic long-press to mute** [S] — muting a hands-free loop now costs two
+      taps through the `⋯` sheet. Fine until someone runs a long voice
+      session.
+- [ ] **Desktop `/agent` follows M07f** — desktop keeps the pre-M07f rail and
+      `window.confirm`, the same debt the other mobile passes took on. The
+      undo-backed delete could move over first; it needs no new UI.
 
 ## Evals
 
