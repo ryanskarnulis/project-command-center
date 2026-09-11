@@ -29,6 +29,23 @@ The backlog, grouped. One task = one branch = one PR; finished work moves to
       clock chip reads as a status readout. Both are reachable from `⋯`, but a
       one-time first-session hint is the obvious next move.
 
+## Trash follow-ups (from the M08f handoff)
+
+- [ ] **Trash retention policy** [M] — a scheduled job that hard-deletes rows
+      whose `deleted_at` is older than a window (the design assumes 30 days),
+      with the window exposed to the client (config or `/api/trash/count`).
+      The mobile sub-line's `removed after 30 days` and the row's `n days
+      left` are dropped until this exists; without it trash grows forever.
+      It is a data-loss policy for production, so it is a deliberate decision,
+      not a chore.
+- [ ] **Shared swipe primitive** [S] — `focus/mobile/SwipeRow` (right = done,
+      left = defer) and `trash/mobile/TrashSwipeRow` (right = restore, left
+      dead) carry the same pointer mechanics twice. Extract one row gesture
+      with configurable reveals once a third route wants it; the first-run
+      swipe hint in the Focus follow-ups should then be shared too.
+- [ ] **Desktop `/trash` follows M08f** — desktop keeps the pre-M08f page, the
+      same debt M02f and M06f took on. Decide when.
+
 ## Evals
 
 - [ ] Delegate-actor end-to-end scenario — #56 shipped with unit tests only;
