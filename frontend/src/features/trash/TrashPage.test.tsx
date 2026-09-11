@@ -23,8 +23,9 @@ vi.mock('../../api/projects', () => ({
   listProjects: vi.fn(),
   restoreProject: vi.fn(),
   purgeProject: vi.fn(),
+  deleteProject: vi.fn(),
 }))
-vi.mock('../../api/tasks', () => ({ restoreTask: vi.fn(), purgeTask: vi.fn() }))
+vi.mock('../../api/tasks', () => ({ restoreTask: vi.fn(), purgeTask: vi.fn(), deleteTask: vi.fn() }))
 
 const mockGetTrash = vi.mocked(getTrash)
 const mockEmptyTrash = vi.mocked(emptyTrash)

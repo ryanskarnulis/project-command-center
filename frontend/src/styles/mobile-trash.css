@@ -1,0 +1,197 @@
+/* M08f — /trash at phone width (≤720px).
+ *
+ * The recovery route in the vocabulary the other three mobile routes already
+ * ship: M02f's title row and filter sheet, M01f's rows and group labels, M05i's
+ * swipe, ⋯ sheet and undo bar. The page swaps trees on `useMobileViewport`, and
+ * every rule here is keyed off `.mobile-trash`, the tree the route chose, so the
+ * breakpoint stays in that hook alone. */
+.mobile-trash { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+/* ── Title row ────────────────────────────────────────────────────────── */
+.trash-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 38px; }
+.trash-heading-name { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.trash-heading h1 { font-size: 22px; line-height: 1.15; letter-spacing: -.015em; font-weight: 720; color: var(--text-h); }
+.trash-heading-sub { font-size: 11.5px; font-weight: 600; color: var(--text-meta); }
+.trash-meta-sep { opacity: .45; }
+/* Selection mode swaps the name block for a count and two text buttons. */
+.trash-selection-count { font-size: 13.5px; font-weight: 620; color: var(--text-h); }
+.trash-selection-actions { display: flex; align-items: center; gap: 4px; margin-right: -8px; }
+.trash-selection-actions > button { min-height: 44px; padding: 0 8px; border: 0; background: transparent; color: var(--blue); font-size: 13px; font-weight: 700; }
+.trash-selection-actions > button:hover { background: transparent; color: var(--link); }
+
+.mobile-trash .trash-notice,
+.mobile-trash .error { margin-top: -4px; font-size: 12px; font-weight: 620; }
+
+/* ── List ─────────────────────────────────────────────────────────────── */
+.trash-list { display: flex; flex-direction: column; gap: 12px; margin-top: -2px; }
+.trash-group { min-width: 0; }
+.trash-group h2 { display: flex; align-items: center; gap: 7px; margin-bottom: 2px; padding: 2px 0 3px; font-family: var(--mono); font-size: var(--fs-micro); font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--text-faint); }
+.trash-group h2 .trash-group-count { color: var(--link); font-family: var(--sans); font-size: 11.5px; font-weight: 650; letter-spacing: 0; }
+.trash-group > ul { display: flex; flex-direction: column; list-style: none; margin: 0; padding: 0; }
+.trash-group > ul > li { border-bottom: 1px solid var(--rule-row); }
+/* A statement, not a control. */
+.trash-truncated { padding: 10px 0 0; font-size: 11.5px; font-weight: 650; color: var(--text-meta); }
+
+/* ── Swipe ────────────────────────────────────────────────────────────── */
+.trash-swipe { position: relative; overflow: hidden; min-width: 0; }
+.trash-swipe-reveal {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 132px;
+  padding-left: 12px;
+  background: rgba(143, 220, 170, .14);
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 700;
+  pointer-events: none;
+}
+/* No transition while dragging — translateX follows the pointer 1:1. The snap
+   back on release is the only motion. */
+.trash-swipe-content { position: relative; touch-action: pan-y; }
+.trash-swipe-content.snapping { transition: transform 180ms ease-out; }
+
+/* ── Row ──────────────────────────────────────────────────────────────── */
+.trash-row { display: flex; align-items: flex-start; gap: 11px; padding: 12px 0; }
+.trash-row:hover { background: var(--fill-row-hover); }
+/* The leading ring is the Restore control, in the column where M01f puts
+   "mark done". 19px of ink; the ::after brings the target to 24px (2.5.8). */
+.trash-restore-ring {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 19px;
+  min-width: 19px;
+  height: 19px;
+  min-height: 19px;
+  margin-top: 1px;
+  padding: 0;
+  border: 1.5px solid var(--rule-ring);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+}
+.trash-restore-ring::after { content: ''; position: absolute; inset: -3px; }
+.trash-restore-ring:hover { border-color: var(--green); background: var(--green-soft); color: var(--green); }
+.trash-row-main { display: flex; flex-direction: column; flex: 1; gap: 5px; min-width: 0; }
+.trash-row-title { font-size: 13.5px; font-weight: 620; line-height: 1.3; color: var(--text-h); overflow-wrap: anywhere; text-wrap: pretty; }
+.trash-row-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 3px 7px; min-width: 0; font-size: 11.5px; font-weight: 650; color: var(--text-meta); }
+/* 32px visible; the negative vertical margin lets the row's 12px padding bring
+   the target to 44px tall. Grows leftward rather than past the row's right
+   edge — the swipe cell is `overflow: hidden` and would clip the hit area. */
+.trash-more {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  margin: -7px -8px -7px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-meta);
+  position: relative;
+}
+.trash-more::after { content: ''; position: absolute; inset: -6px 0; }
+.trash-more:hover { background: var(--fill-pill); color: var(--text-h); }
+
+/* Selection mode: the ring's column carries a checkbox, ⋯ is gone, and the
+   whole row is the label so the target is the row. */
+.trash-row.selecting { cursor: pointer; }
+.trash-row-check {
+  position: relative;
+  flex-shrink: 0;
+  width: 19px;
+  height: 19px;
+  margin: 1px 0 0;
+  accent-color: var(--blue);
+}
+.trash-row-check::after { content: ''; position: absolute; inset: -12px -12px -12px -14px; }
+
+/* ── States ───────────────────────────────────────────────────────────── */
+.trash-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 0 8px; text-align: center; }
+.trash-empty > svg { color: var(--text-grip); }
+.trash-empty-head { font-size: 13px; font-weight: 650; color: var(--text-meta); }
+.trash-empty-sub { font-size: 11.5px; font-weight: 650; color: var(--text-meta); text-wrap: pretty; }
+.trash-empty-clear { min-height: 44px; padding: 0 12px; border: 0; background: transparent; color: var(--blue); font-size: 13px; font-weight: 700; }
+.trash-empty-clear:hover { background: transparent; color: var(--link); }
+/* Loading: the row's height, no spinner. */
+.trash-skeleton { display: flex; align-items: flex-start; gap: 11px; padding: 12px 0; }
+.trash-skeleton > span:first-child { flex-shrink: 0; width: 19px; height: 19px; margin-top: 1px; border: 1.5px solid var(--rule-control); border-radius: 50%; }
+.trash-skeleton-lines { display: flex; flex-direction: column; flex: 1; gap: 7px; padding-top: 2px; }
+.trash-skeleton-lines > span { display: block; height: 11px; border-radius: 4px; background: var(--fill-pill); }
+.trash-skeleton-lines > span:first-child { width: 62%; height: 13px; }
+.trash-skeleton-lines > span:last-child { width: 38%; }
+
+/* ── Foot rows ────────────────────────────────────────────────────────── */
+/* The last row's hairline is the divider. The page reads top to bottom as
+   what you have → what you can do about it → burn it. */
+.trash-foot { display: flex; flex-direction: column; padding-top: 2px; }
+.trash-foot > button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  width: 100%;
+  min-height: 40px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-meta);
+  font-size: 12.5px;
+  font-weight: 650;
+  text-align: left;
+}
+.trash-foot > button:hover { background: transparent; color: var(--text); }
+.trash-foot > button.danger { color: var(--red); }
+.trash-foot > button.danger:hover { color: var(--red); }
+
+/* ── Undo bar · selection action bar ──────────────────────────────────── */
+/* Same geometry and position for both; they never show at once. Sits above the
+   bottom nav (6 + 44 + 8), and `.app-main`'s ≤820 foot padding keeps it off the
+   foot rows. */
+.trash-undo,
+.trash-action-bar {
+  position: fixed;
+  left: 14px;
+  right: 14px;
+  bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+  z-index: 21;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px 9px 13px;
+  border: 1px solid rgba(199, 211, 228, .2);
+  border-radius: 10px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-card);
+}
+.trash-undo > span { font-size: 12px; font-weight: 620; color: var(--text-h); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trash-undo > button,
+.trash-action-bar > button {
+  min-height: 36px;
+  padding: 0 12px;
+  margin: -4px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 750;
+}
+.trash-undo > button:hover,
+.trash-action-bar > button:hover { background: transparent; color: var(--link); }
+.trash-action-bar { grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px; padding-left: 10px; }
+.trash-action-bar > span { font-size: 12px; font-weight: 620; color: var(--text-meta); }
+.trash-action-bar > button.danger,
+.trash-action-bar > button.danger:hover { color: var(--red); }

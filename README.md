@@ -239,6 +239,40 @@ Three things the design assumes are stored, and how they behave here:
 
 Desktop keeps its controls, its four-column rows and its now-marker.
 
+## Mobile trash
+
+At 720px and below, `/trash` uses the M08f handoff: the recovery route in the
+vocabulary the other three mobile routes already ship. The title row carries
+the page name, one fact (`n items`) and a 38px filter control; Search and Type
+move into a pending bottom sheet whose Apply reads **Show n items**, and the
+list is never filtered without a removable chips row above it. The two section
+heads — with their Select all and Restore all — become mono group labels with
+the true count beside them. Rows are M01f rows: a 19px ring, a 13.5px title and
+one meta line of **at most two facts** — `Deleted n days ago`, then either
+`n tasks restore with it` (projects) or the project's name (tasks whose project
+is also in the trash). Status, priority, due date, estimate and repeat are
+gone: nothing on a deleted item is being triaged.
+
+The ring restores in one tap, and so does a right swipe past 88px; a left swipe
+is inert, because the only thing it could mean on this route is purge and undo
+cannot bring back a row that is gone from the database. Every single restore
+posts a five-second undo bar that issues the existing soft delete on the id it
+just restored — a project takes exactly the tasks that came back with it — and
+that is what lets the restore paths drop their confirms. `⋯` opens a sheet with
+Restore, **Restore without its tasks** (projects with archived tasks; the
+question desktop asks as a `window.confirm`) and **Delete forever**, which keeps
+its confirm and names the full purge scope. **Select** (a foot row, or a 500ms
+hold on any row) enters a selection mode that spans both kinds: checkboxes
+replace the rings, one action bar offers Restore and Delete forever, a purge
+goes to the server as one call, and a half-failed restore says so
+(`Restored 3 of 4 items`). **Empty trash · n** is the last foot row, so the
+page reads top to bottom as what you have → what you can do about it → burn it.
+
+Not built: the handoff's retention countdown (`removed after 30 days`,
+`n days left`). It needs a scheduled purge policy the backend does not have,
+so the sub-line carries one fact and the meta line stops at two; the rest of
+the design stands without it. Desktop keeps the current page unchanged.
+
 ## MCP server (agent access)
 
 The service layer is exposed as ~25 agent tools (task CRUD + complete,
