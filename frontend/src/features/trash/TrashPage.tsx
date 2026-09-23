@@ -5,6 +5,8 @@ import { useTrashCount } from './trashCountContext'
 import { TaskCard } from '../tasks/TaskCard'
 import { ProjectCard } from '../projects/ProjectCard'
 import { formatRelative } from '../../utils/dates'
+import { useMobileViewport } from '../../hooks/useMobileViewport'
+import { MobileTrashPage } from './mobile/MobileTrashPage'
 
 // A tri-state "select all" for one section: checked when every visible item is
 // selected, indeterminate when only some are. Toggling selects/clears all
@@ -92,6 +94,20 @@ function NoNav({ children }: { children: ReactNode }) {
 type TypeFilter = 'all' | 'projects' | 'tasks'
 
 export function TrashPage() {
+  // The same hook Tasks, Project detail and Focus branch on. The breakpoint
+  // stays inside it; below it the route renders the M08f tree and nothing here.
+  const mobile = useMobileViewport()
+  if (mobile) {
+    return (
+      <main className="trash-page-mobile">
+        <MobileTrashPage />
+      </main>
+    )
+  }
+  return <DesktopTrashPage />
+}
+
+function DesktopTrashPage() {
   const {
     trash,
     loading,

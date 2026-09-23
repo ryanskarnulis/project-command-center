@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError } from '../../api/client'
 import { apiErrorMessage } from '../../api/errorMessage'
-import { listProjects, purgeProject, restoreProject } from '../../api/projects'
-import { purgeTask, restoreTask } from '../../api/tasks'
+import { deleteProject, listProjects, purgeProject, restoreProject } from '../../api/projects'
+import { deleteTask, purgeTask, restoreTask } from '../../api/tasks'
 import { emptyTrash, getTrash, purgeSelected } from '../../api/trash'
 import type { Task } from '../../types/task'
 import type { Trash } from '../../types/trash'
@@ -21,14 +21,34 @@ export interface RestoreItem {
   purgeTaskCount?: number
 }
 
+/** A row in the cross-kind selection the mobile page builds. */
+export interface SelectedTrashItem extends RestoreItem {
+  kind: TrashKind
+}
+
 interface UseTrash {
   trash: Trash
   loading: boolean
   error: string | null
   notice: string | null
-  restoreProjectById: (id: number, name: string, archivedTaskCount: number) => Promise<void>
-  restoreTaskById: (id: number, title: string) => Promise<void>
+  /**
+   * Resolves true when the restore landed. `bringTasks` decided up front skips
+   * the desktop confirm — the mobile sheet asks the question as two rows.
+   */
+  restoreProjectById: (
+    id: number,
+    name: string,
+    archivedTaskCount: number,
+    bringTasks?: boolean,
+  ) => Promise<boolean>
+  restoreTaskById: (id: number, title: string) => Promise<boolean>
   restoreAll: (kind: TrashKind, items: RestoreItem[]) => Promise<void>
+  /** Cross-kind bulk restore with one combined notice; projects bring their tasks. */
+  restoreItems: (items: SelectedTrashItem[]) => Promise<void>
+  /** Cross-kind bulk purge in one server call. The caller has already confirmed. */
+  purgeItems: (items: SelectedTrashItem[]) => Promise<void>
+  /** The inverse of one restore: re-trash the row that was just brought back. */
+  undoRestore: (kind: TrashKind, id: number, label: string) => Promise<void>
   purgeById: (
     kind: TrashKind,
     id: number,
@@ -57,6 +77,11 @@ const RESTORE: Record<TrashKind, (id: number) => Promise<unknown>> = {
 const PURGE: Record<TrashKind, (id: number) => Promise<void>> = {
   projects: purgeProject,
   tasks: purgeTask,
+}
+
+const DELETE: Record<TrashKind, (id: number) => Promise<void>> = {
+  projects: deleteProject,
+  tasks: deleteTask,
 }
 
 export function useTrash(): UseTrash {
@@ -120,22 +145,25 @@ export function useTrash(): UseTrash {
         const result = await RESTORE[kind](id)
         setNotice(buildNotice(result))
         reload()
+        return true
       } catch (e: unknown) {
         setError(apiErrorMessage(e, RESTORE_FAILED))
+        return false
       }
     },
     [reload],
   )
 
   const restoreProjectById = useCallback(
-    async (id: number, name: string, archivedTaskCount: number) => {
+    async (id: number, name: string, archivedTaskCount: number, bringTasksDecided?: boolean) => {
       // A deleted project takes its tasks into the trash with it; ask whether to
-      // bring them back too.
+      // bring them back too — unless the caller already put the question.
       const bringTasks =
-        archivedTaskCount > 0 &&
-        window.confirm(
-          `Bring back ${archivedTaskCount} task${archivedTaskCount === 1 ? '' : 's'} with “${name}”?`,
-        )
+        bringTasksDecided ??
+        (archivedTaskCount > 0 &&
+          window.confirm(
+            `Bring back ${archivedTaskCount} task${archivedTaskCount === 1 ? '' : 's'} with “${name}”?`,
+          ))
       setError(null)
       setNotice(null)
       try {
@@ -146,8 +174,10 @@ export function useTrash(): UseTrash {
             : `Restored project “${name}”.`,
         )
         reload()
+        return true
       } catch (e: unknown) {
         setError(apiErrorMessage(e, RESTORE_FAILED))
+        return false
       }
     },
     [reload],
@@ -209,6 +239,95 @@ export function useTrash(): UseTrash {
         setNotice(parts.join(' '))
       } else if (!failed) {
         setError(null)
+      }
+    },
+    [reload],
+  )
+
+  const restoreItems = useCallback(
+    async (items: SelectedTrashItem[]) => {
+      setError(null)
+      setNotice(null)
+      let attempted = 0
+      let restored = 0
+      let restoredTasks = 0
+      let firstError: string | null = null
+      for (const item of items) {
+        attempted += 1
+        try {
+          if (item.kind === 'projects') {
+            const { restored_task_count } = await restoreProject(
+              item.id,
+              (item.archivedTaskCount ?? 0) > 0,
+            )
+            restoredTasks += restored_task_count
+          } else {
+            await RESTORE[item.kind](item.id)
+          }
+          restored += 1
+        } catch (e: unknown) {
+          // Already gone from trash — nothing left to restore, and nothing to
+          // report (see restoreAll).
+          if (e instanceof ApiError && e.status === 404) {
+            attempted -= 1
+            continue
+          }
+          // One action can hit two endpoints and half-fail; keep going so the
+          // notice can say exactly how far it got.
+          firstError ??= apiErrorMessage(e, RESTORE_FAILED)
+        }
+      }
+      reload()
+      if (restored > 0) {
+        const parts = [
+          restored === attempted
+            ? `Restored ${restored} item${restored === 1 ? '' : 's'}.`
+            : `Restored ${restored} of ${attempted} items.`,
+        ]
+        if (restoredTasks > 0)
+          parts.push(`Brought back ${restoredTasks} task${restoredTasks === 1 ? '' : 's'}.`)
+        setNotice(parts.join(' '))
+      }
+      if (firstError) setError(firstError)
+    },
+    [reload],
+  )
+
+  const purgeItems = useCallback(
+    async (items: SelectedTrashItem[]) => {
+      setError(null)
+      setNotice(null)
+      try {
+        const result = await purgeSelected({
+          project_ids: items.filter((i) => i.kind === 'projects').map((i) => i.id),
+          task_ids: items.filter((i) => i.kind === 'tasks').map((i) => i.id),
+        })
+        // `tasks` counts the selected tasks and every trashed task the selected
+        // projects owned — the server reports the whole set it destroyed.
+        const total = result.projects + result.tasks
+        if (total > 0)
+          setNotice(`Permanently deleted ${total} item${total === 1 ? '' : 's'}.`)
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Failed to delete items')
+      }
+      reload()
+    },
+    [reload],
+  )
+
+  const undoRestore = useCallback(
+    async (kind: TrashKind, id: number, label: string) => {
+      setError(null)
+      setNotice(null)
+      try {
+        // The existing soft delete, not a new endpoint. A project takes exactly
+        // its active tasks with it — which, right after a restore, is exactly
+        // the set that came back.
+        await DELETE[kind](id)
+        setNotice(`Moved “${label}” back to the trash.`)
+        reload()
+      } catch (e: unknown) {
+        setError(apiErrorMessage(e, 'Failed to undo the restore'))
       }
     },
     [reload],
@@ -297,6 +416,9 @@ export function useTrash(): UseTrash {
     restoreProjectById,
     restoreTaskById,
     restoreAll,
+    restoreItems,
+    purgeItems,
+    undoRestore,
     purgeById,
     purgeAll,
     emptyTrashAll,

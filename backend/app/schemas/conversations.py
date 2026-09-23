@@ -7,6 +7,10 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 from app.db.models import ConversationRole
 from app.schemas.common import MutationModel, NonBlankStr, UTCDateTime
 
+# Cap on a user-chosen conversation title. Derived titles stop at 60; a typed
+# one gets room for a sentence and no more — it has to fit a 44px title row.
+MAX_CONVERSATION_TITLE_LENGTH = 120
+
 # Cap on one chat turn. Generous for typed input while bounding what a run
 # feeds the local model's context window.
 MAX_AGENT_MESSAGE_LENGTH = 8_000
@@ -22,6 +26,12 @@ AgentMessageText = Annotated[
 class ConversationCreate(MutationModel):
     # Optional: an untitled conversation is titled from its first user message.
     title: NonBlankStr | None = None
+
+
+class ConversationUpdate(MutationModel):
+    """A rename — the only user-editable field on a conversation."""
+
+    title: Annotated[NonBlankStr, StringConstraints(max_length=MAX_CONVERSATION_TITLE_LENGTH)]
 
 
 class ConversationRead(BaseModel):

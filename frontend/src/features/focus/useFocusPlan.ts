@@ -47,6 +47,12 @@ function parseTime(value: string): number {
   return Number(hours) * 60 + Number(minutes)
 }
 
+/** Minutes from midnight back to HH:MM, clamped to the day the request is for. */
+function formatTime(minutes: number): string {
+  const clamped = Math.min(Math.max(minutes, 0), 23 * 60 + 59)
+  return `${String(Math.floor(clamped / 60)).padStart(2, '0')}:${String(clamped % 60).padStart(2, '0')}`
+}
+
 function readStoredMode(): CapacityMode {
   return localStorage.getItem(CAPACITY_MODE_KEY) === 'until_end'
     ? 'until_end'
@@ -83,6 +89,8 @@ interface UseFocusPlan {
   endOfDay: string
   setDate: (date: string) => void
   setStartTime: (startTime: string) => void
+  /** Minutes of the window already spent on work finished during this session. */
+  setConsumedMinutes: (minutes: number) => void
   setCapacityMinutes: (minutes: number) => void
   setCapacityMode: (mode: CapacityMode) => void
   setEndOfDay: (endOfDay: string) => void
@@ -90,12 +98,13 @@ interface UseFocusPlan {
 }
 
 export function useFocusPlan(): UseFocusPlan {
-  const [date, setDate] = useState<string>(localToday)
+  const [date, setDateState] = useState<string>(localToday)
   const [startTime, setStartTime] = useState<string>(roundedNow)
   const [capacityMode, setCapacityModeState] = useState<CapacityMode>(readStoredMode)
   const [capacityMinutes, setCapacityMinutesState] =
     useState<number>(readStoredMinutes)
   const [endOfDay, setEndOfDayState] = useState<string>(readStoredEndOfDay)
+  const [consumedMinutes, setConsumedMinutes] = useState(0)
   const [plan, setPlan] = useState<FocusPlan | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loadedKey, setLoadedKey] = useState<string | null>(null)
@@ -112,12 +121,23 @@ export function useFocusPlan(): UseFocusPlan {
       ? Math.min(Math.max(endOfDayMinutes, MIN_AVAILABLE_MINUTES), MAX_AVAILABLE_MINUTES)
       : capacityMinutes
 
-  const requestKey = JSON.stringify([date, startTime, availableMinutes, reloadToken])
+  // The mobile route completes blocks in place, and completed work leaves the
+  // plan. Rather than re-planning a full day on top of the part already spent,
+  // the request window starts where that work ended and asks for what is left
+  // of the capacity. Desktop never sets this, so its request is unchanged.
+  const requestStartTime = consumedMinutes > 0
+    ? formatTime(parseTime(startTime) + consumedMinutes)
+    : startTime
+  const requestMinutes = Math.min(
+    Math.max(availableMinutes - consumedMinutes, MIN_AVAILABLE_MINUTES),
+    MAX_AVAILABLE_MINUTES,
+  )
+  const requestKey = JSON.stringify([date, requestStartTime, requestMinutes, reloadToken])
 
   useEffect(() => {
     if (windowError) return
     let active = true
-    getFocusPlan({ date, startTime, availableMinutes })
+    getFocusPlan({ date, startTime: requestStartTime, availableMinutes: requestMinutes })
       .then((result) => {
         if (!active) return
         setPlan(result)
@@ -138,7 +158,7 @@ export function useFocusPlan(): UseFocusPlan {
     return () => {
       active = false
     }
-  }, [date, startTime, availableMinutes, requestKey, windowError])
+  }, [date, requestStartTime, requestMinutes, requestKey, windowError])
 
   const setCapacityMinutes = useCallback((minutes: number) => {
     const next = Number.isInteger(minutes) && minutes > 0 ? minutes : DEFAULT_AVAILABLE_MINUTES
@@ -159,6 +179,13 @@ export function useFocusPlan(): UseFocusPlan {
     localStorage.setItem(END_OF_DAY_KEY, next)
   }, [])
 
+  // A day switch starts a fresh session log, so the window offset goes with it
+  // rather than surviving into the new day's first request.
+  const setDate = useCallback((next: string) => {
+    setDateState(next)
+    setConsumedMinutes(0)
+  }, [])
+
   const refetch = useCallback(() => {
     setReloadToken((token) => token + 1)
   }, [])
@@ -176,6 +203,7 @@ export function useFocusPlan(): UseFocusPlan {
     endOfDay,
     setDate,
     setStartTime,
+    setConsumedMinutes,
     setCapacityMinutes,
     setCapacityMode,
     setEndOfDay,

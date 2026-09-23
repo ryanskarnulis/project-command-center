@@ -3,13 +3,15 @@ import {
   createConversation,
   deleteConversation,
   listConversations,
+  renameConversation,
+  restoreConversation,
 } from '../../api/agent'
 import type { Conversation } from '../../types/agent'
 
 /** Server page size for `GET /api/agent/conversations` (its default limit). */
 export const CONVERSATION_PAGE_SIZE = 50
 
-interface UseConversations {
+export interface UseConversations {
   conversations: Conversation[]
   loading: boolean
   loadingMore: boolean
@@ -19,6 +21,9 @@ interface UseConversations {
   loadMore: () => Promise<void>
   create: () => Promise<Conversation>
   remove: (id: number) => Promise<void>
+  /** Reverse `remove` (M07f's undo bar). Same contract: rejections propagate. */
+  restore: (id: number) => Promise<void>
+  rename: (id: number, title: string) => Promise<void>
 }
 
 /** Read `size` conversations as bounded pages, newest first.
@@ -153,6 +158,22 @@ export function useConversations(): UseConversations {
     [refresh],
   )
 
+  const restore = useCallback(
+    async (id: number) => {
+      await restoreConversation(id)
+      await refresh()
+    },
+    [refresh],
+  )
+
+  const rename = useCallback(
+    async (id: number, title: string) => {
+      await renameConversation(id, title)
+      await refresh()
+    },
+    [refresh],
+  )
+
   return {
     conversations,
     loading,
@@ -163,5 +184,7 @@ export function useConversations(): UseConversations {
     loadMore,
     create,
     remove,
+    restore,
+    rename,
   }
 }

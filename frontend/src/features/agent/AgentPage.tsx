@@ -16,11 +16,13 @@ import {
 } from 'lucide-react'
 import { apiErrorMessage } from '../../api/errorMessage'
 import { GlitchMark } from '../../components/GlitchMark'
+import { useMobileViewport } from '../../hooks/useMobileViewport'
 import { fireAndForget } from '../../utils/async'
 import { formatRelative } from '../../utils/dates'
 import { MicButton } from '../../voice/MicButton'
 import { playText } from '../../voice/tts'
 import { MessageBubble } from './MessageBubble'
+import { MobileAgent } from './mobile/MobileAgent'
 import { PendingExchange } from './PendingExchange'
 import { useConversation } from './useConversation'
 import { useConversations } from './useConversations'
@@ -31,6 +33,7 @@ export function AgentPage() {
   const activeId =
     params.conversationId !== undefined ? Number(params.conversationId) : null
 
+  const list = useConversations()
   const {
     conversations,
     loading: listLoading,
@@ -41,8 +44,10 @@ export function AgentPage() {
     loadMore,
     create,
     remove,
-  } = useConversations()
+  } = list
   const onExchange = useCallback(() => void refresh(), [refresh])
+  const routedId = activeId !== null && Number.isFinite(activeId) ? activeId : null
+  const thread = useConversation(routedId, onExchange)
   const {
     detail,
     loading,
@@ -52,10 +57,12 @@ export function AgentPage() {
     loadOlder,
     pendingText,
     send,
-  } = useConversation(
-    activeId !== null && Number.isFinite(activeId) ? activeId : null,
-    onExchange,
-  )
+  } = thread
+  // Below the phone breakpoint the route swaps to the M07f tree: the rail
+  // becomes a sheet behind a title row and the thread owns the viewport. Both
+  // hooks live here so the two trees share one source of truth and switching
+  // width mid-run keeps the pending turn.
+  const mobile = useMobileViewport()
 
   const [draft, setDraft] = useState('')
   const [createError, setCreateError] = useState<string | null>(null)
@@ -149,6 +156,8 @@ export function AgentPage() {
       event.currentTarget.form?.requestSubmit()
     }
   }
+
+  if (mobile) return <MobileAgent activeId={routedId} list={list} thread={thread} />
 
   return (
     <main className="agent-page">

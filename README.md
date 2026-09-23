@@ -180,6 +180,136 @@ The completed archive also supplies the mobile header's done count and the
 sheet's live result count. Progress counts all filed tasks, including subtasks,
 using the same denominator as the dashboard.
 
+## Mobile project overview
+
+At 720px and below, `/projects/:id` uses the M06f handoff: the route is the
+project's brief, not a second task list. The title row carries the name, a
+progress bar and one meta line — the status word, then `n open · n subtasks ·
+n done` from the same root-only derivation the Tasks tab and the dashboard
+lane use, zero items omitted. Name and description render as text and become
+fields on tap: Enter or blur commits, Escape reverts the name, and a failed
+write reopens the field with its error. Save state (**Saving…**, **Saved**,
+**Not saved**) joins the meta line and clears after two seconds.
+
+The `⋯` control opens a bottom sheet with Close/Reopen project and Delete
+project — the same confirm and trash behaviour as before; a protected project
+gets no control. The breadcrumb is gone: Home in the bottom bar is the way
+back. Activity stays collapsed under a foot row. Desktop keeps its layout,
+task list included; only its open count changed, to root tasks with subtasks
+called out beside them.
+
+## Mobile focus
+
+At 720px and below, `/focus` uses the M05i handoff: a vertical timeline in
+which **duration is height**. A row's min-height is linear in its estimate
+(30m ≈ 67px, 2h ≈ 124px, capped at 184px), the gutter prints one clock time per
+hairline — a row's end is the next row's start — and a dashed tail at the
+bottom is the capacity not yet spent. Above it, a 4px three-segment bar (spent,
+still scheduled, past capacity) and two facts: when the day ends and how much
+is left.
+
+The current block is a tinted band **inside** the timeline, not a card above
+it, and it carries no action buttons. Ending it is a swipe: drag a row right
+past 88px to mark it done, left to defer it, with the gutter pinned so only the
+content column moves. Every gesture posts a five-second undo bar that issues
+the inverse write (reopen, or clear the deferral) and restores the clock.
+Starting and pausing is a tap on the remaining-time readout itself — the same
+control the `⋯` sheet spells out as Start / Pause / Resume, since a chip that
+reads as a status line is not a discoverable button. Nothing destructive is
+reachable by gesture: **Skip occurrence** stays behind `⋯` and its confirm.
+
+Three things the design assumes are stored, and how they behave here:
+
+- **Elapsed time** has no column. The clock lives in `localStorage`, keyed by
+  task and day, and is always recomputed from the start timestamp rather than
+  accumulated — a backgrounded tab comes back with the right number. Completing
+  a timed block records its actual minutes in the same session log; nothing is
+  written to the server yet.
+- **Finished blocks** leave the plan (`get_focus_plan` ranks open work only),
+  so the timeline's finished rows — collapsed to 44px receipts — come from that
+  session log too. It also shifts the next request's window: the plan is asked
+  to fill what is *left* of the day, not to re-plan a full one on top of the
+  part already spent.
+- **Deferring** writes `deferred_until`, the same verb desktop uses, so a
+  deferred block leaves the day rather than landing in "Didn't fit". "Didn't
+  fit" is the plan's overflow — work that didn't fit the capacity you set — so
+  **Schedule** extends the session to hold that item and everything ranked
+  above it. Pinning one task into a deterministically packed day would need a
+  stored plan; that is not built.
+
+Desktop keeps its controls, its four-column rows and its now-marker.
+
+## Mobile trash
+
+At 720px and below, `/trash` uses the M08f handoff: the recovery route in the
+vocabulary the other three mobile routes already ship. The title row carries
+the page name, one fact (`n items`) and a 38px filter control; Search and Type
+move into a pending bottom sheet whose Apply reads **Show n items**, and the
+list is never filtered without a removable chips row above it. The two section
+heads — with their Select all and Restore all — become mono group labels with
+the true count beside them. Rows are M01f rows: a 19px ring, a 13.5px title and
+one meta line of **at most two facts** — `Deleted n days ago`, then either
+`n tasks restore with it` (projects) or the project's name (tasks whose project
+is also in the trash). Status, priority, due date, estimate and repeat are
+gone: nothing on a deleted item is being triaged.
+
+The ring restores in one tap, and so does a right swipe past 88px; a left swipe
+is inert, because the only thing it could mean on this route is purge and undo
+cannot bring back a row that is gone from the database. Every single restore
+posts a five-second undo bar that issues the existing soft delete on the id it
+just restored — a project takes exactly the tasks that came back with it — and
+that is what lets the restore paths drop their confirms. `⋯` opens a sheet with
+Restore, **Restore without its tasks** (projects with archived tasks; the
+question desktop asks as a `window.confirm`) and **Delete forever**, which keeps
+its confirm and names the full purge scope. **Select** (a foot row, or a 500ms
+hold on any row) enters a selection mode that spans both kinds: checkboxes
+replace the rings, one action bar offers Restore and Delete forever, a purge
+goes to the server as one call, and a half-failed restore says so
+(`Restored 3 of 4 items`). **Empty trash · n** is the last foot row, so the
+page reads top to bottom as what you have → what you can do about it → burn it.
+
+Not built: the handoff's retention countdown (`removed after 30 days`,
+`n days left`). It needs a scheduled purge policy the backend does not have,
+so the sub-line carries one fact and the meta line stops at two; the rest of
+the design stands without it. Desktop keeps the current page unchanged.
+
+## Mobile agent
+
+At 720px and below, `/agent` uses the M07f handoff: the thread owns the
+viewport. The 240px rail is gone from the route — a 44px title row names the
+current conversation, its chevron opens the conversation list as a bottom
+sheet, and `⋯` opens an actions sheet (Rename, Spoken replies, Delete). Under
+that row everything is thread and composer, and the thread is the only scroll
+region on the page.
+
+The agent's reply is not a bubble: a label line (mark, `Agent · n min ago`),
+then the trajectory, then the body across the full column at 14px. The user
+keeps the inset bubble. Every successful read the loop made collapses into one
+`Read n things` row that expands on tap; mutations keep a row each with a 44px
+`Undo` (the same `undoFor` inverse as desktop, so undo is audited); failed
+calls stay visible, struck through, with their error. While a run is in
+flight the pending tail is the user's bubble plus one status block with an
+elapsed `m:ss` clock, and past five seconds a note that a cold model load is
+slow — the run is synchronous and nothing streams, so elapsed time is the only
+honest signal. The composer is one field and one 44px slot: the mic while the
+draft is empty, send once there is one. Spoken replies moved to the actions
+sheet as the device preference it always was.
+
+Deleting a conversation has a touch path and no `window.confirm`: swipe a row
+left past 88px in the conversations sheet, or pick Delete from `⋯` (a 500ms
+hold on any row opens that row's `⋯`). The delete is the existing soft delete
+and lands immediately; a five-second undo bar calls
+`POST /api/agent/conversations/{id}/restore`, which 404s unless the thread is
+actually in the trash. Deleting the active conversation navigates to `/agent`,
+and undo navigates back. Deleting from inside the sheet closes it, because the
+sheet is a native modal `<dialog>` whose top layer would sit over the undo bar.
+Rename is `PATCH /api/agent/conversations/{id}` and does not touch the
+conversation's recency. Desktop keeps the current page unchanged.
+
+Not built: nothing cancels a run (a Stop needs backend support; the clock makes
+the wait legible, not escapable), and the mobile `Load older …` buttons are
+44px text buttons in the obvious places without a design pass of their own.
+
 ## MCP server (agent access)
 
 The service layer is exposed as ~25 agent tools (task CRUD + complete,
@@ -227,7 +357,7 @@ the model emits an invalid call. Its writes are stamped `agent:loop` in
 `activity_events` and every delete is a restorable soft delete.
 
 The loop is driven over REST (`app/api/routes_agent.py`): create/list/fetch/
-delete conversations under `/api/agent/conversations`, and
+rename/delete/restore conversations under `/api/agent/conversations`, and
 `POST /api/agent/conversations/{id}/messages` — the one model-calling
 endpoint — which stores the user turn, runs the loop synchronously, and
 returns the exchange with the full tool-call trajectory. It is rate-limited
@@ -291,7 +421,8 @@ the agent made rendered on the assistant turn — failed calls included — and
 an undo affordance on each mutation (create → trash, trash → restore,
 complete → reopen), routed through the same REST endpoints as the rest of
 the UI so undo is audited too. v1 is non-streaming: a working indicator
-shows while the loop runs.
+shows while the loop runs. At phone width the panel swaps to the M07f tree
+(see [Mobile agent](#mobile-agent)).
 
 Two opt-in live suites (the default test run never touches the GPU): the
 provider smoke, and the agent eval harness — six scripted scenarios through
@@ -382,6 +513,13 @@ read/write access to your projects and tasks.
 
 The backend itself publishes no host port; it is reachable only via nginx and
 the compose network.
+
+**Cache headers.** `frontend/nginx.conf` splits the SPA in two: `/assets/*` is
+content-hashed by Vite and goes out `immutable` for a year, while `index.html`
+(and every client-side route falling back to it) is `no-cache`, so the document
+naming those hashed bundles revalidates on each load. Serving the entry point
+without a `Cache-Control` header left it to the browser heuristic, which pinned
+phones to the previous deploy's JS until a manual reload.
 
 **Data & backups.** SQLite lives on the bind-mounted `./data` volume
 (`app.db` + WAL sidecars survive restarts). `./scripts/backup_db.sh` is still the

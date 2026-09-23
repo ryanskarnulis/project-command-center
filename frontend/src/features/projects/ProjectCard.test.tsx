@@ -52,7 +52,7 @@ describe('ProjectCard', () => {
       <MemoryRouter>
         <ProjectCard
           project={project}
-          stats={{ open: 2, done: 2, progress: 0.5, status: { label: 'On Track', tone: 'green' } }}
+          stats={{ open: 2, subtasks: 0, done: 2, progress: 0.5, status: { label: 'On Track', tone: 'green' } }}
         />
       </MemoryRouter>,
     )

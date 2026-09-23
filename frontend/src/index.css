@@ -4,7 +4,10 @@
  * cascade is governed purely by source order. These @imports are inlined by Vite
  * in the order below; keep that order — `tokens`/`base` define the foundation,
  * feature partials build on the shared `primitives`, then `responsive` overrides
- * their base rules. `mobile-tasks` is scoped to the mobile-only route and sheet.
+ * their base rules. `mobile-tasks` carries the phone-width project routes
+ * (M02f Tasks, M06f Overview) and the bottom sheet they share; `mobile-focus`
+ * carries the phone-width /focus timeline (M05i), which reuses that sheet;
+ * `mobile-agent` the phone-width /agent thread (M07f), likewise.
  *
  * Edit feature styles in the matching src/styles/<feature>.css file, not here. */
 @import './styles/silk.css';
@@ -20,3 +23,6 @@
 @import './styles/agent.css';
 @import './styles/responsive.css';
 @import './styles/mobile-tasks.css';
+@import './styles/mobile-focus.css';
+@import './styles/mobile-trash.css';
+@import './styles/mobile-agent.css';
