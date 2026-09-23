@@ -149,6 +149,61 @@ describe('TaskDetailView', () => {
     )
   })
 
+  it('keeps a description edit typed while the title save is in flight', async () => {
+    const user = userEvent.setup()
+    let resolvePatch!: (value: Task) => void
+    mockUpdateTask.mockImplementation(
+      () => new Promise<Task>((resolve) => { resolvePatch = resolve }),
+    )
+    renderDetail()
+
+    const title = await screen.findByLabelText('Task title')
+    await waitFor(() => expect(title).toHaveValue('Patch the router'))
+    await user.clear(title)
+    await user.type(title, 'Patch the edge router')
+    // Clicking into the description blurs the title, which starts its save.
+    const description = screen.getByLabelText('Task description')
+    await user.click(description)
+    await waitFor(() => expect(mockUpdateTask).toHaveBeenCalledTimes(1))
+    await user.type(description, 'Half-typed')
+
+    await act(async () => {
+      resolvePatch({ ...task, title: 'Patch the edge router' })
+      await Promise.resolve()
+    })
+
+    expect(title).toHaveValue('Patch the edge router')
+    expect(description).toHaveValue('Half-typed')
+    // The next keystroke continues the surviving draft rather than re-anchoring.
+    await user.type(description, ' note')
+    expect(description).toHaveValue('Half-typed note')
+  })
+
+  it('keeps a title edit typed while the description save is in flight', async () => {
+    const user = userEvent.setup()
+    let resolvePatch!: (value: Task) => void
+    mockUpdateTask.mockImplementation(
+      () => new Promise<Task>((resolve) => { resolvePatch = resolve }),
+    )
+    renderDetail()
+
+    const title = await screen.findByLabelText('Task title')
+    await waitFor(() => expect(title).toHaveValue('Patch the router'))
+    const description = screen.getByLabelText('Task description')
+    await user.type(description, 'Roll out behind a flag')
+    await user.click(title)
+    await waitFor(() => expect(mockUpdateTask).toHaveBeenCalledTimes(1))
+    await user.type(title, ' today')
+
+    await act(async () => {
+      resolvePatch({ ...task, description: 'Roll out behind a flag' })
+      await Promise.resolve()
+    })
+
+    expect(description).toHaveValue('Roll out behind a flag')
+    expect(title).toHaveValue('Patch the router today')
+  })
+
   it('guards refresh/close only while a field holds an unsaved edit', async () => {
     const user = userEvent.setup()
     const addSpy = vi.spyOn(window, 'addEventListener')

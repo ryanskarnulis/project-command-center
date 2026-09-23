@@ -226,6 +226,52 @@ describe('ProjectDetailPage', () => {
     expect(name).toHaveValue('Edge Firewall')
   })
 
+  it('keeps a description edit typed while the name save is in flight', async () => {
+    const user = userEvent.setup()
+    const nameResponse = deferred<Project>()
+    mockUpdateProject.mockReturnValueOnce(nameResponse.promise)
+    renderDetail()
+
+    const name = await screen.findByLabelText('Project name')
+    await waitFor(() => expect(name).toHaveValue('Firewall'))
+    const description = screen.getByLabelText('Project description')
+
+    await user.clear(name)
+    await user.type(name, 'Edge Firewall')
+    // Clicking into the description blurs the name, which starts its save.
+    await user.click(description)
+    await waitFor(() => expect(mockUpdateProject).toHaveBeenCalledTimes(1))
+    await user.clear(description)
+    await user.type(description, 'Half-typed')
+
+    nameResponse.resolve({ ...project, name: 'Edge Firewall' })
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument())
+    expect(name).toHaveValue('Edge Firewall')
+    expect(description).toHaveValue('Half-typed')
+  })
+
+  it('keeps a name edit typed while the description save is in flight', async () => {
+    const user = userEvent.setup()
+    const descriptionResponse = deferred<Project>()
+    mockUpdateProject.mockReturnValueOnce(descriptionResponse.promise)
+    renderDetail()
+
+    const name = await screen.findByLabelText('Project name')
+    await waitFor(() => expect(name).toHaveValue('Firewall'))
+    const description = screen.getByLabelText('Project description')
+
+    await user.clear(description)
+    await user.type(description, 'Perimeter hardening')
+    await user.click(name)
+    await waitFor(() => expect(mockUpdateProject).toHaveBeenCalledTimes(1))
+    await user.type(name, ' v2')
+
+    descriptionResponse.resolve({ ...project, description: 'Perimeter hardening' })
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument())
+    expect(description).toHaveValue('Perimeter hardening')
+    expect(name).toHaveValue('Firewall v2')
+  })
+
   it('ignores a stale PATCH failure so the newest write keeps the save line', async () => {
     const user = userEvent.setup()
     const nameResponse = deferred<Project>()

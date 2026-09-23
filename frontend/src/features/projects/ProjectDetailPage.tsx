@@ -13,6 +13,7 @@ import { useToast } from '../../components/ToastContext'
 import type { Project, ProjectUpdate } from '../../types/project'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { useBeforeUnload } from '../../hooks/useBeforeUnload'
+import { useFieldDraft } from '../../hooks/useFieldDraft'
 import { useMobileViewport } from '../../hooks/useMobileViewport'
 import { fireAndForget } from '../../utils/async'
 import { buildProjectStats } from '../../utils/projectStatus'
@@ -25,23 +26,6 @@ import { useTrashCount } from '../trash/trashCountContext'
 import { ActivityFeed } from './ActivityFeed'
 import { MobileProjectOverview, type SaveErrors, type SaveField, type SaveState } from './MobileProjectOverview'
 import { ProjectTabs } from './ProjectTabs'
-
-interface ProjectDraft {
-  source: string
-  name: string
-  description: string
-}
-
-const EMPTY_PROJECT_DRAFT: ProjectDraft = { source: '', name: '', description: '' }
-
-function makeProjectDraft(project: Project): ProjectDraft {
-  const description = project.description ?? ''
-  return {
-    source: JSON.stringify([project.id, project.name, description]),
-    name: project.name,
-    description,
-  }
-}
 
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -69,7 +53,6 @@ export function ProjectDetailPage() {
   // Project the save status belongs to; the status is hidden once the route
   // moves to another project so a write for the old id can't label the new one.
   const [saveProjectId, setSaveProjectId] = useState<number | null>(null)
-  const [projectDraft, setProjectDraft] = useState<ProjectDraft>(EMPTY_PROJECT_DRAFT)
   const [activityKey, setActivityKey] = useState(0)
   // Bumped after a peek-panel mutation so the task list refetches behind it.
   const [tasksReloadKey, setTasksReloadKey] = useState(0)
@@ -145,18 +128,16 @@ export function ProjectDetailPage() {
     return () => { active = false }
   }, [id, tasksReloadKey, taskRefreshVersion])
 
-  const loadedProjectDraft = project ? makeProjectDraft(project) : EMPTY_PROJECT_DRAFT
-  const activeProjectDraft =
-    projectDraft.source === loadedProjectDraft.source ? projectDraft : loadedProjectDraft
-  const nameDraft = activeProjectDraft.name
-  const descriptionDraft = activeProjectDraft.description
+  // Each field anchors to its own server value, so one field's save landing
+  // doesn't discard an in-progress edit to the other.
+  const nameField = useFieldDraft(project?.id ?? null, project?.name ?? '')
+  const descriptionField = useFieldDraft(project?.id ?? null, project?.description ?? '')
+  const nameDraft = nameField.value
+  const descriptionDraft = descriptionField.value
 
   // Guard refresh/tab-close while a focused field holds an unsaved edit. In-app
   // navigation is already safe: clicking a <Link> blurs the field, which saves it.
-  const dirty =
-    project !== null &&
-    (activeProjectDraft.name !== loadedProjectDraft.name ||
-      activeProjectDraft.description !== loadedProjectDraft.description)
+  const dirty = project !== null && (nameField.dirty || descriptionField.dirty)
   useBeforeUnload(dirty)
 
   /** Publish a snapshot from a non-PATCH write (close/reopen), retiring any in-flight PATCH. */
@@ -229,7 +210,7 @@ export function ProjectDetailPage() {
 
   /** Escape in the name field: back to the saved name, and drop a blank-name error with it. */
   function revertName() {
-    setProjectDraft({ ...activeProjectDraft, name: loadedProjectDraft.name })
+    nameField.set(project?.name ?? '')
     setFieldError('name', null)
   }
 
@@ -310,8 +291,8 @@ export function ProjectDetailPage() {
         tasksError={tasksLoading ? null : tasksError}
         nameDraft={nameDraft}
         descriptionDraft={descriptionDraft}
-        onNameChange={(value) => setProjectDraft({ ...activeProjectDraft, name: value })}
-        onDescriptionChange={(value) => setProjectDraft({ ...activeProjectDraft, description: value })}
+        onNameChange={nameField.set}
+        onDescriptionChange={descriptionField.set}
         saveName={saveName}
         saveDescription={saveDescription}
         revertName={revertName}
@@ -388,7 +369,7 @@ export function ProjectDetailPage() {
           aria-label="Project name"
           value={nameDraft}
           onChange={(e) =>
-            setProjectDraft({ ...activeProjectDraft, name: e.target.value })
+            nameField.set(e.target.value)
           }
           onBlur={() => void saveName()}
           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
@@ -417,7 +398,7 @@ export function ProjectDetailPage() {
           aria-label="Project description"
           value={descriptionDraft}
           onChange={(e) =>
-            setProjectDraft({ ...activeProjectDraft, description: e.target.value })
+            descriptionField.set(e.target.value)
           }
           onBlur={() => void saveDescription()}
           placeholder="Add a description"
