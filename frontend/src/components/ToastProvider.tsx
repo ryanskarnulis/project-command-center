@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { apiErrorMessage } from '../api/errorMessage'
 import { ToastContext, type ToastApi, type ToastKind } from './ToastContext'
 
 interface Toast {
@@ -52,10 +53,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         notify('success', messages.success)
         return result
       } catch (e: unknown) {
-        const fallback =
-          messages.error ??
-          (e instanceof Error ? e.message : 'Something went wrong')
-        notify('error', fallback)
+        // An explicit override wins. Otherwise show the server's `detail` —
+        // the reason a mutation was refused — rather than `ApiError`'s bare
+        // "API error <status>"; any other Error keeps its own message.
+        notify('error', messages.error ?? apiErrorMessage(e, 'Something went wrong'))
         throw e
       }
     },
