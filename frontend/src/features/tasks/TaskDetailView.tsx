@@ -6,6 +6,7 @@ import { ApiError } from '../../api/client'
 import { listProjects } from '../../api/projects'
 import { Badge } from '../../components/Badge'
 import { useBeforeUnload } from '../../hooks/useBeforeUnload'
+import { useFieldDraft } from '../../hooks/useFieldDraft'
 import type { Project } from '../../types/project'
 import type { Task, TaskCreate } from '../../types/task'
 import { formatDueDate } from '../../utils/dates'
@@ -58,27 +59,6 @@ function descendantIds(task: Task, tasks: Task[]): Set<number> {
   return blocked
 }
 
-interface TaskDraft {
-  source: string
-  title: string
-  description: string
-}
-
-const EMPTY_TASK_DRAFT: TaskDraft = {
-  source: '',
-  title: '',
-  description: '',
-}
-
-function makeTaskDraft(task: Task): TaskDraft {
-  const description = task.description ?? ''
-  return {
-    source: JSON.stringify([task.id, task.title, description]),
-    title: task.title,
-    description,
-  }
-}
-
 interface Props {
   taskId: number
   /** Close the hosting panel; when absent (standalone page) falls back to navigation. */
@@ -103,7 +83,6 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
   const [allTasks, setAllTasks] = useState<Task[]>([])
   const [loadedTaskId, setLoadedTaskId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [taskDraft, setTaskDraft] = useState<TaskDraft>(EMPTY_TASK_DRAFT)
   const [addingSubtask, setAddingSubtask] = useState(false)
   const [confirmingSkip, setConfirmingSkip] = useState(false)
 
@@ -192,18 +171,16 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, navigate])
 
-  const loadedTaskDraft = task ? makeTaskDraft(task) : EMPTY_TASK_DRAFT
-  const activeTaskDraft =
-    taskDraft.source === loadedTaskDraft.source ? taskDraft : loadedTaskDraft
-  const titleDraft = activeTaskDraft.title
-  const descriptionDraft = activeTaskDraft.description
+  // Each field anchors to its own server value, so one field's save landing
+  // doesn't discard an in-progress edit to the other.
+  const titleField = useFieldDraft(task?.id ?? null, task?.title ?? '')
+  const descriptionField = useFieldDraft(task?.id ?? null, task?.description ?? '')
+  const titleDraft = titleField.value
+  const descriptionDraft = descriptionField.value
 
   // Guard refresh/tab-close while a focused field holds an unsaved edit. In-app
   // navigation is already safe: clicking a <Link> blurs the field, which saves it.
-  const dirty =
-    task !== null &&
-    (activeTaskDraft.title !== loadedTaskDraft.title ||
-      activeTaskDraft.description !== loadedTaskDraft.description)
+  const dirty = task !== null && (titleField.dirty || descriptionField.dirty)
   useBeforeUnload(dirty)
 
   const parentOptions = useMemo(() => {
@@ -393,7 +370,7 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
           aria-label="Task title"
           value={titleDraft}
           onChange={(e) =>
-            setTaskDraft({ ...activeTaskDraft, title: e.target.value })
+            titleField.set(e.target.value)
           }
           onBlur={saveTitle}
           onKeyDown={handleTitleKeyDown}
@@ -464,7 +441,7 @@ export function TaskDetailView({ taskId: id, onClose, onMutated }: Props) {
           aria-label="Task description"
           value={descriptionDraft}
           onChange={(e) =>
-            setTaskDraft({ ...activeTaskDraft, description: e.target.value })
+            descriptionField.set(e.target.value)
           }
           onBlur={saveDescription}
           placeholder="Add a description"
