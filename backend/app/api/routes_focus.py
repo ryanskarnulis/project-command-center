@@ -17,9 +17,12 @@ router = APIRouter(tags=["focus"])
 # HH:MM, 24-hour clock. Validated at the boundary so the scheduler's _parse_time
 # never sees junk (it does no validation of its own).
 _TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
-# Lower bound is below the assumed-estimate floor but still a usable sliver; upper
+# Zero is a real window: a session whose capacity finished work has already
+# spent asks for what is left, and must get an empty schedule with everything in
+# overflow rather than a manufactured minimum (#308). Estimates are positive, so
+# nothing packs into 0. Clients still floor a *configured* session at 15. Upper
 # bound is one full day.
-_MIN_AVAILABLE_MINUTES = 15
+_MIN_AVAILABLE_MINUTES = 0
 _MAX_AVAILABLE_MINUTES = 1440
 
 

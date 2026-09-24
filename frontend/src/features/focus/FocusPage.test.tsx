@@ -946,5 +946,150 @@ describe('FocusPage', () => {
       expect(screen.getByRole('link', { name: 'Cut over DNS to the new resolver' })).toHaveAttribute('draggable', 'false')
       expect(screen.getByRole('link', { name: 'Review the on-call runbook' })).toHaveAttribute('draggable', 'false')
     })
+
+    /* #308 — a finite session that has spent its capacity must not refill. A
+       capacity-respecting fake scheduler stands in for the backend: it packs
+       the open tasks greedily into exactly the window it is asked for, the way
+       `_pack` does, and completing a task takes it out of the open set. */
+    describe('exhausted capacity (#308)', () => {
+      interface FakeTask { id: number; title: string; minutes: number }
+
+      function fakeScheduler(open: FakeTask[]) {
+        mockGetFocusPlan.mockImplementation(async (params = {}) => {
+          const capacity = params.availableMinutes ?? 360
+          const start = params.startTime ?? '09:00'
+          const [h, m] = start.split(':').map(Number)
+          const toClock = (total: number) =>
+            `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+          let used = 0
+          const scheduled: ScheduledBlock[] = []
+          const overflow: FocusPlan['overflow'] = []
+          for (const task of open) {
+            if (used + task.minutes <= capacity) {
+              scheduled.push(scheduledBlock({
+                task_id: task.id,
+                title: task.title,
+                estimated_minutes: task.minutes,
+                start_time: toClock(h * 60 + m + used),
+                end_time: toClock(h * 60 + m + used + task.minutes),
+              }))
+              used += task.minutes
+            } else {
+              overflow.push({
+                task_id: task.id,
+                title: task.title,
+                project_id: 1,
+                priority: 'low',
+                workflow_status: 'open',
+                due_date: null,
+                due_signal: 'none',
+                is_recurring: false,
+                estimated_minutes: task.minutes,
+                estimate_assumed: false,
+                scheduled_subtask_count: 0,
+              })
+            }
+          }
+          return makePlan({ start_time: start, available_minutes: capacity, used_minutes: used, scheduled, overflow })
+        })
+        mockMarkTaskDone.mockImplementation(async (id: number) => {
+          const index = open.findIndex((task) => task.id === id)
+          if (index >= 0) open.splice(index, 1)
+          return { ...panelTask, id, workflow_status: 'done' }
+        })
+      }
+
+      function renderSession(capacity: number) {
+        localStorage.setItem('focus.capacityMode', 'minutes')
+        localStorage.setItem('focus.capacity', String(capacity))
+        render(
+          <MemoryRouter>
+            <FocusPage />
+          </MemoryRouter>,
+        )
+      }
+
+      async function completeFromSheet(title: string) {
+        fireEvent.click(await screen.findByRole('button', { name: `Actions for ${title}` }))
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Mark done' }))
+        await waitFor(() => expect(screen.queryByRole('link', { name: title })).toBeNull())
+      }
+
+      function lastCapacity() {
+        const calls = mockGetFocusPlan.mock.calls
+        return calls[calls.length - 1][0]?.availableMinutes
+      }
+
+      it('keeps the task that did not fit in Didn’t fit once the session is spent', async () => {
+        fakeScheduler([
+          { id: 1, title: 'Fill the session', minutes: 30 },
+          { id: 2, title: 'Short overflow task', minutes: 10 },
+        ])
+        renderSession(30)
+        expect(await screen.findByRole('link', { name: 'Fill the session' })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Didn.t fit · 1/ })).toBeInTheDocument()
+
+        await completeFromSheet('Fill the session')
+        await waitFor(() => expect(lastCapacity()).toBe(0))
+
+        // Nothing is scheduled: no current block, no over-capacity caption.
+        expect(await screen.findByRole('heading', { name: 'Day clear' })).toBeInTheDocument()
+        expect(screen.queryByText('Now')).toBeNull()
+        expect(screen.queryByRole('link', { name: 'Short overflow task' })).toBeNull()
+        expect(screen.queryByText(/over capacity/)).toBeNull()
+        expect(screen.getByRole('button', { name: /Didn.t fit · 1/ })).toBeInTheDocument()
+        // The receipt stays and capacity reads as configured, fully spent.
+        expect(screen.getByText('Fill the session')).toBeInTheDocument()
+        expect(screen.getByText('Today · 09:00 → 09:30 · 30m capacity')).toBeInTheDocument()
+        expect(screen.getByRole('progressbar', { name: 'Session capacity' })).toHaveAttribute('aria-valuenow', '30')
+      })
+
+      it('packs only the 1–14 minute remainder, then refuses to refill at zero', async () => {
+        fakeScheduler([
+          { id: 1, title: 'Opening block', minutes: 20 },
+          { id: 2, title: 'Fifteen minute task', minutes: 15 },
+          { id: 3, title: 'Five minute task', minutes: 5 },
+          { id: 4, title: 'Another five', minutes: 5 },
+        ])
+        renderSession(30)
+        expect(await screen.findByRole('link', { name: 'Opening block' })).toBeInTheDocument()
+
+        // 10 left: the 15-minute task must not be manufactured into the window.
+        await completeFromSheet('Opening block')
+        await waitFor(() => expect(lastCapacity()).toBe(10))
+        expect(await screen.findByRole('link', { name: 'Five minute task' })).toBeInTheDocument()
+        expect(screen.getByRole('link', { name: 'Another five' })).toBeInTheDocument()
+        expect(screen.queryByRole('link', { name: 'Fifteen minute task' })).toBeNull()
+
+        // 5 left, then 0 — each completion shrinks the window, never refills it.
+        await completeFromSheet('Five minute task')
+        await waitFor(() => expect(lastCapacity()).toBe(5))
+        await completeFromSheet('Another five')
+        await waitFor(() => expect(lastCapacity()).toBe(0))
+
+        expect(await screen.findByRole('heading', { name: 'Day clear' })).toBeInTheDocument()
+        expect(screen.queryByText('Now')).toBeNull()
+        expect(screen.queryByText(/over capacity/)).toBeNull()
+        expect(screen.getByRole('button', { name: /Didn.t fit · 1/ })).toBeInTheDocument()
+      })
+
+      it('schedules overflow again only when the user extends the session', async () => {
+        fakeScheduler([
+          { id: 1, title: 'Fill the session', minutes: 30 },
+          { id: 2, title: 'Short overflow task', minutes: 10 },
+        ])
+        renderSession(30)
+        await completeFromSheet('Fill the session')
+        await screen.findByRole('heading', { name: 'Day clear' })
+
+        fireEvent.click(screen.getByRole('button', { name: /Didn.t fit · 1/ }))
+        fireEvent.click(screen.getByRole('button', { name: 'Schedule' }))
+
+        await waitFor(() => expect(localStorage.getItem('focus.capacity')).toBe('40'))
+        await waitFor(() => expect(lastCapacity()).toBe(10))
+        expect(await screen.findByRole('link', { name: 'Short overflow task' })).toBeInTheDocument()
+        expect(screen.queryByText(/over capacity/)).toBeNull()
+      })
+    })
   })
 })

@@ -85,10 +85,49 @@ def test_focus_route_rejects_malformed_start_time(
 def test_focus_route_rejects_out_of_range_capacity(
     client: TestClient, db_session: Session
 ) -> None:
-    assert client.get("/api/focus", params={"available_minutes": 0}).status_code == 422
+    assert client.get("/api/focus", params={"available_minutes": -1}).status_code == 422
     assert (
         client.get("/api/focus", params={"available_minutes": 5000}).status_code == 422
     )
+
+
+def test_focus_route_zero_capacity_schedules_nothing(
+    client: TestClient, db_session: Session
+) -> None:
+    """A spent session's residual window is 0: everything stays in overflow."""
+    _task(db_session, "fills it", priority=TaskPriority.urgent, estimated_minutes=30)
+    _task(db_session, "short one", priority=TaskPriority.low, estimated_minutes=10)
+
+    response = client.get(
+        "/api/focus",
+        params={"date": "2026-06-20", "start_time": "09:30", "available_minutes": 0},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["available_minutes"] == 0
+    assert body["used_minutes"] == 0
+    assert body["scheduled"] == []
+    assert [t["title"] for t in body["overflow"]] == ["fills it", "short one"]
+
+
+def test_focus_route_sub_fifteen_capacity_packs_only_the_remainder(
+    client: TestClient, db_session: Session
+) -> None:
+    """A 1–14 minute remainder is honoured, not rounded up to 15."""
+    _task(db_session, "fifteen", priority=TaskPriority.urgent, estimated_minutes=15)
+    _task(db_session, "ten", priority=TaskPriority.low, estimated_minutes=10)
+
+    response = client.get(
+        "/api/focus",
+        params={"date": "2026-06-20", "start_time": "09:20", "available_minutes": 10},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [b["title"] for b in body["scheduled"]] == ["ten"]
+    assert body["used_minutes"] == 10
+    assert [t["title"] for t in body["overflow"]] == ["fifteen"]
 
 
 def test_focus_route_blocked_row_carries_dependency_detail(

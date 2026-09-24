@@ -9,7 +9,9 @@ export const DEFAULT_START_TIME = '09:00'
 export const DEFAULT_AVAILABLE_MINUTES = 360
 export const DEFAULT_END_OF_DAY = '17:00'
 
-// The backend rejects capacity outside this range (422); clamp before sending.
+// The smallest session the user can configure, and the most a request may ask
+// for. A mobile session's residual window after finished work can go below the
+// floor, down to zero (the API accepts 0–1440); see requestMinutes.
 const MIN_AVAILABLE_MINUTES = 15
 const MAX_AVAILABLE_MINUTES = 1440
 
@@ -123,15 +125,18 @@ export function useFocusPlan(): UseFocusPlan {
 
   // The mobile route completes blocks in place, and completed work leaves the
   // plan. Rather than re-planning a full day on top of the part already spent,
-  // the request window starts where that work ended and asks for what is left
-  // of the capacity. Desktop never sets this, so its request is unchanged.
+  // the request window starts where that work ended and asks for exactly what
+  // is left of the capacity — possibly nothing. The 15-minute floor is for a
+  // session the user configures, not for its residue: flooring the remainder
+  // manufactured capacity, so a spent session kept refilling with short tasks
+  // (#308). At zero the API schedules nothing and returns everything as
+  // overflow. Desktop never sets this, so its request is unchanged.
   const requestStartTime = consumedMinutes > 0
     ? formatTime(parseTime(startTime) + consumedMinutes)
     : startTime
-  const requestMinutes = Math.min(
-    Math.max(availableMinutes - consumedMinutes, MIN_AVAILABLE_MINUTES),
-    MAX_AVAILABLE_MINUTES,
-  )
+  const requestMinutes = consumedMinutes > 0
+    ? Math.min(Math.max(availableMinutes - consumedMinutes, 0), MAX_AVAILABLE_MINUTES)
+    : Math.min(Math.max(availableMinutes, MIN_AVAILABLE_MINUTES), MAX_AVAILABLE_MINUTES)
   const requestKey = JSON.stringify([date, requestStartTime, requestMinutes, reloadToken])
 
   useEffect(() => {
