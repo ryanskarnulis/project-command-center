@@ -7,7 +7,7 @@ Guidance for Claude Code in this repo.
 A local-first project and task management web app — a simple, reliable core
 (projects, tasks, Focus, search, trash, dashboard) with a local agent
 (llama.cpp + tools + MCP + retrieval) built on top. `README.md` has the
-architecture; `TODO.md` is the backlog; `DONE.md` is the completion log.
+architecture; the backlog is GitHub issues (`gh issue list`).
 
 ## Commands
 
@@ -43,8 +43,10 @@ architecture; `TODO.md` is the backlog; `DONE.md` is the completion log.
   (`PCC_AGENT_EVALS=1 pytest tests/test_agent_evals.py -v -s`) and must not
   regress the baseline in `docs/agent-design.md`.
 - **Ask before adding a dependency.**
-- Work from `TODO.md`; flag scope expansion rather than silently doing it.
-  Push back when something seems wrong.
+- **Backlog = GitHub issues** (`gh issue list`). File follow-up work as an
+  issue, never in a markdown file; PRs close issues with `Closes #N`. One
+  issue = one branch = one PR. Flag scope expansion rather than silently
+  doing it; push back when something seems wrong.
 
 ## Code rules
 

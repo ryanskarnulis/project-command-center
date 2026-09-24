@@ -124,7 +124,7 @@ re-confirmed under the layered personality 2026-07-11 and the context budget
 Standing observations: self-correction pays for itself (the recurring gemma
 `name`/`title` miss always fixes on feedback); FTS5 retrieval is sufficient —
 this table is the tripwire for ever adding embeddings; `honest_about_missing`
-over-searches before conceding (the frugality tripwire in `TODO.md`).
+over-searches before conceding (frugality tripwire: #329).
 
 ## Deferred
 
