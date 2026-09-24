@@ -1,7 +1,10 @@
 import { apiClient } from './client'
 import type {
   EmptyTrashResult,
+  ProjectRestoreUndo,
   PurgeSelectedRequest,
+  TaskRestoreResult,
+  TaskRestoreUndo,
   Trash,
   TrashCountResult,
 } from '../types/trash'
@@ -31,4 +34,29 @@ export async function purgeSelected(
 
 export async function emptyTrash(): Promise<EmptyTrashResult> {
   return apiClient<EmptyTrashResult>('/api/trash', { method: 'DELETE' })
+}
+
+/** Restore one trashed task and get back the receipt that undoes exactly it.
+ * `task` is not always the restored id: un-skipping a recurring occurrence
+ * hands back the live successor it rewound (#306). */
+export async function restoreTrashedTask(id: number): Promise<TaskRestoreResult> {
+  return apiClient<TaskRestoreResult>(`/api/trash/tasks/${id}/restore`, { method: 'POST' })
+}
+
+/** Reverse one task restore from its receipt. 409 once the rows have moved on. */
+export async function undoTaskRestore(undo: TaskRestoreUndo): Promise<void> {
+  await apiClient('/api/trash/tasks/undo-restore', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(undo),
+  })
+}
+
+/** Reverse one project restore from its receipt. 409 once the project has moved on. */
+export async function undoProjectRestore(undo: ProjectRestoreUndo): Promise<void> {
+  await apiClient('/api/trash/projects/undo-restore', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(undo),
+  })
 }

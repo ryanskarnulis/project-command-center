@@ -8,8 +8,16 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import ActivityEvent, Project, Task, utcnow
+from app.schemas.trash import ProjectRestoreUndo
 from app.services import activity
-from app.services.common import active, deleted, hard_delete, restore, soft_delete
+from app.services.common import (
+    RestoreUndoConflictError,
+    active,
+    deleted,
+    hard_delete,
+    restore,
+    soft_delete,
+)
 
 DEFAULT_PROJECT_NAME = "General"
 DEFAULT_PROJECT_DESCRIPTION = "Default project for unfiled tasks"
@@ -342,9 +350,21 @@ def _assert_no_occurrence_conflicts(db: Session, tasks: Sequence[Task]) -> None:
 def restore_project(
     db: Session, project: Project, *, restore_tasks: bool = False
 ) -> tuple[Project, int]:
+    """Restore a trashed project; see ``restore_project_with_undo``."""
+    restored, count, _ = restore_project_with_undo(
+        db, project, restore_tasks=restore_tasks
+    )
+    return restored, count
+
+
+def restore_project_with_undo(
+    db: Session, project: Project, *, restore_tasks: bool = False
+) -> tuple[Project, int, ProjectRestoreUndo]:
     """Restore a trashed project; optionally bring back its cascade-deleted tasks.
 
-    Returns ``(project, restored_task_count)``. Only tasks stamped with this
+    Returns ``(project, restored_task_count, undo)``; ``undo`` is the receipt
+    ``undo_project_restore`` replays to reverse exactly this restore (the
+    project counterpart of #306/#307). Only tasks stamped with this
     project's id at delete time are pulled back — tasks the user trashed
     independently keep their null marker and stay in the trash.
 
@@ -380,8 +400,9 @@ def restore_project(
     restore(project)
 
     restored_tasks = 0
+    restored_ids: list[int] = []
+    unarchived_ids: list[int] = []
     if restore_tasks:
-        restored_ids: list[int] = []
         for task in tasks:
             restore(task)
             task.deleted_with_project_id = None
@@ -411,7 +432,17 @@ def restore_project(
     else:
         # Don't strand the cascade tasks: clearing the marker moves them into the
         # standalone Tasks trash instead of leaving them pointing at an active
-        # project (where every trash surface filters them out).
+        # project (where every trash surface filters them out). Their ids go on
+        # the receipt: undo re-archives them under the project.
+        unarchived_ids = list(
+            db.execute(
+                select(Task.id)
+                .where(Task.deleted_with_project_id == project.id)
+                .order_by(Task.id.asc())
+            )
+            .scalars()
+            .all()
+        )
         db.execute(
             update(Task)
             .where(Task.deleted_with_project_id == project.id)
@@ -428,7 +459,59 @@ def restore_project(
         action="restored",
         summary=f'Project "{project.name}" restored',
     )
-    return project, restored_tasks
+    return (
+        project,
+        restored_tasks,
+        ProjectRestoreUndo(
+            project_id=project.id,
+            restored_task_ids=restored_ids,
+            unarchived_task_ids=unarchived_ids,
+        ),
+    )
+
+
+def undo_project_restore(db: Session, undo: ProjectRestoreUndo) -> None:
+    """Reverse exactly what one ``restore_project_with_undo`` changed.
+
+    The project goes back to the trash taking the tasks that restore brought
+    back — ``soft_delete_project``'s membership cascade, which is the same set
+    once the check below holds — and the tasks it left in the standalone trash
+    are archived under it again, so the project's trash entry reads as it did.
+
+    Raises ``RestoreUndoConflictError`` (nothing written) when the project is no
+    longer active or its active tasks are not exactly the restored set: new or
+    moved-in work would be swept into the trash with it, and a restored task
+    trashed or moved out since would be misfiled.
+    """
+    project = get_project(db, undo.project_id)
+    if project is None or project.is_protected:
+        raise RestoreUndoConflictError("This project restore can no longer be undone.")
+    active_ids = set(
+        db.execute(
+            select(Task.id).where(
+                Task.project_id == project.id, Task.deleted_at.is_(None)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if active_ids != set(undo.restored_task_ids):
+        raise RestoreUndoConflictError(
+            f'"{project.name}" has changed since it was restored; '
+            "delete it instead if you still want it in the trash."
+        )
+    if undo.unarchived_task_ids:
+        db.execute(
+            update(Task)
+            .where(
+                Task.id.in_(undo.unarchived_task_ids),
+                Task.project_id == project.id,
+                Task.deleted_at.is_not(None),
+                Task.deleted_with_project_id.is_(None),
+            )
+            .values(deleted_with_project_id=project.id)
+        )
+    soft_delete_project(db, project)
 
 
 # --- Permanent delete / purge (Sprint 9f) ----------------------------------

@@ -459,6 +459,12 @@ def skip_occurrence(db: Session, task: Task) -> Task:
     # delete root, so no descendant named the occurrence and restoring it — once
     # its successor was trashed and the un-skip rewind below no longer applied —
     # brought back a bare leaf.
+    _mark_skipped(db, task)
+    return next_occurrence
+
+
+def _mark_skipped(db: Session, task: Task) -> None:
+    """Trash ``task`` and its checklist as one skipped unit (the tail of a skip)."""
     soft_delete_descendants(db, task)
     soft_delete(task)
     # Persist the *intent*, not just the deletion: an ordinary delete also sets
@@ -467,7 +473,33 @@ def skip_occurrence(db: Session, task: Task) -> Task:
     task.skipped_at = task.deleted_at
     db.flush()
     log_task_event(db, task, "skipped")
-    return next_occurrence
+
+
+def find_skipped_occurrence_on(
+    db: Session, recurrence_id: str, due_date: date
+) -> Task | None:
+    """Public alias of ``_find_skipped_occurrence_on`` for the un-skip undo."""
+    return _find_skipped_occurrence_on(db, recurrence_id, due_date)
+
+
+def file_skipped_occurrence(db: Session, source: Task, due_date: date) -> Task:
+    """File a skipped occurrence of ``source``'s series on ``due_date``.
+
+    The inverse of an un-skip rewind (``task_trash.restore_task``), used by its
+    Undo (#306). The rewind moved the live occurrence onto the skipped date and
+    *purged* the skipped row, so undoing it cannot bring that row back — it
+    re-creates it: a fresh clone of ``source`` (checklist included, reset open,
+    exactly what ``skip_occurrence``'s successor clone produces) trashed as one
+    skipped unit. The series then reads as it did before the restore: the date
+    is skipped, blocks re-spawning, and restoring it un-skips again.
+
+    The caller has already moved ``source`` off ``due_date``; this inserts a
+    live row there for an instant, which the unique occurrence index would
+    otherwise reject.
+    """
+    occurrence = _insert_occurrence(db, source, due_date)
+    _mark_skipped(db, occurrence)
+    return occurrence
 
 
 def get_series(db: Session, recurrence_id: str) -> list[Task]:

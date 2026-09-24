@@ -17,7 +17,7 @@ from app.schemas.projects import (
     ProjectRead,
     ProjectUpdate,
 )
-from app.schemas.trash import ProjectRestoreResult
+from app.schemas.trash import ProjectRestoreRouteResult
 from app.services import activity as activity_service
 from app.services import projects as projects_service
 from app.services import tasks as tasks_service
@@ -129,12 +129,12 @@ def delete_project(project_id: EntityId, db: Session = Depends(get_db_write)) ->
     logger.info("project_deleted", project_id=project_id)
 
 
-@router.post("/{project_id}/restore", response_model=ProjectRestoreResult)
+@router.post("/{project_id}/restore", response_model=ProjectRestoreRouteResult)
 def restore_project(
     project_id: EntityId,
     restore_tasks: bool = False,
     db: Session = Depends(get_db_write),
-) -> ProjectRestoreResult:
+) -> ProjectRestoreRouteResult:
     project = projects_service.get_deleted_project(db, project_id)
     if project is None:
         raise HTTPException(
@@ -142,7 +142,11 @@ def restore_project(
             detail="No deleted project with that id",
         )
     try:
-        restored, restored_task_count = projects_service.restore_project(
+        (
+            restored,
+            restored_task_count,
+            undo,
+        ) = projects_service.restore_project_with_undo(
             db, project, restore_tasks=restore_tasks
         )
     except tasks_service.OccurrenceConflictError as exc:
@@ -159,9 +163,10 @@ def restore_project(
         project_id=restored.id,
         restored_task_count=restored_task_count,
     )
-    return ProjectRestoreResult(
+    return ProjectRestoreRouteResult(
         project=ProjectRead.model_validate(restored),
         restored_task_count=restored_task_count,
+        undo=undo,
     )
 
 

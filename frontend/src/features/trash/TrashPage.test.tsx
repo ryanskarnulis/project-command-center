@@ -4,9 +4,9 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProjects, purgeProject, restoreProject } from '../../api/projects'
 import { purgeTask, restoreTask } from '../../api/tasks'
-import { emptyTrash, getTrash, purgeSelected } from '../../api/trash'
+import { emptyTrash, getTrash, purgeSelected, restoreTrashedTask } from '../../api/trash'
 import { ApiError } from '../../api/client'
-import type { Trash } from '../../types/trash'
+import type { ProjectRestoreUndo, TaskRestoreUndo, Trash } from '../../types/trash'
 import { TrashPage } from './TrashPage'
 
 const renderPage = () => render(<TrashPage />, { wrapper: MemoryRouter })
@@ -18,6 +18,9 @@ vi.mock('../../api/trash', () => ({
   getTrash: vi.fn(),
   emptyTrash: vi.fn(),
   purgeSelected: vi.fn(),
+  restoreTrashedTask: vi.fn(),
+  undoTaskRestore: vi.fn(),
+  undoProjectRestore: vi.fn(),
 }))
 vi.mock('../../api/projects', () => ({
   listProjects: vi.fn(),
@@ -35,6 +38,16 @@ const mockRestoreTask = vi.mocked(restoreTask)
 const mockPurgeProject = vi.mocked(purgeProject)
 const mockPurgeTask = vi.mocked(purgeTask)
 const mockPurgeSelected = vi.mocked(purgeSelected)
+const mockRestoreTrashedTask = vi.mocked(restoreTrashedTask)
+
+const projectUndo: ProjectRestoreUndo = { project_id: 1, restored_task_ids: [], unarchived_task_ids: [] }
+const taskUndo = (task_id: number): TaskRestoreUndo => ({
+  task_id,
+  restored_task_ids: [task_id],
+  skipped: false,
+  deleted_with_task_id: null,
+  unskip: null,
+})
 
 const trash: Trash = {
   projects: [
@@ -94,7 +107,7 @@ describe('TrashPage', () => {
 
   it('lists deleted items and restores a project', async () => {
     const user = userEvent.setup()
-    mockRestoreProject.mockResolvedValue({ project: trash.projects[0], restored_task_count: 0 })
+    mockRestoreProject.mockResolvedValue({ project: trash.projects[0], restored_task_count: 0, undo: projectUndo })
 
     renderPage()
 
@@ -124,7 +137,7 @@ describe('TrashPage', () => {
         projects: [{ ...trash.projects[0], archived_task_count: 3 }],
       })
       .mockResolvedValue({ projects: [], tasks: [] })
-    mockRestoreProject.mockResolvedValue({ project: trash.projects[0], restored_task_count: 3 })
+    mockRestoreProject.mockResolvedValue({ project: trash.projects[0], restored_task_count: 3, undo: projectUndo })
 
     renderPage()
 
@@ -141,21 +154,25 @@ describe('TrashPage', () => {
 
   it('exposes a restore handler for tasks', async () => {
     const user = userEvent.setup()
-    mockRestoreTask.mockResolvedValue(trash.tasks[0])
+    mockRestoreTrashedTask.mockResolvedValue({ task: trash.tasks[0], undo: taskUndo(5) })
 
     renderPage()
 
     await user.click(
       await screen.findByRole('button', { name: 'Restore task Pay invoice' }),
     )
-    expect(mockRestoreTask).toHaveBeenCalledWith(5)
+    // The Trash route, so the same hook can hand mobile its undo receipt.
+    expect(mockRestoreTrashedTask).toHaveBeenCalledWith(5)
   })
 
   it('names the project a restored task actually lands in', async () => {
     const user = userEvent.setup()
     // The restore response carries the task's real (rehomed-or-original) project;
     // the notice should name it, not assume General.
-    mockRestoreTask.mockResolvedValue({ ...trash.tasks[0], project_id: 7 })
+    mockRestoreTrashedTask.mockResolvedValue({
+      task: { ...trash.tasks[0], project_id: 7 },
+      undo: taskUndo(5),
+    })
     mockListProjects.mockResolvedValue([
       { id: 7, name: 'Firewall' } as Awaited<ReturnType<typeof listProjects>>[number],
     ])
@@ -233,7 +250,7 @@ describe('TrashPage', () => {
 
   it('shows a success notice naming the restored item', async () => {
     const user = userEvent.setup()
-    mockRestoreProject.mockResolvedValue({ project: trash.projects[0], restored_task_count: 0 })
+    mockRestoreProject.mockResolvedValue({ project: trash.projects[0], restored_task_count: 0, undo: projectUndo })
 
     renderPage()
 

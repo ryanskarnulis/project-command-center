@@ -5,6 +5,7 @@ import type {
   ProjectCreate,
   ProjectUpdate,
 } from '../types/project'
+import type { ProjectRestoreUndo } from '../types/trash'
 
 export async function listProjects(includeClosed = false): Promise<Project[]> {
   const query = includeClosed ? '?include_closed=true' : ''
@@ -58,6 +59,8 @@ export async function deleteProject(id: number): Promise<void> {
 export interface ProjectRestoreResult {
   project: Project
   restored_task_count: number
+  /** What this restore changed, for the Trash page's Undo to reverse. */
+  undo: ProjectRestoreUndo
 }
 
 export async function restoreProject(
