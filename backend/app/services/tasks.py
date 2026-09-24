@@ -165,10 +165,16 @@ def _assert_no_parent_cycle(
     pre-existing corruption.
 
     The *directly named* parent must exist and be active — a bad reference is a
-    caller error. Further up the chain, a missing/trashed ancestor terminates the
-    walk exactly like ``parent_task_id IS NULL`` does: the task is an effective
-    top-level orphan (see ``is_effective_top_level``) and giving it a subtask can
-    close no cycle. (Issue #128)
+    caller error, and an effective top-level orphan (see
+    ``is_effective_top_level``) is a perfectly good parent (issue #128).
+
+    Above that, the walk follows the **stored** ``parent_task_id`` pointers,
+    trashed rows included, and stops only at a real NULL or a purged row. Ending
+    at the first trashed ancestor described the active forest but not the stored
+    one, and restore reconnects the stored one: moving A under an orphan C whose
+    trashed parent B still points at A committed A -> C -> B -> A, and restoring B
+    then recursed forever (issue #305). So the stored hierarchy is kept acyclic,
+    which is what makes every later restore safe.
     """
     if task_id is not None and new_parent_id == task_id:
         raise TaskCycleError("A task cannot be its own parent")
@@ -176,18 +182,70 @@ def _assert_no_parent_cycle(
     if get_task(db, new_parent_id) is None:
         raise TaskCycleError("Parent task does not exist")
 
+    through_trash = False
     visited: set[int] = set()
     current: int | None = new_parent_id
     while current is not None:
         if current == task_id:
+            if through_trash:
+                raise TaskCycleError(
+                    "Parent assignment would create a cycle through a task in "
+                    "the trash"
+                )
             raise TaskCycleError("Parent assignment would create a cycle")
         if current in visited:
             break
         visited.add(current)
-        ancestor = get_task(db, current)
+        ancestor = db.get(Task, current)
+        if ancestor is None:
+            break
+        if ancestor.deleted_at is not None:
+            through_trash = True
+        current = ancestor.parent_task_id
+
+
+def detach_if_parent_cycle(db: Session, task: Task) -> bool:
+    """Break a stored parent cycle that ``task`` sits on by making it top-level.
+
+    The cycle guard keeps any new cycle from being committed (issue #305), but a
+    database written before that fix can already hold one through a trashed row.
+    Restore is where such a cycle comes back to life, so every restore path calls
+    this for each row it reactivates: if following ``task``'s stored parent
+    pointers leads back to ``task``, its own parent pointer is cleared and the
+    change is audited. The restored row is the one detached because it is the row
+    the user just acted on and the only one whose placement is being re-decided;
+    the rest of the chain keeps the shape it had while ``task`` was in the trash.
+
+    Returns True when a pointer was cleared. A chain that merely *leads into* a
+    cycle ``task`` isn't on is left alone — it isn't this restore's to fix, and
+    the roll-up walk is cycle-safe regardless.
+    """
+    if task.parent_task_id is None:
+        return False
+    visited: set[int] = set()
+    current: int | None = task.parent_task_id
+    while current is not None and current not in visited:
+        if current == task.id:
+            task.parent_task_id = None
+            db.flush()
+            activity.record_event(
+                db,
+                project_id=task.project_id,
+                entity_type="task",
+                entity_id=task.id,
+                action="updated",
+                summary=(
+                    f'Task "{task.title}" moved to top level to break a parent '
+                    "cycle on restore"
+                ),
+            )
+            return True
+        visited.add(current)
+        ancestor = db.get(Task, current)
         if ancestor is None:
             break
         current = ancestor.parent_task_id
+    return False
 
 
 def _nesting_level(db: Session, task_id: int) -> int:
@@ -461,17 +519,31 @@ def _resolve_rollup(
     task: Task,
     by_parent: dict[int | None, list[Task]],
     memo: dict[int, Rollup],
+    in_progress: set[int] | None = None,
 ) -> Rollup:
+    """Roll-up of ``task`` from its active subtree, memoized by id.
+
+    ``in_progress`` holds the ids on the current recursion path. The API can no
+    longer commit a parent cycle (issue #305), but a pre-existing one must not
+    recurse forever: a child already on the path is skipped as if it weren't
+    there.
+    """
     cached = memo.get(task.id)
     if cached is not None:
         return cached
-    children = by_parent.get(task.id, [])
+    if in_progress is None:
+        in_progress = set()
+    children = [c for c in by_parent.get(task.id, []) if c.id not in in_progress]
     if not children:
         # Leaf: its own stored values stand.
         rollup = Rollup(task.estimated_minutes, task.workflow_status, False)
         memo[task.id] = rollup
         return rollup
-    child_rollups = [_resolve_rollup(c, by_parent, memo) for c in children]
+    in_progress.add(task.id)
+    child_rollups = [
+        _resolve_rollup(c, by_parent, memo, in_progress) for c in children
+    ]
+    in_progress.discard(task.id)
     minutes = [r.estimated_minutes for r in child_rollups if r.estimated_minutes]
     total = sum(minutes) if minutes else None
     subtask_status = _rollup_status([r.workflow_status for r in child_rollups])

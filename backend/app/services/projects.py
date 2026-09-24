@@ -359,12 +359,16 @@ def restore_project(
     live sibling.
     """
     from app.services import task_recurrence
-    from app.services.tasks import log_task_event
+    from app.services.tasks import detach_if_parent_cycle, log_task_event
 
     tasks: Sequence[Task] = ()
     if restore_tasks:
         tasks = db.execute(
-            deleted(Task).where(Task.deleted_with_project_id == project.id)
+            deleted(Task)
+            .where(Task.deleted_with_project_id == project.id)
+            # Deterministic order: it decides which row a pre-existing parent
+            # cycle detaches (``detach_if_parent_cycle`` below).
+            .order_by(Task.id.asc())
         ).scalars().all()
         # Same invariant standalone task restore enforces (``task_trash.restore_task``):
         # a restored occurrence must not land on a date a live sibling of its series
@@ -388,6 +392,12 @@ def restore_project(
             restored_tasks += 1
         if restored_ids:
             db.flush()
+            # Same guard standalone restore runs: a stored parent cycle a pre-#305
+            # database may hold through these rows must not come back live (it
+            # recursed forever in the roll-up). Checked once the whole batch is
+            # active, lowest id first, so one detach breaks each cycle.
+            for task in tasks:
+                detach_if_parent_cycle(db, task)
             # Same invariant standalone restore keeps (``task_trash.restore_task``):
             # a row coming back out of the trash re-enters every derived computation
             # it was absent from. A done occurrence whose successor was purged while
