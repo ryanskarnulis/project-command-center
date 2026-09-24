@@ -16,7 +16,11 @@ from app.services.task_recurrence import (
     reconcile,
     reschedule_occurrence,
 )
-from app.services.tasks import OccurrenceConflictError, log_task_event
+from app.services.tasks import (
+    OccurrenceConflictError,
+    detach_if_parent_cycle,
+    log_task_event,
+)
 
 
 def list_deleted_tasks(db: Session, *, limit: int = 50) -> Sequence[Task]:
@@ -154,6 +158,10 @@ def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> T
     task.skipped_at = None
     restore(task)
     db.flush()
+    # A pre-#305 database can hold a stored parent cycle through this row; coming
+    # back would make it live and recurse forever in the roll-up. Detach this row
+    # (audited) rather than 500 — see ``detach_if_parent_cycle``.
+    detach_if_parent_cycle(db, task)
     # An un-skip that lands here is the inverse of ``skip_occurrence``, and that
     # skip trashed the occurrence *with* its checklist. The subtasks were never
     # trashed on their own terms, so leaving them behind would restore the
