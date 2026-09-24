@@ -450,10 +450,10 @@ dependencies, Focus, search, trash, dashboard, docker + litestream deploy.
 Phase 2 (the local agent) is shipped end-to-end: MCP server, shared
 llama.cpp runtime + provider layer, agent loop, chat panel, eval harness,
 and the fleet agent-standard alignment (layered personality, `app.yaml`
-agent block, delegate attribution). What's next lives in the planning files:
+agent block, delegate attribution). What's next lives in
+[GitHub issues](https://github.com/ryanskarnulis/project-command-center/issues);
+merged PRs and git history are the changelog.
 
-- `TODO.md` — the backlog
-- `DONE.md` — changelog
 - [`docs/agent-design.md`](docs/agent-design.md) — the agent design record
   (tool surface, guardrails, runtime, loop, personality, evals)
 

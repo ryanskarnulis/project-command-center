@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Trash2 } from 'lucide-react'
 
 /* The M05i gesture constants, restated here rather than imported from the
-   focus or trash feature so the three routes stay independent (TODO.md has
-   the note about extracting one primitive now that a third route wants it). */
+   focus or trash feature so the three routes stay independent (#322
+   tracks extracting one primitive now that a third route wants it). */
 export const SWIPE_COMMIT_PX = 88
 export const SWIPE_CLAMP_PX = 132
 export const LONG_PRESS_MS = 500
