@@ -10,15 +10,27 @@ from sqlalchemy.orm import Session
 from app.db.models import Task, TaskDependency
 from app.services import activity
 from app.services import projects as projects_service
-from app.services.common import active, deleted, hard_delete, restore
+from app.schemas.trash import RescheduledDate, TaskRestoreUndo, UnskipUndo
+from app.services.common import (
+    RestoreUndoConflictError,
+    active,
+    deleted,
+    hard_delete,
+    restore,
+    soft_delete,
+)
 from app.services.task_recurrence import (
+    file_skipped_occurrence,
     find_live_occurrence_on,
+    find_skipped_occurrence_on,
     reconcile,
     reschedule_occurrence,
 )
 from app.services.tasks import (
     OccurrenceConflictError,
     detach_if_parent_cycle,
+    get_task,
+    list_subtasks,
     log_task_event,
 )
 
@@ -63,7 +75,21 @@ def get_deleted_task(db: Session, task_id: int) -> Task | None:
 
 
 def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> Task:
-    """Restore one trashed task.
+    """Restore one trashed task; see ``restore_task_with_undo``."""
+    restored, _ = restore_task_with_undo(db, task, defer_reconcile=defer_reconcile)
+    return restored
+
+
+def restore_task_with_undo(
+    db: Session, task: Task, *, defer_reconcile: bool = False
+) -> tuple[Task, TaskRestoreUndo]:
+    """Restore one trashed task, and say exactly what the restore changed.
+
+    The ``TaskRestoreUndo`` receipt is what ``undo_task_restore`` replays to
+    reverse this restore and only this restore (#306, #307). A restore's scope
+    is not a delete's: it may bring back one row of a subtree, or rewind a live
+    successor and hand *that* back under a different id, so the inverse cannot
+    be derived from the returned row alone.
 
     ``defer_reconcile`` suppresses the recurrence reconciliation this restore
     would normally run, leaving it to the caller (see ``restore_task_subtree``).
@@ -107,6 +133,9 @@ def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> T
             .first()
         )
         if live is not None:
+            skipped_due = task.due_date
+            # The receipt needs the dates the rewind overwrites; read them first.
+            before = {row.id: row.due_date for row in _active_subtree(db, live)}
             rewound = reschedule_occurrence(db, live, task.due_date)
             # Unscoped: this destroys the *original* skipped occurrence, which
             # the skip already replaced with fresh clones — including children
@@ -120,7 +149,16 @@ def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> T
             db.refresh(live)
             log_rewound_by_unskip(db, rewound, root=live)
             log_task_event(db, live, "restored")
-            return live
+            return live, TaskRestoreUndo(
+                task_id=live.id,
+                unskip=UnskipUndo(
+                    skipped_due_date=skipped_due,
+                    previous_due_dates=[
+                        RescheduledDate(task_id=row.id, due_date=before[row.id])
+                        for row in rewound
+                    ],
+                ),
+            )
 
     # Plain restore of a series occurrence: refuse if the date is already taken.
     # Skipping (or re-completing) after this row was trashed lands a live
@@ -142,6 +180,9 @@ def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> T
     # Read before the plain restore clears it: an un-skip with no live successor
     # has to bring the skipped occurrence's whole cascade back, not just its root.
     was_skipped = task.skipped_at is not None
+    # Also read before it is cleared: undo puts the row back into the cascade
+    # it was trashed with, so a later subtree restore still finds it.
+    prior_cascade_root = task.deleted_with_task_id
 
     # Fallback (non-recurring, or a series with no live occurrence): plain restore.
     # A restored task may point at a since-deleted project; rehome it to General
@@ -184,7 +225,138 @@ def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> T
         db.flush()
     db.refresh(task)
     log_task_event(db, task, "restored")
-    return task
+    return task, TaskRestoreUndo(
+        task_id=task.id,
+        restored_task_ids=restored_ids,
+        skipped=was_skipped,
+        deleted_with_task_id=prior_cascade_root,
+    )
+
+
+def _active_subtree(db: Session, root: Task) -> list[Task]:
+    """``root`` and its active descendants, root first."""
+    rows = [root]
+    for child in list_subtasks(db, root.id):
+        rows.extend(_active_subtree(db, child))
+    return rows
+
+
+def undo_task_restore(db: Session, undo: TaskRestoreUndo) -> None:
+    """Reverse exactly what one ``restore_task_with_undo`` changed (#306, #307).
+
+    Not an ordinary delete. ``soft_delete_task`` cascades through every active
+    descendant, but a restore brings back only the rows its receipt names — a
+    child the user restored on its own before its parent must stay active when
+    the parent's restore is undone (#307). And an un-skip rewind returned a
+    *different* row than the one restored, whose inverse is moving the series
+    back, not trashing anything (#306).
+
+    Raises ``RestoreUndoConflictError`` (nothing written) when the rows have
+    moved on since the restore — replaying the receipt would clobber that change.
+    """
+    if undo.unskip is not None:
+        _undo_unskip(db, undo.task_id, undo.unskip)
+        return
+
+    ids = undo.restored_task_ids
+    if not ids or ids[0] != undo.task_id or len(set(ids)) != len(ids):
+        raise RestoreUndoConflictError("This restore can no longer be undone.")
+    rows: list[Task] = []
+    for task_id in ids:
+        row = get_task(db, task_id)
+        if row is None:
+            raise RestoreUndoConflictError(
+                "Something this restore brought back is gone again; "
+                "nothing to undo."
+            )
+        rows.append(row)
+    _retrash_restored(db, rows, undo)
+
+
+def _retrash_restored(db: Session, rows: Sequence[Task], undo: TaskRestoreUndo) -> None:
+    """Soft-delete exactly ``rows`` (root first) — the non-cascading re-trash.
+
+    Descendants the restore brought back with the root go back as the root's
+    cascade (``deleted_with_task_id``), which is how they were trashed; the root
+    gets back the marker it carried before, if that cascade is still in the
+    trash. Active rows outside the receipt — a child restored on its own
+    beforehand — are left alone. Reconciliation mirrors ``soft_delete_task``:
+    once, from the survivors the removal can affect.
+    """
+    from app.services import task_dependencies as deps_service
+
+    root = rows[0]
+    removed = {row.id for row in rows}
+    seeds: list[int] = []
+    for row in reversed(rows):  # checklist rows before the root, like a cascade
+        if row.id != root.id:
+            row.deleted_with_task_id = root.id
+        soft_delete(row)
+        seeds.extend(edge.task_id for edge in deps_service.list_dependents(db, row.id))
+        if row.parent_task_id is not None:
+            seeds.append(row.parent_task_id)
+    prior = undo.deleted_with_task_id
+    root.deleted_with_task_id = (
+        prior if prior is not None and get_deleted_task(db, prior) is not None else None
+    )
+    if undo.skipped:
+        # An in-place un-skip goes back to being a skipped occurrence, so its
+        # date keeps blocking re-spawn and restoring it un-skips again.
+        root.skipped_at = root.deleted_at
+    db.flush()
+    for row in reversed(rows):
+        action = "skipped" if row.id == root.id and undo.skipped else "deleted"
+        log_task_event(db, row, action)
+    external = [task_id for task_id in seeds if task_id not in removed]
+    if external:
+        reconcile(db, external)
+        db.flush()
+
+
+def _undo_unskip(db: Session, task_id: int, unskip: UnskipUndo) -> None:
+    """Move a rewound series back and re-file the skipped date (#306).
+
+    The un-skip rewound the live occurrence (and its checklist) onto the skipped
+    date and purged the skipped row. Undo puts every rewound row back on the
+    date it had, keeping its id, progress and checklist, then files a skipped
+    occurrence on the vacated date (``file_skipped_occurrence``). Deleting the
+    live occurrence instead would trash the series' only actionable row.
+    """
+    skipped_due = unskip.skipped_due_date
+    live = get_task(db, task_id)
+    if live is None or live.recurrence_id is None or live.due_date != skipped_due:
+        raise RestoreUndoConflictError(
+            "This occurrence has changed since it was restored; "
+            "skip it again instead."
+        )
+    previous = {entry.task_id: entry.due_date for entry in unskip.previous_due_dates}
+    target = previous.get(live.id)
+    subtree = {row.id: row for row in _active_subtree(db, live)}
+    if (
+        target is None
+        or any(
+            row_id not in subtree or subtree[row_id].due_date != skipped_due
+            for row_id in previous
+        )
+        or find_live_occurrence_on(
+            db, live.recurrence_id, target, exclude_id=live.id
+        )
+        is not None
+        or find_skipped_occurrence_on(db, live.recurrence_id, skipped_due) is not None
+    ):
+        raise RestoreUndoConflictError(
+            "This series has changed since the occurrence was restored; "
+            "skip it again instead."
+        )
+    for row_id, due in previous.items():
+        subtree[row_id].due_date = due
+    # Off the skipped date before a row is filed there: the unique occurrence
+    # index would reject two live rows on it, even for an instant.
+    db.flush()
+    for row_id in previous:
+        log_task_event(db, subtree[row_id], "updated")
+    file_skipped_occurrence(db, live, skipped_due)
+    db.flush()
 
 
 def log_rewound_by_unskip(

@@ -256,9 +256,17 @@ gone: nothing on a deleted item is being triaged.
 The ring restores in one tap, and so does a right swipe past 88px; a left swipe
 is inert, because the only thing it could mean on this route is purge and undo
 cannot bring back a row that is gone from the database. Every single restore
-posts a five-second undo bar that issues the existing soft delete on the id it
-just restored — a project takes exactly the tasks that came back with it — and
-that is what lets the restore paths drop their confirms. `⋯` opens a sheet with
+posts a five-second undo bar, and that is what lets the restore paths drop
+their confirms. Undo is **not** a delete of the restored id: a delete cascades
+through children restored on their own beforehand (#307), and un-skipping a
+recurring occurrence hands back its rewound successor under a different id
+(#306). Instead the restore (`POST /api/trash/tasks/{id}/restore`, or the
+project restore route) returns an `undo` receipt of exactly what it changed,
+and `POST /api/trash/{tasks,projects}/undo-restore` replays it backwards: only
+the restored rows go back to trash (with their cascade markers), an un-skip
+moves the series back to its later date and re-files the skipped occurrence,
+and a project re-archives its tasks under it. The server answers 409, writing
+nothing, if those rows moved on inside the five seconds. `⋯` opens a sheet with
 Restore, **Restore without its tasks** (projects with archived tasks; the
 question desktop asks as a `window.confirm`) and **Delete forever**, which keeps
 its confirm and names the full purge scope. **Select** (a foot row, or a 500ms

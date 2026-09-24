@@ -4,8 +4,15 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { deleteProject, listProjects, purgeProject, restoreProject } from '../../../api/projects'
 import { deleteTask, purgeTask, restoreTask } from '../../../api/tasks'
-import { emptyTrash, getTrash, purgeSelected } from '../../../api/trash'
-import type { Trash } from '../../../types/trash'
+import {
+  emptyTrash,
+  getTrash,
+  purgeSelected,
+  restoreTrashedTask,
+  undoProjectRestore,
+  undoTaskRestore,
+} from '../../../api/trash'
+import type { ProjectRestoreUndo, TaskRestoreUndo, Trash } from '../../../types/trash'
 import { TrashPage } from '../TrashPage'
 import { SWIPE_COMMIT_PX } from './TrashSwipeRow'
 
@@ -15,6 +22,9 @@ vi.mock('../../../api/trash', () => ({
   getTrash: vi.fn(),
   emptyTrash: vi.fn(),
   purgeSelected: vi.fn(),
+  restoreTrashedTask: vi.fn(),
+  undoTaskRestore: vi.fn(),
+  undoProjectRestore: vi.fn(),
 }))
 vi.mock('../../../api/projects', () => ({
   listProjects: vi.fn(),
@@ -33,6 +43,18 @@ const mockPurgeTask = vi.mocked(purgeTask)
 const mockPurgeProject = vi.mocked(purgeProject)
 const mockPurgeSelected = vi.mocked(purgeSelected)
 const mockEmptyTrash = vi.mocked(emptyTrash)
+const mockRestoreTrashedTask = vi.mocked(restoreTrashedTask)
+const mockUndoTaskRestore = vi.mocked(undoTaskRestore)
+const mockUndoProjectRestore = vi.mocked(undoProjectRestore)
+
+const projectUndo: ProjectRestoreUndo = { project_id: 1, restored_task_ids: [5], unarchived_task_ids: [] }
+const taskUndo = (task_id: number): TaskRestoreUndo => ({
+  task_id,
+  restored_task_ids: [task_id],
+  skipped: false,
+  deleted_with_task_id: null,
+  unskip: null,
+})
 
 const DELETED_AT = new Date(Date.now() - 2 * 86_400_000).toISOString()
 
@@ -98,8 +120,11 @@ describe('TrashPage — mobile handoff (M08f)', () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     vi.mocked(listProjects).mockResolvedValue([])
     mockGetTrash.mockResolvedValue(trash)
-    mockRestoreProject.mockResolvedValue({ project: trash.projects[0], restored_task_count: 3 })
+    mockRestoreProject.mockResolvedValue({ project: trash.projects[0], restored_task_count: 3, undo: projectUndo })
     mockRestoreTask.mockResolvedValue(trash.tasks[1])
+    mockRestoreTrashedTask.mockResolvedValue({ task: trash.tasks[1], undo: taskUndo(6) })
+    mockUndoTaskRestore.mockResolvedValue()
+    mockUndoProjectRestore.mockResolvedValue()
     mockDeleteProject.mockResolvedValue()
     mockDeleteTask.mockResolvedValue()
     // jsdom has no <dialog>.showModal; the sheets need the two methods.
@@ -135,7 +160,7 @@ describe('TrashPage — mobile handoff (M08f)', () => {
     expect(screen.getByRole('button', { name: 'Select' })).toBeInTheDocument()
   })
 
-  it('restores from the ring without a confirm and posts an undo that re-trashes the row', async () => {
+  it('restores from the ring without a confirm and posts an undo that replays the restore receipt', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const confirm = vi.spyOn(window, 'confirm')
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
@@ -147,8 +172,58 @@ describe('TrashPage — mobile handoff (M08f)', () => {
     const undo = await screen.findByRole('status')
     expect(undo).toHaveTextContent('Restored · Old Wiki Rewrite')
     await user.click(within(undo).getByRole('button', { name: 'Undo' }))
-    await waitFor(() => expect(mockDeleteProject).toHaveBeenCalledWith(1))
+    // The server's receipt, not an ordinary (cascading) project delete.
+    await waitFor(() => expect(mockUndoProjectRestore).toHaveBeenCalledWith(projectUndo))
+    expect(mockDeleteProject).not.toHaveBeenCalled()
     expect(await screen.findByText('Moved “Old Wiki Rewrite” back to the trash.')).toBeInTheDocument()
+  })
+
+  it('undoes a task restore with its receipt instead of a cascading delete (#307)', async () => {
+    const user = userEvent.setup()
+    renderMobile()
+    await user.click(await screen.findByRole('button', { name: 'Restore task Trial the second UPS unit' }))
+    await waitFor(() => expect(mockRestoreTrashedTask).toHaveBeenCalledWith(6))
+    await user.click(within(await screen.findByRole('status')).getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(mockUndoTaskRestore).toHaveBeenCalledWith(taskUndo(6)))
+    expect(mockDeleteTask).not.toHaveBeenCalled()
+    expect(await screen.findByText('Moved “Trial the second UPS unit” back to the trash.')).toBeInTheDocument()
+  })
+
+  it('undoes an un-skip that handed back a different task id (#306)', async () => {
+    // Restoring skipped occurrence 6 rewinds its live successor 42 onto its
+    // date and purges row 6: the response names 42, and 6 no longer exists.
+    const unskipUndo: TaskRestoreUndo = {
+      task_id: 42,
+      restored_task_ids: [],
+      skipped: false,
+      deleted_with_task_id: null,
+      unskip: {
+        skipped_due_date: '2026-09-23',
+        previous_due_dates: [{ task_id: 42, due_date: '2026-09-24' }],
+      },
+    }
+    mockRestoreTrashedTask.mockResolvedValueOnce({
+      task: { ...trash.tasks[1], id: 42, deleted_at: null },
+      undo: unskipUndo,
+    })
+    const user = userEvent.setup()
+    renderMobile()
+    await user.click(await screen.findByRole('button', { name: 'Restore task Trial the second UPS unit' }))
+    await user.click(within(await screen.findByRole('status')).getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(mockUndoTaskRestore).toHaveBeenCalledWith(unskipUndo))
+    // Neither the stale id (a 404) nor the live successor (the series' only
+    // actionable occurrence) is deleted.
+    expect(mockDeleteTask).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('shows the reason when the server refuses a stale undo', async () => {
+    mockUndoTaskRestore.mockRejectedValueOnce(new Error('This restore can no longer be undone.'))
+    const user = userEvent.setup()
+    renderMobile()
+    await user.click(await screen.findByRole('button', { name: 'Restore task Trial the second UPS unit' }))
+    await user.click(within(await screen.findByRole('status')).getByRole('button', { name: 'Undo' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('This restore can no longer be undone.')
   })
 
   it('lets the undo bar expire after five seconds', async () => {
@@ -159,11 +234,12 @@ describe('TrashPage — mobile handoff (M08f)', () => {
     expect(await screen.findByText('Undo')).toBeInTheDocument()
     act(() => { vi.advanceTimersByTime(5000) })
     expect(screen.queryByText('Undo')).not.toBeInTheDocument()
+    expect(mockUndoTaskRestore).not.toHaveBeenCalled()
     expect(mockDeleteTask).not.toHaveBeenCalled()
   })
 
   it('does not arm undo when the restore failed', async () => {
-    mockRestoreTask.mockRejectedValueOnce(new Error('Restore failed'))
+    mockRestoreTrashedTask.mockRejectedValueOnce(new Error('Restore failed'))
     const user = userEvent.setup()
     renderMobile()
     await user.click(await screen.findByRole('button', { name: 'Restore task Trial the second UPS unit' }))
@@ -175,11 +251,11 @@ describe('TrashPage — mobile handoff (M08f)', () => {
     renderMobile()
     const row = (await screen.findByText('Trial the second UPS unit')).closest('.trash-swipe-content')!
     swipe(row, -SWIPE_COMMIT_PX - 20)
-    expect(mockRestoreTask).not.toHaveBeenCalled()
+    expect(mockRestoreTrashedTask).not.toHaveBeenCalled()
     swipe(row, SWIPE_COMMIT_PX - 10)
-    expect(mockRestoreTask).not.toHaveBeenCalled()
+    expect(mockRestoreTrashedTask).not.toHaveBeenCalled()
     swipe(row, SWIPE_COMMIT_PX + 10)
-    await waitFor(() => expect(mockRestoreTask).toHaveBeenCalledWith(6))
+    await waitFor(() => expect(mockRestoreTrashedTask).toHaveBeenCalledWith(6))
     expect(await screen.findByText('Undo')).toBeInTheDocument()
   })
 

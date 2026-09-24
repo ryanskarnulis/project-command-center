@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MoreHorizontal, RotateCcw, SlidersHorizontal, SquareCheck, Trash2, X } from 'lucide-react'
 import { useTrashCount } from '../trashCountContext'
-import { useTrash, type SelectedTrashItem, type TrashKind } from '../useTrash'
+import { useTrash, type RestoreUndo, type SelectedTrashItem, type TrashKind } from '../useTrash'
 import { TrashFilterSheet, TrashRowSheet } from './TrashSheets'
 import { TrashSwipeRow } from './TrashSwipeRow'
 import {
@@ -37,8 +37,9 @@ type Mode = 'browse' | 'select'
 
 interface PendingUndo {
   label: string
-  kind: TrashKind
-  id: number
+  /** The server's account of what the restore changed — never the clicked row's
+   * id, which an un-skip replaces with its successor's (#306). */
+  undo: RestoreUndo
 }
 
 const GROUPS: { kind: TrashKind; label: string }[] = [
@@ -143,11 +144,11 @@ export function MobileTrashPage() {
   /** One restore, from the ring, the swipe or the sheet. Cheap, so no confirm; recoverable, so an undo bar. */
   async function restore(row: TrashRow, bringTasks = row.archivedTaskCount > 0): Promise<void> {
     setRowTarget(null)
-    const ok =
+    const undo =
       row.kind === 'projects'
         ? await restoreProjectById(row.id, row.title, row.archivedTaskCount, bringTasks)
         : await restoreTaskById(row.id, row.title)
-    if (ok) armUndo({ label: row.title, kind: row.kind, id: row.id })
+    if (undo) armUndo({ label: row.title, undo })
   }
 
   // Purge is irreversible, so every purge path is gated by a confirm naming the
@@ -397,9 +398,9 @@ export function MobileTrashPage() {
           <button
             type="button"
             onClick={() => {
-              const { kind, id, label } = undo
+              const { undo: receipt, label } = undo
               dismissUndo()
-              void undoRestore(kind, id, label)
+              void undoRestore(receipt, label)
             }}
           >
             Undo

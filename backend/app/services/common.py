@@ -19,6 +19,16 @@ ModelT = TypeVar("ModelT", bound=SoftDeleteMixin)
 IN_CHUNK = 900
 
 
+class RestoreUndoConflictError(ValueError):
+    """A restore's undo receipt no longer matches the rows it describes (409).
+
+    Undo reverses exactly what one restore changed (#306, #307). If the rows it
+    names have moved on since — trashed again, rescheduled, joined by new work —
+    replaying the receipt would overwrite that later change, so the undo is
+    refused instead and nothing is written.
+    """
+
+
 def chunked(ids: Sequence[int], size: int = IN_CHUNK) -> Iterable[Sequence[int]]:
     """Split ``ids`` into slices small enough to bind as one ``IN (...)`` list.
 
