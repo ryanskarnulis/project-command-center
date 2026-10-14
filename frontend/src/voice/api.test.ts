@@ -71,6 +71,19 @@ describe('transcribe', () => {
     expect(signals[0]?.aborted).toBe(true)
   })
 
+  it('sends the interaction id as X-Interaction-Id only when one is given', async () => {
+    // The vendored MicButton passes whatever its optional beginUtterance hook
+    // returned (chess's latency tracing); PCC passes no hook, so no header.
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify({ text: 'hello' }), { status: 200 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await transcribe(new Blob(['x']), 'clip.wav', 'a1b2c3d4e5f6')
+    await transcribe(new Blob(['x']))
+    expect(fetchMock.mock.calls[0][1]?.headers).toEqual({ 'X-Interaction-Id': 'a1b2c3d4e5f6' })
+    expect(fetchMock.mock.calls[1][1]?.headers).toBeUndefined()
+  })
+
   it('clears the deadline once the transcript has been read', async () => {
     // A completed request must not leave a timer armed to abort nothing.
     vi.useFakeTimers()
