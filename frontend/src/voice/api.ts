@@ -30,12 +30,18 @@ async function requestTranscript(
   audio: Blob,
   filename: string,
   signal: AbortSignal,
+  interactionId: string | undefined,
 ): Promise<string | null> {
   const form = new FormData()
   // The filename extension tells the speech backend the container format
   // (webm from MediaRecorder push-to-talk, wav from the hands-free VAD).
   form.append('audio', audio, filename)
-  const res = await fetch('/api/voice/transcribe', { method: 'POST', body: form, signal })
+  const res = await fetch('/api/voice/transcribe', {
+    method: 'POST',
+    body: form,
+    signal,
+    ...(interactionId ? { headers: { 'X-Interaction-Id': interactionId } } : {}),
+  })
   if (!res.ok) return null
   const data = (await res.json()) as { text?: unknown }
   return typeof data.text === 'string' ? data.text : null
@@ -53,10 +59,15 @@ async function requestTranscript(
  * a programmer error, and the vendored MicButton relies on the null to leave
  * 'working'/'transcribing'. A rejection escaping here strands the mic in a
  * state the user can't tap out of.
+ *
+ * `interactionId` is whatever the vendored MicButton's optional
+ * `beginUtterance` hook returned (chess's latency tracing); it rides along as
+ * `X-Interaction-Id`. PCC passes no hook today, so no header is sent.
  */
 export async function transcribe(
   audio: Blob,
   filename = 'clip.webm',
+  interactionId?: string,
 ): Promise<string | null> {
   // Expiry has to convert into the same "unavailable" null every other failure
   // produces. Aborting alone would not be enough: a fetch that ignores the
@@ -74,7 +85,10 @@ export async function transcribe(
   }, TRANSCRIBE_DEADLINE_MS)
 
   try {
-    return await Promise.race([requestTranscript(audio, filename, controller.signal), expired])
+    return await Promise.race([
+      requestTranscript(audio, filename, controller.signal, interactionId),
+      expired,
+    ])
   } catch {
     return null
   } finally {

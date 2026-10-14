@@ -153,10 +153,58 @@ describe('MicButton TTS transport failures', () => {
 
     events?.onSpeechEnd(new Float32Array(16))
 
-    await waitFor(() => expect(onTranscript).toHaveBeenCalledWith('add milk'))
+    await waitFor(() => expect(onTranscript).toHaveBeenCalledWith('add milk', undefined))
     // Not wedged in 'working' with the VAD paused.
     await waitFor(() => expect(screen.getByRole('button')).toHaveClass('mic-listening'))
     expect(resume).toHaveBeenCalled()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
+describe('MicButton agent-turn failures', () => {
+  it('hands-free: an agent turn that rejects ends the session instead of hanging in working', async () => {
+    // PCC's turn paths resolve null rather than reject, but MicButton doesn't
+    // own onTranscript's promise — chess#232: an escape here used to leave the
+    // mic on "…" with the VAD paused and nothing left to reopen it.
+    const user = userEvent.setup()
+    let events: SpeechEvents | undefined
+    createVad.mockImplementation(async (e: SpeechEvents) => {
+      events = e
+      return vad
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ text: 'add milk' }),
+        } as Response),
+      ),
+    )
+    const onTranscript = vi.fn(() => Promise.reject(new Error('turn died')))
+
+    render(<MicButton onTranscript={onTranscript} disabled={false} />)
+    await user.click(screen.getByRole('button'))
+    await waitFor(() => expect(screen.getByRole('button')).toHaveClass('mic-listening'))
+
+    events?.onSpeechEnd(new Float32Array(16))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Voice conversation stopped — tap to start again.',
+    )
+    expect(screen.getByRole('button')).toHaveClass('mic-idle')
+    expect(screen.getByRole('button')).not.toBeDisabled()
+    expect(destroy).toHaveBeenCalled()
+  })
+})
+
+describe('MicButton icons', () => {
+  it('draws the mic as a monochrome inline icon, never a color emoji', () => {
+    render(<MicButton onTranscript={vi.fn()} disabled={false} />)
+    expect(document.body.textContent).not.toMatch(/\p{Extended_Pictographic}/u)
+    const icon = screen
+      .getByRole('button', { name: 'Start voice conversation' })
+      .querySelector('svg')
+    expect(icon).toHaveAttribute('aria-hidden', 'true')
   })
 })

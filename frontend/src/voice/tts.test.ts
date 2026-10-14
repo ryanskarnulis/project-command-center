@@ -38,7 +38,7 @@ describe('playText transport failures', () => {
       'fetch',
       vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))),
     )
-    await expect(playText('hello')).resolves.toBeUndefined()
+    await expect(playText('hello')).resolves.toBe('no_audio')
   })
 
   it('leaves audioIdle resolvable after a rejected fetch', async () => {
@@ -60,7 +60,7 @@ describe('playText transport failures', () => {
         } as unknown as Response),
       ),
     )
-    await expect(playText('hello')).resolves.toBeUndefined()
+    await expect(playText('hello')).resolves.toBe('no_audio')
     await expect(audioIdle()).resolves.toBeUndefined()
     // Nothing was loaded, so nothing should have been allocated or leaked.
     expect(URL.createObjectURL).not.toHaveBeenCalled()
@@ -115,7 +115,7 @@ describe('playText transport failures', () => {
       'fetch',
       vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))),
     )
-    await expect(playText('second')).resolves.toBeUndefined()
+    await expect(playText('second')).resolves.toBe('no_audio')
     // The failed request never reached the element, so it must not revoke a
     // URL it does not own.
     expect(URL.revokeObjectURL).not.toHaveBeenCalled()
