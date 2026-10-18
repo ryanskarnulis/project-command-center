@@ -117,13 +117,11 @@ def _closure(
 
     Every walked node gets a key, empty list included, so callers can tell
     "walked, has no edges" from "never walked". Ordered by edge id, matching
-    ``list_dependencies``, because ``effective_statuses``' resolve loop breaks on
-    the first unfinished blocker.
+    ``list_dependencies``.
 
-    Deliberately does NOT filter ``Task.deleted_at``: the walk traverses *through*
-    soft-deleted tasks and they are excluded later, when the closure is loaded via
-    ``active(Task)``. Filtering here would change which nodes reach
-    ``compute_rollups`` — see ``effective_statuses``.
+    Deliberately does NOT filter ``Task.deleted_at``: callers (cycle detection,
+    the downstream walk in ``top_level_blocker_counts``) traverse *through*
+    soft-deleted tasks and drop them later where it matters.
 
     A ``WITH RECURSIVE`` CTE would collapse the remaining O(depth) to one query,
     but SQLite's recursive CTE does not terminate on a cyclic graph unless it
@@ -318,64 +316,34 @@ def effective_statuses(
 ) -> dict[int, TaskWorkflowStatus]:
     """Blocked-aware, rolled-up workflow status per active task id.
 
-    Two derivations stack here:
+    A thin view over ``tasks.compute_rollups``, which resolves roll-up and the
+    dependency cap as one computation (issue #312):
 
-    1. A checklist parent's status is rolled up from its children and never
-       written back (see ``tasks.compute_rollups``), so comparing the stored
-       column would strand a fully-done checklist as a permanent blocker — and,
-       conversely, treat a stored-done row that gained an active child as a
-       satisfied one.
+    1. A checklist parent's status is rolled up from its children's *effective*
+       statuses and never written back, so comparing the stored column would
+       strand a fully-done checklist as a permanent blocker — and, conversely,
+       treat a stored-done row that gained an active child as a satisfied one.
     2. A rolled-up ``done`` is capped to ``in_progress`` when the task itself has
-       an unfinished (transitive) dependency. A checklist parent's completion is
-       *derived* from its children and so never passes through the blocked-gate
-       that leaf completion does; without this, finishing a blocked parent's
-       children would silently satisfy anything waiting on the parent. Leaves are
-       usually kept out of this case by the completion gate and the
+       an unfinished (transitive) dependency — and because the cap is applied
+       before a status rolls up, a child held open by its own blocker holds every
+       ancestor open too. A checklist parent's completion is *derived* and so
+       never passes through the blocked-gate that leaf completion does. Leaves
+       are usually kept out of the capped case by the completion gate and the
        ``add_dependency`` guard, but not always: a leaf completed while its
-       blocker sat in the trash (so it read as not-blocked) becomes
-       stored-``done``-and-blocked again once the blocker is restored, and the cap
-       correctly demotes it here too. The cap therefore applies uniformly to
-       leaves and checklist parents alike.
+       blocker sat in the trash becomes stored-``done``-and-blocked again once
+       the blocker is restored, and the cap correctly demotes it here too.
 
-    The dependency graph is a DAG (``add_dependency`` rejects cycles); the visited
-    memo bounds the walk even against a corrupt graph. Every dependency check
-    resolves through here so it asks the same question the read model answers.
-    Missing/soft-deleted ids are absent from the result.
+    Every dependency check resolves through here so it asks the same question
+    the read model answers. Missing/soft-deleted ids are absent from the result.
     """
-    ids = set(task_ids)
+    ids = sorted(set(task_ids))
     if not ids:
         return {}
-
-    # Gather the transitive dependency closure: demoting a rolled-up-done task
-    # needs each of its (transitive) blockers' effective status too, and a blocker
-    # may sit outside the requested ids.
-    deps_of = _dependency_closure(db, ids)
-    closure = set(deps_of)
-
-    tasks = db.execute(active(Task).where(Task.id.in_(closure))).scalars().all()
+    tasks: list[Task] = []
+    for chunk in chunked(ids):
+        tasks.extend(db.execute(active(Task).where(Task.id.in_(chunk))).scalars())
     rollups = compute_rollups(db, tasks)
-    rollup_status = {t.id: rollups[t.id].workflow_status for t in tasks}
-
-    memo: dict[int, TaskWorkflowStatus] = {}
-
-    def resolve(tid: int) -> TaskWorkflowStatus | None:
-        if tid in memo:
-            return memo[tid]
-        status = rollup_status.get(tid)
-        if status is None:  # missing/soft-deleted: never a blocker
-            return None
-        memo[tid] = status  # tentative — bounds a cyclic (corrupt) graph
-        if status == TaskWorkflowStatus.done:
-            for dep_id in deps_of.get(tid, ()):
-                dep_status = resolve(dep_id)
-                if dep_status is not None and dep_status != TaskWorkflowStatus.done:
-                    status = TaskWorkflowStatus.in_progress
-                    break
-        memo[tid] = status
-        return status
-
-    resolved = {tid: resolve(tid) for tid in ids}
-    return {tid: status for tid, status in resolved.items() if status is not None}
+    return {t.id: rollups[t.id].workflow_status for t in tasks}
 
 
 def is_blocked(db: Session, task_id: int) -> bool:

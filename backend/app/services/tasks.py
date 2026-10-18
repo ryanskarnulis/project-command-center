@@ -10,12 +10,13 @@ from sqlalchemy.orm import Session, aliased
 
 from app.db.models import (
     Task,
+    TaskDependency,
     TaskPriority,
     TaskWorkflowStatus,
 )
 from app.services import activity
 from app.services import projects as projects_service
-from app.services.common import active, soft_delete
+from app.services.common import active, chunked, soft_delete
 
 
 # Fields never propagated to future occurrences by an ``edit_scope="future"``
@@ -402,16 +403,30 @@ def list_subtasks(db: Session, parent_task_id: int) -> Sequence[Task]:
 #
 # Derived, never stored (mirrors the ``is_blocked`` precedent): a parent's
 # estimate and progress summarize its subtasks.
+#
+# Roll-up and the dependency cap are ONE computation (issue #312). A task's
+# effective status is what its children's *effective* statuses say, folded with
+# its own stored status, then capped from ``done`` to ``in_progress`` while any
+# of its dependencies is not effectively done. Each half feeds the other: a
+# child's cap holds its ancestors open, and a blocker's effective status is
+# itself a roll-up. Resolving them in two passes (roll up first, cap after) let a
+# parent read ``done`` over a child that was capped open by its own blocker, so
+# a recurring parent spawned its successor early. Every surface — the read
+# model, ``list_tasks``, the dashboard, Focus, ``effective_statuses`` and
+# recurrence — now reads the status off the same ``Rollup``.
 
 
 class Rollup:
-    """Derived parent values: estimate is the subtree sum, status is rolled up.
+    """Derived values for one task: estimate, effective status, blocked-ness.
 
     ``has_subtasks`` is true only when the task has at least one active child;
     the route uses it both to override the read model and to gate writes.
-    ``subtask_status`` is what the children alone say (``_rollup_status``), or
-    ``None`` for a leaf; ``workflow_status`` is the effective status once the
-    parent's own stored status is folded in (``_effective_parent_status``).
+    ``subtask_status`` is what the children's *effective* statuses alone say
+    (``_rollup_status``), or ``None`` for a leaf. ``workflow_status`` is the
+    task's effective status: the parent's own stored status folded in
+    (``_effective_parent_status``) and then the dependency cap applied
+    (``capped_status``), so it is already the value every surface displays.
+    ``is_blocked`` is true while any active dependency is not effectively done.
     """
 
     __slots__ = (
@@ -419,6 +434,7 @@ class Rollup:
         "workflow_status",
         "has_subtasks",
         "subtask_status",
+        "is_blocked",
     )
 
     def __init__(
@@ -427,11 +443,13 @@ class Rollup:
         workflow_status: TaskWorkflowStatus,
         has_subtasks: bool,
         subtask_status: TaskWorkflowStatus | None = None,
+        is_blocked: bool = False,
     ) -> None:
         self.estimated_minutes = estimated_minutes
         self.workflow_status = workflow_status
         self.has_subtasks = has_subtasks
         self.subtask_status = subtask_status
+        self.is_blocked = is_blocked
 
 
 def _rollup_status(child_statuses: Sequence[TaskWorkflowStatus]) -> TaskWorkflowStatus:
@@ -475,110 +493,205 @@ def capped_status(
     A checklist parent's completion is derived from its children, so it never
     passes the blocked-gate that leaf completion does; a parent all of whose
     children are done but which itself waits on an unfinished dependency must not
-    read as ``done``. Shared by the read model, ``list_tasks`` filtering, and (in
-    spirit) ``task_dependencies.effective_statuses`` so every surface agrees.
+    read as ``done``. Applied inside ``_resolve_rollup`` at every depth, so a
+    ``Rollup.workflow_status`` is already capped; re-applying it is a no-op.
     """
     if is_blocked and rollup_status == TaskWorkflowStatus.done:
         return TaskWorkflowStatus.in_progress
     return rollup_status
 
 
-def _children_map_for(
-    db: Session, roots: Sequence[Task]
-) -> dict[int | None, list[Task]]:
-    """``parent_id -> children`` over ``roots`` and all their active descendants.
+class _StatusGraph:
+    """Everything one effective-status resolution needs, loaded up front.
 
-    Only the requested subtree is loaded, not the whole task table: we descend
-    level by level from the root ids, each query an indexed lookup on
-    ``parent_task_id``. A leaf read is a single zero-row query. The returned map
-    is complete for resolving the roll-up of every task in ``roots`` (which
-    ``_resolve_rollup`` only ever walks downward through), and no more.
+    ``nodes`` holds every task reachable from the requested roots by following
+    active child links *and* active dependency edges (to active blockers), in
+    any interleaving: a blocker's status is its own roll-up, and that roll-up's
+    children may wait on yet more blockers. ``by_parent`` maps a parent id to its
+    active children; ``deps_of`` maps a task id to its active blockers' ids in
+    edge-id order.
     """
+
+    __slots__ = ("nodes", "by_parent", "deps_of")
+
+    def __init__(
+        self,
+        nodes: dict[int, Task],
+        by_parent: dict[int | None, list[Task]],
+        deps_of: dict[int, list[int]],
+    ) -> None:
+        self.nodes = nodes
+        self.by_parent = by_parent
+        self.deps_of = deps_of
+
+
+def _load_status_graph(db: Session, roots: Sequence[Task]) -> _StatusGraph:
+    """Load ``roots`` plus their closure over children and blockers.
+
+    Only what the resolution can reach is loaded, not the whole task table: we
+    descend level by level from the root ids, two indexed lookups per level (the
+    frontier's active children, and its active dependency edges joined to their
+    active blockers). A lone leaf with no edges is two zero-row queries.
+    """
+    nodes: dict[int, Task] = {t.id: t for t in roots}
     by_parent: dict[int | None, list[Task]] = {}
-    frontier = [t.id for t in roots]
-    seen: set[int] = set(frontier)
+    deps_of: dict[int, list[int]] = {}
+    frontier = sorted(nodes)
     while frontier:
-        rows = (
-            db.execute(
-                active(Task).where(Task.parent_task_id.in_(frontier))
+        discovered: set[int] = set()
+        for chunk in chunked(frontier):
+            children = (
+                db.execute(
+                    active(Task)
+                    .where(Task.parent_task_id.in_(chunk))
+                    .order_by(Task.id)
+                )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
+            for child in children:
+                by_parent.setdefault(child.parent_task_id, []).append(child)
+                if child.id not in nodes:
+                    nodes[child.id] = child
+                    discovered.add(child.id)
+            edges = db.execute(
+                select(TaskDependency.task_id, Task)
+                .join(Task, Task.id == TaskDependency.depends_on_task_id)
+                .where(
+                    TaskDependency.deleted_at.is_(None),
+                    TaskDependency.task_id.in_(chunk),
+                    Task.deleted_at.is_(None),
+                )
+                .order_by(TaskDependency.id)
+            ).all()
+            for dependent_id, blocker in edges:
+                deps_of.setdefault(int(dependent_id), []).append(blocker.id)
+                if blocker.id not in nodes:
+                    nodes[blocker.id] = blocker
+                    discovered.add(blocker.id)
+        frontier = sorted(discovered)
+    return _StatusGraph(nodes, by_parent, deps_of)
+
+
+def _full_set_status_graph(db: Session, tasks: Sequence[Task]) -> _StatusGraph:
+    """The status graph when ``tasks`` is already the complete active set.
+
+    Children come from the passed rows; the dependency edges are one query over
+    every active edge between active tasks (both endpoints are then in ``tasks``).
+    """
+    nodes = {t.id: t for t in tasks}
+    by_parent: dict[int | None, list[Task]] = {}
+    for row in tasks:
+        by_parent.setdefault(row.parent_task_id, []).append(row)
+    deps_of: dict[int, list[int]] = {}
+    blocker = aliased(Task)
+    dependent = aliased(Task)
+    rows = db.execute(
+        select(TaskDependency.task_id, TaskDependency.depends_on_task_id)
+        .join(dependent, dependent.id == TaskDependency.task_id)
+        .join(blocker, blocker.id == TaskDependency.depends_on_task_id)
+        .where(
+            TaskDependency.deleted_at.is_(None),
+            dependent.deleted_at.is_(None),
+            blocker.deleted_at.is_(None),
         )
-        next_frontier: list[int] = []
-        for row in rows:
-            by_parent.setdefault(row.parent_task_id, []).append(row)
-            if row.id not in seen:
-                seen.add(row.id)
-                next_frontier.append(row.id)
-        frontier = next_frontier
-    return by_parent
+        .order_by(TaskDependency.id)
+    ).all()
+    for dependent_id, blocker_id in rows:
+        if int(dependent_id) in nodes and int(blocker_id) in nodes:
+            deps_of.setdefault(int(dependent_id), []).append(int(blocker_id))
+    return _StatusGraph(nodes, by_parent, deps_of)
 
 
 def _resolve_rollup(
     task: Task,
-    by_parent: dict[int | None, list[Task]],
+    graph: _StatusGraph,
     memo: dict[int, Rollup],
-    in_progress: set[int] | None = None,
+    path: dict[int, TaskWorkflowStatus | None],
 ) -> Rollup:
-    """Roll-up of ``task`` from its active subtree, memoized by id.
+    """Effective roll-up of ``task``, memoized by id.
 
-    ``in_progress`` holds the ids on the current recursion path. The API can no
-    longer commit a parent cycle (issue #305), but a pre-existing one must not
-    recurse forever: a child already on the path is skipped as if it weren't
-    there.
+    Children are resolved first (their *effective* statuses, caps included), the
+    parent's own status is folded in, and only then are the task's own blockers
+    consulted for the cap. Blockers resolve through this same function, so a cap
+    anywhere below or upstream propagates.
+
+    ``path`` holds the tasks on the current recursion path, mapped to their
+    uncapped status once known. The API can no longer commit a parent cycle
+    (issue #305) or a dependency cycle, but a mixed one is legal (a subtask that
+    waits on its own ancestor), and corrupt data must not recurse forever: a
+    child already on the path is skipped as if it weren't there, and a blocker
+    already on the path counts with its tentative status — or as unfinished
+    while that status is still being resolved, so a cycle can never complete
+    anything.
     """
     cached = memo.get(task.id)
     if cached is not None:
         return cached
-    if in_progress is None:
-        in_progress = set()
-    children = [c for c in by_parent.get(task.id, []) if c.id not in in_progress]
-    if not children:
-        # Leaf: its own stored values stand.
-        rollup = Rollup(task.estimated_minutes, task.workflow_status, False)
-        memo[task.id] = rollup
-        return rollup
-    in_progress.add(task.id)
-    child_rollups = [
-        _resolve_rollup(c, by_parent, memo, in_progress) for c in children
-    ]
-    in_progress.discard(task.id)
-    minutes = [r.estimated_minutes for r in child_rollups if r.estimated_minutes]
-    total = sum(minutes) if minutes else None
-    subtask_status = _rollup_status([r.workflow_status for r in child_rollups])
-    status = _effective_parent_status(subtask_status, task.workflow_status)
-    rollup = Rollup(total, status, True, subtask_status)
+    path[task.id] = None
+    children = [c for c in graph.by_parent.get(task.id, []) if c.id not in path]
+    subtask_status: TaskWorkflowStatus | None = None
+    if children:
+        child_rollups = [_resolve_rollup(c, graph, memo, path) for c in children]
+        minutes = [r.estimated_minutes for r in child_rollups if r.estimated_minutes]
+        estimate = sum(minutes) if minutes else None
+        subtask_status = _rollup_status([r.workflow_status for r in child_rollups])
+        status = _effective_parent_status(subtask_status, task.workflow_status)
+    else:
+        # Leaf: its own stored values stand (before the cap).
+        estimate = task.estimated_minutes
+        status = task.workflow_status
+    path[task.id] = status
+
+    blocked = False
+    for dep_id in graph.deps_of.get(task.id, ()):
+        if dep_id in path:
+            dep_status = path[dep_id] or TaskWorkflowStatus.in_progress
+        else:
+            dep_status = _resolve_rollup(
+                graph.nodes[dep_id], graph, memo, path
+            ).workflow_status
+        if dep_status != TaskWorkflowStatus.done:
+            blocked = True
+            break
+    del path[task.id]
+
+    rollup = Rollup(
+        estimate,
+        capped_status(status, blocked),
+        bool(children),
+        subtask_status,
+        blocked,
+    )
     memo[task.id] = rollup
     return rollup
 
 
-def _rollups_over(
-    tasks: Sequence[Task], by_parent: dict[int | None, list[Task]]
-) -> dict[int, Rollup]:
-    """Roll-ups for ``tasks`` and, incidentally, every descendant walked to get them.
+def _rollups_over(tasks: Sequence[Task], graph: _StatusGraph) -> dict[int, Rollup]:
+    """Roll-ups for ``tasks`` and, incidentally, every node walked to get them.
 
-    ``_resolve_rollup`` memoizes by id as it recurses, so the memo is a complete
-    map for the whole subtree — callers wanting only the roots project it down.
+    ``_resolve_rollup`` memoizes by id as it recurses, so the memo covers each
+    requested task's whole subtree (plus any blockers it had to resolve) —
+    callers wanting only the roots project it down.
     """
     memo: dict[int, Rollup] = {}
     for task in tasks:
-        _resolve_rollup(task, by_parent, memo)
+        _resolve_rollup(task, graph, memo, {})
     return memo
 
 
 def compute_rollups(db: Session, tasks: Sequence[Task]) -> dict[int, Rollup]:
     """Derived roll-up per task id, resolved without an N+1 over children.
 
-    ``tasks`` may be any subset, so the child map is read fresh — but scoped to
-    the requested subtree (``roots`` + descendants), not the whole task table. A
-    caller that already holds the entire active set (the dashboard's open-task
+    ``tasks`` may be any subset, so the graph is read fresh — but scoped to what
+    the requested tasks can reach (subtrees and blockers), not the whole task
+    table. A caller that already holds the entire active set (the dashboard's
     scan) should use ``compute_rollups_for_full_set`` to skip the reread.
 
     Keyed by the ids of ``tasks`` only; a caller that also needs the descendants'
     roll-ups should use ``compute_subtree_rollups`` rather than a second pass.
     """
-    memo = _rollups_over(tasks, _children_map_for(db, tasks))
+    memo = _rollups_over(tasks, _load_status_graph(db, tasks))
     return {t.id: memo[t.id] for t in tasks}
 
 
@@ -587,22 +700,22 @@ def compute_subtree_rollups(db: Session, roots: Sequence[Task]) -> dict[int, Rol
 
     Resolving a root already resolves each of its children on the way, so a caller
     that reasons about both (Focus ranks parents, then falls back to their
-    subtasks) gets the whole subtree for the cost of ``compute_rollups``.
+    subtasks) gets the whole subtree for the cost of ``compute_rollups``. Blockers
+    resolved along the way are in the result too.
     """
-    return _rollups_over(roots, _children_map_for(db, roots))
+    return _rollups_over(roots, _load_status_graph(db, roots))
 
 
-def compute_rollups_for_full_set(tasks: Sequence[Task]) -> dict[int, Rollup]:
+def compute_rollups_for_full_set(
+    db: Session, tasks: Sequence[Task]
+) -> dict[int, Rollup]:
     """Roll-ups for ``tasks`` when it is already the complete active set.
 
     Builds the ``parent_id -> children`` map from the passed rows instead of
-    re-reading it (``compute_rollups`` re-queries because it accepts subsets), so
-    the caller's single fetch is the only query. No database access.
+    re-reading it (``compute_rollups`` re-queries because it accepts subsets);
+    the only query is the one over active dependency edges.
     """
-    by_parent: dict[int | None, list[Task]] = {}
-    for row in tasks:
-        by_parent.setdefault(row.parent_task_id, []).append(row)
-    return _rollups_over(tasks, by_parent)
+    return _rollups_over(tasks, _full_set_status_graph(db, tasks))
 
 
 def get_rollup(db: Session, task: Task) -> Rollup:
@@ -795,14 +908,11 @@ def list_tasks(
     # ``exclude_done``, matching the callers that set ``exclude_done =
     # workflow_status is None``.
     if filtering and tasks:
-        # Local import: task_dependencies imports this module (cycle otherwise).
-        from app.services import task_dependencies
-
+        # The roll-up already carries the dependency cap at every depth.
         rollups = compute_rollups(db, tasks)
-        blocked = task_dependencies.blocked_task_ids(db, [t.id for t in tasks])
 
         def _effective(task: Task) -> TaskWorkflowStatus:
-            return capped_status(rollups[task.id].workflow_status, task.id in blocked)
+            return rollups[task.id].workflow_status
 
         if workflow_status is not None:
             tasks = [t for t in tasks if _effective(t) == workflow_status]

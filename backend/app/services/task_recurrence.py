@@ -98,8 +98,8 @@ def next_occurrence_date(
     ``effective_status`` — not the stored one — because a checklist parent's
     status is derived: it stays stored-``open`` forever while its rolled-up state
     goes ``done``, and reading the stored value made such a parent advertise a
-    date whose occurrence had already been spawned. Callers resolve it with
-    ``capped_status`` (they already compute the rollups for the same payload).
+    date whose occurrence had already been spawned. Callers pass the roll-up's
+    ``workflow_status`` (they already compute the rollups for the same payload).
 
     ``None`` also when the next date is past ``date.max``: reads must never fail.
     Writers reject such a recurrence up front, so this can only be a row poisoned
@@ -375,7 +375,7 @@ def reconcile(db: Session, task_ids: Iterable[int]) -> list[Task]:
 
     The single recurrence entry point. Recurrence used to hang off the stored
     ``open -> done`` transition, but "complete" in this app is *derived* —
-    ``capped_status(roll-up, blocked)`` — and a task enters that state through
+    the roll-up's effective status, capped at every depth — and a task enters that state through
     doors that are not status writes: its last child completing, its last blocking
     dependency being removed or trashed, or a ``repeat_interval`` being attached to
     something already done. Each of those used to leave the series stalled. So
@@ -393,10 +393,9 @@ def reconcile(db: Session, task_ids: Iterable[int]) -> list[Task]:
     when the next date is already taken. Returns the occurrences that exist for the
     reconciled series, newest work first for the caller that wants to report one.
     """
-    # Local imports: both modules build on this one's dependencies — a top-level
-    # import would cycle (same deliberate inversion as tasks.py's).
+    # Local import: task_dependencies builds on this module's dependencies — a
+    # top-level import would cycle (same deliberate inversion as tasks.py's).
     from app.services import task_dependencies as deps_service
-    from app.services import tasks as tasks_service
 
     spawned: list[Task] = []
     queue = list(task_ids)
@@ -412,10 +411,9 @@ def reconcile(db: Session, task_ids: Iterable[int]) -> list[Task]:
         is_series_head = task.repeat_interval is not None and task.due_date is not None
         if task.parent_task_id is not None and not is_series_head:
             queue.append(task.parent_task_id)
-        effective = tasks_service.capped_status(
-            get_rollup(db, task).workflow_status,
-            deps_service.is_blocked(db, current_id),
-        )
+        # Already capped at every depth: a parent over a subtask held open by
+        # its own blocker is not complete yet (issue #312).
+        effective = get_rollup(db, task).workflow_status
         if effective is not TaskWorkflowStatus.done:
             continue
         if is_series_head:

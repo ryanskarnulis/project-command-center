@@ -77,14 +77,13 @@ def _effective_estimate(task: Task, rollups: Rollups) -> tuple[int, bool]:
 
 
 def _effective_status(task: Task, rollups: Rollups) -> TaskWorkflowStatus:
-    """The rolled-up status — the stored column rolled up over children.
+    """The effective status — rolled up over children, dependency cap included.
 
-    This deliberately does NOT apply the dependency cap (``capped_status``) that
-    the read model uses: the plan splits blocked tasks out into their own
+    The roll-up already applies the cap at every depth (``tasks._resolve_rollup``),
+    so a parent over a subtask held open by its own blocker ranks as under way
+    rather than done. Blocked tasks themselves are split into their own
     ``blocked`` list before any status is displayed or scheduled (see
-    ``get_focus_plan`` and ``_schedulable_subtasks``), so a blocked task's status
-    is never rendered here and the roll-up alone is the right input for ranking a
-    schedulable (non-blocked) task, where roll-up and effective status coincide.
+    ``get_focus_plan`` and ``_schedulable_subtasks``).
     """
     return rollups[task.id].workflow_status
 
