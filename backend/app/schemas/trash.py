@@ -123,17 +123,20 @@ class TaskRestoreResult(BaseModel):
 class ProjectRestoreUndo(MutationModel):
     """Receipt for one project restore — ``POST /api/trash/projects/undo-restore``.
 
-    ``restored_task_ids`` came back with the project (``restore_tasks``);
-    ``unarchived_task_ids`` stayed in the trash but lost their cascade marker,
-    moving into the standalone Tasks trash. Undo re-archives both under the
-    project.
+    ``restore_event_id`` is the project's ``restored`` activity event, the
+    restore's last write. The receipt names no tasks (#314): a project can own
+    any number of them, so an id list would either need an arbitrary cap — the
+    10,000-item request cap once made projects with more archived tasks
+    unrestorable — or an unbounded client payload. The restore logs one task
+    event per row it changes (``restored`` for a task it brought back,
+    ``updated`` for one it moved into the standalone Tasks trash), all between
+    the project's own ``deleted`` event and this one, so undo recomputes both
+    sets from the log. It can't be forged into naming someone else's rows, and
+    a newer restore of the project supersedes it, as with tasks (#313).
     """
 
     project_id: EntityId
-    restored_task_ids: Annotated[list[EntityId], Field(max_length=MAX_PURGE_IDS)] = []
-    unarchived_task_ids: Annotated[
-        list[EntityId], Field(max_length=MAX_PURGE_IDS)
-    ] = []
+    restore_event_id: EntityId
 
 
 class ProjectRestoreResult(BaseModel):

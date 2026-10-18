@@ -47,7 +47,7 @@ const mockRestoreTrashedTask = vi.mocked(restoreTrashedTask)
 const mockUndoTaskRestore = vi.mocked(undoTaskRestore)
 const mockUndoProjectRestore = vi.mocked(undoProjectRestore)
 
-const projectUndo: ProjectRestoreUndo = { project_id: 1, restored_task_ids: [5], unarchived_task_ids: [] }
+const projectUndo: ProjectRestoreUndo = { project_id: 1, restore_event_id: 40 }
 const taskUndo = (task_id: number): TaskRestoreUndo => ({
   task_id,
   restore_event_id: 100 + task_id,

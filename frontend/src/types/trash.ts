@@ -56,8 +56,11 @@ export interface TaskRestoreResult {
 
 export interface ProjectRestoreUndo {
   project_id: number
-  restored_task_ids: number[]
-  unarchived_task_ids: number[]
+  /**
+   * The project's own `restored` event. The receipt names no tasks: the server
+   * recomputes which rows the restore changed from that event (#314).
+   */
+  restore_event_id: number
 }
 
 export interface TrashCountResult {

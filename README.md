@@ -270,7 +270,11 @@ nothing, if those rows moved on inside the five seconds. A task receipt is
 bound to its own restore by that restore's `restored` activity event
 (`restore_event_id`): any later activity on a restored row (an edit, a
 completion) makes it stale, and so does a newer restore of the same task, so
-an old receipt never revives after a delete/restore cycle (#313). `⋯` opens a sheet with
+an old receipt never revives after a delete/restore cycle (#313). A project
+receipt is just the project id and its `restored` event: it names no tasks,
+because a project can own any number of them, so the server recomputes the
+rows that restore brought back or moved to the Tasks trash from the task
+events it logged (#314). `⋯` opens a sheet with
 Restore, **Restore without its tasks** (projects with archived tasks; the
 question desktop asks as a `window.confirm`) and **Delete forever**, which keeps
 its confirm and names the full purge scope. **Select** (a foot row, or a 500ms
