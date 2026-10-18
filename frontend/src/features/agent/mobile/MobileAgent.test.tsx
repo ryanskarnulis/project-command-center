@@ -16,7 +16,7 @@ import type { AgentMessage, Conversation, ConversationDetail, MessageExchange } 
 import { RequireRouteId } from '../../../routes/RequireRouteId'
 import { AgentPage } from '../AgentPage'
 import { SWIPE_COMMIT_PX } from './ConversationSwipeRow'
-import { dismissDeleteUndo } from './deleteUndoStore'
+import { dismissDeleteUndo } from '../deleteUndoStore'
 
 /* M07f — the mobile tree, reached through AgentPage at phone width. */
 

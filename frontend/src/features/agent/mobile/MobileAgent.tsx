@@ -12,8 +12,9 @@ import { playText } from '../../../voice/tts'
 import { MARKDOWN_COMPONENTS, STOP_FALLBACK } from '../markdown'
 import type { UseConversation } from '../useConversation'
 import type { UseConversations } from '../useConversations'
+import { ConversationUndoBar } from '../ConversationUndoBar'
+import { useConversationDelete } from '../useConversationDelete'
 import { ActionsSheet, ConversationsSheet, RenameSheet } from './AgentSheets'
-import { armDeleteUndo, dismissDeleteUndo, useDeleteUndo } from './deleteUndoStore'
 import { MobileTrajectory } from './MobileTrajectory'
 import { formatElapsed, useElapsedSeconds } from './useElapsedSeconds'
 
@@ -33,7 +34,7 @@ import { formatElapsed, useElapsedSeconds } from './useElapsedSeconds'
  *    is the existing soft delete, so undo is audited and survives a reload.
  *    Undoing the active conversation navigates back to it and the thread
  *    refetches — there is no client-held copy of the messages to restore.
- *    The pending undo itself sits in `deleteUndoStore`, outside this tree,
+ *    The pending undo itself sits in `../deleteUndoStore`, outside this tree,
  *    because that navigation remounts the page (see the store).
  *  - Deleting from inside the conversations sheet closes the sheet. The sheet
  *    is a native modal `<dialog>`, whose top layer would sit over the undo bar
@@ -65,9 +66,8 @@ export function MobileAgent({ activeId, list, thread }: Props) {
 
   const [draft, setDraft] = useState('')
   const [sheet, setSheet] = useState<Sheet | null>(null)
-  const undo = useDeleteUndo()
+  const { undo, deleteError, deleteConversation: removeWithUndo, undoDelete } = useConversationDelete(activeId, remove, restore)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [renameError, setRenameError] = useState<string | null>(null)
   const threadEndRef = useRef<HTMLLIElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -117,36 +117,11 @@ export function MobileAgent({ activeId, list, thread }: Props) {
     }
   }
 
-  /** Delete now, offer five seconds to take it back. The restore is the
-   * existing soft delete's inverse, so undo is itself audited. */
-  const deleteConversation = async (target: Conversation) => {
+  /** Delete now, offer five seconds to take it back (shared with desktop —
+   * see `useConversationDelete`). */
+  const deleteConversation = (target: Conversation) => {
     setSheet(null)
-    setDeleteError(null)
-    const wasActive = target.id === activeId
-    try {
-      await remove(target.id)
-    } catch (e: unknown) {
-      setDeleteError(apiErrorMessage(e, 'Could not delete the conversation'))
-      return
-    }
-    // Arm before navigating: the store outlives the remount, this instance
-    // does not.
-    armDeleteUndo({ id: target.id, title: target.title, wasActive })
-    if (wasActive) navigate('/agent')
-  }
-
-  const runUndo = async () => {
-    if (undo === null) return
-    const { id, wasActive } = undo
-    dismissDeleteUndo()
-    setDeleteError(null)
-    try {
-      await restore(id)
-    } catch (e: unknown) {
-      setDeleteError(apiErrorMessage(e, 'Could not restore the conversation'))
-      return
-    }
-    if (wasActive) navigate(`/agent/${id}`)
+    return removeWithUndo(target)
   }
 
   const saveTitle = async (target: Conversation, nextTitle: string) => {
@@ -334,14 +309,7 @@ export function MobileAgent({ activeId, list, thread }: Props) {
         </>
       )}
 
-      {undo && (
-        <div className="magent-undo-bar" role="status">
-          <span>Deleted · {undo.title ?? 'New conversation'}</span>
-          <button type="button" onClick={() => fireAndForget(runUndo())}>
-            Undo
-          </button>
-        </div>
-      )}
+      {undo && <ConversationUndoBar undo={undo} onUndo={undoDelete} className="magent-undo-bar" />}
 
       {sheet?.kind === 'conversations' && (
         <ConversationsSheet

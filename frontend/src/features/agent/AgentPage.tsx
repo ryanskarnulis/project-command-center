@@ -21,10 +21,12 @@ import { fireAndForget } from '../../utils/async'
 import { formatRelative } from '../../utils/dates'
 import { MicButton } from '../../voice/MicButton'
 import { playText } from '../../voice/tts'
+import { ConversationUndoBar } from './ConversationUndoBar'
 import { MessageBubble } from './MessageBubble'
 import { MobileAgent } from './mobile/MobileAgent'
 import { PendingExchange } from './PendingExchange'
 import { useConversation } from './useConversation'
+import { useConversationDelete } from './useConversationDelete'
 import { useConversations } from './useConversations'
 
 export function AgentPage() {
@@ -44,6 +46,7 @@ export function AgentPage() {
     loadMore,
     create,
     remove,
+    restore,
   } = list
   const onExchange = useCallback(() => void refresh(), [refresh])
   const routedId = activeId !== null && Number.isFinite(activeId) ? activeId : null
@@ -66,7 +69,6 @@ export function AgentPage() {
 
   const [draft, setDraft] = useState('')
   const [createError, setCreateError] = useState<string | null>(null)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
   const threadEndRef = useRef<HTMLLIElement>(null)
   const sending = pendingText !== null
 
@@ -124,21 +126,15 @@ export function AgentPage() {
     }
   }
 
-  // Same contract as `startConversation`, for the same reasons (#229): the
-  // delete button fire-and-forgets this, and the hook's `error` is load-owned,
-  // so the failure is held here instead. A rejected delete navigates nowhere —
-  // the conversation is still there — and the row stays clickable for a retry.
-  const removeConversation = async (id: number, title: string | null) => {
-    if (!window.confirm(`Delete “${title ?? 'this conversation'}”?`)) return
-    setDeleteError(null)
-    try {
-      await remove(id)
-    } catch (e: unknown) {
-      setDeleteError(apiErrorMessage(e, 'Could not delete the conversation'))
-      return
-    }
-    if (id === activeId) navigate('/agent')
-  }
+  // Delete acts immediately and offers five seconds of undo (a server
+  // restore) instead of `window.confirm()` — the same hook the phone tree
+  // uses (#327). Same contract as `startConversation` (#229): the button
+  // fire-and-forgets it, so failures land in `deleteError`, which the list's
+  // load-owned `error` can't wipe; a rejected delete navigates nowhere and the
+  // row stays for a retry. Deleting the active conversation goes to `/agent`;
+  // undoing it comes back.
+  const { undo, deleteError, deleteConversation, undoDelete } =
+    useConversationDelete(routedId, remove, restore)
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -157,6 +153,8 @@ export function AgentPage() {
     }
   }
 
+  // MobileAgent calls `useConversationDelete` itself; both instances read the
+  // same external store, so a width switch mid-undo keeps the bar.
   if (mobile) return <MobileAgent activeId={routedId} list={list} thread={thread} />
 
   return (
@@ -212,11 +210,7 @@ export function AgentPage() {
                       ? 'The agent is working — you can delete this once it finishes'
                       : undefined
                   }
-                  onClick={() =>
-                    fireAndForget(
-                      removeConversation(conversation.id, conversation.title),
-                    )
-                  }
+                  onClick={() => fireAndForget(deleteConversation(conversation))}
                 >
                   <Trash2 size={15} aria-hidden="true" />
                 </button>
@@ -236,6 +230,11 @@ export function AgentPage() {
           >
             {loadingMore ? 'Loading…' : 'Load older conversations'}
           </button>
+        )}
+
+        {/* Rail-scoped, sticky at its foot: next to the row that just left. */}
+        {undo && (
+          <ConversationUndoBar undo={undo} onUndo={undoDelete} className="agent-undo-bar" />
         )}
       </aside>
 

@@ -1,16 +1,19 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createConversation,
   deleteConversation,
   getConversation,
   listConversations,
   postMessage,
+  restoreConversation,
 } from '../../api/agent'
 import { deleteTask } from '../../api/tasks'
+import { RequireRouteId } from '../../routes/RequireRouteId'
 import type { AgentMessage, ConversationDetail } from '../../types/agent'
 import { AgentPage } from './AgentPage'
+import { dismissDeleteUndo } from './deleteUndoStore'
 
 vi.mock('../../api/agent', () => ({
   createConversation: vi.fn(),
@@ -39,6 +42,7 @@ const mockCreate = vi.mocked(createConversation)
 const mockDelete = vi.mocked(deleteConversation)
 const mockGet = vi.mocked(getConversation)
 const mockPost = vi.mocked(postMessage)
+const mockRestore = vi.mocked(restoreConversation)
 
 function message(overrides: Partial<AgentMessage>): AgentMessage {
   return {
@@ -84,6 +88,13 @@ const detail: ConversationDetail = {
   has_more: false,
 }
 
+function Location() {
+  const location = useLocation()
+  return <span data-testid="location">{location.pathname}</span>
+}
+
+/** Both routes render the same element, so navigating keeps one mounted page
+ * — what the list-pagination race tests below need to observe a window. */
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -91,6 +102,29 @@ function renderAt(path: string) {
         <Route path="/agent" element={<AgentPage />} />
         <Route path="/agent/:conversationId" element={<AgentPage />} />
       </Routes>
+      <Location />
+    </MemoryRouter>,
+  )
+}
+
+/** The app's own route shape (AppRoutes): the id route is wrapped, so going
+ * from `/agent/:id` to `/agent` remounts the page — which is why the pending
+ * delete undo lives in an external store rather than component state. */
+function renderAppRoutesAt(path: string) {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="/agent" element={<AgentPage />} />
+        <Route
+          path="/agent/:conversationId"
+          element={
+            <RequireRouteId param="conversationId">
+              <AgentPage />
+            </RequireRouteId>
+          }
+        />
+      </Routes>
+      <Location />
     </MemoryRouter>,
   )
 }
@@ -146,10 +180,15 @@ function visibleConversations(): (string | null)[] {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  dismissDeleteUndo()
   mockList.mockResolvedValue([
     { id: 1, title: 'Water the plants', created_at: detail.created_at, updated_at: detail.updated_at },
   ])
   mockGet.mockResolvedValue(detail)
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('AgentPage', () => {
@@ -168,7 +207,6 @@ describe('AgentPage', () => {
   })
 
   it('surfaces rejected conversation create and delete actions', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     mockCreate.mockRejectedValue(new Error('Create failed'))
     mockDelete.mockRejectedValue(new Error('Delete failed'))
     renderAt('/agent')
@@ -189,7 +227,6 @@ describe('AgentPage', () => {
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith(1))
     expect(await screen.findByText('Delete failed')).toBeInTheDocument()
     expect(screen.getByText('Water the plants')).toBeInTheDocument()
-    confirmSpy.mockRestore()
   })
 
   // A delete failure used to be written into the hook's `error` — the slot the
@@ -197,7 +234,6 @@ describe('AgentPage', () => {
   // refreshes the sidebar, the reason could vanish before it was read (#229).
   it('keeps a rejected delete visible across a later refresh, with the API reason (#229)', async () => {
     const { ApiError } = await import('../../api/client')
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     mockDelete.mockRejectedValue(
       new ApiError(409, { detail: 'That conversation has a run in flight.' }),
     )
@@ -238,7 +274,83 @@ describe('AgentPage', () => {
     expect(
       screen.getByText('That conversation has a run in flight.'),
     ).toBeInTheDocument()
-    confirmSpy.mockRestore()
+  })
+
+  // #327: desktop drops `window.confirm()` for the phone's undo-backed delete.
+  describe('undo-backed delete (#327)', () => {
+    const two = [
+      { id: 1, title: 'Water the plants', created_at: detail.created_at, updated_at: detail.updated_at },
+      { id: 2, title: 'Weekly review', created_at: detail.created_at, updated_at: detail.updated_at },
+    ]
+
+    beforeEach(() => {
+      mockList.mockResolvedValue(two)
+      mockDelete.mockResolvedValue()
+      mockRestore.mockResolvedValue(two[1])
+    })
+
+    it('deletes an inactive conversation at once, with no confirm, and undo restores it', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm')
+      renderAppRoutesAt('/agent/1')
+      await screen.findByText('Created the task.')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete conversation Weekly review' }))
+      await waitFor(() => expect(mockDelete).toHaveBeenCalledWith(2))
+      expect(confirmSpy).not.toHaveBeenCalled()
+      confirmSpy.mockRestore()
+
+      // The thread stays put; the rail offers the undo.
+      const bar = await screen.findByText('Deleted · Weekly review')
+      expect(screen.getByTestId('location')).toHaveTextContent('/agent/1')
+
+      fireEvent.click(within(bar.parentElement!).getByRole('button', { name: 'Undo' }))
+      await waitFor(() => expect(mockRestore).toHaveBeenCalledWith(2))
+      expect(screen.queryByText('Deleted · Weekly review')).toBeNull()
+      expect(screen.getByTestId('location')).toHaveTextContent('/agent/1')
+    })
+
+    it('deleting the active conversation navigates to /agent, and undo navigates back', async () => {
+      renderAppRoutesAt('/agent/1')
+      await screen.findByText('Created the task.')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete conversation Water the plants' }))
+      await waitFor(() => expect(mockDelete).toHaveBeenCalledWith(1))
+      await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(/^\/agent$/))
+      expect(screen.getByRole('heading', { name: 'Agent' })).toBeInTheDocument()
+      // The bar survived the RequireRouteId remount.
+      expect(await screen.findByText('Deleted · Water the plants')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+      await waitFor(() => expect(mockRestore).toHaveBeenCalledWith(1))
+      await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/agent/1'))
+      expect(await screen.findByText('Created the task.')).toBeInTheDocument()
+    })
+
+    it('expires the undo after five seconds without restoring', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      renderAppRoutesAt('/agent/1')
+      await screen.findByText('Created the task.')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete conversation Weekly review' }))
+      await screen.findByText('Deleted · Weekly review')
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_100)
+      })
+      expect(screen.queryByText('Deleted · Weekly review')).toBeNull()
+      expect(mockRestore).not.toHaveBeenCalled()
+    })
+
+    it('surfaces a rejected restore in the rail', async () => {
+      mockRestore.mockRejectedValue(new Error('Restore failed'))
+      renderAppRoutesAt('/agent/1')
+      await screen.findByText('Created the task.')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete conversation Weekly review' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
+      expect(await screen.findByText('Restore failed')).toBeInTheDocument()
+      expect(screen.queryByText('Deleted · Weekly review')).toBeNull()
+    })
   })
 
   // Both "New conversation" buttons fire-and-forget `startConversation`, so a

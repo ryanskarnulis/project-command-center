@@ -153,6 +153,51 @@ main.agent-page {
   background: var(--red-soft);
 }
 
+/* Delete acts, then offers five seconds to take it back (#327) — the desktop
+   twin of `.magent-undo-bar`. It lives in the rail, beside the row that just
+   left: pushed to the foot of a short list, sticky at the bottom of a long
+   one so it stays reachable while the rail scrolls. */
+.agent-undo-bar {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 6px 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-soft);
+}
+
+.agent-undo-bar > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-h);
+  font-size: var(--fs-meta);
+  font-weight: 620;
+}
+
+.agent-undo-bar > button {
+  min-height: var(--icon-btn);
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--blue);
+  font-size: var(--fs-btn);
+  font-weight: 750;
+}
+
+.agent-undo-bar > button:hover {
+  background: var(--fill-pill);
+  color: var(--link);
+}
+
 /* ── Thread ──────────────────────────────────────────────────────────── */
 
 /* The thread keeps a hairline border and a 10px radius — it is a scroll
