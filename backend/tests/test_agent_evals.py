@@ -28,16 +28,26 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from datetime import date, timedelta
+from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.ai.loop import LOOP_ACTOR, AgentLoop, AgentRunResult, ToolCallRecord
+from app.ai.loop import (
+    DELEGATE_ACTORS,
+    LOOP_ACTOR,
+    AgentLoop,
+    AgentRunResult,
+    ToolCallRecord,
+)
 from app.ai.providers.llamacpp import provider_from_settings
+from app.api import routes_agent
 from app.db.models import ActivityEvent, Project, Task, TaskWorkflowStatus
+from app.main import app
 from app.services import projects as projects_service
 from app.services import task_trash
 from app.services import tasks as tasks_service
@@ -80,12 +90,8 @@ def eval_db(
     yield factory
 
 
-def _run(scenario: str, prompt: str, *, max_iterations: int = 10) -> AgentRunResult:
-    """One eval run + the stats line the baseline table is built from."""
-    started = time.monotonic()
-    with provider_from_settings() as provider:
-        result = AgentLoop(provider, max_iterations=max_iterations).run(prompt)
-    duration = time.monotonic() - started
+def _report(scenario: str, result: AgentRunResult, duration: float) -> None:
+    """The ``[eval]`` stats line the baseline table is built from."""
     trajectory = " → ".join(
         record.tool + ("!" if record.error is not None else "")
         for record in result.tool_calls
@@ -95,7 +101,41 @@ def _run(scenario: str, prompt: str, *, max_iterations: int = 10) -> AgentRunRes
         f"iterations={result.iterations} duration={duration:.1f}s "
         f"trajectory=[{trajectory}]"
     )
+
+
+def _run(scenario: str, prompt: str, *, max_iterations: int = 10) -> AgentRunResult:
+    """One eval run straight through the loop, reported."""
+    started = time.monotonic()
+    with provider_from_settings() as provider:
+        result = AgentLoop(provider, max_iterations=max_iterations).run(prompt)
+    _report(scenario, result, time.monotonic() - started)
     return result
+
+
+class _RecordingLoop(AgentLoop):
+    """The real loop, keeping each run's actor + result for the asserts/stats.
+
+    The route never returns ``AgentRunResult`` (iterations, stop reason), so the
+    delegate scenario captures it here instead of reconstructing it.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.runs: list[tuple[str, AgentRunResult]] = []
+
+    def run(
+        self,
+        user_message: str,
+        *,
+        history: Sequence[dict[str, Any]] | None = None,
+        actor: str = LOOP_ACTOR,
+        deadline: float | None = None,
+    ) -> AgentRunResult:
+        result = super().run(
+            user_message, history=history, actor=actor, deadline=deadline
+        )
+        self.runs.append((actor, result))
+        return result
 
 
 def _event_count(db: Session) -> int:
@@ -279,3 +319,85 @@ def test_eval_honest_about_missing_task(eval_db: sessionmaker[Session]) -> None:
         assert (
             db.execute(select(func.count()).select_from(Project)).scalar_one() == 1
         )
+
+
+def test_eval_delegate_actor_attribution(
+    client: TestClient, db_session: Session, eval_db: sessionmaker[Session]
+) -> None:
+    """A conductor-delegated run is audited as the conductor, end to end (#328).
+
+    Driven through ``POST /api/agent/conversations/{id}/messages`` with the
+    ``X-Agent-Actor`` header — the only place a delegate identity enters — so
+    header → ``resolve_actor`` → loop → registry → ``activity_events`` is
+    exercised against the real model, not just a scripted provider.
+
+    Once the client is in play, reads go through ``db_session`` (the session
+    the client's routes use): the test engine is one shared StaticPool
+    connection, and a second session would BEGIN inside its open transaction.
+    """
+    delegate = "agent:conductor"
+    assert delegate in DELEGATE_ACTORS
+    with eval_db() as db:
+        home = projects_service.create_project(db, name="Home")
+        home_id = home.id
+        db.commit()
+
+    with provider_from_settings() as provider:
+        loop = _RecordingLoop(provider)
+        app.dependency_overrides[routes_agent.get_agent_loop] = lambda: loop
+        # A user-made conversation (no header): its own audit row stays the user's.
+        conversation_id = client.post("/api/agent/conversations", json={}).json()[
+            "id"
+        ]
+        last_event_before = db_session.execute(
+            select(func.max(ActivityEvent.id))
+        ).scalar_one()
+        db_session.rollback()  # end the read; the run's tool sessions share the connection
+
+        started = time.monotonic()
+        response = client.post(
+            f"/api/agent/conversations/{conversation_id}/messages",
+            json={"content": 'Create a task "Call the plumber" in the Home project.'},
+            headers={"X-Agent-Actor": delegate},
+        )
+        duration = time.monotonic() - started
+
+    assert response.status_code == 200, response.text
+    assert len(loop.runs) == 1
+    actor, result = loop.runs[0]
+    _report("delegate_actor", result, duration)
+    # The header was resolved to the delegate before the loop ran.
+    assert actor == delegate
+    assert result.stop_reason == "completed"
+    assert _successful(result, "create_task"), "expected a successful create_task"
+    # The persisted assistant turn is the run's trajectory, as returned.
+    assistant = response.json()["assistant_message"]
+    assert assistant["stop_reason"] == "completed"
+    assert [c["tool"] for c in assistant["tool_calls"] or []] == [
+        r.tool for r in result.tool_calls
+    ]
+
+    task = db_session.execute(
+        select(Task).where(Task.deleted_at.is_(None))
+    ).scalar_one()
+    assert "plumber" in task.title.lower()
+    assert task.project_id == home_id
+    # Every event the run wrote is the delegate's — never the loop's own
+    # identity, the MCP default, or the (null) user.
+    run_events = db_session.execute(
+        select(ActivityEvent).where(ActivityEvent.id > last_event_before)
+    ).scalars().all()
+    assert run_events, "the run wrote no activity events"
+    assert all(e.actor == delegate for e in run_events), [
+        (e.entity_type, e.action, e.actor) for e in run_events
+    ]
+    assert any(
+        e.entity_type == "task" and e.action == "created" and e.entity_id == task.id
+        for e in run_events
+    )
+    # Writes outside the delegated run are not re-attributed: the
+    # conversation's creation (and the seed) stay the user's.
+    prior = db_session.execute(
+        select(ActivityEvent).where(ActivityEvent.id <= last_event_before)
+    ).scalars().all()
+    assert prior and all(e.actor is None for e in prior)
