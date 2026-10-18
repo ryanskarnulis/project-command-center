@@ -28,6 +28,7 @@ export function SwipeRow({ enabled, onDone, onDefer, children }: SwipeRowProps) 
       enabled={enabled}
       onSwipeRight={onDone}
       onSwipeLeft={onDefer}
+      hint="focus"
       renderReveal={({ right, left }) => (
         <div className="focus-swipe-reveal" aria-hidden="true">
           <span className="focus-reveal-done" style={{ opacity: right }}>

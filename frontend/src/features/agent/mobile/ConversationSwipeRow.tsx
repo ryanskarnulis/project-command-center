@@ -29,6 +29,7 @@ export function ConversationSwipeRow({ enabled, onDelete, onLongPress, children 
       classPrefix="magent-swipe"
       enabled={enabled}
       onSwipeLeft={onDelete}
+      hint="agent"
       onLongPress={onLongPress}
       renderReveal={({ left }) => (
         <div className="magent-swipe-reveal" aria-hidden="true" style={{ opacity: left }}>
