@@ -91,6 +91,14 @@ Key decisions:
   is an **orphan** and is treated as *effective top-level*
   (`services/tasks.is_effective_top_level`) — scheduled and listed rather than
   hidden.
+- **Actual minutes**: nullable `tasks.actual_minutes` is what a *timed*
+  completion took (0–1440). It is written only by `services/tasks.mark_done`,
+  from the optional `{"actual_minutes": n}` body of `POST /api/tasks/{id}/done`
+  — today only the mobile Focus clock sends it; desktop, the agent tools and
+  MCP complete without one rather than invent a value. Null means never timed.
+  It is kept across a reopen, overwritten by the next timed completion, never
+  rolled up from subtasks, and never copied onto a recurrence's successor. The
+  `completed` activity event reads `… completed in n min` when it is set.
 - **Dependencies** are `A depends_on B` edges in `task_dependencies` (B must be
   done before A starts). "Blocked" is never stored — `is_blocked`,
   `is_blocking`, and `blocked_task_count` are derived in Python from the active
@@ -223,8 +231,10 @@ Three things the design assumes are stored, and how they behave here:
 - **Elapsed time** has no column. The clock lives in `localStorage`, keyed by
   task and day, and is always recomputed from the start timestamp rather than
   accumulated — a backgrounded tab comes back with the right number. Completing
-  a timed block records its actual minutes in the same session log; nothing is
-  written to the server yet.
+  a timed block records its actual minutes in the same session log **and**
+  sends them with the completion (`POST /api/tasks/{id}/done` body
+  `{"actual_minutes": n}`), which stores them on the task. An untimed block
+  sends none: its estimate is not an actual.
 - **Finished blocks** leave the plan (`get_focus_plan` ranks open work only),
   so the timeline's finished rows — collapsed to 44px receipts — come from that
   session log too. It also shifts the next request's window: the plan is asked

@@ -47,6 +47,7 @@ const task: Task = {
   due_date: null,
   deferred_until: null,
   estimated_minutes: null,
+  actual_minutes: null,
   repeat_interval: null,
   recurrence_id: null,
   next_occurrence_date: null,

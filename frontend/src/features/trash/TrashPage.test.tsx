@@ -75,6 +75,7 @@ const trash: Trash = {
       project_id: 2,
       parent_task_id: null,
       estimated_minutes: null,
+      actual_minutes: null,
       repeat_interval: null,
       recurrence_id: null,
       next_occurrence_date: null,

@@ -14,6 +14,7 @@ const parent: Task = {
   due_date: null,
   deferred_until: null,
   estimated_minutes: null,
+  actual_minutes: null,
   project_id: 1,
   parent_task_id: null,
   repeat_interval: null,

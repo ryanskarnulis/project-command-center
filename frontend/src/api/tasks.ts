@@ -74,8 +74,25 @@ export async function updateTask(id: number, data: TaskUpdate): Promise<Task> {
   })
 }
 
-export async function markTaskDone(id: number): Promise<Task> {
-  return apiClient<Task>(`/api/tasks/${id}/done`, { method: 'POST' })
+/** The server's ceiling on `actual_minutes` (a day); a longer clock is a forgotten timer. */
+export const MAX_ACTUAL_MINUTES = 1440
+
+/**
+ * Complete a task. `actualMinutes` is what the work took when the caller timed
+ * it (the mobile Focus clock); omit it for an untimed completion — an estimate
+ * is not an actual. Clamped to the server's 0–1440 bound so a clock left
+ * running overnight still completes the task instead of failing validation.
+ */
+export async function markTaskDone(id: number, actualMinutes?: number): Promise<Task> {
+  if (actualMinutes === undefined) {
+    return apiClient<Task>(`/api/tasks/${id}/done`, { method: 'POST' })
+  }
+  const actual_minutes = Math.min(MAX_ACTUAL_MINUTES, Math.max(0, Math.round(actualMinutes)))
+  return apiClient<Task>(`/api/tasks/${id}/done`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actual_minutes }),
+  })
 }
 
 export async function skipOccurrence(id: number): Promise<Task> {

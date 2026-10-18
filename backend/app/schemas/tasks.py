@@ -47,6 +47,25 @@ class TaskCreate(MutationModel):
     estimated_minutes: PositiveMinutes | None = None
 
 
+# What a completion actually took, in whole minutes. Zero is a real answer (a
+# block closed the moment it was opened); a day is the ceiling, matching the
+# Focus session's own capacity cap — a clock reading past it is a forgotten
+# timer, not effort, and the client clamps before it gets here.
+MAX_ACTUAL_MINUTES = 1440
+ActualMinutes = Annotated[int, Field(ge=0, le=MAX_ACTUAL_MINUTES)]
+
+
+class TaskComplete(MutationModel):
+    """Optional body of ``POST /tasks/{id}/done``.
+
+    ``actual_minutes`` is set by a caller that timed the work (the mobile Focus
+    clock). Omit it — or send no body at all — for an untimed completion; an
+    estimate is not an actual and must not be booked as one.
+    """
+
+    actual_minutes: ActualMinutes | None = None
+
+
 # ``TaskUpdate`` columns backed by NOT-NULL DB columns: an explicit ``null`` on
 # any of these must be a 422, never a silent NOT-NULL violation.
 _TASK_UPDATE_NON_NULLABLE_FIELDS = (
@@ -109,6 +128,10 @@ class TaskRead(BaseModel):
     due_date: date | None
     deferred_until: date | None
     estimated_minutes: int | None
+    # What the work actually took when its completion was timed (issue #318);
+    # null when it never was. Kept across a reopen. Unlike the estimate it is
+    # never rolled up: a parent's actual is only ever its own.
+    actual_minutes: int | None
     repeat_interval: RepeatInterval | None
     recurrence_id: str | None
     # Derived (not stored): the due date of the next occurrence for an open

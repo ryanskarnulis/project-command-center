@@ -43,6 +43,7 @@ const baseTask: Task = {
   due_date: '2026-06-01',
   deferred_until: null,
   estimated_minutes: null,
+  actual_minutes: null,
   repeat_interval: { unit: 'week', every: 1 },
   recurrence_id: 'series-abc',
   next_occurrence_date: null,
