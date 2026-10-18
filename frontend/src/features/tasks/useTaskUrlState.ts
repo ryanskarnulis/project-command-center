@@ -50,9 +50,12 @@ export function useTaskUrlState(defaultView: ViewMode = 'list'): UseTaskUrlState
       defaultView,
     )
     // paramsFromState rebuilds the query from scratch; carry the peek-panel
-    // param so changing a filter or view doesn't close an open panel.
-    const openTask = searchParams.get('task')
-    if (openTask !== null) params.set('task', openTask)
+    // params (open task + its back trail) so changing a filter or view
+    // doesn't close an open panel or forget how it got there.
+    for (const key of ['task', 'from']) {
+      const value = searchParams.get(key)
+      if (value !== null) params.set(key, value)
+    }
     setSearchParams(params, { replace: true })
   }
 

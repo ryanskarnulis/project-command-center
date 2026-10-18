@@ -4,10 +4,14 @@ import type { To } from 'react-router-dom'
 export interface TaskPanelApi {
   /** Task currently open in the peek panel, from the `?task=` search param. */
   openTaskId: number | null
+  /** Task the panel was repointed from (top of the `?from=` trail), if any. */
+  previousTaskId: number | null
   /** Link target that opens the panel over the current page (a real <Link>). */
   taskLinkTo: (taskId: number) => To
   /** Repoint the panel; `replace` when the previous task no longer exists (skip). */
   openTask: (taskId: number, opts?: { replace?: boolean }) => void
+  /** Step back to `previousTaskId`; a no-op with an empty trail. */
+  goBack: () => void
   closePanel: () => void
 }
 
