@@ -148,6 +148,124 @@ def test_undo_restore_is_audited(client: TestClient, db_session: Session) -> Non
     assert actions[-2:] == ["restored", "deleted"]
 
 
+# --- #313: a receipt is bound to its own restore and refuses once rows moved on ----
+
+
+def _task_event_count(db_session: Session) -> int:
+    return len(
+        db_session.execute(
+            select(ActivityEvent.id).where(ActivityEvent.entity_type == "task")
+        ).all()
+    )
+
+
+def test_undo_restore_after_the_task_was_edited_is_a_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    task = _task(client, title="Original")
+    assert client.delete(f"/api/tasks/{task['id']}").status_code == 204
+    result = _restore(client, task["id"])
+    edited = client.patch(
+        f"/api/tasks/{task['id']}", json={"title": "Edited since restore"}
+    )
+    assert edited.status_code == 200
+    events_before = _task_event_count(db_session)
+
+    undo = client.post("/api/trash/tasks/undo-restore", json=result["undo"])
+    assert undo.status_code == 409, undo.text
+
+    # Nothing written: the edited task stays active and unaudited by the undo.
+    live = client.get(f"/api/tasks/{task['id']}")
+    assert live.status_code == 200
+    assert live.json()["title"] == "Edited since restore"
+    assert task["id"] not in _trashed_task_ids(client)
+    assert _task_event_count(db_session) == events_before
+
+
+def test_undo_restore_after_a_restored_checklist_row_changed_is_a_conflict(
+    client: TestClient,
+) -> None:
+    root, steps = _checklist_series(client)
+    successor = client.post(f"/api/tasks/{root['id']}/skip").json()
+    assert client.delete(f"/api/tasks/{successor['id']}").status_code == 204
+    result = _restore(client, root["id"])  # in-place un-skip brings the steps back
+    assert set(result["undo"]["restored_task_ids"]) == {root["id"], *steps}
+    assert client.post(f"/api/tasks/{steps[0]}/done").status_code == 200
+
+    undo = client.post("/api/trash/tasks/undo-restore", json=result["undo"])
+    assert undo.status_code == 409
+    assert client.get(f"/api/tasks/{root['id']}").status_code == 200
+    assert client.get(f"/api/tasks/{steps[0]}").json()["workflow_status"] == "done"
+
+
+def test_an_old_receipt_stays_dead_after_a_newer_restore(client: TestClient) -> None:
+    task = _task(client, title="Cycled")
+    assert client.delete(f"/api/tasks/{task['id']}").status_code == 204
+    first = _restore(client, task["id"])
+    assert client.delete(f"/api/tasks/{task['id']}").status_code == 204
+    second = _restore(client, task["id"])
+    # Same ids, same row, active again — but the first receipt belongs to a
+    # restore that is no longer the one in effect.
+    assert first["undo"]["restored_task_ids"] == second["undo"]["restored_task_ids"]
+
+    stale = client.post("/api/trash/tasks/undo-restore", json=first["undo"])
+    assert stale.status_code == 409
+    assert client.get(f"/api/tasks/{task['id']}").status_code == 200
+
+    fresh = client.post("/api/trash/tasks/undo-restore", json=second["undo"])
+    assert fresh.status_code == 204, fresh.text
+    assert client.get(f"/api/tasks/{task['id']}").status_code == 404
+
+
+def test_undo_restore_ignores_changes_to_rows_it_did_not_restore(
+    client: TestClient,
+) -> None:
+    project = client.post("/api/projects", json={"name": "Home"}).json()
+    task = _task(client, title="Mine", project_id=project["id"])
+    neighbour = _task(client, title="Neighbour", project_id=project["id"])
+    assert client.delete(f"/api/tasks/{task['id']}").status_code == 204
+    result = _restore(client, task["id"])
+
+    # Another task and the owning project change inside the Undo window.
+    assert (
+        client.patch(
+            f"/api/tasks/{neighbour['id']}", json={"title": "Neighbour edited"}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"/api/projects/{project['id']}", json={"name": "Home renamed"}
+        ).status_code
+        == 200
+    )
+
+    undo = client.post("/api/trash/tasks/undo-restore", json=result["undo"])
+    assert undo.status_code == 204, undo.text
+    assert client.get(f"/api/tasks/{task['id']}").status_code == 404
+    assert client.get(f"/api/tasks/{neighbour['id']}").status_code == 200
+
+
+def test_undo_restore_rejects_a_marker_from_another_event(
+    client: TestClient, db_session: Session
+) -> None:
+    task = _task(client, title="Forged")
+    assert client.delete(f"/api/tasks/{task['id']}").status_code == 204
+    result = _restore(client, task["id"])
+    created = db_session.execute(
+        select(ActivityEvent.id).where(
+            ActivityEvent.entity_type == "task",
+            ActivityEvent.entity_id == task["id"],
+            ActivityEvent.action == "created",
+        )
+    ).scalar_one()
+    forged = {**result["undo"], "restore_event_id": created}
+
+    undo = client.post("/api/trash/tasks/undo-restore", json=forged)
+    assert undo.status_code == 409
+    assert client.get(f"/api/tasks/{task['id']}").status_code == 200
+
+
 # --- #306: undoing an un-skip returns the series to its pre-restore state ----------
 
 
@@ -334,3 +452,49 @@ def test_undo_project_restore_refuses_to_strand_work_added_since(
     assert undo.status_code == 409
     assert client.get(f"/api/tasks/{fresh.json()['id']}").status_code == 200
     assert client.get(f"/api/projects/{pid}").status_code == 200
+
+
+def test_undo_unskip_survives_an_edit_that_it_does_not_reverse(
+    client: TestClient,
+) -> None:
+    root = _task(client, title="Daily", due_date="2026-09-23")
+    assert client.patch(f"/api/tasks/{root['id']}", json=DAILY).status_code == 200
+    successor = client.post(f"/api/tasks/{root['id']}/skip").json()
+    result = _restore(client, root["id"])
+    # A title edit is not something moving the series back would clobber.
+    renamed = client.patch(f"/api/tasks/{successor['id']}", json={"title": "Renamed"})
+    assert renamed.status_code == 200
+
+    undo = client.post("/api/trash/tasks/undo-restore", json=result["undo"])
+    assert undo.status_code == 204, undo.text
+    live = client.get(f"/api/tasks/{successor['id']}").json()
+    assert live["title"] == "Renamed"
+    assert live["due_date"] == "2026-09-24"
+
+
+def test_an_old_unskip_receipt_stays_dead_after_a_newer_unskip(
+    client: TestClient, db_session: Session
+) -> None:
+    root = _task(client, title="Daily", due_date="2026-09-23")
+    assert client.patch(f"/api/tasks/{root['id']}", json=DAILY).status_code == 200
+    successor = client.post(f"/api/tasks/{root['id']}/skip").json()
+    first = _restore(client, root["id"])
+    assert (
+        client.post("/api/trash/tasks/undo-restore", json=first["undo"]).status_code
+        == 204
+    )
+    tombstone = db_session.execute(
+        select(Task.id).where(
+            Task.recurrence_id == successor["recurrence_id"],
+            Task.skipped_at.is_not(None),
+            Task.deleted_at.is_not(None),
+        )
+    ).scalar_one()
+    second = _restore(client, tombstone)
+    assert second["task"]["id"] == successor["id"]
+
+    stale = client.post("/api/trash/tasks/undo-restore", json=first["undo"])
+    assert stale.status_code == 409
+    assert client.get(f"/api/tasks/{successor['id']}").json()["due_date"] == (
+        "2026-09-23"
+    )

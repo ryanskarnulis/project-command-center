@@ -266,7 +266,11 @@ and `POST /api/trash/{tasks,projects}/undo-restore` replays it backwards: only
 the restored rows go back to trash (with their cascade markers), an un-skip
 moves the series back to its later date and re-files the skipped occurrence,
 and a project re-archives its tasks under it. The server answers 409, writing
-nothing, if those rows moved on inside the five seconds. `⋯` opens a sheet with
+nothing, if those rows moved on inside the five seconds. A task receipt is
+bound to its own restore by that restore's `restored` activity event
+(`restore_event_id`): any later activity on a restored row (an edit, a
+completion) makes it stale, and so does a newer restore of the same task, so
+an old receipt never revives after a delete/restore cycle (#313). `⋯` opens a sheet with
 Restore, **Restore without its tasks** (projects with archived tasks; the
 question desktop asks as a `window.confirm`) and **Delete forever**, which keeps
 its confirm and names the full purge scope. **Select** (a foot row, or a 500ms
