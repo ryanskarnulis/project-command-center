@@ -1,15 +1,17 @@
 import { useEffect, useRef } from 'react'
-import { X } from 'lucide-react'
+import { ChevronLeft, X } from 'lucide-react'
 import { TaskDetailView } from '../TaskDetailView'
 
 interface Props {
   taskId: number
   onClose: () => void
+  /** Present when the panel was repointed from another task (the trail). */
+  onBack?: () => void
   onMutated?: () => void
 }
 
 /** Right-side slide-over hosting the task detail surface over the current list. */
-export function TaskPeekPanel({ taskId, onClose, onMutated }: Props) {
+export function TaskPeekPanel({ taskId, onClose, onBack, onMutated }: Props) {
   const asideRef = useRef<HTMLElement>(null)
 
   // Focus the panel when it opens (or repoints) so Esc works immediately.
@@ -41,14 +43,27 @@ export function TaskPeekPanel({ taskId, onClose, onMutated }: Props) {
         tabIndex={-1}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <button
-          type="button"
-          className="peek-close"
-          aria-label="Close panel"
-          onClick={onClose}
-        >
-          <X size={18} aria-hidden="true" />
-        </button>
+        <div className="peek-nav">
+          {onBack && (
+            <button
+              type="button"
+              className="peek-back"
+              aria-label="Back to previous task"
+              onClick={onBack}
+            >
+              <ChevronLeft size={16} aria-hidden="true" />
+              Back
+            </button>
+          )}
+          <button
+            type="button"
+            className="peek-close"
+            aria-label="Close panel"
+            onClick={onClose}
+          >
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
         <TaskDetailView taskId={taskId} onClose={onClose} onMutated={onMutated} />
       </aside>
     </div>

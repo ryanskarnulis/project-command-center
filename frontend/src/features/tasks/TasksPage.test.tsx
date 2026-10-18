@@ -714,6 +714,72 @@ describe('TasksPage', () => {
     expect(new URLSearchParams(router.state.location.search).get('task')).toBeNull()
   })
 
+  describe('peek panel back trail (#334)', () => {
+    const child = { ...baseTask, id: 2, parent_task_id: 1, title: 'Child task' }
+    const grandchild = { ...baseTask, id: 3, parent_task_id: 2, title: 'Grandchild task' }
+
+    beforeEach(() => {
+      const byId = new Map([baseTask, child, grandchild].map((t) => [t.id, t]))
+      mockGetTask.mockImplementation((id) => Promise.resolve(byId.get(id) ?? baseTask))
+      mockGetSubtasks.mockImplementation((id) =>
+        Promise.resolve(id === 1 ? [child] : id === 2 ? [grandchild] : []),
+      )
+    })
+
+    const panel = () => screen.findByRole('dialog', { name: 'Task details' })
+    const titleIs = (title: string) =>
+      waitFor(() => expect(screen.getByLabelText('Task title')).toHaveValue(title))
+    const params = (router: { state: { location: { search: string } } }) =>
+      new URLSearchParams(router.state.location.search)
+
+    it('walks back through every task opened inside the panel', async () => {
+      const user = userEvent.setup()
+      const { router } = renderProject(['/tasks?task=1'])
+
+      await panel()
+      await titleIs('Fix the VPN')
+      // Opened from the list: nothing to go back to.
+      expect(screen.queryByRole('button', { name: 'Back to previous task' })).not.toBeInTheDocument()
+
+      await user.click(within(await panel()).getByRole('link', { name: 'Child task' }))
+      await titleIs('Child task')
+      await user.click(within(await panel()).getByRole('link', { name: 'Grandchild task' }))
+      await titleIs('Grandchild task')
+      expect(params(router).get('from')).toBe('1,2')
+
+      await user.click(screen.getByRole('button', { name: 'Back to previous task' }))
+      await titleIs('Child task')
+      expect(params(router).get('task')).toBe('2')
+      expect(params(router).get('from')).toBe('1')
+
+      await user.click(screen.getByRole('button', { name: 'Back to previous task' }))
+      await titleIs('Fix the VPN')
+      expect(params(router).get('from')).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Back to previous task' })).not.toBeInTheDocument()
+    })
+
+    it('walks a deep-linked trail with no history behind it', async () => {
+      const user = userEvent.setup()
+      const { router } = renderProject(['/tasks?task=3&from=1,2'])
+
+      await panel()
+      await titleIs('Grandchild task')
+      await user.click(screen.getByRole('button', { name: 'Back to previous task' }))
+      await titleIs('Child task')
+      expect(params(router).get('from')).toBe('1')
+    })
+
+    it('drops the trail when the panel closes', async () => {
+      const user = userEvent.setup()
+      const { router } = renderProject(['/tasks?task=3&from=1,2'])
+
+      await panel()
+      await user.click(screen.getByRole('button', { name: 'Close panel' }))
+      await waitFor(() => expect(params(router).get('task')).toBeNull())
+      expect(params(router).get('from')).toBeNull()
+    })
+  })
+
   it('moves a done card to In progress with one atomic PATCH (#148)', async () => {
     const user = userEvent.setup()
     const doneTask = {
