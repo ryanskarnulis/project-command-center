@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import Select, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import ActivityEvent, Project, Task, utcnow
@@ -216,17 +216,17 @@ def soft_delete_project(db: Session, project: Project) -> None:
     # their null marker and are skipped — they aren't in the active set below.
     from app.services import task_dependencies as deps_service
     from app.services import task_recurrence
-    from app.services.tasks import log_task_event
 
     deleted_ids: set[int] = set()
+    deleted_events: list[tuple[int, str]] = []
     seeds: list[int] = []
     for task in db.execute(
         active(Task).where(Task.project_id == project.id)
     ).scalars().all():
         task.deleted_with_project_id = project.id
         soft_delete(task)
-        log_task_event(db, task, "deleted")
         deleted_ids.add(task.id)
+        deleted_events.append((task.id, task.title))
         # Seed reconciliation from the edges that survive this delete: the
         # trashed task is gone from reconcile's view, so walk from its parent
         # and its dependents.
@@ -235,6 +235,15 @@ def soft_delete_project(db: Session, project: Project) -> None:
             seeds.append(task.parent_task_id)
 
     db.flush()
+    # One "deleted" event per task, in a single insert: a project can hold tens
+    # of thousands of tasks, and the undo of a project restore re-runs this.
+    activity.record_task_events(
+        db,
+        project_id=project.id,
+        tasks=deleted_events,
+        action="deleted",
+        summary_suffix="deleted",
+    )
     # Cross-project hierarchy and dependency edges are supported, so trashing
     # this project's tasks can complete a recurring task that lives elsewhere —
     # its last open child or last unfinished blocker just went to the trash.
@@ -379,7 +388,7 @@ def restore_project_with_undo(
     live sibling.
     """
     from app.services import task_recurrence
-    from app.services.tasks import detach_if_parent_cycle, log_task_event
+    from app.services.tasks import detach_if_parent_cycle
 
     tasks: Sequence[Task] = ()
     if restore_tasks:
@@ -401,18 +410,25 @@ def restore_project_with_undo(
 
     restored_tasks = 0
     restored_ids: list[int] = []
-    unarchived_ids: list[int] = []
     if restore_tasks:
         for task in tasks:
             restore(task)
             task.deleted_with_project_id = None
-            # Per-task restore event mirrors the per-task "deleted" events the
-            # cascade writes, so an itemized restore is auditable too.
-            log_task_event(db, task, "restored")
             restored_ids.append(task.id)
             restored_tasks += 1
         if restored_ids:
             db.flush()
+            # Per-task restore event mirrors the per-task "deleted" events the
+            # cascade writes, so an itemized restore is auditable too — and undo
+            # reads them back to know which rows this restore returned (#314).
+            # One bulk insert: a project can bring back tens of thousands.
+            activity.record_task_events(
+                db,
+                project_id=project.id,
+                tasks=[(task.id, task.title) for task in tasks],
+                action="restored",
+                summary_suffix="restored",
+            )
             # Same guard standalone restore runs: a stored parent cycle a pre-#305
             # database may hold through these rows must not come back live (it
             # recursed forever in the roll-up). Checked once the whole batch is
@@ -432,26 +448,35 @@ def restore_project_with_undo(
     else:
         # Don't strand the cascade tasks: clearing the marker moves them into the
         # standalone Tasks trash instead of leaving them pointing at an active
-        # project (where every trash surface filters them out). Their ids go on
-        # the receipt: undo re-archives them under the project.
-        unarchived_ids = list(
-            db.execute(
-                select(Task.id)
+        # project (where every trash surface filters them out). Each move is
+        # audited as an ``updated`` task event, which is also how undo finds
+        # exactly these rows again (#314): the receipt names no ids.
+        unarchived = [
+            (task_id, title)
+            for task_id, title in db.execute(
+                select(Task.id, Task.title)
                 .where(Task.deleted_with_project_id == project.id)
                 .order_by(Task.id.asc())
-            )
-            .scalars()
-            .all()
-        )
+            ).tuples()
+        ]
         db.execute(
             update(Task)
             .where(Task.deleted_with_project_id == project.id)
             .values(deleted_with_project_id=None)
         )
+        activity.record_task_events(
+            db,
+            project_id=project.id,
+            tasks=unarchived,
+            action=_UNARCHIVED_ACTION,
+            summary_suffix="moved to the Tasks trash",
+        )
 
     db.flush()
     db.refresh(project)
-    activity.record_event(
+    # Logged last, after every task event above: the receipt binds to it, and
+    # undo reads this restore's task events as the ones that precede it.
+    event = activity.record_event(
         db,
         project_id=project.id,
         entity_type="project",
@@ -462,12 +487,73 @@ def restore_project_with_undo(
     return (
         project,
         restored_tasks,
-        ProjectRestoreUndo(
-            project_id=project.id,
-            restored_task_ids=restored_ids,
-            unarchived_task_ids=unarchived_ids,
-        ),
+        ProjectRestoreUndo(project_id=project.id, restore_event_id=event.id),
     )
+
+
+# The task event a without-tasks restore logs for each row it moves into the
+# standalone Tasks trash; undo looks for it to find those rows again.
+_UNARCHIVED_ACTION = "updated"
+
+
+def _restore_window_start(db: Session, project_id: int, restore_event_id: int) -> int:
+    """Id of the project ``deleted`` event that the restore ``restore_event_id`` reversed.
+
+    Every task event a project restore logs falls strictly between the two. No
+    other task event lands on the project's feed in that window: while the
+    project sits in the trash all its tasks do too, and a standalone restore of
+    one rehomes it to General before logging.
+    """
+    start = db.scalar(
+        select(func.max(ActivityEvent.id)).where(
+            ActivityEvent.entity_type == "project",
+            ActivityEvent.entity_id == project_id,
+            ActivityEvent.action == "deleted",
+            ActivityEvent.id < restore_event_id,
+        )
+    )
+    return 0 if start is None else start
+
+
+def _restore_task_ids(
+    project_id: int, after_id: int, before_id: int, action: str
+) -> Select[tuple[int]]:
+    """Tasks with an ``action`` event on ``project_id``'s feed in ``(after_id, before_id)``.
+
+    A subquery rather than a materialised id list, so it can feed an ``IN``
+    without binding one parameter per task: a project can own more tasks than
+    SQLite's bound-variable ceiling.
+    """
+    return select(ActivityEvent.entity_id).where(
+        ActivityEvent.project_id == project_id,
+        ActivityEvent.entity_type == "task",
+        ActivityEvent.action == action,
+        ActivityEvent.id > after_id,
+        ActivityEvent.id < before_id,
+    )
+
+
+def _check_project_restore_event(db: Session, project: Project, event_id: int) -> None:
+    """Refuse a receipt whose marker is not the project's newest restore (#313, #314)."""
+    event = db.get(ActivityEvent, event_id)
+    newer = db.scalar(
+        select(ActivityEvent.id)
+        .where(
+            ActivityEvent.entity_type == "project",
+            ActivityEvent.entity_id == project.id,
+            ActivityEvent.action == "restored",
+            ActivityEvent.id > event_id,
+        )
+        .limit(1)
+    )
+    if (
+        event is None
+        or event.entity_type != "project"
+        or event.entity_id != project.id
+        or event.action != "restored"
+        or newer is not None
+    ):
+        raise RestoreUndoConflictError("This project restore can no longer be undone.")
 
 
 def undo_project_restore(db: Session, undo: ProjectRestoreUndo) -> None:
@@ -478,14 +564,29 @@ def undo_project_restore(db: Session, undo: ProjectRestoreUndo) -> None:
     once the check below holds — and the tasks it left in the standalone trash
     are archived under it again, so the project's trash entry reads as it did.
 
-    Raises ``RestoreUndoConflictError`` (nothing written) when the project is no
-    longer active or its active tasks are not exactly the restored set: new or
-    moved-in work would be swept into the trash with it, and a restored task
-    trashed or moved out since would be misfiled.
+    Both sets come from the task events the restore logged between the
+    project's ``deleted`` event and its ``restored`` one (#314), so the receipt
+    is two ids however many tasks the project owns, and no step binds a
+    parameter per task.
+
+    Raises ``RestoreUndoConflictError`` (nothing written) when the receipt is
+    not the project's newest restore, the project is no longer active, or its
+    active tasks are not exactly the restored set: new or moved-in work would
+    be swept into the trash with it, and a restored task trashed or moved out
+    since would be misfiled.
     """
     project = get_project(db, undo.project_id)
     if project is None or project.is_protected:
         raise RestoreUndoConflictError("This project restore can no longer be undone.")
+    _check_project_restore_event(db, project, undo.restore_event_id)
+    start = _restore_window_start(db, project.id, undo.restore_event_id)
+    restored_ids = set(
+        db.execute(
+            _restore_task_ids(project.id, start, undo.restore_event_id, "restored")
+        )
+        .scalars()
+        .all()
+    )
     active_ids = set(
         db.execute(
             select(Task.id).where(
@@ -495,22 +596,28 @@ def undo_project_restore(db: Session, undo: ProjectRestoreUndo) -> None:
         .scalars()
         .all()
     )
-    if active_ids != set(undo.restored_task_ids):
+    if active_ids != restored_ids:
         raise RestoreUndoConflictError(
             f'"{project.name}" has changed since it was restored; '
             "delete it instead if you still want it in the trash."
         )
-    if undo.unarchived_task_ids:
-        db.execute(
-            update(Task)
-            .where(
-                Task.id.in_(undo.unarchived_task_ids),
-                Task.project_id == project.id,
-                Task.deleted_at.is_not(None),
-                Task.deleted_with_project_id.is_(None),
-            )
-            .values(deleted_with_project_id=project.id)
+    # Before the re-trash below, so only rows still in the trash match: a
+    # with-tasks restore can log ``updated`` too (a parent-cycle detach), but on
+    # rows it made active, and those go back through the cascade instead.
+    db.execute(
+        update(Task)
+        .where(
+            Task.id.in_(
+                _restore_task_ids(
+                    project.id, start, undo.restore_event_id, _UNARCHIVED_ACTION
+                )
+            ),
+            Task.project_id == project.id,
+            Task.deleted_at.is_not(None),
+            Task.deleted_with_project_id.is_(None),
         )
+        .values(deleted_with_project_id=project.id)
+    )
     soft_delete_project(db, project)
 
 

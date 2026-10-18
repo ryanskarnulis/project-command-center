@@ -454,6 +454,72 @@ def test_undo_project_restore_refuses_to_strand_work_added_since(
     assert client.get(f"/api/projects/{pid}").status_code == 200
 
 
+def test_an_old_project_receipt_stays_dead_after_a_newer_restore(
+    client: TestClient,
+) -> None:
+    pid = client.post("/api/projects", json={"name": "Shelved"}).json()["id"]
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "a"})
+    assert client.delete(f"/api/projects/{pid}").status_code == 204
+    first = client.post(f"/api/projects/{pid}/restore").json()["undo"]
+    assert client.delete(f"/api/projects/{pid}").status_code == 204
+    second = client.post(f"/api/projects/{pid}/restore").json()["undo"]
+    assert second["restore_event_id"] > first["restore_event_id"]
+
+    stale = client.post("/api/trash/projects/undo-restore", json=first)
+    assert stale.status_code == 409
+    assert client.get(f"/api/projects/{pid}").status_code == 200
+    assert (
+        client.post("/api/trash/projects/undo-restore", json=second).status_code
+        == 204
+    )
+
+
+def test_undo_project_restore_rejects_a_marker_from_another_event(
+    client: TestClient,
+) -> None:
+    pid = client.post("/api/projects", json={"name": "Shelved"}).json()["id"]
+    other = client.post("/api/projects", json={"name": "Other"}).json()["id"]
+    assert client.delete(f"/api/projects/{pid}").status_code == 204
+    assert client.delete(f"/api/projects/{other}").status_code == 204
+    receipt = client.post(f"/api/projects/{pid}/restore").json()["undo"]
+    other_receipt = client.post(f"/api/projects/{other}/restore").json()["undo"]
+
+    forged = {**receipt, "restore_event_id": other_receipt["restore_event_id"]}
+    assert (
+        client.post("/api/trash/projects/undo-restore", json=forged).status_code
+        == 409
+    )
+    # The old id-list shape is a 422, not silently accepted.
+    legacy = {"project_id": pid, "restored_task_ids": [], "unarchived_task_ids": []}
+    assert (
+        client.post("/api/trash/projects/undo-restore", json=legacy).status_code
+        == 422
+    )
+    assert client.get(f"/api/projects/{pid}").status_code == 200
+
+
+def test_undo_project_restore_leaves_independently_trashed_tasks_alone(
+    client: TestClient,
+) -> None:
+    pid = client.post("/api/projects", json={"name": "Shelved"}).json()["id"]
+    loose = client.post(f"/api/projects/{pid}/tasks", json={"title": "loose"}).json()
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "kept"})
+    assert client.delete(f"/api/tasks/{loose['id']}").status_code == 204
+    assert client.delete(f"/api/projects/{pid}").status_code == 204
+
+    receipt = client.post(f"/api/projects/{pid}/restore").json()["undo"]
+    assert len(_trashed_task_ids(client)) == 2
+    assert (
+        client.post("/api/trash/projects/undo-restore", json=receipt).status_code
+        == 204
+    )
+    # Only the cascade task goes back under the project; the one trashed on its
+    # own before the project delete stays in the standalone trash.
+    trash = client.get("/api/trash").json()
+    assert trash["projects"][0]["archived_task_count"] == 1
+    assert _trashed_task_ids(client) == {loose["id"]}
+
+
 def test_undo_unskip_survives_an_edit_that_it_does_not_reverse(
     client: TestClient,
 ) -> None:

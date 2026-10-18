@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from contextvars import ContextVar
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.orm import Session
 
 from app.db.models import ActivityEvent
@@ -53,6 +53,51 @@ def record_event(
         actor=event.actor,
     )
     return event
+
+
+def record_task_events(
+    db: Session,
+    *,
+    project_id: int,
+    tasks: Sequence[tuple[int, str]],
+    action: str,
+    summary_suffix: str,
+) -> None:
+    """Append one task event per ``(task_id, title)`` in a single bulk insert.
+
+    For cascades that touch every task in a project at once (a project restore
+    can move tens of thousands of rows): ``record_event``'s flush-and-refresh
+    per row would cost one round trip each. Each summary reads
+    ``Task "<title>" <summary_suffix>``. Same append-only contract; ids are
+    allocated in order, so these events land before anything the caller logs
+    next.
+    """
+    if not tasks:
+        return
+    actor = current_actor.get()
+    db.execute(
+        insert(ActivityEvent),
+        [
+            {
+                "project_id": project_id,
+                "entity_type": "task",
+                "entity_id": task_id,
+                "action": action,
+                "summary": f'Task "{title}" {summary_suffix}',
+                "actor": actor,
+            }
+            for task_id, title in tasks
+        ],
+    )
+    db.flush()
+    logger.info(
+        "activity_events_recorded",
+        project_id=project_id,
+        entity_type="task",
+        action=action,
+        count=len(tasks),
+        actor=actor,
+    )
 
 
 def list_events(
