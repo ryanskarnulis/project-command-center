@@ -120,13 +120,17 @@ with `delegate_actor` added):**
 | `reschedule` | targeted due-date update only | 3 | 1.5–4.5 s |
 | `delete_is_soft` | lands in trash, restorable, audited | 3 | 1.0–3.2 s |
 | `read_only_count` | correct count, zero mutations | 3 | 1.4–2.0 s |
-| `honest_about_missing` | nothing invented or acted on | 4–10 | 2.2–4.1 s |
+| `honest_about_missing` | nothing invented or acted on; frugality tripwire ≤7 iterations / ≤6 reads | 2–5 | 0.9–2.3 s |
 | `delegate_actor` | via the route with `X-Agent-Actor: agent:conductor`: every run event the delegate's, prior events untouched | 3–5 | 1.5–3.2 s |
 
 Standing observations: self-correction pays for itself (the recurring gemma
 `name`/`title` miss always fixes on feedback); FTS5 retrieval is sufficient —
 this table is the tripwire for ever adding embeddings; `honest_about_missing`
-over-searches before conceding (frugality tripwire: #329).
+no longer sweeps exhaustively before conceding (pre-llama-swap: up to 10
+turns, per-project lists, the trash) — under llama-swap it's `search` then at
+most three `list_tasks`/`list_trash` (32 runs, 2026-10-18). The scenario now
+asserts ≤7 iterations and ≤6 read calls (#329): 2 of headroom over the
+observed maximum, and well short of the old sweep.
 
 ## Deferred
 
