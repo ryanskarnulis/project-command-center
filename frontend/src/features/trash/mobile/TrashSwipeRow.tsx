@@ -28,6 +28,7 @@ export function TrashSwipeRow({ enabled, onRestore, onLongPress, children }: Tra
       classPrefix="trash-swipe"
       enabled={enabled}
       onSwipeRight={onRestore}
+      hint="trash"
       onLongPress={onLongPress}
       renderReveal={({ right }) => (
         <div className="trash-swipe-reveal" aria-hidden="true" style={{ opacity: right }}>

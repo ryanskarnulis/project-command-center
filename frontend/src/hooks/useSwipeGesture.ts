@@ -12,6 +12,48 @@ export const LONG_PRESS_MS = 500
    on whatever it was aimed at. */
 const DRAG_SLOP_PX = 6
 
+/* The first-run hint (#320): one short peek toward each live side, played by
+   the same transform and `.snapping` transition a real drag snaps back with. */
+/** Wait after the row mounts before peeking, so the list (or sheet) has settled. */
+export const SWIPE_HINT_DELAY_MS = 600
+/** How far the peek slides — well short of `SWIPE_COMMIT_PX`, so it can never commit. */
+export const SWIPE_HINT_PEEK_PX = 40
+/** Each half of a peek (out, then back). */
+export const SWIPE_HINT_STEP_MS = 450
+const HINT_STORAGE_PREFIX = 'swipe-hint.'
+
+/* Surfaces whose hint is spent this page load. Mirrors storage, so a viewer
+   whose storage throws still sees it at most once per load rather than on
+   every remount. */
+const hintsSpent = new Set<string>()
+/* Surfaces a mounted row has already claimed: every row of a list asks, the
+   first eligible one to mount (React mounts siblings in order) wins. */
+const hintsClaimed = new Set<string>()
+
+function hintSpent(surface: string): boolean {
+  if (hintsSpent.has(surface)) return true
+  try {
+    return localStorage.getItem(HINT_STORAGE_PREFIX + surface) !== null
+  } catch {
+    return false
+  }
+}
+
+function spendHint(surface: string): void {
+  hintsSpent.add(surface)
+  try {
+    localStorage.setItem(HINT_STORAGE_PREFIX + surface, 'seen')
+  } catch {
+    /* A per-viewer convenience: without storage it replays next load. */
+  }
+}
+
+function motionAllowed(): boolean {
+  // No matchMedia (jsdom) is treated as "don't animate" — every real browser has it.
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
+  return !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
 export interface SwipeGestureOptions {
   /** Off: the content never slides and no side commits. A long-press still
    * fires — it is the row's route to its sheet, not part of the slide. */
@@ -23,6 +65,11 @@ export interface SwipeGestureOptions {
   onSwipeLeft?: () => void
   /** A `LONG_PRESS_MS` hold without moving past the slop. */
   onLongPress?: () => void
+  /** Opt into the first-run hint under this surface key (e.g. `focus`). Every
+   * row of a list may pass it: only the first enabled row to mount peeks,
+   * once per surface per viewer (localStorage), never under
+   * `prefers-reduced-motion`, never firing a verb. A press during it cancels. */
+  hint?: string
 }
 
 export interface SwipeGestureHandlers {
@@ -58,19 +105,68 @@ export interface SwipeGesture {
  * The gesture is an accelerator, never the only route: every row using it must
  * also offer its verbs somewhere a keyboard or screen reader can reach.
  *
- * #320 seam: a first-run discoverability hint belongs here, not in a row — it
- * would play a short peek through this hook's `dx`/`snapping` (the same
- * transform and snap-back the real drag uses), so every swipe row gets it.
+ * The first-run hint (`hint`, #320) lives here rather than in a row: it plays
+ * a short peek through this hook's own `dx`/`snapping` — the same transform
+ * and snap-back the real drag uses — so every swipe row gets it. It only ever
+ * moves the content; `origin` stays null, so no release can commit a verb.
  */
-export function useSwipeGesture({ enabled, onSwipeRight, onSwipeLeft, onLongPress }: SwipeGestureOptions): SwipeGesture {
+export function useSwipeGesture({ enabled, onSwipeRight, onSwipeLeft, onLongPress, hint }: SwipeGestureOptions): SwipeGesture {
   const [dx, setDx] = useState(0)
   const [snapping, setSnapping] = useState(false)
   const origin = useRef<number | null>(null)
   // A drag or a long-press that ends on a control must not also activate it.
   const dragged = useRef(false)
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Stops a scheduled or playing hint; null when none is pending.
+  const cancelHint = useRef<(() => void) | null>(null)
+  const hasRight = Boolean(onSwipeRight)
+  const hasLeft = Boolean(onSwipeLeft)
 
   useEffect(() => () => { if (holdTimer.current) clearTimeout(holdTimer.current) }, [])
+
+  useEffect(() => {
+    if (!hint || !enabled || (!hasRight && !hasLeft)) return
+    if (hintsClaimed.has(hint) || hintSpent(hint) || !motionAllowed()) return
+    const surface = hint
+    hintsClaimed.add(surface)
+    let started = false
+    let moved = false
+    const timers: ReturnType<typeof setTimeout>[] = []
+    const stop = (): void => {
+      timers.forEach(clearTimeout)
+      cancelHint.current = null
+      // Unclaimed only if it never played: StrictMode's dev re-mount (and a
+      // row that turns ineligible before its turn) hands the claim back.
+      if (!started) hintsClaimed.delete(surface)
+      if (moved) {
+        moved = false
+        setSnapping(false)
+        setDx(0)
+      }
+    }
+    timers.push(setTimeout(() => {
+      started = true
+      spendHint(surface)
+      const sides = [...(hasRight ? [1] : []), ...(hasLeft ? [-1] : [])]
+      const at = (ms: number, step: () => void): void => {
+        if (ms === 0) step()
+        else timers.push(setTimeout(step, ms))
+      }
+      sides.forEach((side, i) => {
+        const out = i * 2 * SWIPE_HINT_STEP_MS
+        at(out, () => { moved = true; setSnapping(true); setDx(side * SWIPE_HINT_PEEK_PX) })
+        at(out + SWIPE_HINT_STEP_MS, () => { setSnapping(true); setDx(0) })
+      })
+      timers.push(setTimeout(() => { moved = false; cancelHint.current = null }, sides.length * 2 * SWIPE_HINT_STEP_MS))
+    }, SWIPE_HINT_DELAY_MS))
+    cancelHint.current = () => {
+      // Touching the row before the peek counts as having found the gesture.
+      started = true
+      spendHint(surface)
+      stop()
+    }
+    return stop
+  }, [hint, enabled, hasRight, hasLeft])
 
   function clearHold(): void {
     if (holdTimer.current) clearTimeout(holdTimer.current)
@@ -92,6 +188,9 @@ export function useSwipeGesture({ enabled, onSwipeRight, onSwipeLeft, onLongPres
     onTransitionEnd: () => setSnapping(false),
     onPointerDown: (event) => {
       if (event.button !== 0) return
+      // A real press always wins over the hint: stop it and drop to rest so
+      // the drag starts from zero under the finger.
+      cancelHint.current?.()
       dragged.current = false
       if (onLongPress) {
         clearHold()
