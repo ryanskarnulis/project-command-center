@@ -7,7 +7,7 @@ from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
-from app.db.models import Task, TaskDependency
+from app.db.models import ActivityEvent, Task, TaskDependency
 from app.services import activity
 from app.services import projects as projects_service
 from app.schemas.trash import RescheduledDate, TaskRestoreUndo, UnskipUndo
@@ -151,6 +151,7 @@ def restore_task_with_undo(
             log_task_event(db, live, "restored")
             return live, TaskRestoreUndo(
                 task_id=live.id,
+                restore_event_id=_latest_restored_event_id(db, live.id),
                 unskip=UnskipUndo(
                     skipped_due_date=skipped_due,
                     previous_due_dates=[
@@ -227,10 +228,63 @@ def restore_task_with_undo(
     log_task_event(db, task, "restored")
     return task, TaskRestoreUndo(
         task_id=task.id,
+        restore_event_id=_latest_restored_event_id(db, task.id),
         restored_task_ids=restored_ids,
         skipped=was_skipped,
         deleted_with_task_id=prior_cascade_root,
     )
+
+
+def _latest_restored_event_id(db: Session, task_id: int) -> int:
+    """Id of the newest ``restored`` activity event on ``task_id``.
+
+    Read straight after the restore logs it, so it is that restore's own event:
+    the marker a ``TaskRestoreUndo`` carries to bind itself to this restore.
+    """
+    event_id = db.scalar(
+        select(func.max(ActivityEvent.id)).where(
+            ActivityEvent.entity_type == "task",
+            ActivityEvent.entity_id == task_id,
+            ActivityEvent.action == "restored",
+        )
+    )
+    if event_id is None:  # pragma: no cover - the caller has just logged one
+        raise RuntimeError(f"No restored event logged for task {task_id}")
+    return event_id
+
+
+def _task_events_after(
+    db: Session, task_ids: Sequence[int], event_id: int, *, action: str | None = None
+) -> bool:
+    """Whether any of ``task_ids`` has an activity event newer than ``event_id``.
+
+    Every task write lands an activity event (the service-layer rule), and event
+    ids only grow, so "an event after the restore's own" is exactly "this row
+    has been touched since that restore". ``action`` narrows it to one kind.
+    """
+    query = select(ActivityEvent.id).where(
+        ActivityEvent.entity_type == "task",
+        ActivityEvent.entity_id.in_(task_ids),
+        ActivityEvent.id > event_id,
+    )
+    if action is not None:
+        query = query.where(ActivityEvent.action == action)
+    return db.scalar(query.limit(1)) is not None
+
+
+def _check_restore_event(db: Session, undo: TaskRestoreUndo) -> None:
+    """Refuse a receipt whose marker is not this root's ``restored`` event (#313)."""
+    event = db.get(ActivityEvent, undo.restore_event_id)
+    if (
+        event is None
+        or event.entity_type != "task"
+        or event.entity_id != undo.task_id
+        or event.action != "restored"
+        or _task_events_after(
+            db, [undo.task_id], undo.restore_event_id, action="restored"
+        )
+    ):
+        raise RestoreUndoConflictError("This restore can no longer be undone.")
 
 
 def _active_subtree(db: Session, root: Task) -> list[Task]:
@@ -253,7 +307,16 @@ def undo_task_restore(db: Session, undo: TaskRestoreUndo) -> None:
 
     Raises ``RestoreUndoConflictError`` (nothing written) when the rows have
     moved on since the restore — replaying the receipt would clobber that change.
+    The receipt is bound to one restore by its ``restored`` event
+    (``restore_event_id``): a newer restore of the same task supersedes it, so
+    an old receipt never becomes valid again just because its rows are active
+    again (#313). For an ordinary restore, any later activity on a restored row
+    — an edit, a completion, a move — means it moved on: re-trashing would hide
+    that change. An un-skip's undo only moves dates back, so its moved-on test
+    stays the date checks in ``_undo_unskip``; an unrelated edit to the live
+    occurrence survives that undo intact and does not block it.
     """
+    _check_restore_event(db, undo)
     if undo.unskip is not None:
         _undo_unskip(db, undo.task_id, undo.unskip)
         return
@@ -270,6 +333,11 @@ def undo_task_restore(db: Session, undo: TaskRestoreUndo) -> None:
                 "nothing to undo."
             )
         rows.append(row)
+    if _task_events_after(db, ids, undo.restore_event_id):
+        raise RestoreUndoConflictError(
+            f'"{rows[0].title}" has changed since it was restored; '
+            "delete it instead if you still want it in the trash."
+        )
     _retrash_restored(db, rows, undo)
 
 

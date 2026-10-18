@@ -40,6 +40,8 @@ export interface UnskipUndo {
 
 export interface TaskRestoreUndo {
   task_id: number
+  /** The restore's own `restored` event: binds the receipt to that one restore (#313). */
+  restore_event_id: number
   restored_task_ids: number[]
   skipped: boolean
   deleted_with_task_id: number | null

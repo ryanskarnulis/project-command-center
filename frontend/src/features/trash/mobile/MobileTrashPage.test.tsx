@@ -50,6 +50,7 @@ const mockUndoProjectRestore = vi.mocked(undoProjectRestore)
 const projectUndo: ProjectRestoreUndo = { project_id: 1, restored_task_ids: [5], unarchived_task_ids: [] }
 const taskUndo = (task_id: number): TaskRestoreUndo => ({
   task_id,
+  restore_event_id: 100 + task_id,
   restored_task_ids: [task_id],
   skipped: false,
   deleted_with_task_id: null,
@@ -194,6 +195,7 @@ describe('TrashPage — mobile handoff (M08f)', () => {
     // date and purges row 6: the response names 42, and 6 no longer exists.
     const unskipUndo: TaskRestoreUndo = {
       task_id: 42,
+      restore_event_id: 900,
       restored_task_ids: [],
       skipped: false,
       deleted_with_task_id: null,

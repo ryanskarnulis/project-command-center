@@ -96,9 +96,17 @@ class TaskRestoreUndo(MutationModel):
     ``deleted_with_task_id`` is the cascade marker the root carried before the
     restore cleared it. For an un-skip rewind ``unskip`` is set instead and
     ``restored_task_ids`` is empty: nothing came out of the trash.
+
+    ``restore_event_id`` binds the receipt to this one restore (#313): the id of
+    the ``restored`` activity event the restore logged on ``task_id``, its last
+    write. Every later change to a task lands a later event, so undo can tell
+    "nothing has touched these rows since" from "they moved on" without a
+    version column, and a receipt never revives after a newer delete/restore
+    cycle, whose own ``restored`` event supersedes this one.
     """
 
     task_id: EntityId
+    restore_event_id: EntityId
     restored_task_ids: Annotated[list[EntityId], Field(max_length=MAX_PURGE_IDS)] = []
     skipped: bool = False
     deleted_with_task_id: EntityId | None = None
