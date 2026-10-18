@@ -10,6 +10,7 @@ from app.db.models import Task, TaskWorkflowStatus
 from app.db.session import get_db, get_db_write
 from app.schemas.common import EntityId
 from app.schemas.tasks import (
+    TaskComplete,
     TaskCreate,
     TaskRead,
     TaskSeries,
@@ -208,10 +209,15 @@ def update_task(
 
 
 @router.post("/tasks/{task_id}/done", response_model=TaskRead)
-def mark_task_done(task_id: EntityId, db: Session = Depends(get_db_write)) -> TaskRead:
+def mark_task_done(
+    task_id: EntityId,
+    data: TaskComplete | None = None,
+    db: Session = Depends(get_db_write),
+) -> TaskRead:
     task = _get_task_or_404(db, task_id)
+    actual_minutes = data.actual_minutes if data is not None else None
     try:
-        updated = tasks_service.mark_done(db, task)
+        updated = tasks_service.mark_done(db, task, actual_minutes=actual_minutes)
     except (tasks_service.DerivedStatusError, tasks_service.BlockedTaskError) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)

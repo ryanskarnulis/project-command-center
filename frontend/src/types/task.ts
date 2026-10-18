@@ -25,6 +25,9 @@ export interface Task {
   // this date is in the future. Null = not deferred.
   deferred_until: string | null
   estimated_minutes: number | null
+  // What a timed completion actually took (the mobile Focus clock sends it).
+  // Null when the task was never completed with the clock running.
+  actual_minutes: number | null
   repeat_interval: RepeatInterval | null
   recurrence_id: string | null
   // Derived server-side: due date of the next occurrence for an open recurring

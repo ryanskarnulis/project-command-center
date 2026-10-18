@@ -64,6 +64,7 @@ const task = (id: number, title: string, project_id: number) => ({
   project_id,
   parent_task_id: null,
   estimated_minutes: 45,
+  actual_minutes: null,
   repeat_interval: null,
   recurrence_id: null,
   next_occurrence_date: null,

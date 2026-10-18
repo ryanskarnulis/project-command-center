@@ -137,6 +137,12 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     # Rough effort estimate (Sprint 7 task-model slice). Stored as whole minutes;
     # the UI maps it to human labels. Feeds future scheduling/kanban (not built).
     estimated_minutes: Mapped[int | None] = mapped_column(default=None)
+    # What the work actually took, in whole minutes (issue #318). Written only
+    # by ``services.tasks.mark_done`` when the completing caller timed it (the
+    # mobile Focus clock); null = never timed. Kept across a reopen — it still
+    # describes effort spent — and overwritten by the next timed completion.
+    # Never copied onto a recurrence's next occurrence.
+    actual_minutes: Mapped[int | None] = mapped_column(default=None)
     # Recurrence (Sprint 9L). ``repeat_interval`` is a JSON blob shaped
     # ``{"unit": "day"|"week"|"month", "every": 1-12}`` (null = non-recurring);
     # JSON avoids integer-drift on month math. ``recurrence_id`` is a shared

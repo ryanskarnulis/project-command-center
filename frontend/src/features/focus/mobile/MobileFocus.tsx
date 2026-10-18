@@ -53,8 +53,10 @@ import {
  *    you set. Scheduling one therefore extends the session to fit it and
  *    everything ranked above it, which is the only honest way to pull an item
  *    into a deterministically packed day. Pinning would need a stored plan.
- *  - Completing a block records its actual minutes in the session log, not on
- *    the server: there is no column for it yet.
+ *  - Completing a timed block sends its actual minutes with the completion,
+ *    which stores them on the task (`actual_minutes`). An untimed block sends
+ *    none — its estimate is what the session log books it at, but it is not an
+ *    actual and must not land in the column as one.
  */
 
 const MAX_CAPACITY_MINUTES = 1440
@@ -178,7 +180,7 @@ export function MobileFocus({
     const minutes = timed ? Math.max(1, clock.elapsed) : row.planned
     const snapshot = clock.snapshot()
     await mutate(async () => {
-      await markTaskDone(row.taskId)
+      await (timed ? markTaskDone(row.taskId, minutes) : markTaskDone(row.taskId))
       log.record({ taskId: row.taskId, title: row.title, minutes, plannedMinutes: row.planned })
       // Only the block that owns the clock ends it. Completing a later row from
       // its ⋯ sheet must not throw away the time logged against the one you are

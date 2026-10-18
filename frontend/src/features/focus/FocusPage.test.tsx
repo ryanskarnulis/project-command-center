@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../../api/client'
@@ -61,6 +61,7 @@ const panelTask: Task = {
   due_date: '2026-06-20',
   deferred_until: null,
   estimated_minutes: 30,
+  actual_minutes: null,
   repeat_interval: null,
   recurrence_id: null,
   next_occurrence_date: null,
@@ -780,6 +781,21 @@ describe('FocusPage', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
       await waitFor(() => expect(mockReopenTask).toHaveBeenCalledWith(1))
       expect(screen.queryByText('Marked done · Cut over DNS to the new resolver')).toBeNull()
+    })
+
+    // #318 — a timed block books its clock minutes on the task; an untimed one
+    // (above) completes with no actual, because its estimate is not one.
+    it('sends the clock’s minutes as the actual when a timed block is completed', async () => {
+      mockMarkTaskDone.mockResolvedValue({ ...panelTask, id: 1 })
+      renderMobile(makePlan({ scheduled: [dnsBlock, runbookBlock] }))
+      await screen.findByText('Now')
+
+      fireEvent.click(screen.getByRole('button', { name: /^Start Cut over DNS/ }))
+      // Half a minute of slack: the clock samples on its tick, not the instant.
+      act(() => { vi.advanceTimersByTime(25 * 60_000 + 30_000) })
+
+      swipe(0, 100)
+      await waitFor(() => expect(mockMarkTaskDone).toHaveBeenCalledWith(1, 25))
     })
 
     it('defers on a left swipe and snaps back below the threshold', async () => {

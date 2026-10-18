@@ -116,6 +116,7 @@ const baseTask: Task = {
   due_date: localDateOffset(-1),
   deferred_until: null,
   estimated_minutes: null,
+  actual_minutes: null,
   repeat_interval: null,
   recurrence_id: null,
   next_occurrence_date: null,

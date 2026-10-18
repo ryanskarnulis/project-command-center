@@ -142,15 +142,23 @@ def _default_project_id(db: Session, project_id: int | None) -> int:
     return project_id
 
 
-def log_task_event(db: Session, task: Task, action: str) -> None:
-    """Record an activity event for a task on its project's feed."""
+def log_task_event(
+    db: Session, task: Task, action: str, *, detail: str | None = None
+) -> None:
+    """Record an activity event for a task on its project's feed.
+
+    ``detail`` is appended to the summary (``Task "x" completed in 45 min``).
+    """
+    summary = f'Task "{task.title}" {action}'
+    if detail:
+        summary = f"{summary} {detail}"
     activity.record_event(
         db,
         project_id=task.project_id,
         entity_type="task",
         entity_id=task.id,
         action=action,
-        summary=f'Task "{task.title}" {action}',
+        summary=summary,
     )
 
 
@@ -1289,7 +1297,9 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     return task
 
 
-def mark_done(db: Session, task: Task) -> Task:
+def mark_done(
+    db: Session, task: Task, *, actual_minutes: int | None = None
+) -> Task:
     # Mirror update_task's recurrence behaviour: POST /tasks/{id}/done is the path
     # the task lists/cards use, so completing a recurring task here must roll the
     # series forward too. (This endpoint has no skip flag — skipping is the detail
@@ -1307,13 +1317,21 @@ def mark_done(db: Session, task: Task) -> Task:
     completed = task.workflow_status != TaskWorkflowStatus.done
     if completed:
         _assert_not_blocked(db, task.id)
+        # What the work actually took (issue #318), booked by the caller that
+        # timed it — the mobile Focus clock. Only on the transition: a repeat
+        # completion is a no-op above, so it can't quietly rewrite a recorded
+        # actual without an event. ``None`` leaves any earlier actual alone —
+        # an untimed completion has nothing to say about how long it took.
+        if actual_minutes is not None:
+            task.actual_minutes = actual_minutes
     task.workflow_status = TaskWorkflowStatus.done
     db.flush()
     task_recurrence.reconcile(db, [task.id])
     db.flush()
     db.refresh(task)
     if completed:
-        log_task_event(db, task, "completed")
+        detail = f"in {actual_minutes} min" if actual_minutes is not None else None
+        log_task_event(db, task, "completed", detail=detail)
     return task
 
 

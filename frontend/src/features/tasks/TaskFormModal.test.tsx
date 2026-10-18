@@ -30,6 +30,7 @@ const parent: Task = {
   due_date: null,
   deferred_until: null,
   estimated_minutes: 90,
+  actual_minutes: null,
   repeat_interval: null,
   recurrence_id: null,
   next_occurrence_date: null,
