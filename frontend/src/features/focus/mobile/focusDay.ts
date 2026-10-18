@@ -75,10 +75,8 @@ export interface DayShape {
 
 /** Fixed height of a finished row: the past is a receipt, not a shape. */
 export const FINISHED_ROW_HEIGHT = 44
-/** Past this the gesture commits; below it the row snaps back. */
-export const SWIPE_COMMIT_PX = 88
-/** The drag cannot pull the content further than this. */
-export const SWIPE_CLAMP_PX = 132
+/** The swipe thresholds live with the shared row gesture (#322). */
+export { SWIPE_CLAMP_PX, SWIPE_COMMIT_PX } from '../../../hooks/useSwipeGesture'
 /** How long the undo bar stands after a swipe. */
 export const UNDO_LIFETIME_MS = 5000
 
