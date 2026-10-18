@@ -35,22 +35,19 @@ def _split_by_effective_status(db: Session) -> tuple[list[Task], list[Task]]:
        while its blocker was trashed) would be undercounted here yet shown as open
        by the task list.
 
-    The active set is fetched once: the roll-up child map is built from it in
-    memory rather than re-read, and blocked-ness is one extra scan over it. The
+    Both come off one ``Rollup`` (the cap applies at every depth, so a parent
+    over a blocked subtask stays open too — issue #312). The active set is
+    fetched once: the roll-up child map is built from it in memory rather than
+    re-read, and the dependency edges are one extra scan. The
     done half is the exact complement of the open half, so the lane progress bar
     the two feed can never show a ratio the lane header contradicts.
     """
-    from app.services import task_dependencies
-
     tasks = db.execute(active(Task)).scalars().all()
-    rollups = tasks_service.compute_rollups_for_full_set(tasks)
-    blocked = task_dependencies.blocked_task_ids(db, [task.id for task in tasks])
+    rollups = tasks_service.compute_rollups_for_full_set(db, tasks)
     open_tasks: list[Task] = []
     done_tasks: list[Task] = []
     for task in tasks:
-        effective = tasks_service.capped_status(
-            rollups[task.id].workflow_status, task.id in blocked
-        )
+        effective = rollups[task.id].workflow_status
         bucket = done_tasks if effective == TaskWorkflowStatus.done else open_tasks
         bucket.append(task)
     return open_tasks, done_tasks
