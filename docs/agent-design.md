@@ -109,8 +109,9 @@ exact sequences (temp 1.0). **Gate: prompt/model/loop changes must not
 regress this baseline.**
 
 **Baseline (gemma-4-12b UD-Q4_K_XL, 2026-07-11, 4 consecutive suites, 24/24;
-re-confirmed under the layered personality 2026-07-11 and the context budget
-2026-08-05):**
+re-confirmed under the layered personality 2026-07-11, the context budget
+2026-08-05, and llama-swap serving 2026-10-18 — 4 consecutive suites, 28/28
+with `delegate_actor` added):**
 
 | Scenario | Asserts | Iterations | Warm time |
 | --- | --- | --- | --- |
@@ -120,6 +121,7 @@ re-confirmed under the layered personality 2026-07-11 and the context budget
 | `delete_is_soft` | lands in trash, restorable, audited | 3 | 1.0–3.2 s |
 | `read_only_count` | correct count, zero mutations | 3 | 1.4–2.0 s |
 | `honest_about_missing` | nothing invented or acted on | 4–10 | 2.2–4.1 s |
+| `delegate_actor` | via the route with `X-Agent-Actor: agent:conductor`: every run event the delegate's, prior events untouched | 3–5 | 1.5–3.2 s |
 
 Standing observations: self-correction pays for itself (the recurring gemma
 `name`/`title` miss always fixes on feedback); FTS5 retrieval is sufficient —
