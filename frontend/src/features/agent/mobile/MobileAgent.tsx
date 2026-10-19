@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { ChevronDown, MessageSquarePlus, MoreHorizontal, SendHorizontal } from 'lucide-react'
@@ -15,6 +15,7 @@ import type { UseConversations } from '../useConversations'
 import { ConversationUndoBar } from '../ConversationUndoBar'
 import { useConversationDelete } from '../useConversationDelete'
 import { ActionsSheet, ConversationsSheet, RenameSheet } from './AgentSheets'
+import { LoadOlderButton } from './LoadOlderButton'
 import { MobileTrajectory } from './MobileTrajectory'
 import { formatElapsed, SLOW_RUN_AFTER_S, useElapsedSeconds } from '../useElapsedSeconds'
 
@@ -96,6 +97,26 @@ export function MobileAgent({ activeId, list, thread }: Props) {
   useEffect(() => {
     threadEndRef.current?.scrollIntoView?.({ block: 'end' })
   }, [newestMessageId, pendingText])
+
+  // Prepending an older page keeps the reader where they were (#244, #325):
+  // the tap records the distance from the thread's bottom, and once the page
+  // lands (the oldest id changes) the same distance is restored before paint.
+  // CSS scroll anchoring can't do this — the tap happens at scrollTop 0, where
+  // Chromium doesn't anchor, and iOS Safari has no scroll anchoring at all.
+  const threadRef = useRef<HTMLUListElement>(null)
+  const olderFromBottom = useRef<number | null>(null)
+  const oldestMessageId = detail?.messages[0]?.id
+  useLayoutEffect(() => {
+    const list = threadRef.current
+    const fromBottom = olderFromBottom.current
+    olderFromBottom.current = null
+    if (list !== null && fromBottom !== null) list.scrollTop = list.scrollHeight - fromBottom
+  }, [oldestMessageId])
+  const loadOlderAnchored = () => {
+    const list = threadRef.current
+    if (list !== null) olderFromBottom.current = list.scrollHeight - list.scrollTop
+    fireAndForget(loadOlder())
+  }
 
   const active: Conversation | null =
     conversations.find((conversation) => conversation.id === activeId) ??
@@ -244,13 +265,16 @@ export function MobileAgent({ activeId, list, thread }: Props) {
           ))}
           {error && <p role="alert" className="error magent-error">{error}</p>}
 
-          <ul className="magent-thread" aria-label="Agent chat">
+          <ul ref={threadRef} className="magent-thread" aria-label="Agent chat">
             {loading && <li className="magent-thread-note">Loading conversation…</li>}
             {threadHasMore && (
               <li className="magent-thread-older">
-                <button type="button" onClick={() => fireAndForget(loadOlder())} disabled={loadingOlder}>
-                  {loadingOlder ? 'Loading…' : 'Load older messages'}
-                </button>
+                <LoadOlderButton
+                  label="Load older messages"
+                  loading={loadingOlder}
+                  direction="up"
+                  onLoad={loadOlderAnchored}
+                />
               </li>
             )}
             {detail?.messages.map((message) =>

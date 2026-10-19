@@ -540,4 +540,69 @@ describe('AgentPage — mobile handoff (M07f)', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('/agent/8')
     expect(screen.queryByText(/^Deleted ·/)).toBeNull()
   })
+
+  // #325 — both paging controls share one shape, keep their 44px row, and
+  // stay focused (aria-disabled, not disabled) while their page loads.
+  it('pages the thread back from a divider that keeps focus while it loads', async () => {
+    const older = message({ id: 0, content: 'An older question' })
+    let resolveOlder: (page: ConversationDetail) => void = () => {}
+    mockGet.mockImplementation((_id, params) =>
+      params?.before_id === undefined
+        ? Promise.resolve({ ...detail, has_more: true, message_count: 3 })
+        : new Promise<ConversationDetail>((resolve) => { resolveOlder = resolve }),
+    )
+    renderAt('/agent/8')
+    const button = await screen.findByRole('button', { name: 'Load older messages' })
+    expect(button).toHaveClass('magent-older')
+
+    // Geometry jsdom lacks: the reader is at the top of a 1000px thread.
+    const list = screen.getByRole('list', { name: 'Agent chat' })
+    let scrollHeight = 1000
+    let scrollTop = 0
+    Object.defineProperty(list, 'scrollHeight', { configurable: true, get: () => scrollHeight })
+    Object.defineProperty(list, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => { scrollTop = value },
+    })
+
+    button.focus()
+    await userEvent.keyboard('{Enter}')
+    const loading = screen.getByRole('button', { name: 'Loading…' })
+    expect(loading).toBe(button)
+    expect(loading).toHaveAttribute('aria-disabled', 'true')
+    expect(loading).toHaveAttribute('aria-busy', 'true')
+    expect(loading).toHaveFocus()
+    // A second press while loading is ignored, not a duplicate fetch.
+    await userEvent.keyboard('{Enter}')
+    expect(mockGet).toHaveBeenCalledTimes(2)
+    expect(mockGet).toHaveBeenLastCalledWith(8, { before_id: 1 })
+
+    scrollHeight = 1600
+    await act(async () => resolveOlder({ ...detail, messages: [older], has_more: false, message_count: 3 }))
+    expect(await screen.findByText('An older question')).toBeInTheDocument()
+    // The page landed above the reader, who stays put: 600px more above.
+    expect(scrollTop).toBe(600)
+    expect(screen.queryByRole('button', { name: /older messages|Loading/ })).toBeNull()
+  })
+
+  it('pages the conversations sheet from the same divider', async () => {
+    const page = Array.from({ length: 51 }, (_, i): Conversation => ({
+      id: 100 + i,
+      title: `Conversation ${i}`,
+      created_at: '2026-09-01T09:00:00Z',
+      updated_at: '2026-09-01T10:00:00Z',
+    }))
+    mockList.mockImplementation(async (params) => (params?.offset ? [] : [conversations[0], ...page.slice(0, 50)]))
+    renderAt('/agent/8')
+    await screen.findByText('Two tasks are overdue:')
+    const sheet = await openConversationsSheet()
+    const more = within(sheet).getByRole('button', { name: 'Load older conversations' })
+    expect(more).toHaveClass('magent-older')
+    await userEvent.click(more)
+    await waitFor(() => expect(mockList).toHaveBeenCalledWith({ limit: 51, offset: 50 }))
+    await waitFor(() =>
+      expect(within(sheet).queryByRole('button', { name: /older conversations|Loading/ })).toBeNull(),
+    )
+  })
 })
