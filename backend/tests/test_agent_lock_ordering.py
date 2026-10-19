@@ -55,7 +55,13 @@ class _WritingLoop:
         self.error: BaseException | None = None
 
     def run(
-        self, content: str, *, history: object, actor: str, deadline: float
+        self,
+        content: str,
+        *,
+        history: object,
+        actor: str,
+        deadline: float,
+        cancel: object = None,
     ) -> AgentRunResult:
         self._running.set()
         self._follower_arrived.wait(timeout=FOLLOWER_ARRIVAL_SECONDS)

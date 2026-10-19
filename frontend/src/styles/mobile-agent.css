@@ -214,7 +214,7 @@ main.agent-page.mobile-agent {
    load is ~100s, so elapsed time is the only honest signal. */
 .magent-working {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   padding: 12px 13px;
@@ -226,6 +226,23 @@ main.agent-page.mobile-agent {
 .magent-working-line { font-size: 13px; font-weight: 650; color: var(--text-h); }
 .magent-working-sub { font-size: 11.5px; font-weight: 650; color: var(--text-meta); }
 .magent-clock { font-size: 15px; font-weight: 700; color: var(--glow); font-variant-numeric: tabular-nums; }
+/* Stop (#324): 44px target beside the clock; the negative block margin keeps
+   the status block's padding from growing around it. */
+.magent-stop {
+  min-width: 44px;
+  min-height: 44px;
+  margin: -10px -6px -10px 0;
+  padding: 0 10px;
+  border: 1px solid var(--rule-control);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+.magent-stop:hover:not(:disabled) { border-color: var(--red); background: transparent; }
+.magent-stop:disabled { color: var(--text-meta); opacity: .7; }
 
 /* ── Composer ─────────────────────────────────────────────────────────── */
 .magent-composer {

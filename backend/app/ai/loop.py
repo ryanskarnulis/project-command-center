@@ -24,11 +24,23 @@ ceiling is the deadline plus the duration of at most one already-running tool
 call. Tools are in-process service-layer calls against local SQLite, so that
 overshoot is small and bounded in practice; the budget should leave headroom
 for it rather than being sized flush against the proxy timeout.
+
+Cancellation (#324) uses the same two boundaries. A caller-owned
+``threading.Event`` (set by ``POST /agent/conversations/{id}/cancel``) is
+checked before every provider call and before every tool dispatch; once set,
+the run stops there with stop reason ``cancelled`` and the tool calls that
+already ran stay committed and undoable. It is cooperative, not preemptive: a
+tool already running finishes, and a provider HTTP request already in flight
+is allowed to complete. If that turn asked for tools, they are recorded as
+not run; if it was the final text reply, the run simply completed — there was
+no boundary left to stop at. So Stop takes effect within one model turn, never
+mid-tool.
 """
 
 from __future__ import annotations
 
 import json
+import threading
 import time
 import uuid
 from collections.abc import Sequence
@@ -66,6 +78,10 @@ DELEGATE_ACTORS = frozenset({"agent:conductor"})
 # Recorded (and fed back) for a tool call the run's deadline passed before we
 # could start it — the call never reached the registry or the service layer.
 _SKIPPED_ERROR = "not run: the agent run's time budget was exhausted before this call"
+
+# Recorded (and fed back) for a tool call the user's Stop arrived before — the
+# call never reached the registry or the service layer.
+_CANCELLED_ERROR = "not run: the user stopped the agent run before this call"
 
 
 def resolve_actor(header_value: str | None) -> str:
@@ -141,11 +157,15 @@ _StopReason = Literal[
     "provider_error",
     "timed_out",
     "internal_error",
+    "cancelled",
 ]
 
 # HTTP status the route surfaces for each failure stop reason: a provider fault
 # is an upstream 502; exhausting the time budget is a 504; an unexpected
-# exception (a bug, a DB failure) is our own 500.
+# exception (a bug, a DB failure) is our own 500. ``cancelled`` is absent on
+# purpose: a user-requested stop is not a failure. It finishes like
+# ``max_iterations`` — a 200 carrying the truthful partial turn — so the client
+# renders what ran from the response rather than treating Stop as an error.
 _FAILURE_STATUS: dict[_StopReason, int] = {
     "provider_error": 502,
     "timed_out": 504,
@@ -238,6 +258,7 @@ class AgentLoop:
         history: Sequence[dict[str, Any]] | None = None,
         actor: str = LOOP_ACTOR,
         deadline: float | None = None,
+        cancel: threading.Event | None = None,
     ) -> AgentRunResult:
         """Run the loop for one user message. Always returns or raises cleanly.
 
@@ -259,13 +280,19 @@ class AgentLoop:
         A provider failure or a crossed deadline raises :class:`AgentRunFailed`
         carrying the partial trajectory — the caller persists it, then surfaces
         the error. ``None`` means no time bound (the default, used by tests).
+
+        ``cancel`` is checked at the same two boundaries as the deadline. Once
+        it is set the run *returns* (not raises) with stop reason
+        ``cancelled`` and the partial trajectory: the calls that ran, plus any
+        calls of the current turn it declined to start, recorded as not run.
+        A provider request or tool call already in flight is not interrupted.
         """
         bindings: dict[str, str] = {}
         if "request_id" not in structlog.contextvars.get_contextvars():
             bindings["request_id"] = uuid.uuid4().hex[:8]
         with structlog.contextvars.bound_contextvars(**bindings):
             try:
-                return self._run(user_message, history, actor, deadline)
+                return self._run(user_message, history, actor, deadline, cancel)
             except AgentRunFailed:
                 raise
             except Exception as exc:
@@ -286,6 +313,7 @@ class AgentLoop:
         history: Sequence[dict[str, Any]] | None,
         actor: str,
         deadline: float | None,
+        cancel: threading.Event | None,
     ) -> AgentRunResult:
         specs = registry.tool_specs()
         system_prompt = build_system_prompt(date.today())
@@ -325,6 +353,12 @@ class AgentLoop:
         )
         for iteration in range(1, self._max_iterations + 1):
             iterations = iteration
+            if cancel is not None and cancel.is_set():
+                # Stopped before this turn's provider call. ``iteration - 1``
+                # provider turns actually ran.
+                return self._finish(
+                    "cancelled", None, records, iteration - 1, messages
+                )
             if deadline is not None and time.monotonic() >= deadline:
                 # Out of time before this turn's provider call — stop with the
                 # tool calls that already ran (they stay committed and undoable).
@@ -370,13 +404,32 @@ class AgentLoop:
             messages.append(result.to_message())
             schema_error_this_turn = False
             for index, call in enumerate(result.tool_calls):
+                if cancel is not None and cancel.is_set():
+                    # The user stopped the run before this call started (most
+                    # often during the provider call that proposed it). Record
+                    # the refused calls and stop — never start a tool after
+                    # Stop, even one the model already asked for.
+                    self._skip_remaining(
+                        result.tool_calls[index:],
+                        records,
+                        messages,
+                        error=_CANCELLED_ERROR,
+                        reason="cancelled",
+                    )
+                    return self._finish(
+                        "cancelled", None, records, iteration, messages
+                    )
                 if deadline is not None and time.monotonic() >= deadline:
                     # Out of time before *starting* this call. Record the calls
                     # we refused (truthful trajectory: they never touched the
                     # service layer) and stop — a mutating tool must not begin
                     # after the request budget is already spent.
                     self._skip_remaining(
-                        result.tool_calls[index:], records, messages
+                        result.tool_calls[index:],
+                        records,
+                        messages,
+                        error=_SKIPPED_ERROR,
+                        reason="deadline_exceeded",
                     )
                     raise self._out_of_time(records, iteration, messages)
                 try:
@@ -404,8 +457,11 @@ class AgentLoop:
         calls: Sequence[ToolCall],
         records: list[ToolCallRecord],
         messages: list[dict[str, Any]],
+        *,
+        error: str,
+        reason: str,
     ) -> None:
-        """Record calls the deadline stopped us from starting, and answer them.
+        """Record calls the deadline or a Stop kept us from starting, and answer them.
 
         Each undispatched call still gets a ``role: tool`` message so the
         transcript stays well-formed (every tool call has its result) for the
@@ -415,13 +471,11 @@ class AgentLoop:
             record = ToolCallRecord(
                 tool=call.name,
                 arguments=call.arguments,
-                error=_SKIPPED_ERROR,
+                error=error,
             )
             records.append(record)
-            messages.append(tool_result_message(call.id, f"Error: {_SKIPPED_ERROR}"))
-            logger.warning(
-                "agent_tool_call_skipped", tool=call.name, reason="deadline_exceeded"
-            )
+            messages.append(tool_result_message(call.id, f"Error: {error}"))
+            logger.warning("agent_tool_call_skipped", tool=call.name, reason=reason)
 
     @staticmethod
     def _record_internal_error(

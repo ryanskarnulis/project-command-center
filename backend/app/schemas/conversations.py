@@ -96,3 +96,15 @@ class MessageExchange(BaseModel):
 
     user_message: MessageRead
     assistant_message: MessageRead
+
+
+class RunCancelRead(BaseModel):
+    """Outcome of a Stop request (#324).
+
+    ``cancel_requested`` is True when a run was in flight and has been asked to
+    stop; it stops at its next provider/tool boundary, and the pending message
+    POST then returns with stop reason ``cancelled``. False means nothing was
+    running — nothing is recorded, so a late Stop can never cancel a later run.
+    """
+
+    cancel_requested: bool

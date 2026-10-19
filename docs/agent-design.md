@@ -72,6 +72,15 @@ worst case (the provider timeout tolerates it). Containers reach it via
 - **Loop** `app/ai/loop.py`: bounded iterations (10) + separate correction
   budget (3); schema failures are corrections, domain rejections are ordinary
   results; writes stamped `agent:loop`.
+- **Stop reasons**: `completed`, `max_iterations`, `correction_limit` and
+  `cancelled` return 200; `provider_error` (502), `timed_out` (504) and
+  `internal_error` (500) are failures. Every one persists a truthful assistant
+  turn. The deadline and the cancel event (`POST …/cancel`, #324,
+  `app/api/run_cancel.py`) are checked at the same two boundaries — before each
+  provider call and each tool dispatch — so neither interrupts a running tool;
+  an in-flight provider call finishes first, and calls it proposed after Stop
+  are recorded as not run. The cancel event is per run (registered inside the
+  run lock), so a late Stop never leaks into the next run.
 - **Prompt**: app base contract + vendored global Glitch
   (`app/ai/personality-global.md`, canonical in `../agent-standard/`; fix
   drift by re-copying) + today's date. PCC ships no app-flavor layer.

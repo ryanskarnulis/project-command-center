@@ -60,6 +60,8 @@ export function AgentPage() {
     loadOlder,
     pendingText,
     send,
+    stop,
+    stopping,
   } = thread
   // Below the phone breakpoint the route swaps to the M07f tree: the rail
   // becomes a sheet behind a title row and the thread owns the viewport. Both
@@ -281,7 +283,13 @@ export function AgentPage() {
               {detail?.messages.map((message) => (
                 <MessageBubble key={message.id} message={message} />
               ))}
-              {pendingText !== null && <PendingExchange text={pendingText} />}
+              {pendingText !== null && (
+                <PendingExchange
+                  text={pendingText}
+                  onStop={() => fireAndForget(stop())}
+                  stopping={stopping}
+                />
+              )}
               {!loading &&
                 detail?.messages.length === 0 &&
                 pendingText === null && (

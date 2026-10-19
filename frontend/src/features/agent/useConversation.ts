@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getConversation, postMessage } from '../../api/agent'
+import { apiErrorMessage } from '../../api/errorMessage'
+import { cancelRun, getConversation, postMessage } from '../../api/agent'
 import type { ConversationDetail, MessageExchange } from '../../types/agent'
 import { refreshErrorMessage, sendErrorMessage } from './errorMessage'
 
@@ -18,6 +19,11 @@ export interface UseConversation {
   /** Resolves to the assistant's reply text on success (possibly ''), or
    * null when the run failed — voice uses the text to speak the reply. */
   send: (content: string) => Promise<string | null>
+  /** Ask the in-flight run to stop (#324). The pending `send` then settles
+   * with the server's truthful `cancelled` turn, refetched like any other. */
+  stop: () => Promise<void>
+  /** True from a Stop click until the stopped run lands. */
+  stopping: boolean
 }
 
 // All state is tagged with the conversation it belongs to and the exposed
@@ -104,6 +110,7 @@ export function useConversation(
   const [errorState, setErrorState] = useState<Tagged<string> | null>(null)
   const [pending, setPending] = useState<Tagged<string> | null>(null)
   const [olderPending, setOlderPending] = useState<Tagged<true> | null>(null)
+  const [stopRequested, setStopRequested] = useState<Tagged<true> | null>(null)
 
   // The conversation the hook is currently routed to, readable from async
   // continuations that started before a navigation.
@@ -116,6 +123,7 @@ export function useConversation(
   const error = forId(errorState, conversationId)
   const pendingText = forId(pending, conversationId)
   const loadingOlder = forId(olderPending, conversationId) === true
+  const stopping = pendingText !== null && forId(stopRequested, conversationId) === true
   const loading = conversationId !== null && detail === null && error === null
   const hasMore = detail?.has_more ?? false
 
@@ -230,11 +238,48 @@ export function useConversation(
         }
       }
       setPending((prev) => (prev !== null && prev.id === conversationId ? null : prev))
+      setStopRequested((prev) => (prev !== null && prev.id === conversationId ? null : prev))
       onExchange?.()
       return reply
     },
     [conversationId, onExchange],
   )
 
-  return { detail, loading, error, hasMore, loadingOlder, loadOlder, pendingText, send }
+  // Stop only signals the server; the run's own `send` above still owns the
+  // outcome — the POST returns 200 with a `cancelled` turn and the usual
+  // refetch shows it, tool calls that already ran (and their undo) included.
+  const stop = useCallback(async (): Promise<void> => {
+    if (conversationId === null) return
+    setStopRequested({ id: conversationId, value: true })
+    const clear = () =>
+      setStopRequested((prev) => (prev !== null && prev.id === conversationId ? null : prev))
+    try {
+      const { cancel_requested } = await cancelRun(conversationId)
+      // Nothing was running server-side: the run is already landing, or its
+      // request has not reached the run lock yet. Nothing was recorded, so
+      // re-arm the button rather than claim a stop that will not happen.
+      if (!cancel_requested) clear()
+    } catch (e: unknown) {
+      clear()
+      if (currentIdRef.current === conversationId) {
+        setErrorState({
+          id: conversationId,
+          value: apiErrorMessage(e, 'Could not stop the run'),
+        })
+      }
+    }
+  }, [conversationId])
+
+  return {
+    detail,
+    loading,
+    error,
+    hasMore,
+    loadingOlder,
+    loadOlder,
+    pendingText,
+    send,
+    stop,
+    stopping,
+  }
 }

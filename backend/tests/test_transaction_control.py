@@ -23,6 +23,14 @@ from app.tools import runtime
 
 READ_METHODS = {"GET", "HEAD", "OPTIONS"}
 
+# POST routes that write no row, so the read session is correct. Each needs a
+# reason: the point of the guard is that this list stays short and deliberate.
+NO_DB_WRITE_ROUTES = {
+    # Stop (#324) only sets an in-process cancel event; it must never queue
+    # behind the SQLite write lock held by the very run it is stopping.
+    "/api/agent/conversations/{conversation_id}/cancel",
+}
+
 
 def _dependency_names(route: APIRoute) -> set[str]:
     return {
@@ -49,6 +57,8 @@ class TestWriteRoutesTakeTheWriteLock:
             if not isinstance(route, APIRoute):
                 continue
             if not (route.methods - READ_METHODS):
+                continue
+            if route.path in NO_DB_WRITE_ROUTES:
                 continue
             names = _dependency_names(route)
             if "get_db" in names and "get_db_write" not in names:

@@ -10,7 +10,7 @@ from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool, StaticPool
 
-from app.api import conversation_locks, rate_limit
+from app.api import conversation_locks, rate_limit, run_cancel
 from app.db.models import Base
 from app.db.session import engine as app_engine
 from app.db.session import enable_sqlite_fk_enforcement, get_db, get_db_write
@@ -26,9 +26,11 @@ def _reset_rate_limiter() -> Generator[None, None, None]:
     # rate-limited route many times would otherwise trip the limit cumulatively).
     rate_limit._reset()
     conversation_locks._reset()
+    run_cancel._reset()
     yield
     rate_limit._reset()
     conversation_locks._reset()
+    run_cancel._reset()
 
 
 @pytest.fixture

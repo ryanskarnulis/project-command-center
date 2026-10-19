@@ -315,9 +315,9 @@ keeps the inset bubble. Every successful read the loop made collapses into one
 `Undo` (the same `undoFor` inverse as desktop, so undo is audited); failed
 calls stay visible, struck through, with their error. While a run is in
 flight the pending tail is the user's bubble plus one status block with an
-elapsed `m:ss` clock, and past five seconds a note that a cold model load is
-slow — the run is synchronous and nothing streams, so elapsed time is the only
-honest signal. The composer is one field and one 44px slot: the mic while the
+elapsed `m:ss` clock with a 44px `Stop` beside it, and past five seconds a
+note that a cold model load is slow — the run is synchronous and nothing
+streams, so elapsed time is the only honest signal. The composer is one field and one 44px slot: the mic while the
 draft is empty, send once there is one. Spoken replies moved to the actions
 sheet as the device preference it always was.
 
@@ -332,9 +332,16 @@ sheet is a native modal `<dialog>` whose top layer would sit over the undo bar.
 Rename is `PATCH /api/agent/conversations/{id}` and does not touch the
 conversation's recency. Desktop keeps the current page unchanged.
 
-Not built: nothing cancels a run (a Stop needs backend support; the clock makes
-the wait legible, not escapable), and the mobile `Load older …` buttons are
-44px text buttons in the obvious places without a design pass of their own.
+`Stop` (also in the desktop pending bubble, as a plain control until desktop
+takes the mobile design) calls `POST /api/agent/conversations/{id}/cancel`.
+The run stops at its next model/tool boundary — never mid-tool, and a model
+call already generating finishes first — so the button reads `Stopping…` until
+the turn lands. That turn is the truthful partial one: the tool calls that ran
+keep their `Undo`, any the model had proposed are listed as not run, and a
+note says you stopped it. The command bar's inline ask has no Stop.
+
+Not built: the mobile `Load older …` buttons are 44px text buttons in the
+obvious places without a design pass of their own.
 
 ## MCP server (agent access)
 
@@ -383,10 +390,13 @@ the model emits an invalid call. Its writes are stamped `agent:loop` in
 `activity_events` and every delete is a restorable soft delete.
 
 The loop is driven over REST (`app/api/routes_agent.py`): create/list/fetch/
-rename/delete/restore conversations under `/api/agent/conversations`, and
+rename/delete/restore conversations under `/api/agent/conversations`,
 `POST /api/agent/conversations/{id}/messages` — the one model-calling
 endpoint — which stores the user turn, runs the loop synchronously, and
-returns the exchange with the full tool-call trajectory. It is rate-limited
+returns the exchange with the full tool-call trajectory, and
+`POST /api/agent/conversations/{id}/cancel`, which asks that conversation's
+in-flight run to stop (`{"cancel_requested": true}`; `false` when nothing is
+running; 404 for a missing or deleted thread). It is rate-limited
 per client IP (`AGENT_MESSAGES_PER_MIN`, default 10; must be a positive
 integer — the limiter cannot be disabled).
 
@@ -409,6 +419,15 @@ a run fails or times out, the endpoint still persists a truthful assistant turn
 recording exactly which tool calls ran (with a `provider_error`/`timed_out` stop
 reason) and returns 502/504 — the tool mutations that committed remain, undoable
 via the trash, and the conversation never hides what happened.
+
+Cancel is cooperative and in-process: each run registers a fresh cancel event
+inside the conversation's run lock, and the loop checks it at the same two
+boundaries as the deadline (before every provider call and every tool
+dispatch). A stopped run is **not** an error — the messages POST returns 200
+with a `cancelled` assistant turn recording what ran and what was skipped,
+like a `max_iterations` stop. Because the event belongs to one run, a Stop
+that lands after a run finished (or before the next one takes the lock) is a
+no-op that says so, and can never cancel a later run.
 
 ## Voice (STT/TTS)
 
