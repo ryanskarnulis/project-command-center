@@ -196,6 +196,29 @@ async def test_dependency_tools_block_and_audit(
         assert all(e["actor"] == "agent:mcp" for e in events["result"])
 
 
+async def test_subtask_depending_on_its_parent_is_a_tool_error(
+    _mcp_db: sessionmaker[Session],
+) -> None:
+    """The #354 deadlock guard reaches the agent as a readable tool error."""
+    async with mcp_client() as client:
+        parent = await _call(client, "create_task", {"data": {"title": "Parent"}})
+        child = await _call(
+            client,
+            "create_task",
+            {"data": {"title": "Child", "parent_task_id": parent["id"]}},
+        )
+        rejected = await client.call_tool(
+            "add_dependency",
+            {"task_id": child["id"], "depends_on_task_id": parent["id"]},
+        )
+        assert rejected.isError
+        assert rejected.content and rejected.content[0].type == "text"
+        assert "own parent" in rejected.content[0].text
+
+        graph = await _call(client, "list_dependencies", {"task_id": child["id"]})
+        assert graph["depends_on"] == []
+
+
 async def test_recurrence_tools_skip_and_stop(
     _mcp_db: sessionmaker[Session],
 ) -> None:

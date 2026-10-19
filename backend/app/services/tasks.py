@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import date
 from typing import Any
 from uuid import uuid4
@@ -343,6 +343,51 @@ def _assert_within_depth_cap(
         )
 
 
+def waits_on(db: Session, task_id: int, other_id: int) -> bool:
+    """True if ``task_id`` can't finish until ``other_id`` has (issue #354).
+
+    "Waits on" is the transitive closure of two edges: a dependent waits on its
+    blocker, and a parent waits on each of its subtasks (its completion is
+    derived from theirs). A new edge ``other -> task`` of either kind therefore
+    deadlocks exactly when ``task`` already waits on ``other`` — the guard the
+    dependency-only ``_would_cycle`` was missing for a subtask depending on its
+    own ancestor.
+
+    Like the dependency cycle walk and ``_assert_no_parent_cycle``, this follows
+    stored rows through the trash: restore reconnects them, so a cycle that
+    passes through a trashed task is a deadlock waiting to come back. Frontier-
+    batched (two indexed lookups per level) with its own visited set, so a
+    corrupt graph can't make it loop.
+    """
+    if task_id == other_id:
+        return True
+    seen: set[int] = {task_id}
+    frontier = [task_id]
+    while frontier:
+        reached: set[int] = set()
+        for chunk in chunked(frontier):
+            reached.update(
+                int(cid)
+                for cid in db.execute(
+                    select(Task.id).where(Task.parent_task_id.in_(chunk))
+                ).scalars()
+            )
+            reached.update(
+                int(bid)
+                for bid in db.execute(
+                    select(TaskDependency.depends_on_task_id).where(
+                        TaskDependency.deleted_at.is_(None),
+                        TaskDependency.task_id.in_(chunk),
+                    )
+                ).scalars()
+            )
+        if other_id in reached:
+            return True
+        frontier = sorted(reached - seen)
+        seen.update(frontier)
+    return False
+
+
 def is_effective_top_level(task: Task, active_ids: set[int]) -> bool:
     """True when ``task`` behaves as a top-level task.
 
@@ -520,7 +565,7 @@ class _StatusGraph:
     edge-id order.
     """
 
-    __slots__ = ("nodes", "by_parent", "deps_of")
+    __slots__ = ("nodes", "by_parent", "deps_of", "wait_component", "nest_component")
 
     def __init__(
         self,
@@ -531,6 +576,86 @@ class _StatusGraph:
         self.nodes = nodes
         self.by_parent = by_parent
         self.deps_of = deps_of
+        # Cycle membership, fixed once per graph so resolution never depends on
+        # which task it starts from (issue #354). ``wait_component`` is over the
+        # whole "can't finish until" graph (parent -> child and dependent ->
+        # blocker); ``nest_component`` is over parent -> child alone.
+        self.wait_component = _strongly_connected_components(
+            nodes, lambda tid: self._children_ids(tid) + deps_of.get(tid, [])
+        )
+        self.nest_component = _strongly_connected_components(
+            nodes, self._children_ids
+        )
+
+    def _children_ids(self, task_id: int) -> list[int]:
+        return [c.id for c in self.by_parent.get(task_id, [])]
+
+    def dependency_in_cycle(self, task_id: int, blocker_id: int) -> bool:
+        """The edge ``task_id -> blocker_id`` sits on a wait cycle: a deadlock.
+
+        Every task on such a cycle transitively waits on itself, so none of them
+        can ever finish; the edge counts as blocking whatever the blocker's
+        stored status says.
+        """
+        return self.wait_component[task_id] == self.wait_component[blocker_id]
+
+    def child_in_cycle(self, parent_id: int, child_id: int) -> bool:
+        """The child link closes a pure parent cycle (corrupt pre-#305 data)."""
+        return self.nest_component[parent_id] == self.nest_component[child_id]
+
+
+def _strongly_connected_components(
+    nodes: Iterable[int], successors: Callable[[int], list[int]]
+) -> dict[int, int]:
+    """Component id per node (iterative Tarjan), over edges within ``nodes``.
+
+    Two nodes share an id exactly when each can reach the other; a node on no
+    cycle has an id of its own. Iterative because a long dependency chain must
+    not cost a Python stack frame per hop here.
+    """
+    index: dict[int, int] = {}
+    low: dict[int, int] = {}
+    on_stack: set[int] = set()
+    stack: list[int] = []
+    component: dict[int, int] = {}
+    counter = 0
+    for root in nodes:
+        if root in index:
+            continue
+        index[root] = low[root] = counter
+        counter += 1
+        stack.append(root)
+        on_stack.add(root)
+        work: list[tuple[int, Iterator[int]]] = [(root, iter(successors(root)))]
+        while work:
+            node, pending = work[-1]
+            descended = False
+            for nxt in pending:
+                if nxt not in index:
+                    index[nxt] = low[nxt] = counter
+                    counter += 1
+                    stack.append(nxt)
+                    on_stack.add(nxt)
+                    work.append((nxt, iter(successors(nxt))))
+                    descended = True
+                    break
+                if nxt in on_stack:
+                    low[node] = min(low[node], index[nxt])
+            if descended:
+                continue
+            work.pop()
+            if work:
+                caller = work[-1][0]
+                low[caller] = min(low[caller], low[node])
+            if low[node] == index[node]:
+                comp_id = node
+                while True:
+                    member = stack.pop()
+                    on_stack.discard(member)
+                    component[member] = comp_id
+                    if member == node:
+                        break
+    return component
 
 
 def _load_status_graph(db: Session, roots: Sequence[Task]) -> _StatusGraph:
@@ -615,7 +740,6 @@ def _resolve_rollup(
     task: Task,
     graph: _StatusGraph,
     memo: dict[int, Rollup],
-    path: dict[int, TaskWorkflowStatus | None],
 ) -> Rollup:
     """Effective roll-up of ``task``, memoized by id.
 
@@ -624,23 +748,29 @@ def _resolve_rollup(
     consulted for the cap. Blockers resolve through this same function, so a cap
     anywhere below or upstream propagates.
 
-    ``path`` holds the tasks on the current recursion path, mapped to their
-    uncapped status once known. The API can no longer commit a parent cycle
-    (issue #305) or a dependency cycle, but a mixed one is legal (a subtask that
-    waits on its own ancestor), and corrupt data must not recurse forever: a
-    child already on the path is skipped as if it weren't there, and a blocker
-    already on the path counts with its tentative status — or as unfinished
-    while that status is still being resolved, so a cycle can never complete
-    anything.
+    Cycles are cut by a rule fixed per graph, never by the recursion path, so a
+    memoized result is the same whichever task resolution started from (issue
+    #354). The API commits neither a parent cycle (issue #305), a dependency
+    cycle, nor a mixed one (a subtask waiting on its own ancestor, #354), but
+    older data can hold any of them:
+
+    - a dependency edge on a wait cycle always blocks — every task on that cycle
+      waits on itself, so none of them can ever finish;
+    - a child link on a pure parent cycle is skipped as if it weren't there.
+
+    With those edges cut what remains is acyclic, so the recursion terminates.
     """
     cached = memo.get(task.id)
     if cached is not None:
         return cached
-    path[task.id] = None
-    children = [c for c in graph.by_parent.get(task.id, []) if c.id not in path]
+    children = [
+        c
+        for c in graph.by_parent.get(task.id, [])
+        if not graph.child_in_cycle(task.id, c.id)
+    ]
     subtask_status: TaskWorkflowStatus | None = None
     if children:
-        child_rollups = [_resolve_rollup(c, graph, memo, path) for c in children]
+        child_rollups = [_resolve_rollup(c, graph, memo) for c in children]
         minutes = [r.estimated_minutes for r in child_rollups if r.estimated_minutes]
         estimate = sum(minutes) if minutes else None
         subtask_status = _rollup_status([r.workflow_status for r in child_rollups])
@@ -649,20 +779,16 @@ def _resolve_rollup(
         # Leaf: its own stored values stand (before the cap).
         estimate = task.estimated_minutes
         status = task.workflow_status
-    path[task.id] = status
 
     blocked = False
     for dep_id in graph.deps_of.get(task.id, ()):
-        if dep_id in path:
-            dep_status = path[dep_id] or TaskWorkflowStatus.in_progress
-        else:
-            dep_status = _resolve_rollup(
-                graph.nodes[dep_id], graph, memo, path
-            ).workflow_status
+        if graph.dependency_in_cycle(task.id, dep_id):
+            blocked = True
+            break
+        dep_status = _resolve_rollup(graph.nodes[dep_id], graph, memo).workflow_status
         if dep_status != TaskWorkflowStatus.done:
             blocked = True
             break
-    del path[task.id]
 
     rollup = Rollup(
         estimate,
@@ -684,7 +810,7 @@ def _rollups_over(tasks: Sequence[Task], graph: _StatusGraph) -> dict[int, Rollu
     """
     memo: dict[int, Rollup] = {}
     for task in tasks:
-        _resolve_rollup(task, graph, memo, {})
+        _resolve_rollup(task, graph, memo)
     return memo
 
 
@@ -1026,6 +1152,15 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
         # subtree that already sits deeper than the cap (issue #252).
         if new_parent_id != task.parent_task_id:
             _assert_within_depth_cap(db, task.id, new_parent_id)
+            # The new parent would wait on this task; if this task (or anything in
+            # its subtree) already waits on the new parent or one of its
+            # ancestors, the pair could never finish (issue #354). Walking down
+            # from an ancestor reaches the new parent, so one check covers them.
+            if waits_on(db, task.id, new_parent_id):
+                raise TaskCycleError(
+                    "Moving this task there would deadlock it with a dependency: "
+                    "it already waits on that parent"
+                )
 
     # Remembered before the attribute loop overwrites it: reparenting changes the
     # roll-up of *both* endpoints, and the old parent is unreachable from the moved

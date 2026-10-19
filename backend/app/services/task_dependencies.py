@@ -15,7 +15,7 @@ from app.db.models import (
 from app.services import activity
 from app.services.common import active, chunked, soft_delete
 from app.services.integrity import violates_unique_columns
-from app.services.tasks import compute_rollups, get_task
+from app.services.tasks import compute_rollups, get_task, waits_on
 
 
 class DependencyError(ValueError):
@@ -35,7 +35,11 @@ class DuplicateDependencyError(DependencyError):
 
 
 class DependencyCycleError(DependencyError):
-    """Adding the edge would create a cycle (e.g. A->B->A) — a deadlock."""
+    """Adding the edge would create a cycle (e.g. A->B->A) — a deadlock.
+
+    Parent -> subtask links count: a parent can't finish before its subtasks,
+    so a subtask depending on its own ancestor is a cycle too (issue #354).
+    """
 
 
 class CompletedTaskDependencyError(DependencyError):
@@ -119,8 +123,8 @@ def _closure(
     "walked, has no edges" from "never walked". Ordered by edge id, matching
     ``list_dependencies``.
 
-    Deliberately does NOT filter ``Task.deleted_at``: callers (cycle detection,
-    the downstream walk in ``top_level_blocker_counts``) traverse *through*
+    Deliberately does NOT filter ``Task.deleted_at``: callers (the downstream
+    walk in ``top_level_blocker_counts``) traverse *through*
     soft-deleted tasks and drop them later where it matters.
 
     A ``WITH RECURSIVE`` CTE would collapse the remaining O(depth) to one query,
@@ -157,11 +161,6 @@ def _closure(
     return adjacency
 
 
-def _dependency_closure(db: Session, task_ids: Iterable[int]) -> dict[int, list[int]]:
-    """``task_id -> [depends_on_task_id]`` over the transitive dependency closure."""
-    return _closure(db, task_ids, reverse=False)
-
-
 def _dependent_closure(db: Session, task_ids: Iterable[int]) -> dict[int, list[int]]:
     """``blocker_id -> [dependent_id]`` over everything transitively waiting on ``task_ids``."""
     return _closure(db, task_ids, reverse=True)
@@ -188,14 +187,29 @@ def _direct_dependencies(
 
 
 def _would_cycle(db: Session, task_id: int, depends_on_id: int) -> bool:
-    """True if adding ``task_id -> depends_on_id`` closes a cycle.
+    """True if adding ``task_id -> depends_on_id`` closes a wait cycle.
 
-    The edge is safe unless ``depends_on_id`` can already reach ``task_id`` by
-    following existing ``depends_on`` edges (then ``task_id`` would transitively
-    depend on itself). The closure walk is frontier-batched and its own
-    already-walked set bounds it even if the stored graph is already corrupt.
+    The edge deadlocks when ``depends_on_id`` already (transitively) waits on
+    ``task_id`` — through dependency edges, through parent -> subtask links (a
+    parent's completion is derived from its subtasks), or any mix of the two.
+    The dependency-only walk this used to be let a subtask depend on its own
+    ancestor (issue #354). See ``tasks.waits_on``.
     """
-    return task_id in _dependency_closure(db, [depends_on_id])
+    return waits_on(db, depends_on_id, task_id)
+
+
+def _is_ancestor(db: Session, ancestor_id: int, task_id: int) -> bool:
+    """True if ``ancestor_id`` is on ``task_id``'s stored parent chain."""
+    seen: set[int] = set()
+    current = db.get(Task, task_id)
+    while current is not None and current.parent_task_id is not None:
+        if current.parent_task_id == ancestor_id:
+            return True
+        if current.parent_task_id in seen:
+            return False
+        seen.add(current.parent_task_id)
+        current = db.get(Task, current.parent_task_id)
+    return False
 
 
 def _log_dependency_event(
@@ -233,7 +247,9 @@ def add_dependency(
     """Record that ``task_id`` must wait for ``depends_on_id`` to be done.
 
     Rejects self-edges, duplicates of an active edge, edges referencing a
-    missing/soft-deleted task, and any edge that would create a cycle.
+    missing/soft-deleted task, and any edge that would create a cycle — counting
+    a parent as waiting on its subtasks, so a subtask can't depend on its own
+    ancestor (issue #354).
     """
     if task_id == depends_on_id:
         raise SelfDependencyError("A task cannot depend on itself")
@@ -248,6 +264,11 @@ def add_dependency(
     if depends_on_id in _depends_on_ids(db, task_id):
         raise DuplicateDependencyError("That dependency already exists")
     if _would_cycle(db, task_id, depends_on_id):
+        if _is_ancestor(db, depends_on_id, task_id):
+            raise DependencyCycleError(
+                "A subtask can't depend on its own parent task: the parent "
+                "can't finish until its subtasks do"
+            )
         raise DependencyCycleError("That dependency would create a cycle")
 
     edge = TaskDependency(task_id=task_id, depends_on_task_id=depends_on_id)
