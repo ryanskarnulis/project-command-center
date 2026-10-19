@@ -93,24 +93,12 @@ function Location() {
   return <span data-testid="location">{location.pathname}</span>
 }
 
-/** Both routes render the same element, so navigating keeps one mounted page
- * — what the list-pagination race tests below need to observe a window. */
+/** Render at `path` under the app's own route shape (AppRoutes): the id route
+ * is wrapped in `RequireRouteId`, so crossing between `/agent` and
+ * `/agent/:id` remounts the page and resets its component state — which is
+ * why the pending delete undo lives in an external store. Moving between two
+ * ids (`/agent/1` → `/agent/2`) keeps the same element mounted (#345). */
 function renderAt(path: string) {
-  return render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/agent" element={<AgentPage />} />
-        <Route path="/agent/:conversationId" element={<AgentPage />} />
-      </Routes>
-      <Location />
-    </MemoryRouter>,
-  )
-}
-
-/** The app's own route shape (AppRoutes): the id route is wrapped, so going
- * from `/agent/:id` to `/agent` remounts the page — which is why the pending
- * delete undo lives in an external store rather than component state. */
-function renderAppRoutesAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
@@ -291,7 +279,7 @@ describe('AgentPage', () => {
 
     it('deletes an inactive conversation at once, with no confirm, and undo restores it', async () => {
       const confirmSpy = vi.spyOn(window, 'confirm')
-      renderAppRoutesAt('/agent/1')
+      renderAt('/agent/1')
       await screen.findByText('Created the task.')
 
       fireEvent.click(screen.getByRole('button', { name: 'Delete conversation Weekly review' }))
@@ -310,7 +298,7 @@ describe('AgentPage', () => {
     })
 
     it('deleting the active conversation navigates to /agent, and undo navigates back', async () => {
-      renderAppRoutesAt('/agent/1')
+      renderAt('/agent/1')
       await screen.findByText('Created the task.')
 
       fireEvent.click(screen.getByRole('button', { name: 'Delete conversation Water the plants' }))
@@ -328,7 +316,7 @@ describe('AgentPage', () => {
 
     it('expires the undo after five seconds without restoring', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
-      renderAppRoutesAt('/agent/1')
+      renderAt('/agent/1')
       await screen.findByText('Created the task.')
 
       fireEvent.click(screen.getByRole('button', { name: 'Delete conversation Weekly review' }))
@@ -343,7 +331,7 @@ describe('AgentPage', () => {
 
     it('surfaces a rejected restore in the rail', async () => {
       mockRestore.mockRejectedValue(new Error('Restore failed'))
-      renderAppRoutesAt('/agent/1')
+      renderAt('/agent/1')
       await screen.findByText('Created the task.')
 
       fireEvent.click(screen.getByRole('button', { name: 'Delete conversation Weekly review' }))
@@ -525,7 +513,11 @@ describe('AgentPage', () => {
   it('keeps the loaded window when a stale refresh resolves last (#211)', async () => {
     const { pending, settle } = deferConversationPages()
 
-    renderAt('/agent')
+    // Start on an open conversation: "New conversation" then goes id → id
+    // (`/agent/51` → `/agent/99`), which keeps the page mounted. From bare
+    // `/agent` it would cross the RequireRouteId boundary and remount, and a
+    // remount resetting the list is accepted behaviour (#345).
+    renderAt('/agent/51')
 
     // 1. Initial 50-row window.
     await settle(0)
@@ -559,6 +551,10 @@ describe('AgentPage', () => {
     expect(
       screen.queryByRole('button', { name: /Load older conversations/ }),
     ).not.toBeInTheDocument()
+    // The create really went through, without leaving the id route.
+    await waitFor(() =>
+      expect(screen.getByTestId('location')).toHaveTextContent('/agent/99'),
+    )
   })
 
   it('keeps a pending "Load older" when a refresh resolves first (#221)', async () => {
@@ -567,7 +563,8 @@ describe('AgentPage', () => {
     // for and the click would silently do nothing.
     const { pending, settle, settleAll } = deferConversationPages()
 
-    renderAt('/agent')
+    // id → id on create, so no remount (see #211 above, #345).
+    renderAt('/agent/51')
 
     // 1. Initial 50-row window.
     await settle(0)
@@ -598,6 +595,9 @@ describe('AgentPage', () => {
     expect(
       screen.queryByRole('button', { name: /Load older conversations/ }),
     ).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByTestId('location')).toHaveTextContent('/agent/99'),
+    )
   })
 
   it('surfaces a rate-limit rejection and reloads the thread', async () => {
