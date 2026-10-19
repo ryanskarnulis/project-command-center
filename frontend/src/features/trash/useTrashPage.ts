@@ -63,6 +63,10 @@ export function useTrashPage() {
   const [filters, setFilters] = useState<TrashFilters>(EMPTY_TRASH_FILTERS)
   const [mode, setMode] = useState<TrashMode>('browse')
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Shift-click's range anchor (#365): the last row checked or unchecked by a
+  // plain or Ctrl/⌘ click. A Shift-click extends from it without moving it, so
+  // repeated Shift-clicks pivot on the same row; Select all/none leaves it be.
+  const [anchor, setAnchor] = useState<string | null>(null)
   const [undo, setUndo] = useState<PendingUndo | null>(null)
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -110,19 +114,43 @@ export function useTrashPage() {
     setFilters(next)
     // Selection is cleared by any filter change: a hidden row is never acted on.
     setSelected(new Set())
+    setAnchor(null)
   }
 
   function enterSelect(row?: TrashRow): void {
     setMode('select')
     setSelected(new Set(row ? [rowKey(row)] : []))
+    setAnchor(row ? rowKey(row) : null)
   }
 
   function exitSelect(): void {
     setMode('browse')
     setSelected(new Set())
+    setAnchor(null)
+  }
+
+  /** Shift-click (desktop): check every shown row from the anchor to this one,
+   * in display order across the group labels, adding to what's checked. With
+   * no anchor on screen it checks just this row and makes it the anchor; from
+   * browse mode (where there is never an anchor) it enters selection mode with
+   * this row checked, like Ctrl/⌘-click. */
+  function selectRange(row: TrashRow): void {
+    const key = rowKey(row)
+    const from = anchor === null ? -1 : visibleRows.findIndex((r) => rowKey(r) === anchor)
+    const to = visibleRows.findIndex((r) => rowKey(r) === key)
+    if (mode !== 'select') {
+      enterSelect(row)
+      return
+    }
+    if (from === -1 || to === -1) setAnchor(key)
+    const range = from === -1 || to === -1
+      ? [key]
+      : visibleRows.slice(Math.min(from, to), Math.max(from, to) + 1).map(rowKey)
+    setSelected((prev) => new Set([...prev, ...range]))
   }
 
   function toggleSelected(row: TrashRow): void {
+    setAnchor(rowKey(row))
     setSelected((prev) => {
       const next = new Set(prev)
       const key = rowKey(row)
@@ -217,6 +245,7 @@ export function useTrashPage() {
     enterSelect,
     exitSelect,
     toggleSelected,
+    selectRange,
     toggleAll,
     restore,
     undoLastRestore,
