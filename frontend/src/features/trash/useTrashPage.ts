@@ -91,6 +91,12 @@ export function useTrashPage() {
   // Empty trash purges everything server-side, cascade tasks included; confirm
   // with the server's exact removable total, never lower than what's on screen.
   const emptyTrashTotal = Math.max(counts.purge_total, loadedCount)
+  const shownCount = shown.projects.length + shown.tasks.length
+  // The heading sub-line: the total, or what an applied filter shows of it —
+  // including "0 of N" beside the no-match state (#364).
+  const countLine = filtersActive
+    ? `${shownCount} of ${pluralize(totalCount, 'item')}`
+    : pluralize(totalCount, 'item')
 
   const visibleRows = useMemo(() => [...shown.projects, ...shown.tasks], [shown])
   // Selection always intersects with what's shown: a hidden row is never acted on.
@@ -195,6 +201,8 @@ export function useTrashPage() {
     isEmpty,
     noMatches,
     totalCount,
+    shownCount,
+    countLine,
     emptyTrashTotal,
     mode,
     selected,
