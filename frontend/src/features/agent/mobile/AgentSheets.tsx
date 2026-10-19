@@ -4,6 +4,7 @@ import { BottomSheet } from '../../../components/BottomSheet'
 import type { Conversation } from '../../../types/agent'
 import { formatRelative } from '../../../utils/dates'
 import { ConversationSwipeRow } from './ConversationSwipeRow'
+import { LoadOlderButton } from './LoadOlderButton'
 
 /* The M07f bottom sheets. All three use the shared `BottomSheet` primitive, so
    they inherit its scrim, focus containment, Escape and swipe-down dismiss. */
@@ -117,9 +118,12 @@ export function ConversationsSheet({
         })}
       </ul>
       {hasMore && (
-        <button type="button" className="magent-sheet-more" onClick={onLoadMore} disabled={loadingMore}>
-          {loadingMore ? 'Loading…' : 'Load older conversations'}
-        </button>
+        <LoadOlderButton
+          label="Load older conversations"
+          loading={loadingMore}
+          direction="down"
+          onLoad={onLoadMore}
+        />
       )}
       <p className="magent-sheet-hint">
         Swipe a conversation left to delete it. Long-press for the same actions.

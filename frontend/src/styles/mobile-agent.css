@@ -97,18 +97,7 @@ main.agent-page.mobile-agent {
 }
 .magent-thread-sentinel { height: 0; }
 .magent-thread-note { margin: auto 0; font-size: 12.5px; font-weight: 650; color: var(--text-muted); text-align: center; }
-.magent-thread-older { display: flex; justify-content: center; }
-.magent-thread-older > button {
-  min-height: 44px;
-  padding: 0 12px;
-  border: 0;
-  background: transparent;
-  color: var(--blue);
-  font-size: 12.5px;
-  font-weight: 650;
-}
-.magent-thread-older > button:hover:not(:disabled) { background: transparent; color: var(--link); }
-.magent-thread-older > button:disabled { opacity: .6; }
+.magent-thread-older { display: flex; flex-direction: column; }
 
 .magent-turn { display: flex; flex-direction: column; min-width: 0; }
 /* The user keeps the inset bubble — the one speaker who isn't the page. */
@@ -360,6 +349,38 @@ main.agent-page.mobile-agent {
 }
 .magent-undo-bar > button:hover { background: transparent; color: var(--link); }
 
+/* ── Paging (#325) ──────────────────────────────────────────────────── */
+/* Older messages (top of the thread) and older conversations (foot of the
+   sheet) share one quiet shape: the action word set into a hairline divider —
+   "more past this line", not a third button beside the composer or the rows.
+   The whole 44px row is the target; the ink is 12px. Loading keeps the row
+   and greys the word (no spinner, like the trash skeleton); the control is
+   `aria-disabled` so keyboard focus survives the load. */
+.magent-older {
+  display: grid;
+  grid-template-columns: minmax(12px, 1fr) auto minmax(12px, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 650;
+}
+.magent-older::before,
+.magent-older::after { content: ''; height: 1px; background: var(--rule); }
+.magent-older-label { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.magent-older-label > svg { flex: none; }
+.magent-older:hover:not([aria-disabled='true']) { background: transparent; color: var(--link); }
+.magent-older[aria-disabled='true'] { color: var(--text-meta); cursor: progress; }
+.magent-older:focus-visible { outline-offset: -2px; }
+/* The sheet's last row already ends on a hairline; leave air above it. */
+.magent-conversations-sheet .magent-older { margin-top: 6px; }
+
 /* ── Sheets ───────────────────────────────────────────────────────────── */
 .magent-sheet { background: #0d1018; }
 .magent-sheet::backdrop { background: rgba(6, 7, 11, .62); }
@@ -433,18 +454,6 @@ main.agent-page.mobile-agent {
 .magent-row-title { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 650; color: var(--text-h); }
 .magent-row-time { font-size: 11.5px; font-weight: 650; color: var(--text-meta); font-variant-numeric: tabular-nums; }
 .magent-row-check { color: var(--blue); }
-.magent-sheet-more {
-  width: 100%;
-  min-height: 44px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--blue);
-  font-size: 12.5px;
-  font-weight: 650;
-}
-.magent-sheet-more:hover:not(:disabled) { background: transparent; color: var(--link); }
-.magent-sheet-more:disabled { opacity: .6; }
 .magent-sheet-hint { padding-top: 10px; font-size: 11.5px; line-height: 1.45; color: var(--text-meta); }
 
 /* Actions sheet */
