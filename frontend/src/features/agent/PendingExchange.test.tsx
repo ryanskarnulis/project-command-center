@@ -92,6 +92,8 @@ const detail: ConversationDetail = {
   messages: [],
   message_count: 0,
   has_more: false,
+  run_in_flight: false,
+  run_started_at: null,
 }
 
 describe('AgentPage desktop — Stop', () => {

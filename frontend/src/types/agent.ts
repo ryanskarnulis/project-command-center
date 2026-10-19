@@ -55,6 +55,12 @@ export interface ConversationDetail extends Conversation {
   messages: AgentMessage[]
   message_count: number
   has_more: boolean
+  /** A run is in flight on this conversation right now (#358): its user turn
+   * is already in `messages`, its reply is not. Lets a page that did not start
+   * the run — a reload, another tab — show it, offer Stop, and poll. */
+  run_in_flight: boolean
+  /** That run's start (ISO, UTC); null when idle. */
+  run_started_at: string | null
 }
 
 export interface MessageExchange {

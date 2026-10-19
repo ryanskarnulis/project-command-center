@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  cancelRun,
   createConversation,
   deleteConversation,
   getConversation,
@@ -16,8 +17,10 @@ import type { AgentMessage, ConversationDetail } from '../../types/agent'
 import { AgentPage } from './AgentPage'
 import { dismissDeleteUndo } from './deleteUndoStore'
 import { resetInFlightRuns } from './inFlightRunStore'
+import { REMOTE_RUN_POLL_MS } from './useConversation'
 
 vi.mock('../../api/agent', () => ({
+  cancelRun: vi.fn(),
   createConversation: vi.fn(),
   deleteConversation: vi.fn(),
   renameConversation: vi.fn(),
@@ -88,6 +91,8 @@ const detail: ConversationDetail = {
   messages: [message({ content: 'Create a task to water plants' }), assistantWithToolCalls],
   message_count: 2,
   has_more: false,
+  run_in_flight: false,
+  run_started_at: null,
 }
 
 function Location() {
@@ -420,6 +425,62 @@ describe('AgentPage', () => {
 
     expect(await screen.findByText('Done — marked it complete.')).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('shows a run started elsewhere (reload, another tab), stops it, and polls in the reply (#358)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const userTurn = message({ id: 3, content: 'Plan my day' })
+    const midRun: ConversationDetail = {
+      ...detail,
+      messages: [...detail.messages, userTurn],
+      message_count: 3,
+      run_in_flight: true,
+      run_started_at: new Date(Date.now() - 3_000).toISOString(),
+    }
+    mockGet.mockResolvedValue(midRun)
+    vi.mocked(cancelRun).mockResolvedValue({ cancel_requested: true })
+    renderAt('/agent/1')
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent(/Working/)
+    // The clock counts from the server's start, not this mount.
+    await waitFor(() => expect(status).toHaveTextContent('0:03'))
+    // The user turn is shown once — from the thread, not as an optimistic bubble.
+    expect(screen.getAllByText('Plan my day')).toHaveLength(1)
+    // The composer is held, as on the tab that started the run.
+    expect(screen.getByLabelText('Message the agent')).toBeDisabled()
+
+    fireEvent.click(within(status).getByRole('button', { name: 'Stop' }))
+    expect(cancelRun).toHaveBeenCalledWith(1)
+    expect(await within(status).findByRole('button', { name: 'Stopping…' })).toBeDisabled()
+
+    // Still running on the next poll: the working block stays.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REMOTE_RUN_POLL_MS)
+    })
+    expect(screen.getByRole('status')).toBeInTheDocument()
+
+    mockGet.mockResolvedValue({
+      ...detail,
+      messages: [
+        ...midRun.messages,
+        message({ id: 4, role: 'assistant', content: 'Here is your day.', stop_reason: 'completed' }),
+      ],
+      message_count: 4,
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REMOTE_RUN_POLL_MS)
+    })
+    expect(await screen.findByText('Here is your day.')).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Message the agent')).toBeEnabled()
+
+    // Landed: polling stops.
+    const reads = mockGet.mock.calls.length
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REMOTE_RUN_POLL_MS * 3)
+    })
+    expect(mockGet.mock.calls.length).toBe(reads)
   })
 
   it('explains a run that stopped without a reply', async () => {

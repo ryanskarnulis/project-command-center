@@ -21,7 +21,7 @@ from app.ai.loop import AgentLoop, AgentRunFailed, resolve_actor
 from app.ai.providers.llamacpp import provider_from_settings
 from app.api.conversation_locks import conversation_idle_lock, conversation_run_lock
 from app.api.rate_limit import rate_limit
-from app.api.run_cancel import active_run, request_cancel
+from app.api.run_cancel import active_run, request_cancel, run_started_at
 from app.config import get_settings
 from app.db.models import Conversation
 from app.db.session import get_db, get_db_write
@@ -113,8 +113,13 @@ def get_conversation(
     ``before_id`` pages backwards (older than that message id). Message ids are
     monotonic and messages immutable, so pages never duplicate or skip a turn
     even while the thread grows underneath a reader.
+
+    ``run_in_flight``/``run_started_at`` report a run currently holding this
+    conversation (#358), so a page that did not start it — after a reload, or
+    in another tab — can show it, offer Stop, and poll until it lands.
     """
     conversation = _get_or_404(db, conversation_id)
+    started_at = run_started_at(conversation.id)
     messages = conversations_service.list_messages(
         db, conversation.id, limit=limit, before_id=before_id
     )
@@ -126,6 +131,8 @@ def get_conversation(
         and conversations_service.has_messages_before(
             db, conversation.id, messages[0].id
         ),
+        run_in_flight=started_at is not None,
+        run_started_at=started_at,
     )
 
 

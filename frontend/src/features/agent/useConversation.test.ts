@@ -33,6 +33,8 @@ function detail(id: number, contents: string[]): ConversationDetail {
     messages: contents.map((c, i) => message(i + 1, id, c)),
     message_count: contents.length,
     has_more: false,
+    run_in_flight: false,
+    run_started_at: null,
   }
 }
 
