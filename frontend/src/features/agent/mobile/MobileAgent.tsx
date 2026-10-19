@@ -16,7 +16,7 @@ import { ConversationUndoBar } from '../ConversationUndoBar'
 import { useConversationDelete } from '../useConversationDelete'
 import { ActionsSheet, ConversationsSheet, RenameSheet } from './AgentSheets'
 import { MobileTrajectory } from './MobileTrajectory'
-import { formatElapsed, useElapsedSeconds } from './useElapsedSeconds'
+import { formatElapsed, SLOW_RUN_AFTER_S, useElapsedSeconds } from '../useElapsedSeconds'
 
 /* M07f — /agent at phone width.
  *
@@ -44,7 +44,6 @@ import { formatElapsed, useElapsedSeconds } from './useElapsedSeconds'
  *    browser has no MediaRecorder; `MicButton` renders nothing there.
  */
 
-const SLOW_RUN_AFTER_S = 5
 const COMPOSER_MAX_HEIGHT_PX = 96
 const VOICE_OUTPUT_KEY = 'agent-voice-output'
 

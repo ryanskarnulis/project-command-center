@@ -1,11 +1,9 @@
-import { useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronUp, Eye, Wrench } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { useToast } from '../../../components/ToastContext'
 import { fireAndForget } from '../../../utils/async'
-import { useTrashCount } from '../../trash/trashCountContext'
 import type { ToolCallRecord } from '../../../types/agent'
-import { describeToolCall, isMutation, linkFor, shortUndoLabel, undoFor } from '../toolCalls'
+import { describeToolCall, linkFor, shortUndoLabel, undoFor } from '../toolCalls'
+import { useTrajectory } from '../useTrajectory'
 
 interface Props {
   messageId: number
@@ -20,32 +18,15 @@ interface Props {
  * row each with a 44px `Undo`; failed calls stay visible, struck through, with
  * their error — the agent's self-corrections are part of the record.
  *
- * Undo goes through `undoFor(record)` and `withToast` exactly as the desktop
- * `ToolCallList` does, refreshes the trash count, and recomputes the row's
- * link on `linkFor(record, { undone })` so it never points at a 404.
+ * The grouping and the undo (`undoFor` through `withToast`, trash-count
+ * refresh) live in `../useTrajectory`, shared with the desktop `ToolCallList`;
+ * this is the phone layout of it.
  */
 export function MobileTrajectory({ messageId, records }: Props) {
-  const { withToast } = useToast()
-  const { refresh: refreshTrashCount } = useTrashCount()
-  // Per message, not persisted: the open state belongs to this visit.
-  const [readsOpen, setReadsOpen] = useState(false)
-  // Undo keys ("<messageId>:<index>") already applied this visit.
-  const [undone, setUndone] = useState<Set<string>>(new Set())
-
-  const indexed = records.map((record, index) => ({ record, index, key: `${messageId}:${index}` }))
-  const reads = indexed.filter(({ record }) => record.error === null && !isMutation(record))
-  const rows = indexed.filter(({ record }) => record.error !== null || isMutation(record))
-
-  const undo = async (key: string, record: ToolCallRecord) => {
-    const action = undoFor(record)
-    if (!action) return
-    await withToast(action.perform(), {
-      success: `Undid: ${describeToolCall(record).toLowerCase()}`,
-    })
-    setUndone((prev) => new Set(prev).add(key))
-    // Creates get trashed / trashes get restored — keep the badge honest.
-    void refreshTrashCount()
-  }
+  const { reads, rows, readsOpen, toggleReads, isUndone: undoneKey, undo } = useTrajectory(
+    messageId,
+    records,
+  )
 
   return (
     <div className="magent-trace" aria-label="Agent tool calls">
@@ -55,7 +36,7 @@ export function MobileTrajectory({ messageId, records }: Props) {
             type="button"
             className="magent-reads"
             aria-expanded={readsOpen}
-            onClick={() => setReadsOpen((open) => !open)}
+            onClick={toggleReads}
           >
             <Eye size={15} aria-hidden="true" />
             <span>
@@ -88,7 +69,7 @@ export function MobileTrajectory({ messageId, records }: Props) {
       {rows.map(({ record, key }) => {
         const failed = record.error !== null
         const action = failed ? null : undoFor(record)
-        const isUndone = undone.has(key)
+        const isUndone = undoneKey(key)
         const link = linkFor(record, { undone: isUndone })
         return (
           <div

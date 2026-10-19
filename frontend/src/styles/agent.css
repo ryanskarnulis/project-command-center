@@ -131,7 +131,8 @@ main.agent-page {
   font-size: 11.5px;
 }
 
-.agent-conversation-delete {
+/* Row actions (rename, delete) appear on hover or keyboard focus. */
+.agent-conversation-action {
   align-self: center;
   display: inline-flex;
   padding: 6px;
@@ -143,9 +144,50 @@ main.agent-page {
   opacity: 0;
 }
 
-.agent-conversation:hover .agent-conversation-delete,
-.agent-conversation-delete:focus-visible {
+.agent-conversation-action + .agent-conversation-action {
+  margin-left: -4px;
+}
+
+.agent-conversation:hover .agent-conversation-action,
+.agent-conversation:focus-within .agent-conversation-action {
   opacity: 1;
+}
+
+.agent-conversation-action:hover {
+  color: var(--text-h);
+  background: var(--fill-pill);
+}
+
+.agent-conversation-action:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+/* Rename in place (#327): the field takes the title's slot in the row. */
+.agent-conversation-edit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  padding: 5px 6px;
+}
+
+.agent-conversation-title-field {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--field-h);
+  padding: 0 8px;
+  border: 1px solid var(--rule-field);
+  border-radius: 7px;
+  background: var(--fill-subtle);
+  color: var(--text-h);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.agent-conversation-title-field:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 
 .agent-conversation-delete:hover {
@@ -264,105 +306,95 @@ main.agent-page {
   height: 0;
 }
 
+/* Two shapes of turn (M07f, #327). The user keeps the inset bubble; the
+   agent's reply is not a bubble — a label line, the trajectory, then the
+   body across the full column. One speaker gets a bubble, and it isn't the
+   page. */
 .agent-message {
   display: flex;
-  gap: 10px;
-  max-width: 82%;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
 }
 
 .agent-message--user {
   align-self: flex-end;
-  flex-direction: column;
   align-items: flex-end;
+  max-width: 82%;
 }
 
 .agent-message--assistant {
-  align-self: flex-start;
-}
-
-.agent-avatar {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  margin-top: 2px;
-  border-radius: 50%;
-  background: var(--blue-soft);
-  color: var(--blue);
-}
-
-.agent-message-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
+  align-self: stretch;
+  gap: 9px;
 }
 
 .agent-bubble {
   padding: 10px 13px;
+  border: 1px solid var(--blue-border);
   border-radius: 13px;
-  font-size: 13px;
+  border-bottom-right-radius: 4px;
+  background: var(--blue-tint);
+  color: var(--text-h);
+  font-size: 13.5px;
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: break-word;
 }
 
-.agent-message--user .agent-bubble {
-  background: var(--blue-tint);
-  border: 1px solid var(--blue-border);
-  color: var(--text-h);
-  border-bottom-right-radius: 4px;
+.agent-message-time {
+  color: var(--text-meta);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
-.agent-message--assistant .agent-bubble {
-  background: var(--surface-soft);
-  border: 1px solid var(--border);
-  border-top-left-radius: 4px;
-  /* Assistant replies render as markdown; block elements handle their own
-     spacing, so the plain-text pre-wrap would double up blank lines. */
-  white-space: normal;
+.agent-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-meta);
+  font-size: 11px;
+  font-weight: 650;
 }
 
-/* ── Markdown inside the assistant bubble ────────────────────────────── */
-
-.agent-message--assistant .agent-bubble p,
-.agent-message--assistant .agent-bubble ul,
-.agent-message--assistant .agent-bubble ol,
-.agent-message--assistant .agent-bubble pre,
-.agent-message--assistant .agent-bubble blockquote,
-.agent-message--assistant .agent-bubble h1,
-.agent-message--assistant .agent-bubble h2,
-.agent-message--assistant .agent-bubble h3,
-.agent-message--assistant .agent-bubble h4 {
-  margin: 0 0 0.6em;
+/* The reply's body: full column at 14px, held to a reading measure so a wide
+   thread doesn't run 160-character lines. Markdown blocks space themselves
+   through the flex gap. */
+.agent-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 72ch;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  text-wrap: pretty;
+  overflow-wrap: break-word;
 }
 
-.agent-message--assistant .agent-bubble > :last-child {
-  margin-bottom: 0;
+.agent-body > * {
+  margin: 0;
 }
 
-.agent-message--assistant .agent-bubble h1,
-.agent-message--assistant .agent-bubble h2,
-.agent-message--assistant .agent-bubble h3,
-.agent-message--assistant .agent-bubble h4 {
+.agent-body h1,
+.agent-body h2,
+.agent-body h3,
+.agent-body h4 {
   font-size: 1em;
-  font-weight: 600;
+  font-weight: 650;
   color: var(--text-h);
 }
 
-.agent-message--assistant .agent-bubble ul,
-.agent-message--assistant .agent-bubble ol {
-  padding-left: 1.4em;
+.agent-body ul,
+.agent-body ol {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding-left: 1.3em;
 }
 
-.agent-message--assistant .agent-bubble li {
-  margin: 0.15em 0;
-}
-
-.agent-message--assistant .agent-bubble code {
-  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+.agent-body code {
+  font-family: var(--mono);
   font-size: 0.86em;
   padding: 1px 5px;
   border-radius: 6px;
@@ -371,7 +403,7 @@ main.agent-page {
   overflow-wrap: anywhere;
 }
 
-.agent-message--assistant .agent-bubble pre {
+.agent-body pre {
   padding: 9px 11px;
   border-radius: 9px;
   background: var(--surface-strong);
@@ -379,77 +411,101 @@ main.agent-page {
   overflow-x: auto;
 }
 
-.agent-message--assistant .agent-bubble pre code {
+.agent-body pre code {
   padding: 0;
   border: none;
   background: none;
   overflow-wrap: normal;
 }
 
-.agent-message--assistant .agent-bubble blockquote {
+.agent-body blockquote {
   padding: 2px 0 2px 10px;
   border-left: 3px solid var(--border-strong);
   color: var(--text-muted);
 }
 
-.agent-message--assistant .agent-bubble a {
+.agent-body a {
   color: var(--blue);
   text-decoration: underline;
   overflow-wrap: anywhere;
 }
 
-.agent-bubble--working {
-  display: flex;
+.agent-stop-note {
+  margin: 0;
+  max-width: 72ch;
+  color: var(--orange);
+  font-size: var(--fs-meta);
+  font-weight: 600;
+  text-wrap: pretty;
+}
+
+/* ── Working block ───────────────────────────────────────────────────── */
+
+/* One status block, not three dots: the run is synchronous and a cold model
+   load is slow, so elapsed time is the only honest signal. Stop (#324) sits
+   beside the clock. */
+.agent-working {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 10px;
-  color: var(--text-muted);
+  gap: 12px;
+  max-width: 72ch;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-control);
+  border-radius: 10px;
+  background: var(--fill-subtle);
 }
 
-.agent-working-dots {
-  display: inline-flex;
-  gap: 4px;
+.agent-working > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
 
-/* Stop (#324) — a plain control for now; desktop is due the mobile design. */
+.agent-working-line {
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.agent-working-sub {
+  color: var(--text-meta);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.agent-clock {
+  color: var(--glow);
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 .agent-stop {
-  margin-left: auto;
-  padding: 4px 12px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  min-height: var(--ctl-h);
+  padding: 0 12px;
+  border: 1px solid var(--rule-control);
+  border-radius: 7px;
   background: transparent;
   color: var(--red);
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 700;
   white-space: nowrap;
 }
 
 .agent-stop:hover:not(:disabled) {
   border-color: var(--red);
+  background: transparent;
 }
 
 .agent-stop:disabled {
-  color: var(--text-muted);
+  color: var(--text-meta);
   opacity: 0.7;
 }
 
-.agent-working-dots span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  animation: agent-dot 1.2s infinite ease-in-out;
-}
-
-.agent-working-dots span:nth-child(2) {
-  animation-delay: 0.15s;
-}
-
-.agent-working-dots span:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
-/* Spider avatar bobs gently while a run is in flight — static for
-   reduced-motion users. */
+/* The mark bobs gently while a run is in flight — static for reduced-motion
+   users. */
 @media (prefers-reduced-motion: no-preference) {
   .agent-spider-working {
     animation: agent-spider-bob 1.6s ease-in-out infinite;
@@ -466,109 +522,154 @@ main.agent-page {
   }
 }
 
-@keyframes agent-dot {
-  0%,
-  60%,
-  100% {
-    opacity: 0.35;
-    transform: translateY(0);
-  }
-  30% {
-    opacity: 1;
-    transform: translateY(-3px);
-  }
-}
+/* ── Trajectory ──────────────────────────────────────────────────────── */
 
-.agent-message-time {
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.agent-stop-note {
-  margin: 0;
-  padding: 8px 11px;
-  border-radius: 10px;
-  background: var(--orange-soft);
-  color: var(--orange);
-  font-size: var(--fs-meta);
-}
-
-/* ── Tool calls ──────────────────────────────────────────────────────── */
-
-/* Tool log: a left rule instead of a dashed box. It annotates the reply above
-   it, so it reads as an aside rather than a panel. */
-.agent-tool-calls {
-  list-style: none;
-  margin: 0;
-  padding: 2px 0 2px 10px;
+/* One bordered group per turn: reads first, collapsed; then mutations and
+   failed calls in call order. The desktop twin of `.magent-trace`, at
+   pointer density rather than 44px touch rows. */
+.agent-trace {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  border: 0;
-  border-left: 1px solid var(--rule-field);
-  border-radius: 0;
-  background: transparent;
+  max-width: 72ch;
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  overflow: hidden;
 }
 
-.agent-tool-call {
-  display: flex;
+.agent-trace > * + * {
+  border-top: 1px solid var(--rule-row);
+}
+
+.agent-trace-reads {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 14px;
   align-items: center;
-  gap: 8px;
-  font-size: var(--fs-meta);
+  gap: 9px;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-trace-reads:hover {
+  background: var(--fill-row-hover);
+  color: var(--text-muted);
+}
+
+.agent-trace-reads:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.agent-trace-reads > svg:last-child {
   color: var(--text-meta);
 }
 
-.agent-tool-call--mutation {
-  color: var(--text);
-}
-
-.agent-tool-call--mutation > svg {
-  color: var(--blue);
-}
-
-.agent-tool-call--failed .agent-tool-call-summary {
-  color: var(--text-muted);
-}
-
-.agent-tool-call--failed > svg {
-  color: var(--orange);
-}
-
-.agent-tool-call-summary {
-  min-width: 0;
+.agent-trace-reads-detail {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 2px 11px 8px 34px;
+  color: var(--text-meta);
+  font-size: 12px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
-.agent-tool-call-error {
-  font-size: 11.5px;
-}
-
-/* Row summary as a link to the entity the call touched. Inherits the row's
-   muted/plain color so the trajectory stays quiet; underline on hover. */
-.agent-tool-call-link {
+.agent-trace-reads-detail a {
   color: inherit;
   text-decoration: none;
 }
 
-.agent-tool-call-link:hover,
-.agent-tool-call-link:focus-visible {
+.agent-trace-reads-detail a:hover,
+.agent-trace-reads-detail a:focus-visible {
   color: var(--blue);
   text-decoration: underline;
 }
 
-.agent-undo {
-  margin-left: auto;
-  flex: none;
-  font-size: 11.5px;
-  padding: 3px 9px;
+.agent-trace-call {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 32px;
+  padding: 5px 11px;
 }
 
-.agent-tool-call-undone {
-  margin-left: auto;
-  flex: none;
-  font-size: 11.5px;
-  color: var(--green);
+.agent-trace-call > svg {
+  color: var(--blue);
 }
+
+.agent-trace-call-summary {
+  min-width: 0;
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.agent-trace-call-summary a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.agent-trace-call-summary a:hover,
+.agent-trace-call-summary a:focus-visible {
+  color: var(--blue);
+  text-decoration: underline;
+}
+
+.agent-trace-call--undone .agent-trace-call-summary {
+  color: var(--text-meta);
+}
+
+.agent-trace-call--failed > svg {
+  color: var(--red);
+}
+
+.agent-trace-call--failed .agent-trace-call-summary {
+  color: var(--text-meta);
+  text-decoration: line-through;
+}
+
+.agent-trace-call-error {
+  color: var(--text-meta);
+}
+
+/* A colored word, not a pill: the action is blue ink on the row. */
+.agent-trace-undo {
+  min-height: 26px;
+  margin: -4px -6px -4px 0;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.agent-trace-undo:hover {
+  background: var(--fill-pill);
+  color: var(--link);
+}
+
+.agent-trace-call-undone {
+  padding-right: 2px;
+  color: var(--text-meta);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
 
 /* ── Composer ────────────────────────────────────────────────────────── */
 
