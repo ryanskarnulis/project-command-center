@@ -91,6 +91,9 @@ export function useTrashPage() {
   // Empty trash purges everything server-side, cascade tasks included; confirm
   // with the server's exact removable total, never lower than what's on screen.
   const emptyTrashTotal = Math.max(counts.purge_total, loadedCount)
+  // That total also counts every task archived with a trashed project, so it can
+  // exceed the item count above; the foot row then names both numbers (#363).
+  const emptyTrashExtra = emptyTrashTotal > totalCount ? `${emptyTrashTotal} with archived tasks` : null
   const shownCount = shown.projects.length + shown.tasks.length
   // The heading sub-line: the total, or what an applied filter shows of it —
   // including "0 of N" beside the no-match state (#364).
@@ -204,6 +207,7 @@ export function useTrashPage() {
     shownCount,
     countLine,
     emptyTrashTotal,
+    emptyTrashExtra,
     mode,
     selected,
     selectedRows,

@@ -145,7 +145,9 @@ export function TrashSelectionHeading({ page }: { page: TrashPageState }) {
   )
 }
 
-/** What you have → what you can do about it → burn it. */
+/** What you have → what you can do about it → burn it. When Empty trash
+ * removes more than the listed items (archived tasks go with their project),
+ * the row names both numbers so it never contradicts the heading (#363). */
 export function TrashFoot({ page }: { page: TrashPageState }) {
   return (
     <div className="trash-foot">
@@ -155,7 +157,17 @@ export function TrashFoot({ page }: { page: TrashPageState }) {
       </button>
       <button type="button" className="danger" onClick={page.confirmEmptyTrash}>
         <Trash2 size={16} aria-hidden="true" />
-        Empty trash <span className="trash-meta-sep" aria-hidden="true">·</span> {page.emptyTrashTotal}
+        <span>
+          Empty trash <span className="trash-meta-sep" aria-hidden="true">·</span>{' '}
+          {page.emptyTrashExtra ? (
+            <>
+              {pluralize(page.totalCount, 'item')}
+              <span className="trash-foot-extra">, {page.emptyTrashExtra}</span>
+            </>
+          ) : (
+            page.emptyTrashTotal
+          )}
+        </span>
       </button>
     </div>
   )

@@ -155,6 +155,8 @@
 .trash-foot > button:hover { background: transparent; color: var(--text); }
 .trash-foot > button.danger { color: var(--red); }
 .trash-foot > button.danger:hover { color: var(--red); }
+/* The breakdown is an explanation, not the verb: quieter than the red label. */
+.trash-foot > button .trash-foot-extra { color: var(--text-meta); font-weight: 600; }
 
 /* ── Undo bar · selection action bar ──────────────────────────────────── */
 /* Same geometry and position for both; they never show at once. Sits above the
