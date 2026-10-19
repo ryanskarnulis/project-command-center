@@ -1,117 +1,160 @@
-/* Trash page sections and controls.
-   Split from index.css. The barrel (../index.css) controls load order. */
+/* /trash — the shared filter form and the desktop M08f tree (#323).
+   Split from index.css. The barrel (../index.css) controls load order.
 
-/* Sections open with a rule and a mono label — the icons that used to lead
-   these headings are gone with the rest of the decorative glyphs. */
-.trash-section {
-  margin-top: 14px;
-  border-top: 1px solid var(--rule);
-  padding-top: 12px;
-}
+   Rows, group labels, foot rows, the undo bar and the selection action bar
+   are the phone's (mobile-trash.css). Everything here that changes them is
+   keyed off `.desktop-trash`, the tree the route chose, so the breakpoint
+   stays in `useMobileViewport` alone. */
 
-.trash-section h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--mono);
-  font-size: var(--fs-micro);
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
+/* The pending filter form, hosted by the phone's bottom sheet and desktop's
+   anchored panel alike. */
+.trash-filter-form { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 
-.trash-deleted-at {
-  color: var(--text-meta);
-  font-size: 11.5px;
-  white-space: nowrap;
-}
+/* ── Page ─────────────────────────────────────────────────────────────── */
+/* The page keeps the shell's width so its title lines up with every other
+   route; its content stops at a reading width, so a row's actions stay within
+   reach of its title on a wide screen. */
+.desktop-trash { gap: 14px; }
+.desktop-trash > * { width: 100%; max-width: 880px; }
 
-.trash-section-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  min-height: 30px;
-}
+.desktop-trash .trash-heading { min-height: 40px; }
+.desktop-trash .trash-heading h1 { font-size: var(--fs-page-title); }
+.desktop-trash .trash-heading-sub { font-size: var(--fs-page-sub); }
+/* Desktop has no 44px touch floor: the selection buttons are text buttons. */
+.desktop-trash .trash-selection-count { font-size: 14px; }
+.desktop-trash .trash-selection-actions { margin-right: -6px; }
+.desktop-trash .trash-selection-actions > button { min-height: 32px; padding: 0 6px; font-size: var(--fs-btn); }
+.desktop-trash .trash-notice,
+.desktop-trash .error { margin-top: -4px; font-size: var(--fs-meta); font-weight: 620; }
 
-/* "Select all" sits just after the heading; margin-right:auto pushes the
-   "Restore all" button to the far right of the head row. */
-.trash-select-all {
+/* ── Filter control and panel ─────────────────────────────────────────── */
+.trash-filter-anchor { position: relative; }
+.trash-filter-control {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-right: auto;
-  font-size: var(--fs-meta);
-  color: var(--text-meta);
-  cursor: pointer;
-}
-
-/* Per-item checkbox column: a row sits beside its selection box. */
-.trash-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-/* Rows lost their 14px of card padding, so the checkbox rides up to meet the
-   first line of the title. */
-.trash-item > .trash-item-check {
-  margin-top: 11px;
-  flex-shrink: 0;
-}
-
-.trash-item > :not(.trash-item-check) {
-  flex: 1;
-  min-width: 0;
-}
-
-/* Multi-restore / multi-purge bar, shown once a section has a selection.
-   A ruled row rather than a boxed toolbar. */
-.trash-bulk-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-  padding: 10px 0 0;
-  border: 0;
-  border-top: 1px solid var(--rule);
-  border-radius: 0;
-  background: transparent;
-}
-
-.trash-selected-count {
-  font-size: var(--fs-meta);
-  font-weight: 650;
-}
-
-.trash-section-hint {
-  margin: 4px 0 0;
-  font-size: 11.5px;
-  color: var(--text-meta);
-}
-
-.trash-notice {
-  color: var(--green-strong);
-  font-weight: 700;
-}
-
-.trash-meta {
-  font-size: 11.5px;
-  color: var(--text-meta);
-}
-
-.trash-danger {
-  border-color: rgba(242, 143, 164, 0.45);
-  background: transparent;
-  color: var(--red);
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 11px;
+  border-radius: 8px;
   font-size: var(--fs-btn);
   font-weight: 650;
 }
+.trash-filter-control[aria-expanded='true'] { border-color: var(--rule-hover); }
+.trash-filter-control.applied { background: var(--blue-soft); border-color: transparent; color: var(--link); }
 
-.trash-danger:hover {
-  border-color: var(--red);
-  background: var(--red-soft);
+/* The M03f sheet's content in a 320px panel under the control. The inner
+   field, option and apply classes are the sheet's own. */
+.trash-filter-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  width: 320px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: var(--shadow-card);
+  font-size: var(--fs-body);
+}
+.trash-filter-panel .trash-filter-form { gap: 14px; }
+.trash-filter-panel header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.trash-filter-panel h2 { font-size: 14px; font-weight: 720; letter-spacing: -.01em; color: var(--text-h); }
+.trash-filter-panel .task-sheet-reset {
+  min-height: 28px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-size: var(--fs-btn);
+  font-weight: 700;
+}
+.trash-filter-panel .task-sheet-reset:hover { background: transparent; color: var(--link); }
+.trash-filter-panel fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.trash-filter-panel legend {
+  margin-bottom: 8px;
+  padding: 0;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.trash-filter-panel .task-sheet-search { min-height: 34px; }
+.trash-filter-panel .task-sheet-search input { min-height: 32px; font-size: 13px; }
+.trash-filter-panel .task-sheet-options button { min-height: 30px; font-size: var(--fs-btn); }
+.trash-filter-panel .task-sheet-apply { min-height: 36px; font-size: 13px; }
+
+/* Chips: desktop's removable chips are 26px, not the phone's 30px targets. */
+.desktop-trash .trash-filter-chips { margin-top: -4px; }
+.desktop-trash .trash-filter-chips > button { min-height: 26px; }
+
+/* ── Rows ─────────────────────────────────────────────────────────────── */
+.desktop-trash .trash-row { align-items: center; padding: 9px 8px; margin: 0 -8px; border-radius: 8px; }
+.desktop-trash .trash-row.selecting { align-items: flex-start; }
+.desktop-trash .trash-row-main { gap: 3px; }
+.desktop-trash .trash-row-title { font-size: var(--fs-task-title); }
+.desktop-trash .trash-row-meta { font-size: var(--fs-meta); font-weight: 600; }
+.desktop-trash .trash-restore-ring { margin-top: 0; }
+.desktop-trash .trash-restore-ring:focus-visible,
+.desktop-trash .trash-row-actions > button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
+/* The ⋯ sheet's two other verbs, laid out on the row: hidden at rest, shown
+   on hover or when keyboard focus is anywhere in the row. Kept in the layout
+   (opacity, not display) so the title never reflows under the pointer. */
+.trash-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+}
+.trash-row:hover .trash-row-actions,
+.trash-row:focus-within .trash-row-actions { opacity: 1; }
+.trash-row-actions > button {
+  min-height: var(--icon-btn);
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-meta);
+  font-size: var(--fs-btn);
+  font-weight: 650;
+  white-space: nowrap;
+}
+.trash-row-actions > button:hover { background: var(--fill-pill); color: var(--text-h); }
+.trash-row-actions > button.danger { color: var(--red); }
+.trash-row-actions > button.danger:hover { background: var(--red-soft); color: var(--red); }
+
+/* Touch screens wider than the phone breakpoint have no hover to reveal with. */
+@media (hover: none) {
+  .trash-row-actions { opacity: 1; }
+}
+
+/* ── Foot rows ────────────────────────────────────────────────────────── */
+.desktop-trash .trash-foot > button { min-height: 34px; width: auto; font-size: var(--fs-btn); }
+
+/* ── Undo bar · selection action bar ──────────────────────────────────── */
+/* No bottom nav to clear: both bars sit after the list and stick to the
+   bottom of the viewport while a long list scrolls, so they never cover the
+   foot rows. They never show at once. */
+.desktop-trash .trash-undo,
+.desktop-trash .trash-action-bar {
+  position: sticky;
+  left: auto;
+  right: auto;
+  bottom: 16px;
+  max-width: 480px;
+  box-shadow: var(--shadow-soft);
+}
+.desktop-trash .trash-undo > span,
+.desktop-trash .trash-action-bar > span { font-size: var(--fs-meta); }
+.desktop-trash .trash-undo > button,
+.desktop-trash .trash-action-bar > button { min-height: 30px; font-size: var(--fs-btn); }
+.desktop-trash .trash-undo > button:hover,
+.desktop-trash .trash-action-bar > button:hover:not(:disabled) { background: var(--fill-pill); }
+.desktop-trash .trash-action-bar > button.danger:hover:not(:disabled) { background: var(--red-soft); }

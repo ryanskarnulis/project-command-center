@@ -287,8 +287,8 @@ receipt is just the project id and its `restored` event: it names no tasks,
 because a project can own any number of them, so the server recomputes the
 rows that restore brought back or moved to the Tasks trash from the task
 events it logged (#314). `⋯` opens a sheet with
-Restore, **Restore without its tasks** (projects with archived tasks; the
-question desktop asks as a `window.confirm`) and **Delete forever**, which keeps
+Restore, **Restore without its tasks** (projects with archived tasks; plain
+Restore brings them back) and **Delete forever**, which keeps
 its confirm and names the full purge scope. **Select** (a foot row, or a 500ms
 hold on any row) enters a selection mode that spans both kinds: checkboxes
 replace the rings, one action bar offers Restore and Delete forever, a purge
@@ -299,7 +299,18 @@ page reads top to bottom as what you have → what you can do about it → burn 
 Not built: the handoff's retention countdown (`removed after 30 days`,
 `n days left`). It needs a scheduled purge policy the backend does not have,
 so the sub-line carries one fact and the meta line stops at two; the rest of
-the design stands without it. Desktop keeps the current page unchanged.
+the design stands without it.
+
+Desktop `/trash` follows the same design (#323), driven by the same page
+hook: rows, group labels, chips row, foot rows, undo-backed restore and
+selection mode. The swipe and the `⋯` sheet become row actions shown on hover
+or keyboard focus (Restore without its tasks, Delete forever); Ctrl/⌘-click on
+a row enters selection mode with it checked and Escape leaves it; the filter
+sheet becomes a pending panel anchored to the Filter control (Enter applies,
+Escape or an outside click discards); the undo and selection bars stick to the
+bottom of the viewport instead of floating over a bottom nav. The old
+per-section Restore all is gone with the section heads: Select → Select all →
+Restore covers it.
 
 ## Mobile agent
 

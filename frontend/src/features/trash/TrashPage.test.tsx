@@ -1,13 +1,24 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { listProjects, purgeProject, restoreProject } from '../../api/projects'
-import { purgeTask, restoreTask } from '../../api/tasks'
-import { emptyTrash, getTrash, purgeSelected, restoreTrashedTask } from '../../api/trash'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { deleteProject, listProjects, purgeProject, restoreProject } from '../../api/projects'
+import { deleteTask, purgeTask, restoreTask } from '../../api/tasks'
+import {
+  emptyTrash,
+  getTrash,
+  purgeSelected,
+  restoreTrashedTask,
+  undoProjectRestore,
+  undoTaskRestore,
+} from '../../api/trash'
 import { ApiError } from '../../api/client'
 import type { ProjectRestoreUndo, TaskRestoreUndo, Trash } from '../../types/trash'
 import { TrashPage } from './TrashPage'
+import { UNDO_LIFETIME_MS } from './useTrashPage'
+
+/* M08f at desktop width (#323): the phone's rows, chips, selection mode and
+ * undo bar, reached by pointer and keyboard instead of swipe and sheets. */
 
 const renderPage = () => render(<TrashPage />, { wrapper: MemoryRouter })
 
@@ -39,6 +50,10 @@ const mockPurgeProject = vi.mocked(purgeProject)
 const mockPurgeTask = vi.mocked(purgeTask)
 const mockPurgeSelected = vi.mocked(purgeSelected)
 const mockRestoreTrashedTask = vi.mocked(restoreTrashedTask)
+const mockUndoTaskRestore = vi.mocked(undoTaskRestore)
+const mockUndoProjectRestore = vi.mocked(undoProjectRestore)
+const mockDeleteProject = vi.mocked(deleteProject)
+const mockDeleteTask = vi.mocked(deleteTask)
 
 const projectUndo: ProjectRestoreUndo = { project_id: 1, restore_event_id: 40 }
 const taskUndo = (task_id: number): TaskRestoreUndo => ({
@@ -50,473 +65,362 @@ const taskUndo = (task_id: number): TaskRestoreUndo => ({
   unskip: null,
 })
 
-const trash: Trash = {
-  projects: [
-    {
-      id: 1,
-      name: 'Firewall',
-      description: null,
-      system_key: null,
-      sort_order: 0,
-      is_protected: false,
-      created_at: '2026-06-01T17:00:00Z',
-      updated_at: '2026-06-01T17:00:00Z',
-      deleted_at: DELETED_AT,
-      archived_task_count: 0,
-      purge_task_count: 0,
-    },
-  ],
-  tasks: [
-    {
-      id: 5,
-      // A project that is NOT in the trash: this task was trashed on its own,
-      // so the card resolves no name from `trash.projects` and the section's
-      // only "Firewall" is the trashed project's own row.
-      project_id: 2,
-      parent_task_id: null,
-      estimated_minutes: null,
-      actual_minutes: null,
-      repeat_interval: null,
-      recurrence_id: null,
-      next_occurrence_date: null,
-      is_blocked: false,
-      is_blocking: false,
-      blocked_task_count: 0,
-      has_subtasks: false,
-      title: 'Pay invoice',
-      description: null,
-      workflow_status: 'open',
-      priority: 'medium',
-      due_date: null,
-      deferred_until: null,
-      created_at: '2026-06-01T17:00:00Z',
-      updated_at: '2026-06-01T17:00:00Z',
-      deleted_at: DELETED_AT,
-    },
-  ],
+const project = {
+  id: 1,
+  name: 'Firewall',
+  description: null,
+  system_key: null,
+  sort_order: 0,
+  is_protected: false,
+  created_at: '2026-06-01T17:00:00Z',
+  updated_at: '2026-06-01T17:00:00Z',
+  deleted_at: DELETED_AT,
+  archived_task_count: 0,
+  purge_task_count: 0,
 }
 
-describe('TrashPage', () => {
+const task = (id: number, title: string, project_id: number) => ({
+  id,
+  project_id,
+  parent_task_id: null,
+  estimated_minutes: null,
+  actual_minutes: null,
+  repeat_interval: null,
+  recurrence_id: null,
+  next_occurrence_date: null,
+  is_blocked: false,
+  is_blocking: false,
+  blocked_task_count: 0,
+  has_subtasks: false,
+  title,
+  description: null,
+  workflow_status: 'open' as const,
+  priority: 'medium' as const,
+  due_date: '2026-08-04',
+  deferred_until: null,
+  created_at: '2026-06-01T17:00:00Z',
+  updated_at: '2026-06-01T17:00:00Z',
+  deleted_at: DELETED_AT,
+})
+
+// The task's project (2) is NOT in the trash: it was trashed on its own, so its
+// meta line names no project.
+const trash: Trash = { projects: [project], tasks: [task(5, 'Pay invoice', 2)] }
+
+/** A row title — the same string can also appear in a task's meta line as its project. */
+const title = (text: string) => screen.getByText(text, { selector: '.trash-row-title' })
+const queryTitle = (text: string) => screen.queryByText(text, { selector: '.trash-row-title' })
+const rowOf = (text: string) => title(text).closest('.trash-row') as HTMLElement
+
+function loadOnce(first: Trash): void {
+  mockGetTrash.mockReset()
+  mockGetTrash.mockResolvedValueOnce(first).mockResolvedValue({ projects: [], tasks: [] })
+}
+
+describe('TrashPage — desktop (M08f)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Desktop width: the phone media query does not match.
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     // Active projects feed the restored-task destination label; none needed here.
     mockListProjects.mockResolvedValue([])
-    // First load shows the deleted items; the post-restore reload is empty.
-    mockGetTrash
-      .mockResolvedValueOnce(trash)
-      .mockResolvedValue({ projects: [], tasks: [] })
+    // First load shows the deleted items; the post-action reload is empty.
+    loadOnce(trash)
+    mockUndoTaskRestore.mockResolvedValue()
+    mockUndoProjectRestore.mockResolvedValue()
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
-  it('lists deleted items and restores a project', async () => {
-    const user = userEvent.setup()
-    mockRestoreProject.mockResolvedValue({ project: trash.projects[0], restored_task_count: 0, undo: projectUndo })
-
-    renderPage()
-
-    expect(await screen.findByText('Firewall')).toBeInTheDocument()
-    expect(screen.getByText('Pay invoice')).toBeInTheDocument()
-    // Each card shows a relative deleted-time label (fixtures deleted 3 days ago).
-    expect(screen.getAllByText('Deleted 3 days ago').length).toBe(2)
-
-    await user.click(
-      screen.getByRole('button', { name: 'Restore project Firewall' }),
-    )
-
-    // No archived tasks → restored without bringing tasks back.
-    expect(mockRestoreProject).toHaveBeenCalledWith(1, false)
-    await waitFor(() =>
-      expect(screen.getByText('Trash is empty.')).toBeInTheDocument(),
-    )
-  })
-
-  it('offers to bring tasks back when restoring a project that has them', async () => {
-    const user = userEvent.setup()
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
-    mockGetTrash.mockReset()
-    mockGetTrash
-      .mockResolvedValueOnce({
-        ...trash,
-        projects: [{ ...trash.projects[0], archived_task_count: 3 }],
-      })
-      .mockResolvedValue({ projects: [], tasks: [] })
-    mockRestoreProject.mockResolvedValue({ project: trash.projects[0], restored_task_count: 3, undo: projectUndo })
-
-    renderPage()
-
-    expect(await screen.findByText('3 tasks to restore')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Restore project Firewall' }))
-
-    expect(confirmSpy).toHaveBeenCalled()
-    expect(mockRestoreProject).toHaveBeenCalledWith(1, true)
-    await waitFor(() =>
-      expect(screen.getByText(/Brought back 3 tasks|with 3 tasks/)).toBeInTheDocument(),
-    )
-    confirmSpy.mockRestore()
-  })
-
-  it('exposes a restore handler for tasks', async () => {
-    const user = userEvent.setup()
-    mockRestoreTrashedTask.mockResolvedValue({ task: trash.tasks[0], undo: taskUndo(5) })
-
-    renderPage()
-
-    await user.click(
-      await screen.findByRole('button', { name: 'Restore task Pay invoice' }),
-    )
-    // The Trash route, so the same hook can hand mobile its undo receipt.
-    expect(mockRestoreTrashedTask).toHaveBeenCalledWith(5)
-  })
-
-  it('names the project a restored task actually lands in', async () => {
-    const user = userEvent.setup()
-    // The restore response carries the task's real (rehomed-or-original) project;
-    // the notice should name it, not assume General.
-    mockRestoreTrashedTask.mockResolvedValue({
-      task: { ...trash.tasks[0], project_id: 7 },
-      undo: taskUndo(5),
+  it('renders M08f rows: group labels, a two-fact meta line, row actions and foot rows', async () => {
+    loadOnce({
+      projects: [{ ...project, archived_task_count: 3, purge_task_count: 3 }],
+      tasks: [task(5, 'Pay invoice', 2), task(6, 'Rotate keys', 1)],
     })
-    mockListProjects.mockResolvedValue([
-      { id: 7, name: 'Firewall' } as Awaited<ReturnType<typeof listProjects>>[number],
-    ])
-
     renderPage()
-
-    await user.click(
-      await screen.findByRole('button', { name: 'Restore task Pay invoice' }),
-    )
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      /Restored .*Pay invoice.* to .*Firewall/,
-    )
+    expect(await screen.findByRole('heading', { level: 1, name: 'Trash' })).toBeInTheDocument()
+    expect(screen.getByText('3 items')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Projects' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Tasks' })).toBeInTheDocument()
+    // Rows, not cards: when it went, then what restoring brings back.
+    expect(within(rowOf('Firewall')).getByText(/Deleted 3 days ago/)).toBeInTheDocument()
+    expect(within(rowOf('Firewall')).getByText(/3 tasks restore with it/)).toBeInTheDocument()
+    // A task whose project is also trashed names it; status and due date are gone.
+    expect(within(rowOf('Rotate keys')).getByText('Firewall')).toBeInTheDocument()
+    expect(screen.queryByText(/Open/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Due/)).not.toBeInTheDocument()
+    // No retention copy: the purge policy (#321) does not exist.
+    expect(screen.queryByText(/days left|removed after/)).not.toBeInTheDocument()
+    // The ⋯ sheet's verbs are row actions; Restore without its tasks only where it means something.
+    expect(within(rowOf('Firewall')).getByRole('button', { name: 'Restore project Firewall without its tasks' })).toBeInTheDocument()
+    expect(within(rowOf('Pay invoice')).queryByRole('button', { name: /without its tasks/ })).not.toBeInTheDocument()
+    expect(within(rowOf('Pay invoice')).getByRole('button', { name: 'Delete task Pay invoice forever' })).toBeInTheDocument()
+    // The old filter panel, section heads and cards are gone.
+    expect(screen.queryByLabelText('Filter by type')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Restore all/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Select' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Empty trash/ })).toHaveTextContent('Empty trash · 3')
   })
 
-  it('renders the loading state before trash resolves', () => {
+  it('restores a project from the ring with its tasks, no confirm, and undoes it with the receipt', async () => {
+    loadOnce({ projects: [{ ...project, archived_task_count: 3, purge_task_count: 3 }], tasks: [] })
+    mockRestoreProject.mockResolvedValue({ project, restored_task_count: 3, undo: projectUndo })
+    const confirm = vi.spyOn(window, 'confirm')
+    const user = userEvent.setup()
     renderPage()
-    expect(screen.getByText('Loading trash…')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Restore project Firewall' }))
+    await waitFor(() => expect(mockRestoreProject).toHaveBeenCalledWith(1, true))
+    expect(confirm).not.toHaveBeenCalled()
+    const bar = await screen.findByRole('status')
+    expect(bar).toHaveTextContent('Restored · Firewall')
+    await user.click(within(bar).getByRole('button', { name: 'Undo' }))
+    // The server's receipt, not an ordinary (cascading) project delete.
+    await waitFor(() => expect(mockUndoProjectRestore).toHaveBeenCalledWith(projectUndo))
+    expect(mockDeleteProject).not.toHaveBeenCalled()
+    expect(await screen.findByText('Moved “Firewall” back to the trash.')).toBeInTheDocument()
   })
 
-  it('renders the empty state when trash is empty', async () => {
-    // mockReset (not clearAllMocks) drops the beforeEach once→trash queue.
+  it('restores a project without its tasks from the row action', async () => {
+    loadOnce({ projects: [{ ...project, archived_task_count: 3, purge_task_count: 3 }], tasks: [] })
+    mockRestoreProject.mockResolvedValue({ project, restored_task_count: 0, undo: projectUndo })
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Restore project Firewall without its tasks' }))
+    await waitFor(() => expect(mockRestoreProject).toHaveBeenCalledWith(1, false))
+    expect(await screen.findByRole('status')).toHaveTextContent('Restored · Firewall')
+  })
+
+  it('undoes a task restore with its receipt instead of a cascading delete (#307)', async () => {
+    mockRestoreTrashedTask.mockResolvedValue({ task: trash.tasks[0], undo: taskUndo(5) })
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Restore task Pay invoice' }))
+    expect(mockRestoreTrashedTask).toHaveBeenCalledWith(5)
+    await user.click(within(await screen.findByRole('status')).getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(mockUndoTaskRestore).toHaveBeenCalledWith(taskUndo(5)))
+    expect(mockDeleteTask).not.toHaveBeenCalled()
+  })
+
+  it('lets the undo bar expire, then names the project a restored task landed in', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    mockRestoreTrashedTask.mockResolvedValue({ task: { ...trash.tasks[0], project_id: 7 }, undo: taskUndo(5) })
+    mockListProjects.mockResolvedValue([{ id: 7, name: 'Ops' } as Awaited<ReturnType<typeof listProjects>>[number]])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Restore task Pay invoice' }))
+    expect(await screen.findByRole('button', { name: 'Undo' })).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(UNDO_LIFETIME_MS) })
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Restored “Pay invoice” to “Ops”.')
+    expect(mockUndoTaskRestore).not.toHaveBeenCalled()
+  })
+
+  it('does not arm undo when the restore failed', async () => {
+    mockRestoreTrashedTask.mockRejectedValueOnce(new Error('Restore failed'))
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Restore task Pay invoice' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Restore failed')
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+  })
+
+  it('purges from the row action after a confirm naming every trashed task it owns (#184, #189)', async () => {
+    loadOnce({ projects: [{ ...project, archived_task_count: 1, purge_task_count: 2 }], tasks: [] })
+    mockPurgeProject.mockResolvedValue(undefined)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Delete project Firewall forever' }))
+    expect(confirm).toHaveBeenCalledWith(
+      'Permanently delete “Firewall” and the 2 trashed tasks it owns? This cannot be undone.',
+    )
+    expect(mockPurgeProject).toHaveBeenCalledWith(1)
+    expect(await screen.findByRole('status')).toHaveTextContent(/Permanently deleted .*Firewall.* and 2 tasks./)
+    // Purge is not undoable, so no undo bar.
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+  })
+
+  it('does not purge when the confirm is cancelled', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Delete task Pay invoice forever' }))
+    expect(mockPurgeTask).not.toHaveBeenCalled()
+  })
+
+  it('filters through the anchored pending panel and shows the chips row whenever the list is filtered', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Filter trash' }))
+    const panel = screen.getByRole('dialog', { name: 'Filters' })
+    // The cursor lands in the search field.
+    expect(within(panel).getByLabelText('Search trash')).toHaveFocus()
+    await user.click(within(panel).getByRole('button', { name: 'Tasks' }))
+    // Pending until applied: the list behind is untouched.
+    expect(title('Firewall')).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: 'Show 1 item' })).toBeInTheDocument()
+    await user.type(within(panel).getByLabelText('Search trash'), 'pay{Enter}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(queryTitle('Firewall')).not.toBeInTheDocument()
+    expect(title('Pay invoice')).toBeInTheDocument()
+    const chips = screen.getByLabelText('Applied filters')
+    expect(within(chips).getByRole('button', { name: 'Remove Tasks' })).toBeInTheDocument()
+    expect(within(chips).getByRole('button', { name: 'Remove “pay”' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Filter trash' })).toHaveClass('applied')
+    // Removing one chip drops just that filter.
+    await user.click(within(chips).getByRole('button', { name: 'Remove Tasks' }))
+    expect(queryTitle('Firewall')).not.toBeInTheDocument()
+    expect(within(screen.getByLabelText('Applied filters')).queryByRole('button', { name: 'Remove Tasks' })).not.toBeInTheDocument()
+    await user.click(within(screen.getByLabelText('Applied filters')).getByRole('button', { name: 'Clear' }))
+    expect(screen.queryByLabelText('Applied filters')).not.toBeInTheDocument()
+    expect(title('Firewall')).toBeInTheDocument()
+  })
+
+  it('discards the pending filters on Escape or an outside click', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    const control = await screen.findByRole('button', { name: 'Filter trash' })
+    await user.click(control)
+    await user.type(screen.getByLabelText('Search trash'), 'pay')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(control).toHaveFocus()
+    expect(title('Firewall')).toBeInTheDocument()
+
+    await user.click(control)
+    await user.click(screen.getByRole('button', { name: 'Projects' }))
+    await user.click(title('Pay invoice'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Applied filters')).not.toBeInTheDocument()
+  })
+
+  it('shows the no-match state with a Clear action and keeps the chips row above it', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Filter trash' }))
+    await user.type(screen.getByLabelText('Search trash'), 'zzz')
+    await user.click(screen.getByRole('button', { name: 'Show 0 items' }))
+    const empty = screen.getByText('No items match your filters').parentElement!
+    expect(screen.getByLabelText('Applied filters')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Empty trash/ })).not.toBeInTheDocument()
+    await user.click(within(empty).getByRole('button', { name: 'Clear' }))
+    expect(title('Firewall')).toBeInTheDocument()
+  })
+
+  it('enters selection mode from the foot row, spans both kinds and purges in one server call', async () => {
+    loadOnce({ projects: [{ ...project, archived_task_count: 1, purge_task_count: 2 }], tasks: [task(5, 'Pay invoice', 2)] })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mockPurgeSelected.mockResolvedValue({ projects: 1, tasks: 3 })
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Select' }))
+    expect(screen.getByText('0 selected')).toBeInTheDocument()
+    // Rings, row actions and foot rows give way to checkboxes and the action bar.
+    expect(screen.queryByRole('button', { name: /^Restore project/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Delete (project|task) .* forever$/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Empty trash/ })).not.toBeInTheDocument()
+    const bar = screen.getByRole('toolbar', { name: 'Selection actions' })
+    expect(within(bar).getByRole('button', { name: 'Delete forever' })).toBeDisabled()
+    await user.click(screen.getByRole('checkbox', { name: 'Select project Firewall' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Select task Pay invoice' }))
+    expect(screen.getByText('2 selected')).toBeInTheDocument()
+    await user.click(within(bar).getByRole('button', { name: 'Delete forever' }))
+    expect(confirm).toHaveBeenCalledWith(
+      'Permanently delete 4 items (1 project, 1 task and 2 trashed tasks it owns)? This cannot be undone.',
+    )
+    await waitFor(() => expect(mockPurgeSelected).toHaveBeenCalledWith({ project_ids: [1], task_ids: [5] }))
+    expect(await screen.findByText('Permanently deleted 4 items.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Trash' })).toBeInTheDocument()
+  })
+
+  it('enters selection mode with a Ctrl/⌘-click on a row, without restoring it', async () => {
+    renderPage()
+    const ring = await screen.findByRole('button', { name: 'Restore task Pay invoice' })
+    fireEvent.click(ring, { ctrlKey: true })
+    expect(mockRestoreTrashedTask).not.toHaveBeenCalled()
+    expect(screen.getByText('1 selected')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Select task Pay invoice' })).toBeChecked()
+  })
+
+  it('leaves selection mode on Escape or Done and drops the selection', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Select' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Select project Firewall' }))
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('button', { name: 'Select' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Select' }))
+    expect(screen.getByText('0 selected')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument()
+  })
+
+  it('bulk-restores everything Select all covers with one combined notice', async () => {
+    loadOnce({ projects: [{ ...project, archived_task_count: 2, purge_task_count: 2 }], tasks: [task(5, 'Pay invoice', 2)] })
+    mockRestoreProject.mockResolvedValue({ project, restored_task_count: 2, undo: projectUndo })
+    mockRestoreTask.mockResolvedValue(trash.tasks[0])
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Select' }))
+    await user.click(screen.getByRole('button', { name: 'Select all' }))
+    expect(screen.getByText('2 selected')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Select none' })).toBeInTheDocument()
+    await user.click(within(screen.getByRole('toolbar')).getByRole('button', { name: 'Restore' }))
+    await waitFor(() => expect(mockRestoreTask).toHaveBeenCalledWith(5))
+    expect(mockRestoreProject).toHaveBeenCalledWith(1, true)
+    expect(await screen.findByText('Restored 2 items. Brought back 2 tasks.')).toBeInTheDocument()
+  })
+
+  it('keeps bulk-restoring when an item is already gone from trash, but surfaces a real failure', async () => {
+    // Restoring a skipped occurrence can purge a subtask selected alongside it;
+    // its 404 means "already gone", not a failed batch (BUG-11).
+    loadOnce({ projects: [], tasks: [task(5, 'Parent', 2), task(6, 'Child', 2), task(7, 'Other', 2)] })
+    mockRestoreTask
+      .mockResolvedValueOnce(trash.tasks[0])
+      .mockRejectedValueOnce(new ApiError(404, { detail: 'No deleted task with that id' }))
+      .mockRejectedValueOnce(new ApiError(500, { detail: 'boom' }))
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Select' }))
+    await user.click(screen.getByRole('button', { name: 'Select all' }))
+    await user.click(within(screen.getByRole('toolbar')).getByRole('button', { name: 'Restore' }))
+    await waitFor(() => expect(mockRestoreTask).toHaveBeenCalledTimes(3))
+    expect(await screen.findByText('Restored 1 of 2 items.')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('boom')
+  })
+
+  it('empties the whole trash from the foot row after the confirm', async () => {
+    mockEmptyTrash.mockResolvedValue({ projects: 1, tasks: 1 })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /Empty trash/ }))
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Permanently delete all 2 items in trash'))
+    expect(mockEmptyTrash).toHaveBeenCalled()
+    expect(await screen.findByRole('status')).toHaveTextContent(/Permanently deleted 2 items/)
+    expect(await screen.findByText('Nothing in the trash')).toBeInTheDocument()
+  })
+
+  it('renders skeleton rows while loading, then the empty state without controls', async () => {
+    let resolve: (value: Trash) => void = () => {}
     mockGetTrash.mockReset()
-    mockGetTrash.mockResolvedValue({ projects: [], tasks: [] })
-
+    mockGetTrash.mockReturnValueOnce(new Promise((r) => { resolve = r }))
     renderPage()
-
-    expect(await screen.findByText('Trash is empty.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Loading trash')).toBeInTheDocument()
+    act(() => resolve({ projects: [], tasks: [] }))
+    expect(await screen.findByText('Nothing in the trash')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Filter trash' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Empty trash/ })).not.toBeInTheDocument()
   })
 
   it('renders an error alert when loading fails', async () => {
     mockGetTrash.mockReset()
     mockGetTrash.mockRejectedValue(new Error('boom'))
-
     renderPage()
-
     expect(await screen.findByRole('alert')).toHaveTextContent('boom')
-  })
-
-  it('narrows results by search and restores them on Clear', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await screen.findByText('Firewall')
-    await user.type(screen.getByLabelText('Search trash'), 'firewall')
-
-    expect(screen.getByText('Firewall')).toBeInTheDocument()
-    expect(screen.queryByText('Pay invoice')).not.toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Clear' }))
-
-    expect(screen.getByText('Pay invoice')).toBeInTheDocument()
-  })
-
-  it('isolates a single section with the type filter', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await screen.findByText('Firewall')
-    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
-
-    expect(screen.getByText('Pay invoice')).toBeInTheDocument()
-    expect(screen.queryByText('Firewall')).not.toBeInTheDocument()
-  })
-
-  it('shows a no-match message when the search hides everything', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await screen.findByText('Firewall')
-    await user.type(screen.getByLabelText('Search trash'), 'nothing matches this')
-
-    expect(screen.getByText('No items match your search.')).toBeInTheDocument()
-    expect(screen.queryByText('Firewall')).not.toBeInTheDocument()
-  })
-
-  it('shows a success notice naming the restored item', async () => {
-    const user = userEvent.setup()
-    mockRestoreProject.mockResolvedValue({ project: trash.projects[0], restored_task_count: 0, undo: projectUndo })
-
-    renderPage()
-
-    await user.click(
-      await screen.findByRole('button', { name: 'Restore project Firewall' }),
-    )
-
-    expect(await screen.findByRole('status')).toHaveTextContent(/Restored project .*Firewall/)
-  })
-
-  it('restores a whole section with the restore-all button', async () => {
-    const user = userEvent.setup()
-    mockRestoreTask.mockResolvedValue(trash.tasks[0])
-
-    renderPage()
-
-    // Isolate the Tasks section so there's a single restore-all button. With the
-    // type filter active the button names its true scope: the 1 shown task.
-    await screen.findByText('Firewall')
-    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
-    await user.click(screen.getByRole('button', { name: 'Restore 1 shown' }))
-
-    expect(mockRestoreTask).toHaveBeenCalledWith(5)
-    expect(await screen.findByRole('status')).toHaveTextContent(/Restored 1 task./)
-  })
-
-  it('purges a task after the user confirms', async () => {
-    const user = userEvent.setup()
-    mockPurgeTask.mockResolvedValue(undefined)
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-
-    renderPage()
-
-    await user.click(
-      await screen.findByRole('button', { name: 'Delete task Pay invoice forever' }),
-    )
-
-    expect(confirm).toHaveBeenCalled()
-    expect(mockPurgeTask).toHaveBeenCalledWith(5)
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      /Permanently deleted .*Pay invoice/,
-    )
-    confirm.mockRestore()
-  })
-
-  it('names every trashed task it owns in the single-project purge confirm', async () => {
-    // BUG #184 / #189: purging a project destroys every trashed task it owns —
-    // archived-with-it plus independently trashed — so the confirm (and the
-    // notice) must say so instead of naming only the project.
-    const user = userEvent.setup()
-    mockGetTrash.mockReset()
-    mockGetTrash
-      .mockResolvedValueOnce({
-        projects: [
-          { ...trash.projects[0], archived_task_count: 1, purge_task_count: 2 },
-        ],
-        tasks: [],
-      })
-      .mockResolvedValue({ projects: [], tasks: [] })
-    mockPurgeProject.mockResolvedValue(undefined)
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-
-    renderPage()
-
-    await user.click(
-      await screen.findByRole('button', { name: 'Delete project Firewall forever' }),
-    )
-
-    expect(confirm).toHaveBeenCalledWith(
-      'Permanently delete “Firewall” and the 2 trashed tasks it owns? This cannot be undone.',
-    )
-    expect(mockPurgeProject).toHaveBeenCalledWith(1)
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      /Permanently deleted .*Firewall.* and 2 tasks./,
-    )
-    confirm.mockRestore()
-  })
-
-  it('counts every owned trashed task in the bulk project purge confirm', async () => {
-    const user = userEvent.setup()
-    mockGetTrash.mockReset()
-    mockGetTrash
-      .mockResolvedValueOnce({
-        projects: [
-          { ...trash.projects[0], archived_task_count: 1, purge_task_count: 2 },
-        ],
-        tasks: [],
-      })
-      .mockResolvedValue({ projects: [], tasks: [] })
-    mockPurgeSelected.mockResolvedValue({ projects: 1, tasks: 2 })
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-
-    renderPage()
-
-    await screen.findByText('Firewall')
-    await user.click(screen.getByRole('checkbox', { name: 'Select project Firewall' }))
-    await user.click(screen.getByRole('button', { name: 'Delete selected' }))
-
-    expect(confirm).toHaveBeenCalledWith(
-      'Permanently delete 3 items (1 project and 2 trashed tasks)? This cannot be undone.',
-    )
-    expect(mockPurgeSelected).toHaveBeenCalledWith({ project_ids: [1], task_ids: [] })
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      /Permanently deleted 1 project. 2 archived tasks went with it./,
-    )
-    confirm.mockRestore()
-  })
-
-  it('does not purge when the user cancels the confirm', async () => {
-    const user = userEvent.setup()
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
-
-    renderPage()
-
-    await user.click(
-      await screen.findByRole('button', { name: 'Delete project Firewall forever' }),
-    )
-
-    expect(mockPurgeProject).not.toHaveBeenCalled()
-    confirm.mockRestore()
-  })
-
-  it('bulk-restores the checked items via Restore selected', async () => {
-    const user = userEvent.setup()
-    mockRestoreTask.mockResolvedValue(trash.tasks[0])
-
-    renderPage()
-
-    await screen.findByText('Firewall')
-    // Isolate Tasks so a single Select all / bulk bar is present.
-    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
-    await user.click(screen.getByRole('checkbox', { name: 'Select task Pay invoice' }))
-    await user.click(screen.getByRole('button', { name: 'Restore selected' }))
-
-    expect(mockRestoreTask).toHaveBeenCalledWith(5)
-    expect(await screen.findByRole('status')).toHaveTextContent(/Restored 1 task./)
-  })
-
-  it('bulk-purges the checked items via Delete selected after confirm', async () => {
-    const user = userEvent.setup()
-    mockPurgeSelected.mockResolvedValue({ projects: 0, tasks: 1 })
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-
-    renderPage()
-
-    await screen.findByText('Firewall')
-    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
-    await user.click(screen.getByRole('checkbox', { name: 'Select task Pay invoice' }))
-    await user.click(screen.getByRole('button', { name: 'Delete selected' }))
-
-    expect(confirm).toHaveBeenCalled()
-    // One request for the whole selection, not one per id.
-    expect(mockPurgeSelected).toHaveBeenCalledTimes(1)
-    expect(mockPurgeSelected).toHaveBeenCalledWith({ project_ids: [], task_ids: [5] })
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      /Permanently deleted 1 task./,
-    )
-    confirm.mockRestore()
-  })
-
-  it('reports honest success when a parent and its cascaded child are purged together', async () => {
-    // BUG-11: purging the parent takes the child's row with it. The old per-id
-    // loop 404'd on the child and cried failure over a purge that fully worked.
-    const user = userEvent.setup()
-    const parent = { ...trash.tasks[0], id: 5, title: 'Parent', has_subtasks: true }
-    const child = { ...trash.tasks[0], id: 6, title: 'Child', parent_task_id: 5 }
-    mockGetTrash.mockReset()
-    mockGetTrash
-      .mockResolvedValueOnce({ projects: [], tasks: [parent, child] })
-      .mockResolvedValue({ projects: [], tasks: [] })
-    mockPurgeSelected.mockResolvedValue({ projects: 0, tasks: 2 })
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-
-    renderPage()
-
-    await screen.findByText('Parent')
-    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
-    await user.click(screen.getByRole('checkbox', { name: 'Select all' }))
-    await user.click(screen.getByRole('button', { name: 'Delete selected' }))
-
-    expect(mockPurgeSelected).toHaveBeenCalledWith({
-      project_ids: [],
-      task_ids: [5, 6],
-    })
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      /Permanently deleted 2 tasks./,
-    )
-    // The whole point: no error banner, and no "stopped at the first error".
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    confirm.mockRestore()
-  })
-
-  it('keeps bulk-restoring when an item is already gone from trash', async () => {
-    // Restoring a skipped occurrence can purge a subtask selected alongside it;
-    // its 404 means "already gone", not a failed batch.
-    const user = userEvent.setup()
-    const first = { ...trash.tasks[0], id: 5, title: 'Parent' }
-    const second = { ...trash.tasks[0], id: 6, title: 'Child' }
-    mockGetTrash.mockReset()
-    mockGetTrash
-      .mockResolvedValueOnce({ projects: [], tasks: [first, second] })
-      .mockResolvedValue({ projects: [], tasks: [] })
-    mockRestoreTask
-      .mockResolvedValueOnce(first)
-      .mockRejectedValueOnce(new ApiError(404, { detail: 'No deleted task with that id' }))
-
-    renderPage()
-
-    await screen.findByText('Parent')
-    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
-    await user.click(screen.getByRole('checkbox', { name: 'Select all' }))
-    await user.click(screen.getByRole('button', { name: 'Restore selected' }))
-
-    expect(mockRestoreTask).toHaveBeenCalledTimes(2)  // didn't stop at the 404
-    expect(await screen.findByRole('status')).toHaveTextContent(/Restored 1 task./)
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-  })
-
-  it('surfaces a real bulk-restore failure', async () => {
-    // The 404 tolerance must not swallow genuine errors.
-    const user = userEvent.setup()
-    mockRestoreTask.mockRejectedValue(new ApiError(500, { detail: 'boom' }))
-
-    renderPage()
-
-    await screen.findByText('Firewall')
-    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
-    await user.click(screen.getByRole('checkbox', { name: 'Select all' }))
-    await user.click(screen.getByRole('button', { name: 'Restore selected' }))
-
-    expect(await screen.findByRole('alert')).toBeInTheDocument()
-  })
-
-  it('select-all checks every item in a section', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await screen.findByText('Firewall')
-    await user.selectOptions(screen.getByLabelText('Filter by type'), 'tasks')
-    await user.click(screen.getByRole('checkbox', { name: 'Select all' }))
-
-    expect(
-      screen.getByRole('checkbox', { name: 'Select task Pay invoice' }),
-    ).toBeChecked()
-    expect(screen.getByText('1 selected')).toBeInTheDocument()
-  })
-
-  it('empties the whole trash after the user confirms', async () => {
-    const user = userEvent.setup()
-    mockEmptyTrash.mockResolvedValue({ projects: 1, tasks: 1 })
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-
-    renderPage()
-
-    await user.click(await screen.findByRole('button', { name: 'Empty trash' }))
-
-    expect(confirm).toHaveBeenCalled()
-    expect(mockEmptyTrash).toHaveBeenCalled()
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      /Permanently deleted 2 items/,
-    )
-    await waitFor(() =>
-      expect(screen.getByText('Trash is empty.')).toBeInTheDocument(),
-    )
-    confirm.mockRestore()
   })
 })

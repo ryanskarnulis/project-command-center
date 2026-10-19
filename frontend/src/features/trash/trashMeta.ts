@@ -1,10 +1,10 @@
-import type { Trash } from '../../../types/trash'
-import { formatRelative } from '../../../utils/dates'
-import type { TrashKind } from '../useTrash'
+import type { Trash } from '../../types/trash'
+import { formatRelative } from '../../utils/dates'
+import type { TrashKind } from './useTrash'
 
-/* M08f — the mobile /trash row model and its meta line.
+/* M08f — the /trash row model and its meta line, shared by both trees.
  *
- * The mobile row is not a TaskCard or a ProjectCard: nothing on a deleted item
+ * A trash row is not a TaskCard or a ProjectCard: nothing on a deleted item
  * is being triaged, so status, priority, due date, estimate and repeat all go.
  * What is left is the one fact that helps you find what you deleted (when) and
  * at most one more that tells you what restoring it does. */
@@ -29,6 +29,15 @@ export interface TrashRow {
   purgeTaskCount: number
   /** Tasks: the name of its project when that project is itself in the trash. */
   projectName: string | null
+}
+
+export const TRASH_GROUPS: { kind: TrashKind; label: string }[] = [
+  { kind: 'projects', label: 'Projects' },
+  { kind: 'tasks', label: 'Tasks' },
+]
+
+export function rowNoun(row: Pick<TrashRow, 'kind'>): 'project' | 'task' {
+  return row.kind === 'projects' ? 'project' : 'task'
 }
 
 /** One key per row across both kinds — selection mode spans them. */
@@ -82,7 +91,7 @@ export function deletedMeta(row: TrashRow, now: number = Date.now()): string[] {
   return facts.slice(0, 2)
 }
 
-/** Search and type are both client-side, exactly as on desktop. */
+/** Search and type are both client-side. */
 export function matchingTrashRows(
   rows: { projects: TrashRow[]; tasks: TrashRow[] },
   filters: TrashFilters,
@@ -118,8 +127,7 @@ export function trashFilterChips(filters: TrashFilters): TrashFilterChip[] {
 }
 
 /**
- * The purge confirm for a selection that can span both kinds. Same shape as
- * the desktop bulk confirm — the total counts every row the purge destroys,
+ * The purge confirm for a selection that can span both kinds. The total counts every row the purge destroys,
  * including the trashed tasks a selected project owns — with the kinds spelled
  * out whenever the total is more than the bare selection.
  */
