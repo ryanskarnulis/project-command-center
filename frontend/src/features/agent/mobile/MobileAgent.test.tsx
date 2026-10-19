@@ -414,6 +414,85 @@ describe('AgentPage — mobile handoff (M07f)', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('/agent/8')
   })
 
+  describe('dismissing row actions returns to the conversations sheet (#346)', () => {
+    /** Long-press the conversations-sheet row titled `title` into its actions sheet. */
+    async function longPressRow(title: string) {
+      const content = rowContent(title)
+      fireEvent.pointerDown(content, { button: 0, clientX: 200, pointerId: 1 })
+      await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+      fireEvent.pointerUp(content, { clientX: 200, pointerId: 1 })
+      return screen.findByRole('dialog', { name: title })
+    }
+
+    /** Escape on a modal <dialog> arrives as a cancelable `cancel` event. */
+    function pressEscape(dialog: HTMLElement) {
+      fireEvent(dialog, new Event('cancel', { cancelable: true }))
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+    })
+
+    it.each([
+      ['Escape', (sheet: HTMLElement) => pressEscape(sheet)],
+      ['Cancel', (sheet: HTMLElement) => fireEvent.click(within(sheet).getByRole('button', { name: 'Cancel' }))],
+      ['the grab handle', (sheet: HTMLElement) => fireEvent.click(within(sheet).getByRole('button', { name: 'Close conversation actions' }))],
+    ])("%s from a row's actions reopens the list, focused on that row", async (_how, dismiss) => {
+      renderAt('/agent/8')
+      await screen.findByText('Two tasks are overdue:')
+      await openConversationsSheet()
+      dismiss(await longPressRow('Weekly review'))
+
+      const list = screen.getByRole('dialog', { name: 'Conversations' })
+      expect(screen.queryByRole('dialog', { name: 'Weekly review' })).toBeNull()
+      expect(within(list).getByRole('button', { name: /Weekly review/ })).toHaveFocus()
+    })
+
+    it("Escape and Cancel from the title row's ⋯ close everything", async () => {
+      renderAt('/agent/8')
+      await screen.findByText('Two tasks are overdue:')
+      await userEvent.click(screen.getByRole('button', { name: 'Conversation actions' }))
+      pressEscape(screen.getByRole('dialog', { name: "What's overdue in Homelab?" }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Conversation actions' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
+
+    it('dismissing Rename goes back to where the actions were opened from', async () => {
+      renderAt('/agent/8')
+      await screen.findByText('Two tasks are overdue:')
+
+      // From a row: back to the list.
+      await openConversationsSheet()
+      const actions = await longPressRow('Weekly review')
+      await userEvent.click(within(actions).getByRole('button', { name: 'Rename' }))
+      pressEscape(screen.getByRole('dialog', { name: 'Rename conversation' }))
+      expect(screen.getByRole('dialog', { name: 'Conversations' })).toBeInTheDocument()
+      expect(screen.queryByRole('dialog', { name: 'Rename conversation' })).toBeNull()
+
+      // From the title row: closed.
+      await userEvent.click(within(screen.getByRole('dialog', { name: 'Conversations' })).getByRole('button', { name: 'Done' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Conversation actions' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Rename' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(mockRename).not.toHaveBeenCalled()
+    })
+
+    it("Delete from a row's actions still closes every sheet, so the undo bar is reachable", async () => {
+      renderAt('/agent/8')
+      await screen.findByText('Two tasks are overdue:')
+      await openConversationsSheet()
+      const actions = await longPressRow('Weekly review')
+      await userEvent.click(within(actions).getByRole('button', { name: 'Delete conversation' }))
+      await waitFor(() => expect(mockDelete).toHaveBeenCalledWith(6))
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(screen.getByText('Deleted · Weekly review')).toBeInTheDocument()
+    })
+  })
+
   it('renames through a sheet, not window.prompt', async () => {
     renderAt('/agent/8')
     await screen.findByText('Two tasks are overdue:')

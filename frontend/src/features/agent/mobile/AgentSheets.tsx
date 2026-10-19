@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Check, MessageSquarePlus, Pencil, Trash2, Volume2, VolumeX } from 'lucide-react'
 import { BottomSheet } from '../../../components/BottomSheet'
 import type { Conversation } from '../../../types/agent'
@@ -19,6 +19,8 @@ interface ConversationsSheetProps {
   /** The conversation whose run is in flight, if any — its delete is off (#149). */
   busyId: number | null
   errors: string[]
+  /** Row to focus on mount — the one whose actions sheet was just dismissed. */
+  focusId?: number | null
   onOpen: (id: number) => void
   onNew: () => void
   onLoadMore: () => void
@@ -41,6 +43,7 @@ export function ConversationsSheet({
   hasMore,
   busyId,
   errors,
+  focusId = null,
   onOpen,
   onNew,
   onLoadMore,
@@ -48,6 +51,14 @@ export function ConversationsSheet({
   onActions,
   onClose,
 }: ConversationsSheetProps) {
+  // Returning from a row's actions remounts this sheet; land focus (and with
+  // it, the scroll) on that row rather than the grab handle. Runs after
+  // BottomSheet's own showModal(), which is a child effect.
+  const focusRow = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    focusRow.current?.focus()
+  }, [])
+
   return (
     <BottomSheet
       className="magent-sheet magent-conversations-sheet"
@@ -90,6 +101,7 @@ export function ConversationsSheet({
                     type="button"
                     className="magent-row-open"
                     aria-current={active ? 'true' : undefined}
+                    ref={conversation.id === focusId ? focusRow : undefined}
                     onClick={() => onOpen(conversation.id)}
                   >
                     <span className="magent-row-title">
