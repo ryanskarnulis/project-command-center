@@ -282,6 +282,32 @@ main.agent-page.mobile-agent {
 .magent-send:hover:not(:disabled) { border-color: var(--accent); background: var(--accent); }
 .magent-send:disabled { opacity: .5; }
 .mobile-agent .mic-error { align-self: center; max-width: none; }
+/* Hold the mic to flip spoken replies (#326). The wrapper is layout-neutral;
+   the hold must not raise the callout menu or start a text selection. */
+.magent-mic { display: contents; }
+.magent-mic .mic-button {
+  position: relative;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+/* Spoken replies off: a small speaker-off mark tucked into the mic's corner. */
+.magent-mic--muted .mic-button::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 11px;
+  height: 11px;
+  background: var(--text-faint);
+  -webkit-mask: var(--magent-mute-mark) center / contain no-repeat;
+  mask: var(--magent-mute-mark) center / contain no-repeat;
+  pointer-events: none;
+}
+.magent-mic--muted {
+  --magent-mute-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11 4.7a.7.7 0 0 0-1.2-.5L6.4 7.6A1.4 1.4 0 0 1 5.4 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.4a1.4 1.4 0 0 1 1 .4l3.4 3.4a.7.7 0 0 0 1.2-.5z'/%3E%3Cline x1='22' x2='16' y1='9' y2='15'/%3E%3Cline x1='16' x2='22' y1='9' y2='15'/%3E%3C/svg%3E");
+}
 
 /* ── Empty state ──────────────────────────────────────────────────────── */
 .magent-empty {
@@ -348,6 +374,15 @@ main.agent-page.mobile-agent {
   font-weight: 750;
 }
 .magent-undo-bar > button:hover { background: transparent; color: var(--link); }
+/* The mic-hold echo (#326) borrows the bar's look, minus the action. It
+   floats just above the composer (nav 68 + empty composer 56 + 8) rather than
+   over it, so the mic being held — and its mute mark — stay in view. The mic
+   only exists while the draft is empty, so the composer is at its min height. */
+.magent-voice-note {
+  bottom: calc(132px + env(safe-area-inset-bottom, 0px));
+  grid-template-columns: minmax(0, 1fr);
+  padding: 11px 13px;
+}
 
 /* ── Paging (#325) ──────────────────────────────────────────────────── */
 /* Older messages (top of the thread) and older conversations (foot of the

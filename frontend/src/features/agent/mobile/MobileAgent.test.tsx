@@ -39,6 +39,16 @@ vi.mock('../../../api/tasks', () => ({
   restoreTask: vi.fn(),
 }))
 vi.mock('../../../api/projects', () => ({ deleteProject: vi.fn(), restoreProject: vi.fn() }))
+/* The vendored mic is its own module with its own tests; here only whether a
+   tap reaches it matters. Rendered only where MediaRecorder exists (#326). */
+const micTap = vi.hoisted(() => vi.fn())
+vi.mock('../../../voice/MicButton', () => ({
+  MicButton: () => (
+    <button type="button" className="mic-button mic-idle" aria-label="Start voice conversation" onClick={micTap}>
+      mic
+    </button>
+  ),
+}))
 
 const mockList = vi.mocked(listConversations)
 const mockCreate = vi.mocked(createConversation)
@@ -604,5 +614,71 @@ describe('AgentPage — mobile handoff (M07f)', () => {
     await waitFor(() =>
       expect(within(sheet).queryByRole('button', { name: /older conversations|Loading/ })).toBeNull(),
     )
+  })
+
+  describe('holding the mic toggles spoken replies (#326)', () => {
+    beforeEach(() => {
+      vi.stubGlobal('MediaRecorder', class {})
+      Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })
+    })
+    afterEach(() => {
+      Reflect.deleteProperty(navigator, 'mediaDevices')
+    })
+
+    async function hold(element: Element) {
+      fireEvent.pointerDown(element, { button: 0, clientX: 300, clientY: 700, pointerId: 1 })
+      await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+      fireEvent.pointerUp(element, { clientX: 300, clientY: 700, pointerId: 1 })
+      // The release's click (detail 1 — a pointer click, not a keyboard one).
+      fireEvent.click(element, { detail: 1 })
+    }
+
+    it('a long-press flips spoken replies, announces it, and never taps the mic', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      renderAt('/agent/8')
+      await screen.findByText('Two tasks are overdue:')
+      const mic = screen.getByRole('button', { name: 'Start voice conversation' })
+
+      await hold(mic)
+      expect(micTap).not.toHaveBeenCalled()
+      expect(localStorage.getItem('agent-voice-output')).toBe('off')
+      expect(screen.getAllByRole('status').map((el) => el.textContent)).toContain('Spoken replies off')
+      expect(mic.closest('.magent-mic')).toHaveClass('magent-mic--muted')
+
+      // The ⋯ sheet's switch reflects the same preference.
+      await userEvent.click(screen.getByRole('button', { name: 'Conversation actions' }))
+      const sheet = await screen.findByRole('dialog', { name: "What's overdue in Homelab?" })
+      expect(within(sheet).getByRole('switch', { name: /Spoken replies/ })).toHaveAttribute('aria-checked', 'false')
+      await userEvent.keyboard('{Escape}')
+
+      await hold(screen.getByRole('button', { name: 'Start voice conversation' }))
+      expect(micTap).not.toHaveBeenCalled()
+      expect(localStorage.getItem('agent-voice-output')).toBe('on')
+      expect(screen.getAllByRole('status').map((el) => el.textContent)).toContain('Spoken replies on')
+
+      // The echo clears itself.
+      await act(async () => { await vi.advanceTimersByTimeAsync(2100) })
+      expect(screen.queryByText('Spoken replies on')).toBeNull()
+    })
+
+    it('a short tap still reaches the mic and leaves spoken replies alone', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      renderAt('/agent/8')
+      await screen.findByText('Two tasks are overdue:')
+      const mic = screen.getByRole('button', { name: 'Start voice conversation' })
+
+      fireEvent.pointerDown(mic, { button: 0, clientX: 300, clientY: 700, pointerId: 1 })
+      await act(async () => { await vi.advanceTimersByTimeAsync(150) })
+      fireEvent.pointerUp(mic, { clientX: 300, clientY: 700, pointerId: 1 })
+      fireEvent.click(mic, { detail: 1 })
+      expect(micTap).toHaveBeenCalledTimes(1)
+
+      // A press that wanders past the slop is not a long-press either.
+      fireEvent.pointerDown(mic, { button: 0, clientX: 300, clientY: 700, pointerId: 1 })
+      fireEvent.pointerMove(mic, { clientX: 300, clientY: 640, pointerId: 1 })
+      await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+      expect(localStorage.getItem('agent-voice-output')).toBeNull()
+      expect(screen.queryByText('Spoken replies off')).toBeNull()
+    })
   })
 })
