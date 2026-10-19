@@ -15,7 +15,7 @@ import {
 } from '../TrashParts'
 import { TrashFilterSheet, TrashRowSheet } from './TrashSheets'
 import { TrashSwipeRow } from './TrashSwipeRow'
-import { EMPTY_TRASH_FILTERS, TRASH_GROUPS, pluralize, rowKey, rowNoun, type TrashFilters, type TrashRow } from '../trashMeta'
+import { EMPTY_TRASH_FILTERS, TRASH_GROUPS, rowKey, rowNoun, type TrashFilters, type TrashRow } from '../trashMeta'
 
 /* M08f — /trash at phone width.
  *
@@ -97,7 +97,7 @@ export function MobileTrashPage() {
           <div className="trash-heading-name">
             <h1>Trash</h1>
             {!loading && !isEmpty && (
-              <p className="trash-heading-sub">{pluralize(page.totalCount, 'item')}</p>
+              <p className="trash-heading-sub">{page.countLine}</p>
             )}
           </div>
           {!loading && !isEmpty && (

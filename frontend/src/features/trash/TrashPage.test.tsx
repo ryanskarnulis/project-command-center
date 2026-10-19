@@ -298,6 +298,24 @@ describe('TrashPage — desktop (M08f)', () => {
     expect(screen.queryByLabelText('Applied filters')).not.toBeInTheDocument()
   })
 
+  it('counts what an applied filter shows in the heading sub-line, zero matches included (#364)', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    const sub = () => document.querySelector('.trash-heading-sub')
+    await user.click(await screen.findByRole('button', { name: 'Filter trash' }))
+    expect(sub()).toHaveTextContent(/^2 items$/)
+    await user.click(screen.getByRole('button', { name: 'Tasks' }))
+    await user.click(screen.getByRole('button', { name: 'Show 1 item' }))
+    expect(sub()).toHaveTextContent(/^1 of 2 items$/)
+    await user.click(screen.getByRole('button', { name: 'Filter trash' }))
+    await user.type(screen.getByLabelText('Search trash'), 'zzz')
+    await user.click(screen.getByRole('button', { name: 'Show 0 items' }))
+    expect(screen.getByText('No items match your filters')).toBeInTheDocument()
+    expect(sub()).toHaveTextContent(/^0 of 2 items$/)
+    await user.click(within(screen.getByLabelText('Applied filters')).getByRole('button', { name: 'Clear' }))
+    expect(sub()).toHaveTextContent(/^2 items$/)
+  })
+
   it('shows the no-match state with a Clear action and keeps the chips row above it', async () => {
     const user = userEvent.setup()
     renderPage()
