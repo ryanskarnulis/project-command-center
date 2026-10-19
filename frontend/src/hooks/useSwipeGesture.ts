@@ -10,7 +10,7 @@ export const LONG_PRESS_MS = 500
 /* Movement past which the press is a drag rather than a tap. Below it the row
    does not move and the pointer stays uncaptured, so a plain tap still lands
    on whatever it was aimed at. */
-const DRAG_SLOP_PX = 6
+export const DRAG_SLOP_PX = 6
 
 /* The first-run hint (#320): one short peek toward each live side, played by
    the same transform and `.snapping` transition a real drag snaps back with. */

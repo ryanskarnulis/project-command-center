@@ -16,6 +16,7 @@ import { ConversationUndoBar } from '../ConversationUndoBar'
 import { useConversationDelete } from '../useConversationDelete'
 import { ActionsSheet, ConversationsSheet, RenameSheet } from './AgentSheets'
 import { LoadOlderButton } from './LoadOlderButton'
+import { MicLongPress } from './MicLongPress'
 import { MobileTrajectory } from './MobileTrajectory'
 import { formatElapsed, SLOW_RUN_AFTER_S, useElapsedSeconds } from '../useElapsedSeconds'
 
@@ -47,6 +48,8 @@ import { formatElapsed, SLOW_RUN_AFTER_S, useElapsedSeconds } from '../useElapse
 
 const COMPOSER_MAX_HEIGHT_PX = 96
 const VOICE_OUTPUT_KEY = 'agent-voice-output'
+/** How long the "Spoken replies off/on" bar stays after a mic hold. */
+const VOICE_NOTICE_MS = 2000
 
 /** Where the actions chain was entered: a row of the conversations sheet, or
  * the title row's ⋯. Dismissing anything in the chain (#346) goes back to it. */
@@ -88,6 +91,19 @@ export function MobileAgent({ activeId, list, thread }: Props) {
       localStorage.setItem(VOICE_OUTPUT_KEY, on ? 'off' : 'on')
       return !on
     })
+  }
+
+  // Holding the mic flips the same preference (#326). The bar is a brief
+  // visual echo; the always-mounted status region is what gets announced.
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null)
+  const voiceNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (voiceNoticeTimer.current) clearTimeout(voiceNoticeTimer.current) }, [])
+  const toggleVoiceByHold = () => {
+    const next = !voiceOutput
+    toggleVoiceOutput()
+    setVoiceNotice(next ? 'Spoken replies on' : 'Spoken replies off')
+    if (voiceNoticeTimer.current) clearTimeout(voiceNoticeTimer.current)
+    voiceNoticeTimer.current = setTimeout(() => setVoiceNotice(null), VOICE_NOTICE_MS)
   }
 
   // Keep the newest turn in view. Keyed on the newest message id rather than
@@ -347,7 +363,9 @@ export function MobileAgent({ activeId, list, thread }: Props) {
               disabled={sending}
             />
             {draftEmpty && voiceSupported ? (
-              <MicButton onTranscript={onTranscript} disabled={sending} />
+              <MicLongPress onLongPress={toggleVoiceByHold} muted={!voiceOutput}>
+                <MicButton onTranscript={onTranscript} disabled={sending} />
+              </MicLongPress>
             ) : (
               <button
                 type="submit"
@@ -363,6 +381,18 @@ export function MobileAgent({ activeId, list, thread }: Props) {
       )}
 
       {undo && <ConversationUndoBar undo={undo} onUndo={undoDelete} className="magent-undo-bar" />}
+      {voiceNotice !== null && !undo && (
+        <div className="magent-undo-bar magent-voice-note" aria-hidden="true">
+          <span>{voiceNotice}</span>
+        </div>
+      )}
+      {/* Mounted ahead of any hold (where a mic can exist) so the first
+          announcement is not lost to a freshly inserted live region. */}
+      {voiceSupported && (
+        <p className="visually-hidden" role="status" aria-live="polite">
+          {voiceNotice ?? ''}
+        </p>
+      )}
 
       {sheet?.kind === 'conversations' && (
         <ConversationsSheet
