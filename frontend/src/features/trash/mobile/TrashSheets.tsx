@@ -1,22 +1,14 @@
-import { useState } from 'react'
-import { Search } from 'lucide-react'
 import { BottomSheet } from '../../../components/BottomSheet'
 import { formatRelative } from '../../../utils/dates'
-import {
-  EMPTY_TRASH_FILTERS,
-  matchingTrashRows,
-  pluralize,
-  type TrashFilters,
-  type TrashRow,
-  type TrashTypeFilter,
-} from './trashMeta'
+import { TrashFilterForm } from '../TrashFilterForm'
+import type { TrashFilters, TrashRow } from '../trashMeta'
 
 /* The two M08f bottom sheets, on the shared `BottomSheet` primitive. */
 
 interface RowSheetProps {
   row: TrashRow
   onRestore: () => void
-  /** Projects only: the `restoreSubtasks` choice desktop asks as a window.confirm. */
+  /** Projects only: the `restoreSubtasks` choice, asked as its own row. */
   onRestoreWithoutTasks: () => void
   onPurge: () => void
   onClose: () => void
@@ -60,42 +52,11 @@ interface FilterSheetProps {
   onApply: (next: TrashFilters) => void
 }
 
-const TYPE_OPTIONS: [TrashTypeFilter, string][] = [
-  ['all', 'All'],
-  ['projects', 'Projects'],
-  ['tasks', 'Tasks'],
-]
-
-/**
- * The M03f filter sheet reduced to what this route filters on: a search field
- * and a single-select type row. Pending until Apply; a scrim tap discards.
- */
+/** The shared filter form in a bottom sheet. Pending until Apply; a scrim tap discards. */
 export function TrashFilterSheet({ filters, rows, onClose, onApply }: FilterSheetProps) {
-  const [pending, setPending] = useState(filters)
-  const matching = matchingTrashRows(rows, pending)
-  const count = matching.projects.length + matching.tasks.length
-
   return (
     <BottomSheet className="task-filter-sheet trash-filter-sheet" labelledBy="trash-filter-sheet-title" handleLabel="Close filters" onClose={onClose}>
-      <header>
-        <h2 id="trash-filter-sheet-title">Filters</h2>
-        <button type="button" className="task-sheet-reset" onClick={() => setPending(EMPTY_TRASH_FILTERS)}>Reset</button>
-      </header>
-      <label className="task-sheet-search">
-        <Search size={15} aria-hidden="true" />
-        <input aria-label="Search trash" placeholder="Project or task" value={pending.search} onChange={(event) => setPending({ ...pending, search: event.target.value })} />
-      </label>
-      <fieldset>
-        <legend>Type</legend>
-        <div className="task-sheet-options">
-          {TYPE_OPTIONS.map(([value, label]) => (
-            <button type="button" key={value} aria-pressed={pending.type === value} onClick={() => setPending({ ...pending, type: value })}>{label}</button>
-          ))}
-        </div>
-      </fieldset>
-      <button type="button" className="task-sheet-apply" onClick={() => onApply(pending)}>
-        Show {pluralize(count, 'item')}
-      </button>
+      <TrashFilterForm filters={filters} rows={rows} titleId="trash-filter-sheet-title" onApply={onApply} />
     </BottomSheet>
   )
 }

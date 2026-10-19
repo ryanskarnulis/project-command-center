@@ -2,9 +2,10 @@
  *
  * The recovery route in the vocabulary the other three mobile routes already
  * ship: M02f's title row and filter sheet, M01f's rows and group labels, M05i's
- * swipe, ⋯ sheet and undo bar. The page swaps trees on `useMobileViewport`, and
- * every rule here is keyed off `.mobile-trash`, the tree the route chose, so the
- * breakpoint stays in that hook alone. */
+ * swipe, ⋯ sheet and undo bar. The page swaps trees on `useMobileViewport`, so
+ * the breakpoint stays in that hook alone. The desktop tree (#323) reuses these
+ * row, group, foot and bar rules and adjusts them under `.desktop-trash` in
+ * trash.css. */
 .mobile-trash { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 
 /* ── Title row ────────────────────────────────────────────────────────── */

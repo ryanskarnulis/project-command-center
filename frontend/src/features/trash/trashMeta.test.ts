@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Trash } from '../../../types/trash'
+import type { Trash } from '../../types/trash'
 import {
   EMPTY_TRASH_FILTERS,
   deletedMeta,

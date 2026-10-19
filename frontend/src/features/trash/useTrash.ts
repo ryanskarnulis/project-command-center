@@ -37,7 +37,7 @@ export type RestoreUndo =
   | { kind: 'tasks'; receipt: TaskRestoreUndo }
   | { kind: 'projects'; receipt: ProjectRestoreUndo }
 
-/** A row in the cross-kind selection the mobile page builds. */
+/** A row in the cross-kind selection both /trash trees build. */
 export interface SelectedTrashItem extends RestoreItem {
   kind: TrashKind
 }
@@ -49,17 +49,11 @@ interface UseTrash {
   notice: string | null
   /**
    * Resolves to the restore's undo receipt when it landed, null when it failed.
-   * `bringTasks` decided up front skips the desktop confirm — the mobile sheet
-   * asks the question as two rows.
+   * The caller decides `bringTasks` up front: plain Restore brings a project's
+   * archived tasks, and "Restore without its tasks" is its own action.
    */
-  restoreProjectById: (
-    id: number,
-    name: string,
-    archivedTaskCount: number,
-    bringTasks?: boolean,
-  ) => Promise<RestoreUndo | null>
+  restoreProjectById: (id: number, name: string, bringTasks: boolean) => Promise<RestoreUndo | null>
   restoreTaskById: (id: number, title: string) => Promise<RestoreUndo | null>
-  restoreAll: (kind: TrashKind, items: RestoreItem[]) => Promise<void>
   /** Cross-kind bulk restore with one combined notice; projects bring their tasks. */
   restoreItems: (items: SelectedTrashItem[]) => Promise<void>
   /** Cross-kind bulk purge in one server call. The caller has already confirmed. */
@@ -72,13 +66,7 @@ interface UseTrash {
     label: string,
     cascadeTaskCount?: number,
   ) => Promise<void>
-  purgeAll: (kind: TrashKind, ids: number[]) => Promise<void>
   emptyTrashAll: () => Promise<void>
-}
-
-const KIND_NOUN: Record<TrashKind, string> = {
-  projects: 'project',
-  tasks: 'task',
 }
 
 /** Fallback for a restore that failed without an `Error` to speak for itself.
@@ -150,20 +138,7 @@ export function useTrash(): UseTrash {
   }, [refreshKey])
 
   const restoreProjectById = useCallback(
-    async (
-      id: number,
-      name: string,
-      archivedTaskCount: number,
-      bringTasksDecided?: boolean,
-    ): Promise<RestoreUndo | null> => {
-      // A deleted project takes its tasks into the trash with it; ask whether to
-      // bring them back too — unless the caller already put the question.
-      const bringTasks =
-        bringTasksDecided ??
-        (archivedTaskCount > 0 &&
-          window.confirm(
-            `Bring back ${archivedTaskCount} task${archivedTaskCount === 1 ? '' : 's'} with “${name}”?`,
-          ))
+    async (id: number, name: string, bringTasks: boolean): Promise<RestoreUndo | null> => {
       setError(null)
       setNotice(null)
       try {
@@ -202,58 +177,6 @@ export function useTrash(): UseTrash {
     [reload, projectNames],
   )
 
-  const restoreAll = useCallback(
-    async (kind: TrashKind, items: RestoreItem[]) => {
-      setError(null)
-      setNotice(null)
-      // Projects cascade-delete their tasks; offer once to bring them all back.
-      const totalArchived =
-        kind === 'projects'
-          ? items.reduce((sum, item) => sum + (item.archivedTaskCount ?? 0), 0)
-          : 0
-      const bringTasks =
-        totalArchived > 0 &&
-        window.confirm(
-          `Bring back ${totalArchived} task${totalArchived === 1 ? '' : 's'} with ${
-            items.length === 1 ? 'this project' : 'these projects'
-          }?`,
-        )
-      let restored = 0
-      let restoredTasks = 0
-      let failed = false
-      for (const item of items) {
-        try {
-          if (kind === 'projects') {
-            const { restored_task_count } = await restoreProject(item.id, bringTasks)
-            restoredTasks += restored_task_count
-          } else {
-            await RESTORE[kind](item.id)
-          }
-          restored += 1
-        } catch (e: unknown) {
-          // Already gone from trash — restoring a skipped occurrence can purge a
-          // subtask selected alongside it — so there's nothing left to fail at.
-          // Skip it rather than reporting the whole batch as broken (BUG-11).
-          if (e instanceof ApiError && e.status === 404) continue
-          failed = true
-          setError(apiErrorMessage(e, RESTORE_FAILED))
-          break
-        }
-      }
-      reload()
-      if (restored > 0) {
-        const noun = kind.slice(0, -1)
-        const parts = [`Restored ${restored} ${noun}${restored === 1 ? '' : 's'}.`]
-        if (kind === 'projects' && restoredTasks > 0)
-          parts.push(`Brought back ${restoredTasks} task${restoredTasks === 1 ? '' : 's'}.`)
-        setNotice(parts.join(' '))
-      } else if (!failed) {
-        setError(null)
-      }
-    },
-    [reload],
-  )
-
   const restoreItems = useCallback(
     async (items: SelectedTrashItem[]) => {
       setError(null)
@@ -276,8 +199,9 @@ export function useTrash(): UseTrash {
           }
           restored += 1
         } catch (e: unknown) {
-          // Already gone from trash — nothing left to restore, and nothing to
-          // report (see restoreAll).
+          // Already gone from trash — restoring a skipped occurrence can purge a
+          // subtask selected alongside it — so there's nothing left to restore,
+          // and nothing to report (BUG-11).
           if (e instanceof ApiError && e.status === 404) {
             attempted -= 1
             continue
@@ -368,42 +292,6 @@ export function useTrash(): UseTrash {
     [reload],
   )
 
-  const purgeAll = useCallback(
-    async (kind: TrashKind, ids: number[]) => {
-      setError(null)
-      setNotice(null)
-      // One server-side call, not a request per id: purging a parent task takes
-      // its subtree, so a child selected alongside its parent is already gone by
-      // the time its own turn comes. The server skips it and still counts it as
-      // removed, instead of the old loop 404ing and reporting a false failure on
-      // a purge that fully succeeded (BUG-11).
-      try {
-        const result = await purgeSelected({
-          project_ids: kind === 'projects' ? ids : [],
-          task_ids: kind === 'tasks' ? ids : [],
-        })
-        const deleted = result[kind]
-        if (deleted > 0) {
-          const noun = KIND_NOUN[kind]
-          const parts = [
-            `Permanently deleted ${deleted} ${noun}${deleted === 1 ? '' : 's'}.`,
-          ]
-          // A project purge cascades into the tasks archived with it; the server
-          // now reports those rows, so the notice names them too (BUG #184).
-          if (kind === 'projects' && result.tasks > 0)
-            parts.push(
-              `${result.tasks} archived task${result.tasks === 1 ? '' : 's'} went with ${deleted === 1 ? 'it' : 'them'}.`,
-            )
-          setNotice(parts.join(' '))
-        }
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Failed to delete items')
-      }
-      reload()
-    },
-    [reload],
-  )
-
   const emptyTrashAll = useCallback(async () => {
     setError(null)
     setNotice(null)
@@ -428,12 +316,10 @@ export function useTrash(): UseTrash {
     notice,
     restoreProjectById,
     restoreTaskById,
-    restoreAll,
     restoreItems,
     purgeItems,
     undoRestore,
     purgeById,
-    purgeAll,
     emptyTrashAll,
   }
 }

@@ -1,101 +1,26 @@
-import { useMemo, useRef, useEffect, useState, type ReactNode } from 'react'
-import { Search, SlidersHorizontal, Trash2 } from 'lucide-react'
-import { useTrash, type RestoreItem, type TrashKind } from './useTrash'
-import { useTrashCount } from './trashCountContext'
-import { TaskCard } from '../tasks/TaskCard'
-import { ProjectCard } from '../projects/ProjectCard'
-import { formatRelative } from '../../utils/dates'
+import { useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
+import { RotateCcw, SlidersHorizontal } from 'lucide-react'
 import { useMobileViewport } from '../../hooks/useMobileViewport'
 import { MobileTrashPage } from './mobile/MobileTrashPage'
-
-// A tri-state "select all" for one section: checked when every visible item is
-// selected, indeterminate when only some are. Toggling selects/clears all
-// currently visible items in the section.
-function SelectAll({
-  ids,
-  selected,
-  onChange,
-}: {
-  ids: number[]
-  selected: Set<number>
-  onChange: (select: boolean) => void
-}) {
-  const ref = useRef<HTMLInputElement>(null)
-  const allSelected = ids.length > 0 && ids.every((id) => selected.has(id))
-  const someSelected = ids.some((id) => selected.has(id))
-  useEffect(() => {
-    if (ref.current) ref.current.indeterminate = someSelected && !allSelected
-  }, [someSelected, allSelected])
-  return (
-    <label className="trash-select-all">
-      <input
-        ref={ref}
-        type="checkbox"
-        checked={allSelected}
-        onChange={() => onChange(!allSelected)}
-      />
-      Select all
-    </label>
-  )
-}
-
-// The multi-restore / multi-purge action bar, shown for a section once at least
-// one of its items is selected.
-function BulkBar({
-  count,
-  onRestore,
-  onDelete,
-}: {
-  count: number
-  onRestore: () => void
-  onDelete: () => void
-}) {
-  if (count === 0) return null
-  return (
-    <div className="bulk-actions trash-bulk-actions">
-      <span className="trash-selected-count">{count} selected</span>
-      <button type="button" className="secondary-action" onClick={onRestore}>
-        Restore selected
-      </button>
-      <button type="button" className="trash-danger" onClick={onDelete}>
-        Delete selected
-      </button>
-    </div>
-  )
-}
-
-function DeletedAt({ at }: { at?: string | null }) {
-  if (!at) return null
-  return <span className="trash-deleted-at">Deleted {formatRelative(at)}</span>
-}
-
-// The /trash list is page-limited, so the loaded set can be a prefix of what's
-// really in trash. When the true (unbounded) count exceeds what we loaded, warn
-// that the section is showing only the most recent slice.
-function TruncationHint({ loaded, total }: { loaded: number; total: number }) {
-  if (loaded >= total) return null
-  return (
-    <p className="trash-section-hint">
-      Showing the {loaded} most recently deleted of {total}.
-    </p>
-  )
-}
-
-/**
- * The shared cards are <Link>s to detail pages. In trash we want their context,
- * not navigation to a soft-deleted item's (404'ing) detail page. Pre-empting the
- * default in the capture phase makes React Router's Link skip navigation while
- * the action buttons inside still fire.
- */
-function NoNav({ children }: { children: ReactNode }) {
-  return <div onClickCapture={(e) => e.preventDefault()}>{children}</div>
-}
-
-type TypeFilter = 'all' | 'projects' | 'tasks'
+import { TrashFilterForm } from './TrashFilterForm'
+import {
+  TrashEmpty,
+  TrashFilterChips,
+  TrashFoot,
+  TrashGroup,
+  TrashRowMeta,
+  TrashSelectRow,
+  TrashSelectionBar,
+  TrashSelectionHeading,
+  TrashSkeleton,
+  TrashUndoBar,
+} from './TrashParts'
+import { EMPTY_TRASH_FILTERS, TRASH_GROUPS, pluralize, rowKey, rowNoun, type TrashFilters, type TrashRow } from './trashMeta'
+import { useTrashPage, type TrashPageState } from './useTrashPage'
 
 export function TrashPage() {
   // The same hook Tasks, Project detail and Focus branch on. The breakpoint
-  // stays inside it; below it the route renders the M08f tree and nothing here.
+  // stays inside it; below it the route renders the M08f phone tree.
   const mobile = useMobileViewport()
   if (mobile) {
     return (
@@ -107,400 +32,206 @@ export function TrashPage() {
   return <DesktopTrashPage />
 }
 
+/* M08f at desktop width (#323).
+ *
+ * The phone's rows, group labels, chips row, foot rows, undo bar and selection
+ * mode, driven by the same `useTrashPage`. What changes is the input: the
+ * swipe and the ⋯ sheet become row actions that appear on hover or keyboard
+ * focus (Restore without its tasks, Delete forever); the 500ms hold that
+ * enters selection mode becomes a Ctrl/⌘-click on the row; Escape leaves
+ * selection mode; and the filter sheet becomes a panel anchored to the filter
+ * control. The ring still restores in one click with no confirm, because the
+ * undo bar makes it reversible. */
 function DesktopTrashPage() {
-  const {
-    trash,
-    loading,
-    error,
-    notice,
-    restoreProjectById,
-    restoreTaskById,
-    restoreAll,
-    purgeById,
-    purgeAll,
-    emptyTrashAll,
-  } = useTrash()
-  // True per-kind totals, unbounded by the /trash list page (see /trash/count).
-  const { counts } = useTrashCount()
+  const page = useTrashPage()
+  const { loading, isEmpty, noMatches, mode, undo } = page
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const filterControl = useRef<HTMLButtonElement>(null)
 
-  const [search, setSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
-
-  // Per-section checkbox selection, keyed by TrashKind. Ids that scroll out of
-  // the filtered view simply lose their checkbox; bulk actions always intersect
-  // with the items actually shown, so a hidden id is never acted on.
-  const [selected, setSelected] = useState<Record<TrashKind, Set<number>>>(() => ({
-    projects: new Set(),
-    tasks: new Set(),
-  }))
-
-  const toggleItem = (kind: TrashKind, id: number) =>
-    setSelected((prev) => {
-      const next = new Set(prev[kind])
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return { ...prev, [kind]: next }
-    })
-
-  const toggleAll = (kind: TrashKind, ids: number[], select: boolean) =>
-    setSelected((prev) => ({ ...prev, [kind]: new Set(select ? ids : []) }))
-
-  const clearSelection = (kind: TrashKind) =>
-    setSelected((prev) => ({ ...prev, [kind]: new Set() }))
-
-  const totalCount = trash.projects.length + trash.tasks.length
-  const isEmpty = totalCount === 0
-
-  // Purge is irreversible (it really deletes the row), so every purge path is
-  // gated by an explicit confirm naming what's about to go.
-  // A project purge also destroys every trashed task the project owns — the ones
-  // archived with it AND any the user trashed independently — so the confirm
-  // names that full set rather than the narrower restore count (BUG #184, #189).
-  const confirmPurge = (
-    kind: TrashKind,
-    id: number,
-    label: string,
-    purgeTaskCount = 0,
-  ) => {
-    const scope =
-      purgeTaskCount > 0
-        ? `“${label}” and the ${purgeTaskCount} trashed task${purgeTaskCount === 1 ? '' : 's'} it owns`
-        : `“${label}”`
-    if (window.confirm(`Permanently delete ${scope}? This cannot be undone.`)) {
-      void purgeById(kind, id, label, purgeTaskCount)
+  // Escape leaves selection mode — the keyboard's Done. The filter panel owns
+  // Escape while it is open.
+  const exitSelect = page.exitSelect
+  useEffect(() => {
+    if (mode !== 'select' || filtersOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') exitSelect()
     }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [mode, filtersOpen, exitSelect])
+
+  function applyFilters(next: TrashFilters): void {
+    page.applyFilters(next)
+    setFiltersOpen(false)
   }
 
-  // Empty trash purges *everything* server-side — the whole trash, not just the
-  // loaded page, and including tasks archived with deleted projects. Confirm with
-  // the server's exact removable total (counts.purge_total) so the number never
-  // understates what's about to be destroyed. Falls back to the loaded length
-  // only if the count hasn't arrived, and never reads lower than what's on screen.
-  const emptyTrashTotal = Math.max(counts.purge_total, totalCount)
-  const confirmEmptyTrash = () => {
-    if (
-      window.confirm(
-        `Permanently delete all ${emptyTrashTotal} item${emptyTrashTotal === 1 ? '' : 's'} in trash, including any tasks archived with deleted projects? This cannot be undone.`,
+  function renderRow(row: TrashRow) {
+    const key = rowKey(row)
+    if (mode === 'select') {
+      return (
+        <li key={key}>
+          <TrashSelectRow row={row} checked={page.selected.has(key)} onToggle={() => page.toggleSelected(row)} />
+        </li>
       )
-    ) {
-      void emptyTrashAll()
     }
-  }
-
-  // Bulk-restore the selected items in a section, then drop the selection (the
-  // reload that follows removes those rows anyway).
-  const restoreSelected = (kind: TrashKind, items: RestoreItem[]) => {
-    clearSelection(kind)
-    void restoreAll(kind, items)
-  }
-
-  // Bulk-purge is irreversible, so confirm with the count first — and for
-  // projects that count has to include the tasks archived with them, which the
-  // purge destroys too — every trashed task they own, not just the cascade ones
-  // (BUG #184, #189). A project's owned trashed tasks are counted once here; the
-  // tasks section is confirmed separately, so there's no double counting.
-  const purgeSelected = (kind: TrashKind, items: RestoreItem[]) => {
-    if (items.length === 0) return
-    const cascadeTasks = items.reduce((sum, i) => sum + (i.purgeTaskCount ?? 0), 0)
-    const total = items.length + cascadeTasks
-    const scope =
-      cascadeTasks > 0
-        ? `${total} item${total === 1 ? '' : 's'} (${items.length} project${items.length === 1 ? '' : 's'} and ${cascadeTasks} trashed task${cascadeTasks === 1 ? '' : 's'})`
-        : `${total} item${total === 1 ? '' : 's'}`
-    if (window.confirm(`Permanently delete ${scope}? This cannot be undone.`)) {
-      clearSelection(kind)
-      void purgeAll(kind, items.map((i) => i.id))
+    const noun = rowNoun(row)
+    // Ctrl/⌘-click anywhere on the row is the pointer's long-press: it enters
+    // selection mode with this row checked, and swallows the click so it never
+    // also restores or purges.
+    const selectOnModifier = (event: MouseEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return
+      event.preventDefault()
+      event.stopPropagation()
+      page.enterSelect(row)
     }
-  }
-
-  // Search (case-insensitive, over each item's display label) + type filter are
-  // both client-side. A list is included only when the type filter selects it;
-  // the search then narrows within whatever's included.
-  const { projects, tasks } = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    const showProjects = typeFilter === 'all' || typeFilter === 'projects'
-    const showTasks = typeFilter === 'all' || typeFilter === 'tasks'
-    const match = (label: string) => q === '' || label.toLowerCase().includes(q)
-    return {
-      projects: showProjects ? trash.projects.filter((p) => match(p.name)) : [],
-      tasks: showTasks ? trash.tasks.filter((t) => match(t.title)) : [],
-    }
-  }, [trash, search, typeFilter])
-
-  const filtersActive = search.trim() !== '' || typeFilter !== 'all'
-  const noMatches = !isEmpty && projects.length === 0 && tasks.length === 0
-
-  // The number shown next to a section title. While filtering, the filtered
-  // length is what's honest (it matches the cards shown). Otherwise show the true
-  // total, falling back to the loaded length if the count hasn't arrived (or no
-  // TrashCountProvider is mounted), so the heading never reads lower than what's
-  // on screen.
-  const headingCount = (filtered: number, loaded: number, total: number) =>
-    filtersActive ? filtered : Math.max(total, loaded)
-
-  // "Restore all" only ever restores the rows currently shown — the filtered
-  // subset of the loaded page, which can be a prefix of the whole section. Label
-  // it with that true scope so it never implies it cleared more than it did:
-  // "N shown" while filtering, "N loaded" when the page is a truncated prefix,
-  // and a plain "Restore all" only when the loaded set really is everything.
-  const restoreAllLabel = (shown: number, loaded: number, total: number) =>
-    filtersActive
-      ? `Restore ${shown} shown`
-      : loaded < total
-        ? `Restore ${loaded} loaded`
-        : 'Restore all'
-
-  // Restore payloads for the visible items in each section (label + project
-  // cascade count), reused by both "Restore all" and the selection bar.
-  const projectItems: RestoreItem[] = projects.map((p) => ({
-    id: p.id,
-    label: p.name,
-    archivedTaskCount: p.archived_task_count,
-    purgeTaskCount: p.purge_task_count,
-  }))
-  const taskItems: RestoreItem[] = tasks.map((t) => ({ id: t.id, label: t.title }))
-  // The subset of each section currently checked (intersected with what's shown).
-  const selectedIn = (kind: TrashKind, items: RestoreItem[]) =>
-    items.filter((i) => selected[kind].has(i.id))
-
-  return (
-    <main>
-      <div className="section-heading">
-        <h1>Trash</h1>
-        {!loading && !isEmpty && (
-          <button type="button" className="trash-danger" onClick={confirmEmptyTrash}>
-            Empty trash
+    return (
+      <li key={key}>
+        <div className="trash-row" onClickCapture={selectOnModifier}>
+          <button
+            type="button"
+            className="trash-restore-ring"
+            aria-label={`Restore ${noun} ${row.title}`}
+            title="Restore"
+            onClick={() => void page.restore(row)}
+          >
+            <RotateCcw size={12} aria-hidden="true" />
           </button>
-        )}
-      </div>
-      <p>Recently deleted items. Restore anything you removed by mistake.</p>
-
-      {error && <p role="alert" className="error">{error}</p>}
-      {notice && <p role="status" className="trash-notice">{notice}</p>}
-      {loading && <div className="page-loading">Loading trash…</div>}
-
-      {!loading && isEmpty && (
-        <div className="empty-state">
-          <Trash2 size={20} aria-hidden="true" />
-          Trash is empty.
-        </div>
-      )}
-
-      {!loading && !isEmpty && (
-        <div className="task-filters" role="search" aria-label="Filter trash">
-          <div className="task-filters-header">
-            <div className="task-filters-title">
-              <SlidersHorizontal size={17} aria-hidden="true" />
-              <strong>Filters</strong>
-            </div>
-            {filtersActive && (
+          <span className="trash-row-main">
+            <span className="trash-row-title">{row.title}</span>
+            <TrashRowMeta row={row} />
+          </span>
+          <span className="trash-row-actions">
+            {row.kind === 'projects' && row.archivedTaskCount > 0 && (
               <button
                 type="button"
-                className="secondary-action"
-                onClick={() => {
-                  setSearch('')
-                  setTypeFilter('all')
-                }}
+                aria-label={`Restore project ${row.title} without its tasks`}
+                onClick={() => void page.restore(row, false)}
               >
-                Clear
+                Restore without its tasks
               </button>
             )}
+            <button
+              type="button"
+              className="danger"
+              aria-label={`Delete ${noun} ${row.title} forever`}
+              onClick={() => page.confirmPurge(row)}
+            >
+              Delete forever
+            </button>
+          </span>
+        </div>
+      </li>
+    )
+  }
+
+  return (
+    <main className="desktop-trash">
+      {mode === 'select' ? (
+        <TrashSelectionHeading page={page} />
+      ) : (
+        <div className="trash-heading">
+          <div className="trash-heading-name">
+            <h1>Trash</h1>
+            {!loading && !isEmpty && (
+              <p className="trash-heading-sub">{pluralize(page.totalCount, 'item')}</p>
+            )}
           </div>
-
-          <label className="task-search-field">
-            <span>Search</span>
-            <div>
-              <Search size={17} aria-hidden="true" />
-              <input
-                aria-label="Search trash"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Project or task"
-              />
-            </div>
-          </label>
-
-          <div className="task-filter-grid">
-            <label>
-              <span>Type</span>
-              <select
-                aria-label="Filter by type"
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
+          {!loading && !isEmpty && (
+            <div className="trash-filter-anchor">
+              <button
+                ref={filterControl}
+                type="button"
+                className={`trash-filter-control${page.chips.length ? ' applied' : ''}`}
+                aria-label="Filter trash"
+                aria-haspopup="dialog"
+                aria-expanded={filtersOpen}
+                onClick={() => setFiltersOpen((open) => !open)}
               >
-                <option value="all">All</option>
-                <option value="projects">Projects</option>
-                <option value="tasks">Tasks</option>
-              </select>
-            </label>
-          </div>
+                <SlidersHorizontal size={15} aria-hidden="true" />
+                Filter
+              </button>
+              {filtersOpen && (
+                <TrashFilterPanel
+                  page={page}
+                  control={filterControl}
+                  onApply={applyFilters}
+                  onClose={() => setFiltersOpen(false)}
+                />
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {noMatches && (
-        <div className="empty-state">No items match your search.</div>
+      {page.error && <p role="alert" className="error">{page.error}</p>}
+      {page.notice && !undo && <p role="status" className="trash-notice">{page.notice}</p>}
+
+      <TrashFilterChips page={page} />
+
+      {loading && <TrashSkeleton />}
+
+      {isEmpty && <TrashEmpty head="Nothing in the trash" sub="Deleted projects and tasks land here." />}
+      {noMatches && <TrashEmpty head="No items match your filters" onClear={() => applyFilters(EMPTY_TRASH_FILTERS)} />}
+
+      {!loading && !isEmpty && !noMatches && (
+        <div className="trash-list">
+          {TRASH_GROUPS.map(({ kind, label }) => (
+            <TrashGroup key={kind} kind={kind} label={label} page={page} renderRow={renderRow} />
+          ))}
+          {mode === 'browse' && <TrashFoot page={page} />}
+        </div>
       )}
 
-      {!loading && projects.length > 0 && (
-        <section className="trash-section">
-          <div className="trash-section-head">
-            <h2>
-              Projects ({headingCount(projects.length, trash.projects.length, counts.projects)})
-            </h2>
-            <SelectAll
-              ids={projectItems.map((i) => i.id)}
-              selected={selected.projects}
-              onChange={(select) =>
-                toggleAll('projects', projectItems.map((i) => i.id), select)
-              }
-            />
-            <button
-              type="button"
-              className="secondary-action"
-              onClick={() => void restoreAll('projects', projectItems)}
-            >
-              {restoreAllLabel(projects.length, trash.projects.length, counts.projects)}
-            </button>
-          </div>
-          <BulkBar
-            count={selectedIn('projects', projectItems).length}
-            onRestore={() => restoreSelected('projects', selectedIn('projects', projectItems))}
-            onDelete={() =>
-              purgeSelected('projects', selectedIn('projects', projectItems))
-            }
-          />
-          <TruncationHint loaded={trash.projects.length} total={counts.projects} />
-          <ul className="project-grid">
-            {projects.map((project) => (
-              <li key={project.id} className="trash-item">
-                <input
-                  type="checkbox"
-                  className="trash-item-check"
-                  aria-label={`Select project ${project.name}`}
-                  checked={selected.projects.has(project.id)}
-                  onChange={() => toggleItem('projects', project.id)}
-                />
-                <NoNav>
-                  <ProjectCard
-                    project={project}
-                    actions={
-                      <>
-                        <DeletedAt at={project.deleted_at} />
-                        {project.archived_task_count > 0 && (
-                          <span className="trash-meta">
-                            {project.archived_task_count} task
-                            {project.archived_task_count === 1 ? '' : 's'} to restore
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          aria-label={`Restore project ${project.name}`}
-                          onClick={() =>
-                            void restoreProjectById(
-                              project.id,
-                              project.name,
-                              project.archived_task_count,
-                            )
-                          }
-                        >
-                          Restore
-                        </button>
-                        <button
-                          type="button"
-                          className="trash-danger"
-                          aria-label={`Delete project ${project.name} forever`}
-                          onClick={() =>
-                            confirmPurge(
-                              'projects',
-                              project.id,
-                              project.name,
-                              project.purge_task_count,
-                            )
-                          }
-                        >
-                          Delete forever
-                        </button>
-                      </>
-                    }
-                  />
-                </NoNav>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      {undo && <TrashUndoBar undo={undo} onUndo={page.undoLastRestore} />}
 
-      {!loading && tasks.length > 0 && (
-        <section className="trash-section">
-          <div className="trash-section-head">
-            <h2>
-              Tasks ({headingCount(tasks.length, trash.tasks.length, counts.tasks)})
-            </h2>
-            <SelectAll
-              ids={taskItems.map((i) => i.id)}
-              selected={selected.tasks}
-              onChange={(select) => toggleAll('tasks', taskItems.map((i) => i.id), select)}
-            />
-            <button
-              type="button"
-              className="secondary-action"
-              onClick={() => void restoreAll('tasks', taskItems)}
-            >
-              {restoreAllLabel(tasks.length, trash.tasks.length, counts.tasks)}
-            </button>
-          </div>
-          <BulkBar
-            count={selectedIn('tasks', taskItems).length}
-            onRestore={() => restoreSelected('tasks', selectedIn('tasks', taskItems))}
-            onDelete={() =>
-              purgeSelected('tasks', selectedIn('tasks', taskItems))
-            }
-          />
-          <TruncationHint loaded={trash.tasks.length} total={counts.tasks} />
-          <p className="trash-section-hint">
-            Restored tasks return to their original project (or General if it was deleted).
-          </p>
-          <ul className="task-list">
-            {tasks.map((task) => (
-              <li key={task.id} className="trash-item">
-                <input
-                  type="checkbox"
-                  className="trash-item-check"
-                  aria-label={`Select task ${task.title}`}
-                  checked={selected.tasks.has(task.id)}
-                  onChange={() => toggleItem('tasks', task.id)}
-                />
-                <NoNav>
-                  <TaskCard
-                    task={task}
-                    projects={trash.projects}
-                    actions={
-                      <>
-                        <DeletedAt at={task.deleted_at} />
-                        <button
-                          type="button"
-                          aria-label={`Restore task ${task.title}`}
-                          onClick={() => void restoreTaskById(task.id, task.title)}
-                        >
-                          Restore
-                        </button>
-                        <button
-                          type="button"
-                          className="trash-danger"
-                          aria-label={`Delete task ${task.title} forever`}
-                          onClick={() => confirmPurge('tasks', task.id, task.title)}
-                        >
-                          Delete forever
-                        </button>
-                      </>
-                    }
-                  />
-                </NoNav>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      {mode === 'select' && !undo && <TrashSelectionBar page={page} />}
     </main>
+  )
+}
+
+interface FilterPanelProps {
+  page: TrashPageState
+  control: RefObject<HTMLButtonElement | null>
+  onApply: (next: TrashFilters) => void
+  onClose: () => void
+}
+
+/**
+ * The phone's filter sheet as a panel under its control: the same pending form
+ * (Enter or **Show n items** applies), dismissed without applying by Escape or
+ * a click outside — Escape hands focus back to the control.
+ */
+function TrashFilterPanel({ page, control, onApply, onClose }: FilterPanelProps) {
+  const panel = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (panel.current?.contains(target) || control.current?.contains(target)) return
+      onClose()
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      onClose()
+      control.current?.focus()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [control, onClose])
+
+  return (
+    <div ref={panel} className="trash-filter-panel" role="dialog" aria-labelledby="trash-filter-panel-title">
+      <TrashFilterForm
+        filters={page.filters}
+        rows={page.rows}
+        titleId="trash-filter-panel-title"
+        onApply={onApply}
+        autoFocusSearch
+      />
+    </div>
   )
 }
