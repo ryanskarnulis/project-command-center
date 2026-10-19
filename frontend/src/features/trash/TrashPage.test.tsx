@@ -15,12 +15,20 @@ import {
 import { ApiError } from '../../api/client'
 import type { ProjectRestoreUndo, TaskRestoreUndo, Trash } from '../../types/trash'
 import { TrashPage } from './TrashPage'
+import { TrashCountContext, type TrashCounts } from './trashCountContext'
 import { UNDO_LIFETIME_MS } from './useTrashPage'
 
 /* M08f at desktop width (#323): the phone's rows, chips, selection mode and
  * undo bar, reached by pointer and keyboard instead of swipe and sheets. */
 
 const renderPage = () => render(<TrashPage />, { wrapper: MemoryRouter })
+const renderWithCounts = (counts: TrashCounts) =>
+  render(
+    <TrashCountContext.Provider value={{ count: counts.projects + counts.tasks, counts, refresh: async () => {} }}>
+      <TrashPage />
+    </TrashCountContext.Provider>,
+    { wrapper: MemoryRouter },
+  )
 
 // Relative to the test run's clock so formatRelative is deterministic ("3 days ago").
 const DELETED_AT = new Date(Date.now() - 3 * 86_400_000).toISOString()
@@ -421,6 +429,27 @@ describe('TrashPage — desktop (M08f)', () => {
     expect(mockEmptyTrash).toHaveBeenCalled()
     expect(await screen.findByRole('status')).toHaveTextContent(/Permanently deleted 2 items/)
     expect(await screen.findByText('Nothing in the trash')).toBeInTheDocument()
+  })
+
+  it('names both numbers when Empty trash also removes archived tasks (#363)', async () => {
+    // 2 items on the page; the project holds 3 archived tasks the purge takes too.
+    loadOnce({ projects: [{ ...project, archived_task_count: 3, purge_task_count: 3 }], tasks: [task(5, 'Pay invoice', 2)] })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const user = userEvent.setup()
+    renderWithCounts({ projects: 1, tasks: 1, purge_total: 5 })
+    const foot = await screen.findByRole('button', { name: /Empty trash/ })
+    expect(screen.getByText('2 items')).toBeInTheDocument()
+    expect(foot).toHaveTextContent('Empty trash · 2 items, 5 with archived tasks')
+    // The confirm keeps the server's exact removable total.
+    await user.click(foot)
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Permanently delete all 5 items in trash'))
+  })
+
+  it('keeps the plain Empty trash count when it matches the item count', async () => {
+    renderWithCounts({ projects: 1, tasks: 1, purge_total: 2 })
+    const foot = await screen.findByRole('button', { name: /Empty trash/ })
+    expect(foot).toHaveTextContent(/^Empty trash · 2$/)
+    expect(foot).not.toHaveTextContent(/archived/)
   })
 
   it('renders skeleton rows while loading, then the empty state without controls', async () => {
