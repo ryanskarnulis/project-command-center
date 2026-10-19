@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -518,6 +519,56 @@ def test_undo_project_restore_leaves_independently_trashed_tasks_alone(
     trash = client.get("/api/trash").json()
     assert trash["projects"][0]["archived_task_count"] == 1
     assert _trashed_task_ids(client) == {loose["id"]}
+
+
+@pytest.mark.parametrize("restore_tasks", [True, False])
+def test_undo_project_restore_ignores_a_purge_detach_logged_while_trashed(
+    client: TestClient, db_session: Session, restore_tasks: bool
+) -> None:
+    """#352: a purge's detach event in the project's trash window is not the restore's.
+
+    Purging a cross-project parent detaches its surviving trashed child and logs
+    ``updated`` on the child's project feed while that project is in the trash.
+    Undo used to read that event as one of the restore's own "moved to the Tasks
+    trash" events and archive the child under the project.
+    """
+    pid = client.post("/api/projects", json={"name": "P"}).json()["id"]
+    qid = client.post("/api/projects", json={"name": "Q"}).json()["id"]
+    parent = client.post(f"/api/projects/{qid}/tasks", json={"title": "X"}).json()
+    child = _task(client, title="C", project_id=pid, parent_task_id=parent["id"])
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "kept"})
+
+    assert client.delete(f"/api/tasks/{parent['id']}").status_code == 204
+    assert client.delete(f"/api/projects/{pid}").status_code == 204
+    assert client.delete(f"/api/tasks/{parent['id']}/purge").status_code == 204
+    detach = db_session.scalars(
+        select(ActivityEvent).where(
+            ActivityEvent.entity_type == "task",
+            ActivityEvent.entity_id == child["id"],
+            ActivityEvent.action == "updated",
+            ActivityEvent.project_id == pid,
+        )
+    ).all()
+    assert len(detach) == 1  # the event that used to fool undo is there
+
+    before = client.get("/api/trash").json()
+    assert [t["id"] for t in before["tasks"]] == [child["id"]]
+    assert before["projects"][0]["archived_task_count"] == 1
+
+    query = "?restore_tasks=true" if restore_tasks else ""
+    body = client.post(f"/api/projects/{pid}/restore{query}").json()
+    undo = client.post("/api/trash/projects/undo-restore", json=body["undo"])
+    assert undo.status_code == 204, undo.text
+
+    after = client.get("/api/trash").json()
+    assert [t["id"] for t in after["tasks"]] == [child["id"]]
+    assert [p["id"] for p in after["projects"]] == [pid]
+    assert after["projects"][0]["archived_task_count"] == 1
+    db_session.expire_all()
+    row = db_session.get(Task, child["id"])
+    assert row is not None
+    assert row.deleted_at is not None
+    assert row.deleted_with_project_id is None
 
 
 def test_undo_unskip_survives_an_edit_that_it_does_not_reverse(

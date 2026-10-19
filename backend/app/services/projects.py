@@ -449,8 +449,9 @@ def restore_project_with_undo(
         # Don't strand the cascade tasks: clearing the marker moves them into the
         # standalone Tasks trash instead of leaving them pointing at an active
         # project (where every trash surface filters them out). Each move is
-        # audited as an ``updated`` task event, which is also how undo finds
-        # exactly these rows again (#314): the receipt names no ids.
+        # audited as an ``updated`` task event with the unarchive summary, which
+        # is also how undo finds exactly these rows again (#314, #352): the
+        # receipt names no ids.
         unarchived = [
             (task_id, title)
             for task_id, title in db.execute(
@@ -469,7 +470,7 @@ def restore_project_with_undo(
             project_id=project.id,
             tasks=unarchived,
             action=_UNARCHIVED_ACTION,
-            summary_suffix="moved to the Tasks trash",
+            summary_suffix=_UNARCHIVED_SUFFIX,
         )
 
     db.flush()
@@ -492,17 +493,25 @@ def restore_project_with_undo(
 
 
 # The task event a without-tasks restore logs for each row it moves into the
-# standalone Tasks trash; undo looks for it to find those rows again.
+# standalone Tasks trash; undo looks for it to find those rows again. The action
+# alone is not enough (#352): other writes log ``updated`` on a trashed task in
+# the project while it sits in the trash (a purge detaching a surviving child,
+# ``task_trash.log_task_detached_by_purge``), so undo matches the summary too.
+# The action stays ``updated`` — the documented set the activity feed renders —
+# and the summary is unchanged from #314, so receipts issued before #352 still
+# find their rows.
 _UNARCHIVED_ACTION = "updated"
+_UNARCHIVED_SUFFIX = "moved to the Tasks trash"
 
 
 def _restore_window_start(db: Session, project_id: int, restore_event_id: int) -> int:
     """Id of the project ``deleted`` event that the restore ``restore_event_id`` reversed.
 
-    Every task event a project restore logs falls strictly between the two. No
-    other task event lands on the project's feed in that window: while the
-    project sits in the trash all its tasks do too, and a standalone restore of
-    one rehomes it to General before logging.
+    Every task event a project restore logs falls strictly between the two.
+    Other task events can land on the project's feed in that window too — a
+    purge detaching a surviving trashed child logs ``updated`` on it (#352) —
+    so ``_restore_task_ids`` matches each restore event's exact shape, not just
+    its action.
     """
     start = db.scalar(
         select(func.max(ActivityEvent.id)).where(
@@ -516,9 +525,16 @@ def _restore_window_start(db: Session, project_id: int, restore_event_id: int) -
 
 
 def _restore_task_ids(
-    project_id: int, after_id: int, before_id: int, action: str
+    project_id: int, after_id: int, before_id: int, action: str, summary_suffix: str
 ) -> Select[tuple[int]]:
-    """Tasks with an ``action`` event on ``project_id``'s feed in ``(after_id, before_id)``.
+    """Tasks a project restore logged ``action`` for in ``(after_id, before_id)``.
+
+    Matches the event ``activity.record_task_events`` wrote for it — the action
+    *and* the ``Task "<title>" <summary_suffix>`` summary — so an unrelated task
+    event on the project's feed in the same window is not mistaken for one of
+    the restore's own (#352). The match is anchored on the title's closing
+    quote: a detach summary ends in a quoted parent title, so no title can make
+    it end this way.
 
     A subquery rather than a materialised id list, so it can feed an ``IN``
     without binding one parameter per task: a project can own more tasks than
@@ -528,6 +544,7 @@ def _restore_task_ids(
         ActivityEvent.project_id == project_id,
         ActivityEvent.entity_type == "task",
         ActivityEvent.action == action,
+        ActivityEvent.summary.endswith(f'" {summary_suffix}', autoescape=True),
         ActivityEvent.id > after_id,
         ActivityEvent.id < before_id,
     )
@@ -582,7 +599,9 @@ def undo_project_restore(db: Session, undo: ProjectRestoreUndo) -> None:
     start = _restore_window_start(db, project.id, undo.restore_event_id)
     restored_ids = set(
         db.execute(
-            _restore_task_ids(project.id, start, undo.restore_event_id, "restored")
+            _restore_task_ids(
+                project.id, start, undo.restore_event_id, "restored", "restored"
+            )
         )
         .scalars()
         .all()
@@ -609,7 +628,11 @@ def undo_project_restore(db: Session, undo: ProjectRestoreUndo) -> None:
         .where(
             Task.id.in_(
                 _restore_task_ids(
-                    project.id, start, undo.restore_event_id, _UNARCHIVED_ACTION
+                    project.id,
+                    start,
+                    undo.restore_event_id,
+                    _UNARCHIVED_ACTION,
+                    _UNARCHIVED_SUFFIX,
                 )
             ),
             Task.project_id == project.id,
