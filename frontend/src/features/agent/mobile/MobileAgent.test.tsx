@@ -18,6 +18,7 @@ import { RequireRouteId } from '../../../routes/RequireRouteId'
 import { AgentPage } from '../AgentPage'
 import { SWIPE_COMMIT_PX } from './ConversationSwipeRow'
 import { dismissDeleteUndo } from '../deleteUndoStore'
+import { resetInFlightRuns } from '../inFlightRunStore'
 
 /* M07f — the mobile tree, reached through AgentPage at phone width. */
 
@@ -144,6 +145,8 @@ describe('AgentPage — mobile handoff (M07f)', () => {
     vi.clearAllMocks()
     localStorage.clear()
     dismissDeleteUndo()
+    // A test that leaves a send unresolved must not leak its run (#353).
+    resetInFlightRuns()
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     mockList.mockResolvedValue(conversations)
     mockGet.mockResolvedValue(detail)

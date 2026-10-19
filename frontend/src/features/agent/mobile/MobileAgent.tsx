@@ -66,7 +66,7 @@ interface Props {
 export function MobileAgent({ activeId, list, thread }: Props) {
   const navigate = useNavigate()
   const { conversations, loading: listLoading, loadingMore, hasMore, error: listError, loadMore, create, remove, restore, rename } = list
-  const { detail, loading, error, hasMore: threadHasMore, loadingOlder, loadOlder, pendingText, send, stop, stopping } = thread
+  const { detail, loading, error, hasMore: threadHasMore, loadingOlder, loadOlder, pendingText, pendingSince, pendingUserLanded, send, stop, stopping } = thread
   const sending = pendingText !== null
 
   const [draft, setDraft] = useState('')
@@ -76,7 +76,7 @@ export function MobileAgent({ activeId, list, thread }: Props) {
   const [renameError, setRenameError] = useState<string | null>(null)
   const threadEndRef = useRef<HTMLLIElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
-  const elapsed = useElapsedSeconds(sending)
+  const elapsed = useElapsedSeconds(sending, pendingSince)
 
   // Device preference, same key and semantics as desktop (see AgentPage).
   const [voiceOutput, setVoiceOutput] = useState(
@@ -262,9 +262,13 @@ export function MobileAgent({ activeId, list, thread }: Props) {
             )}
             {pendingText !== null && (
               <>
-                <li className="magent-turn magent-turn--user">
-                  <div className="magent-bubble">{pendingText}</div>
-                </li>
+                {/* After a remount mid-run the fetched thread already holds
+                    this turn (#353); don't repeat it. */}
+                {!pendingUserLanded && (
+                  <li className="magent-turn magent-turn--user">
+                    <div className="magent-bubble">{pendingText}</div>
+                  </li>
+                )}
                 <li className="magent-turn magent-turn--agent">
                   <div className="magent-label">
                     <GlitchMark size={18} />

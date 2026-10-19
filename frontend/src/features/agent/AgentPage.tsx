@@ -62,6 +62,8 @@ export function AgentPage() {
     loadingOlder,
     loadOlder,
     pendingText,
+    pendingSince,
+    pendingUserLanded,
     send,
     stop,
     stopping,
@@ -337,6 +339,8 @@ export function AgentPage() {
                   text={pendingText}
                   onStop={() => fireAndForget(stop())}
                   stopping={stopping}
+                  since={pendingSince}
+                  hideUserBubble={pendingUserLanded}
                 />
               )}
               {!loading &&
