@@ -27,7 +27,10 @@ Tools map 1:1 onto service functions — (validate args) → (open session) →
   creation/editing rides on `create_task`/`update_task`.
 
 **Deliberately not exposed:** `purge_task`, `purge_project`, `empty_trash`,
-`reorder_projects`, the dashboard overview.
+`reorder_projects`, the dashboard overview. Trash retention (#321) — the
+scheduled purge of trash older than `TRASH_RETENTION_DAYS` — is a lifespan job
+in the API process, not a tool: nothing on the tool surface can trigger or
+schedule it, and its purges are attributed to `retention`, never to an agent.
 
 ## Guardrails
 

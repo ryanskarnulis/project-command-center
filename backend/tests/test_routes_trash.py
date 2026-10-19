@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.main import app
 from app.db.models import (
     ActivityEvent,
@@ -34,6 +35,7 @@ def test_trash_count_reports_each_kind(client: TestClient) -> None:
         "projects": 1,
         "tasks": 1,
         "purge_total": 2,  # 1 project + 1 standalone task, all removable
+        "retention_days": get_settings().trash_retention_days,
     }
 
 

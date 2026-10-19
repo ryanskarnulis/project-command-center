@@ -6,6 +6,7 @@ import {
   matchingTrashRows,
   pluralize,
   purgeSelectionScope,
+  retentionLine as formatRetentionLine,
   rowKey,
   trashFilterChips,
   trashFiltersActive,
@@ -104,6 +105,8 @@ export function useTrashPage() {
   const countLine = filtersActive
     ? `${shownCount} of ${pluralize(totalCount, 'item')}`
     : pluralize(totalCount, 'item')
+  // Its second fact: how long trash is kept (#321), absent when retention is off.
+  const retentionLine = formatRetentionLine(counts.retention_days)
 
   const visibleRows = useMemo(() => [...shown.projects, ...shown.tasks], [shown])
   // Selection always intersects with what's shown: a hidden row is never acted on.
@@ -234,6 +237,7 @@ export function useTrashPage() {
     totalCount,
     shownCount,
     countLine,
+    retentionLine,
     emptyTrashTotal,
     emptyTrashExtra,
     mode,

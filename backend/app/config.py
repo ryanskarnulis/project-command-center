@@ -97,6 +97,14 @@ class Settings(BaseSettings):
     # for the same reason — bad config must fail at startup, not per request.
     agent_run_budget_seconds: float = Field(default=240.0, gt=0, allow_inf_nan=False)
 
+    # Trash retention (issue #321): a trashed project or standalone task whose
+    # ``deleted_at`` is older than this many days is permanently deleted by the
+    # in-process retention job (app/jobs/trash_retention.py), along with
+    # everything a manual purge of that row would take. 0 disables retention —
+    # trash is kept forever and the UI drops its countdown copy. Must not be
+    # negative: a negative window would read as "everything already expired".
+    trash_retention_days: int = Field(default=30, ge=0)
+
     # Explicit CORS allow-list (the local Vite dev server).
     cors_origins: list[str] = [
         "http://localhost:5173",

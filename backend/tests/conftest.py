@@ -13,10 +13,21 @@ from sqlalchemy.pool import NullPool, StaticPool
 from app.api import conversation_locks, rate_limit, run_cancel
 from app.db.models import Base
 from app.db.session import engine as app_engine
+from app.jobs import trash_retention
 from app.db.session import enable_sqlite_fk_enforcement, get_db, get_db_write
 from app.main import app
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _no_trash_retention_loop() -> Generator[None, None, None]:
+    # Every ``TestClient(app)`` runs the lifespan, which would start the trash
+    # retention loop (#321) against the application database. Retention is
+    # tested directly (tests/test_trash_retention.py), never via startup.
+    trash_retention.enabled = False
+    yield
+    trash_retention.enabled = True
 
 
 @pytest.fixture(autouse=True)

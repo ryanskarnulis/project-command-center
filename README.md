@@ -39,6 +39,8 @@ backend/app/
   alembic/      migrations
   services/     one responsibility per module (tasks, projects, trash, focus,
                 recurrence, dependencies, …)
+  jobs/         in-process background jobs started from the lifespan
+                (trash retention)
   tools/        transport-agnostic agent tool registry + per-call runtime
   mcp/          PCC MCP server (stdio): the tool registry over MCP
   ai/           llama.cpp provider layer (llama-swap runtime) + agent loop
@@ -64,12 +66,31 @@ Tables: `projects`, `tasks`, `task_dependencies`, `activity_events`,
 Key decisions:
 
 - **Soft deletes everywhere** via `deleted_at`; queries filter it by default
-  through a service-layer helper. The only true delete is user-triggered purge
-  from `/trash`, and only of already-soft-deleted rows. Exception:
+  through a service-layer helper. The only true deletes are a user-triggered
+  purge from `/trash` and the scheduled trash retention purge (below), and
+  both only touch already-soft-deleted rows. Exception:
   `activity_events` is an append-only log with no `deleted_at`. Its nullable
   `actor` column attributes each event: `NULL` is the user; agents stamp an
   identifier (the MCP server writes `agent:mcp`, the in-app agent loop
-  `agent:loop`, a conductor-delegated run `agent:conductor`).
+  `agent:loop`, a conductor-delegated run `agent:conductor`), and the trash
+  retention job stamps `retention`.
+- **Trash retention** (#321): trash is kept for `TRASH_RETENTION_DAYS`
+  (default **30**) after `deleted_at`, then permanently deleted. `0` disables
+  it — trash is kept forever. An in-process asyncio task
+  (`app/jobs/trash_retention.py`, started in the FastAPI lifespan; no
+  scheduler dependency, single uvicorn worker) runs a pass 60 s after startup
+  and every 6 hours after that. A pass picks the trash *roots* the `/trash`
+  page shows as rows — trashed projects and standalone trashed tasks — whose
+  own `deleted_at` is past the window, and hands them to the same
+  `purge_selected` cascade as **Delete forever**: an expired project takes
+  every trashed task it owns, an expired task its trashed subtree, whatever
+  their own timestamps (the root's age decides; a subtask cascaded under a
+  younger root waits for it). The protected General project is never purged.
+  Each pass runs in one `BEGIN IMMEDIATE` transaction and writes the usual
+  per-row `purged` activity events under the `retention` actor; a failed pass
+  is logged and the next one runs on schedule. No agent or MCP tool can reach
+  it — the agent still never hard-deletes. `GET /api/trash/count` reports the
+  window as `retention_days` for the trash page's countdown copy.
 - Task progress lives in `workflow_status` (`open | in_progress | done`). The
   AI-era `review_status`/`confidence`/`assignee_hint` columns are dropped;
   every task is user-facing and always filed in a project: `project_id` is
@@ -296,10 +317,16 @@ goes to the server as one call, and a half-failed restore says so
 (`Restored 3 of 4 items`). **Empty trash · n** is the last foot row, so the
 page reads top to bottom as what you have → what you can do about it → burn it.
 
-Not built: the handoff's retention countdown (`removed after 30 days`,
-`n days left`). It needs a scheduled purge policy the backend does not have,
-so the sub-line carries one fact and the meta line stops at two; the rest of
-the design stands without it.
+The handoff's retention countdown follows the server's window
+(`retention_days` from `/api/trash/count`, see Trash retention above): the
+sub-line reads `n items · removed after 30 days`, and a row inside its last
+week adds a third, warning-colored fact — `n days left` (a part day counts as a
+day), or `Removed today` once it has expired and is waiting for the job's next
+pass. Earlier than that the row stays quiet: the sub-line already says it, and
+a meta line carries exceptions only. A task whose project is also in the trash
+counts down from whichever was deleted first, because an expired project's
+purge takes every trashed task it owns. With `TRASH_RETENTION_DAYS=0` all of
+this copy drops.
 
 Desktop `/trash` follows the same design (#323), driven by the same page
 hook: rows, group labels, chips row, foot rows, undo-backed restore and
@@ -308,7 +335,8 @@ or keyboard focus (Restore without its tasks, Delete forever); Ctrl/⌘-click on
 a row enters selection mode with it checked and Escape leaves it; the filter
 sheet becomes a pending panel anchored to the Filter control (Enter applies,
 Escape or an outside click discards); the undo and selection bars stick to the
-bottom of the viewport instead of floating over a bottom nav. The old
+bottom of the viewport instead of floating over a bottom nav. The retention
+copy is the same on both. The old
 per-section Restore all is gone with the section heads: Select → Select all →
 Restore covers it.
 
@@ -571,6 +599,11 @@ Prerequisites: Docker + the compose plugin.
 cp .env.example .env          # then edit: exposure, trusted proxy
 docker compose up --build     # backend + frontend
 ```
+
+**Trash retention.** The backend reads `TRASH_RETENTION_DAYS` from `.env`
+(`env_file` in `docker-compose.yml`; default 30, `0` keeps trash forever). The
+first pass runs a minute after the container starts, so any row already past
+the window is permanently deleted on the first boot of a build that has it.
 
 The dashboard is **host-only by default** (`http://127.0.0.1:8100`), matching the
 `API_HOST`/`DEV_HOST` posture. `.env.example` leaves `FRONTEND_BIND` commented

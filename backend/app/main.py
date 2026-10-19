@@ -23,6 +23,7 @@ from app.api import (
     routes_voice,
 )
 from app.config import get_settings
+from app.jobs import trash_retention
 from app.logging_config import RequestIDMiddleware, configure_logging
 
 logger = structlog.get_logger(__name__)
@@ -43,7 +44,11 @@ api_router.include_router(routes_voice.router)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     configure_logging()
     logger.info("startup", env=get_settings().app_env)
-    yield
+    retention_task = trash_retention.start()
+    try:
+        yield
+    finally:
+        await trash_retention.stop(retention_task)
 
 
 app = FastAPI(lifespan=lifespan)

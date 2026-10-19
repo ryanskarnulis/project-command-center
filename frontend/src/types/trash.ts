@@ -68,4 +68,6 @@ export interface TrashCountResult {
   tasks: number
   /** Exact rows `DELETE /api/trash` removes (incl. cascade tasks, excl. protected projects). */
   purge_total: number
+  /** Days after `deleted_at` that the server purges a trash row (#321); 0 = kept forever. */
+  retention_days: number
 }

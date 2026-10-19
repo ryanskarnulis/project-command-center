@@ -160,8 +160,8 @@ describe('TrashPage — desktop (M08f)', () => {
     expect(within(rowOf('Rotate keys')).getByText('Firewall')).toBeInTheDocument()
     expect(screen.queryByText(/Open/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Due/)).not.toBeInTheDocument()
-    // No retention copy: the purge policy (#321) does not exist.
-    expect(screen.queryByText(/days left|removed after/)).not.toBeInTheDocument()
+    // No retention copy without a retention window (no provider → 0, kept forever).
+    expect(screen.queryByText(/days left|removed after|Removed today/)).not.toBeInTheDocument()
     // The ⋯ sheet's verbs are row actions; Restore without its tasks only where it means something.
     expect(within(rowOf('Firewall')).getByRole('button', { name: 'Restore project Firewall without its tasks' })).toBeInTheDocument()
     expect(within(rowOf('Pay invoice')).queryByRole('button', { name: /without its tasks/ })).not.toBeInTheDocument()
@@ -506,7 +506,7 @@ describe('TrashPage — desktop (M08f)', () => {
     loadOnce({ projects: [{ ...project, archived_task_count: 3, purge_task_count: 3 }], tasks: [task(5, 'Pay invoice', 2)] })
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     const user = userEvent.setup()
-    renderWithCounts({ projects: 1, tasks: 1, purge_total: 5 })
+    renderWithCounts({ projects: 1, tasks: 1, purge_total: 5, retention_days: 0 })
     const foot = await screen.findByRole('button', { name: /Empty trash/ })
     expect(screen.getByText('2 items')).toBeInTheDocument()
     expect(foot).toHaveTextContent('Empty trash · 2 items, 5 with archived tasks')
@@ -515,8 +515,33 @@ describe('TrashPage — desktop (M08f)', () => {
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Permanently delete all 5 items in trash'))
   })
 
+  it('shows the retention window and a last-week countdown when retention is on (#321)', async () => {
+    const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString()
+    loadOnce({
+      projects: [{ ...project, deleted_at: daysAgo(25) }],
+      tasks: [{ ...task(5, 'Pay invoice', 2), deleted_at: daysAgo(3) }, { ...task(6, 'Rotate keys', 2), deleted_at: daysAgo(31) }],
+    })
+    renderWithCounts({ projects: 1, tasks: 2, purge_total: 3, retention_days: 30 })
+    expect(await screen.findByText('removed after 30 days')).toBeInTheDocument()
+    expect(screen.getByText('3 items')).toBeInTheDocument()
+    // Inside its last week: a warning-colored countdown, third after the facts.
+    const countdown = within(rowOf('Firewall')).getByText('5 days left')
+    expect(countdown).toHaveClass('trash-meta-expiry')
+    // Expired, awaiting the job's next pass.
+    expect(within(rowOf('Rotate keys')).getByText('Removed today')).toBeInTheDocument()
+    // Weeks to go: the sub-line already says it, so the row stays quiet.
+    expect(within(rowOf('Pay invoice')).queryByText(/left|Removed/)).not.toBeInTheDocument()
+  })
+
+  it('drops all retention copy when retention is off', async () => {
+    loadOnce({ projects: [{ ...project, deleted_at: new Date(Date.now() - 29 * 86_400_000).toISOString() }], tasks: [] })
+    renderWithCounts({ projects: 1, tasks: 0, purge_total: 1, retention_days: 0 })
+    expect(await screen.findByText('1 item')).toBeInTheDocument()
+    expect(screen.queryByText(/days? left|removed after|Removed today/)).not.toBeInTheDocument()
+  })
+
   it('keeps the plain Empty trash count when it matches the item count', async () => {
-    renderWithCounts({ projects: 1, tasks: 1, purge_total: 2 })
+    renderWithCounts({ projects: 1, tasks: 1, purge_total: 2, retention_days: 0 })
     const foot = await screen.findByRole('button', { name: /Empty trash/ })
     expect(foot).toHaveTextContent(/^Empty trash · 2$/)
     expect(foot).not.toHaveTextContent(/archived/)

@@ -5,6 +5,9 @@ import {
   deletedMeta,
   matchingTrashRows,
   purgeSelectionScope,
+  retentionDaysLeft,
+  retentionLine,
+  retentionMeta,
   trashFilterChips,
   trashRows,
   type TrashRow,
@@ -135,5 +138,47 @@ describe('purgeSelectionScope', () => {
 
   it('is a bare count when the selection is all it destroys', () => {
     expect(purgeSelectionScope([rows.tasks[0], rows.tasks[1]])).toBe('2 items')
+  })
+})
+
+describe('retention countdown (#321)', () => {
+  const at = (days: number) => ({ expiresFrom: daysAgo(days) })
+
+  it('counts whole days left, a part day counting as a day', () => {
+    expect(retentionDaysLeft(at(0), 30, NOW)).toBe(30)
+    expect(retentionDaysLeft(at(25), 30, NOW)).toBe(5)
+    expect(retentionDaysLeft(at(25.5), 30, NOW)).toBe(5)
+    expect(retentionDaysLeft(at(29.9), 30, NOW)).toBe(1)
+  })
+
+  it('clamps an expired row at 0 and says it goes today', () => {
+    expect(retentionDaysLeft(at(31), 30, NOW)).toBe(0)
+    expect(retentionMeta(at(31), 30, NOW)).toBe('Removed today')
+    expect(retentionMeta(at(30), 30, NOW)).toBe('Removed today')
+  })
+
+  it('only speaks inside the last week — an exception, not a fact on every row', () => {
+    expect(retentionMeta(at(22), 30, NOW)).toBeNull()
+    expect(retentionMeta(at(23), 30, NOW)).toBe('7 days left')
+    expect(retentionMeta(at(29.5), 30, NOW)).toBe('1 day left')
+  })
+
+  it('is silent when retention is off', () => {
+    expect(retentionDaysLeft(at(400), 0, NOW)).toBeNull()
+    expect(retentionMeta(at(400), 0, NOW)).toBeNull()
+    expect(retentionLine(0)).toBeNull()
+    expect(retentionLine(30)).toBe('removed after 30 days')
+    expect(retentionLine(1)).toBe('removed after 1 day')
+  })
+
+  it('starts a task’s clock at its trashed project’s deletion when that came first', () => {
+    const rows = trashRows({
+      projects: [{ ...trash.projects[0], deleted_at: daysAgo(28) }],
+      tasks: [{ ...trash.tasks[0], deleted_at: daysAgo(1) }, trash.tasks[1]],
+    })
+    // The project's purge takes every trashed task it owns.
+    expect(retentionDaysLeft(rows.tasks[0], 30, NOW)).toBe(2)
+    // A task whose project is not in the trash runs on its own clock.
+    expect(rows.tasks[1].expiresFrom).toBe(trash.tasks[1].deleted_at)
   })
 })
