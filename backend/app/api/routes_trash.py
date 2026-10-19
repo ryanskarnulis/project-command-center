@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.task_reads import read_with_blocked
+from app.config import get_settings
 from app.db.session import get_db, get_db_write
 from app.schemas.common import EntityId
 from app.schemas.trash import (
@@ -61,6 +62,7 @@ def get_trash_count(db: Session = Depends(get_db)) -> TrashCountResult:
         projects=counts.projects,
         tasks=counts.tasks,
         purge_total=counts.purge_total,
+        retention_days=get_settings().trash_retention_days,
     )
 
 

@@ -189,8 +189,15 @@ class TrashCountResult(BaseModel):
     number of rows ``DELETE /api/trash`` would remove — including tasks archived
     with deleted projects and excluding protected projects — so the Empty-trash
     confirm names a figure that matches the actual deletion.
+
+    ``retention_days`` is the configured trash retention window (#321): rows
+    are permanently deleted that many days after ``deleted_at``. ``0`` means
+    retention is off and trash is kept forever. It rides on this response
+    because every page already holds it (the app-wide count provider), so the
+    trash page's countdown copy needs no extra fetch.
     """
 
     projects: int
     tasks: int
     purge_total: int
+    retention_days: int

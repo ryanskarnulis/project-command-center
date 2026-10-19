@@ -14,6 +14,9 @@
 .trash-heading h1 { font-size: 22px; line-height: 1.15; letter-spacing: -.015em; font-weight: 720; color: var(--text-h); }
 .trash-heading-sub { font-size: 11.5px; font-weight: 600; color: var(--text-meta); }
 .trash-meta-sep { opacity: .45; }
+/* The retention countdown (#321): a row's last week before the purge. A colored
+   word in the meta line's own size, never a pill. */
+.trash-meta-expiry { color: var(--orange-strong); }
 /* Selection mode swaps the name block for a count and two text buttons. */
 .trash-selection-count { font-size: 13.5px; font-weight: 620; color: var(--text-h); }
 .trash-selection-actions { display: flex; align-items: center; gap: 4px; margin-right: -8px; }

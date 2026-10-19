@@ -6,6 +6,7 @@ import {
   TrashFilterChips,
   TrashFoot,
   TrashGroup,
+  TrashHeadingSub,
   TrashRowMeta,
   TrashSelectRow,
   TrashSelectionBar,
@@ -27,9 +28,10 @@ import { EMPTY_TRASH_FILTERS, TRASH_GROUPS, rowKey, rowNoun, type TrashFilters, 
  * confirm it has, and is not reachable by gesture at all. The behaviour is
  * `useTrashPage`, shared with the desktop tree.
  *
- * One divergence from the handoff: the retention countdown. It needs a purge
- * policy the backend does not have, so the sub-line carries one fact and the
- * meta line never says `{n} days left` — the handoff's own fallback. */
+ * The retention countdown (#321) follows the server's window: the sub-line adds
+ * `removed after {n} days`, and a row in its last week adds `{n} days left` in
+ * the warning color. With retention off (0) both drop — the handoff's own
+ * fallback. */
 
 export function MobileTrashPage() {
   const page = useTrashPage()
@@ -97,7 +99,7 @@ export function MobileTrashPage() {
           <div className="trash-heading-name">
             <h1>Trash</h1>
             {!loading && !isEmpty && (
-              <p className="trash-heading-sub">{page.countLine}</p>
+              <TrashHeadingSub page={page} />
             )}
           </div>
           {!loading && !isEmpty && (

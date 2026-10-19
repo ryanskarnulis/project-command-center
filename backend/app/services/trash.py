@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-
-from sqlalchemy.orm import Session
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from app.db.models import Project, Task
 from app.services import projects as projects_service
@@ -216,4 +216,92 @@ def empty_trash(db: Session) -> PurgeCounts:
         db,
         project_ids=[p.id for p in db.execute(deleted(Project)).scalars()],
         task_ids=[t.id for t in db.execute(deleted(Task)).scalars()],
+    )
+
+
+def retention_cutoff(now: datetime, retention_days: int) -> datetime | None:
+    """The ``deleted_at`` before which a trash root has expired; ``None`` = keep forever.
+
+    ``retention_days == 0`` disables retention (issue #321): nothing ever expires.
+    """
+    if retention_days <= 0:
+        return None
+    return now - timedelta(days=retention_days)
+
+
+def _expired_task_roots(db: Session, cutoff: datetime) -> list[int]:
+    """Standalone trashed tasks whose own deletion is older than ``cutoff``.
+
+    The same set the trash list shows as task rows (not cascade-deleted with a
+    project — those go with their project, whose age decides). A row that was
+    cascade-trashed under an ancestor task (``deleted_with_task_id``) goes with
+    that root instead, so the *root's* age decides the whole subtree: such a row
+    is only its own candidate when its root is no longer in the trash at all, or
+    is itself expired (in which case the root's purge takes it anyway and
+    ``purge_selected`` counts it once).
+    """
+    rows = db.execute(
+        select(Task.id, Task.deleted_with_task_id).where(
+            Task.deleted_at.is_not(None),
+            Task.deleted_at < cutoff,
+            Task.deleted_with_project_id.is_(None),
+        )
+    ).all()
+    expired = {row.id for row in rows}
+    # Roots named by an expired row's marker that are *not* expired themselves:
+    # still in the trash with a younger deletion, so they hold their subtree.
+    pending_roots = sorted(
+        {
+            row.deleted_with_task_id
+            for row in rows
+            if row.deleted_with_task_id is not None
+            and row.deleted_with_task_id not in expired
+        }
+    )
+    unexpired_roots: set[int] = set()
+    for chunk in chunked(pending_roots):
+        unexpired_roots.update(
+            db.execute(
+                select(Task.id).where(
+                    Task.id.in_(chunk), Task.deleted_at.is_not(None)
+                )
+            ).scalars()
+        )
+    return [
+        row.id
+        for row in rows
+        if row.deleted_with_task_id is None
+        or row.deleted_with_task_id not in unexpired_roots
+    ]
+
+
+def purge_expired(db: Session, *, now: datetime, retention_days: int) -> PurgeCounts:
+    """Permanently delete every trash root older than the retention window (#321).
+
+    The one sanctioned *scheduled* hard-delete path. Roots are what the trash
+    list shows as rows — trashed projects and standalone trashed tasks — and a
+    root's own ``deleted_at`` decides: a project takes every trashed task it
+    owns and a task its trashed subtree, whatever their own timestamps, exactly
+    as a manual purge of that row would. That is why this only *selects* and
+    then hands the ids to ``purge_selected``, which owns the cascade order, the
+    protected-project skip, ``IN``-chunking (#264/#275), the per-row ``purged``
+    audit events and the FK/marker cleanup. ``retention_days == 0`` purges
+    nothing. Caller commits, and should hold the write lock from the start
+    (``BEGIN IMMEDIATE``) so a restore can't land between the select and the
+    delete.
+    """
+    cutoff = retention_cutoff(now, retention_days)
+    if cutoff is None:
+        return PurgeCounts(projects=0, tasks=0)
+    project_ids = list(
+        db.execute(
+            select(Project.id).where(
+                Project.deleted_at.is_not(None), Project.deleted_at < cutoff
+            )
+        ).scalars()
+    )
+    return purge_selected(
+        db,
+        project_ids=project_ids,
+        task_ids=_expired_task_roots(db, cutoff),
     )

@@ -29,6 +29,13 @@ export interface TrashRow {
   purgeTaskCount: number
   /** Tasks: the name of its project when that project is itself in the trash. */
   projectName: string | null
+  /**
+   * When the retention clock started (#321): the row's own `deletedAt`, or — for
+   * a task whose project is also in the trash and was deleted earlier — the
+   * project's, because the server purges an expired project with every trashed
+   * task it owns, exactly as Delete forever on the project row would.
+   */
+  expiresFrom: string | null
 }
 
 export const TRASH_GROUPS: { kind: TrashKind; label: string }[] = [
@@ -46,7 +53,7 @@ export function rowKey(row: Pick<TrashRow, 'kind' | 'id'>): string {
 }
 
 export function trashRows(trash: Trash): { projects: TrashRow[]; tasks: TrashRow[] } {
-  const trashedProjects = new Map(trash.projects.map((project) => [project.id, project.name]))
+  const trashedProjects = new Map(trash.projects.map((project) => [project.id, project]))
   return {
     projects: trash.projects.map((project) => ({
       kind: 'projects',
@@ -56,17 +63,28 @@ export function trashRows(trash: Trash): { projects: TrashRow[]; tasks: TrashRow
       archivedTaskCount: project.archived_task_count,
       purgeTaskCount: project.purge_task_count,
       projectName: null,
+      expiresFrom: project.deleted_at ?? null,
     })),
-    tasks: trash.tasks.map((task) => ({
-      kind: 'tasks',
-      id: task.id,
-      title: task.title,
-      deletedAt: task.deleted_at ?? null,
-      archivedTaskCount: 0,
-      purgeTaskCount: 0,
-      projectName: task.project_id !== null ? (trashedProjects.get(task.project_id) ?? null) : null,
-    })),
+    tasks: trash.tasks.map((task) => {
+      const project = task.project_id !== null ? trashedProjects.get(task.project_id) : undefined
+      return {
+        kind: 'tasks',
+        id: task.id,
+        title: task.title,
+        deletedAt: task.deleted_at ?? null,
+        archivedTaskCount: 0,
+        purgeTaskCount: 0,
+        projectName: project?.name ?? null,
+        expiresFrom: earliest(task.deleted_at ?? null, project?.deleted_at ?? null),
+      }
+    }),
   }
+}
+
+function earliest(a: string | null, b: string | null): string | null {
+  if (a === null) return b
+  if (b === null) return a
+  return Date.parse(b) < Date.parse(a) ? b : a
 }
 
 export function pluralize(count: number, noun: string): string {
@@ -77,8 +95,8 @@ export function pluralize(count: number, noun: string): string {
  * The row's meta line: at most two facts, in a fixed order. `Deleted {relative}`
  * always leads; the second is what a restore brings with it (projects) or where
  * the task belonged (tasks whose project is also in the trash). The retention
- * countdown the handoff draws third needs a purge policy the backend does not
- * have, so it is not emitted — see the README's open questions.
+ * countdown the handoff draws third is `retentionMeta`, kept apart because it
+ * is an exception, colored as a warning, not a fact every row carries.
  */
 export function deletedMeta(row: TrashRow, now: number = Date.now()): string[] {
   const facts: string[] = []
@@ -89,6 +107,36 @@ export function deletedMeta(row: TrashRow, now: number = Date.now()): string[] {
     facts.push(row.projectName)
   }
   return facts.slice(0, 2)
+}
+
+const DAY_MS = 86_400_000
+
+/** Rows this close to their purge say so; earlier than that the sub-line's
+ * `removed after n days` covers them (exceptions-only meta). */
+export const RETENTION_WARN_DAYS = 7
+
+/**
+ * Whole days until the server purges this row (#321): a part day counts as a
+ * day, so `1 day left` means "gone within a day", and 0 means the row has
+ * expired and goes on the job's next pass. `null` when retention is off
+ * (`retentionDays` 0) or the row has no deletion stamp.
+ */
+export function retentionDaysLeft(row: Pick<TrashRow, 'expiresFrom'>, retentionDays: number, now: number = Date.now()): number | null {
+  if (retentionDays <= 0 || !row.expiresFrom) return null
+  const remaining = Date.parse(row.expiresFrom) + retentionDays * DAY_MS - now
+  return Math.max(0, Math.ceil(remaining / DAY_MS))
+}
+
+/** The countdown fact — only inside the last `RETENTION_WARN_DAYS`, else `null`. */
+export function retentionMeta(row: Pick<TrashRow, 'expiresFrom'>, retentionDays: number, now: number = Date.now()): string | null {
+  const left = retentionDaysLeft(row, retentionDays, now)
+  if (left === null || left > RETENTION_WARN_DAYS) return null
+  return left === 0 ? 'Removed today' : `${pluralize(left, 'day')} left`
+}
+
+/** The heading sub-line's retention fact, or `null` when retention is off. */
+export function retentionLine(retentionDays: number): string | null {
+  return retentionDays > 0 ? `removed after ${pluralize(retentionDays, 'day')}` : null
 }
 
 /** Search and type are both client-side. */

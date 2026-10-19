@@ -1,4 +1,5 @@
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar
 
 from sqlalchemy import Connection, Engine, create_engine, event
@@ -128,6 +129,18 @@ def get_db_write() -> Generator[Session, None, None]:
     ``BEGIN IMMEDIATE`` has to be set on the Connection before the Session opens a
     transaction on it, which is why this binds an explicit Connection rather than
     letting the Session check one out lazily.
+    """
+    with write_session() as db:
+        yield db
+
+
+@contextmanager
+def write_session() -> Iterator[Session]:
+    """``get_db_write``'s session for code that isn't a request (#321).
+
+    Same ``BEGIN IMMEDIATE`` connection and the same cleanup; the background
+    trash-retention job uses it so its select-then-purge holds the write lock
+    from the first statement, like every other writer.
     """
     conn = engine.connect()
     conn.info["begin_statement"] = "BEGIN IMMEDIATE"

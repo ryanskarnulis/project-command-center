@@ -11,6 +11,7 @@ function toTrashCounts(counts: TrashCounts): TrashCounts {
     projects: counts.projects,
     tasks: counts.tasks,
     purge_total: counts.purge_total,
+    retention_days: counts.retention_days,
   }
 }
 

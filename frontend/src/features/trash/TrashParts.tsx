@@ -2,16 +2,21 @@ import type { ReactNode } from 'react'
 import { SquareCheck, Trash2, X } from 'lucide-react'
 import type { TrashKind } from './useTrash'
 import type { PendingUndo, TrashPageState } from './useTrashPage'
-import { EMPTY_TRASH_FILTERS, TRASH_GROUPS, deletedMeta, pluralize, rowNoun, type TrashRow } from './trashMeta'
+import { useTrashCount } from './trashCountContext'
+import { EMPTY_TRASH_FILTERS, TRASH_GROUPS, deletedMeta, pluralize, retentionMeta, rowNoun, type TrashRow } from './trashMeta'
 
 /* M08f pieces both /trash trees render identically. Layout differences (the
  * phone's fixed bars over the bottom nav, desktop's sticky ones) live in CSS,
  * keyed off `.mobile-trash` / `.desktop-trash`. */
 
-/** At most two facts, separated by a faint dot — words, never pills. */
+/** At most two facts, separated by a faint dot — words, never pills — plus,
+ * in a row's last week before the retention purge (#321), a warning-colored
+ * countdown. */
 export function TrashRowMeta({ row }: { row: TrashRow }) {
+  const { counts } = useTrashCount()
   const facts = deletedMeta(row)
-  if (facts.length === 0) return null
+  const expiry = retentionMeta(row, counts.retention_days)
+  if (facts.length === 0 && !expiry) return null
   return (
     <span className="trash-row-meta">
       {facts.map((fact, index) => (
@@ -20,7 +25,29 @@ export function TrashRowMeta({ row }: { row: TrashRow }) {
           {fact}
         </span>
       ))}
+      {expiry && (
+        <span>
+          {facts.length > 0 && <span className="trash-meta-sep" aria-hidden="true">· </span>}
+          <span className="trash-meta-expiry">{expiry}</span>
+        </span>
+      )}
     </span>
+  )
+}
+
+/** The title row's sub-line: the item count, then the retention window when
+ * there is one — two meta words, never a pill. */
+export function TrashHeadingSub({ page }: { page: TrashPageState }) {
+  return (
+    <p className="trash-heading-sub">
+      <span>{page.countLine}</span>
+      {page.retentionLine && (
+        <span>
+          <span className="trash-meta-sep" aria-hidden="true"> · </span>
+          {page.retentionLine}
+        </span>
+      )}
+    </p>
   )
 }
 

@@ -427,7 +427,7 @@ describe('TrashPage — mobile handoff (M08f)', () => {
     // 3 items on the page; the project holds 3 archived tasks the purge takes too.
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     const user = userEvent.setup()
-    renderMobileWithCounts({ projects: 1, tasks: 2, purge_total: 6 })
+    renderMobileWithCounts({ projects: 1, tasks: 2, purge_total: 6, retention_days: 0 })
     const foot = await screen.findByRole('button', { name: /Empty trash/ })
     expect(screen.getByText('3 items')).toBeInTheDocument()
     expect(foot).toHaveTextContent('Empty trash · 3 items, 6 with archived tasks')
@@ -436,8 +436,24 @@ describe('TrashPage — mobile handoff (M08f)', () => {
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Permanently delete all 6 items in trash'))
   })
 
+  it('restores the handoff’s retention copy when retention is on (#321)', async () => {
+    const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString()
+    mockGetTrash.mockResolvedValue({
+      projects: [{ ...trash.projects[0], deleted_at: daysAgo(10) }],
+      tasks: [{ ...trash.tasks[1], deleted_at: daysAgo(29.5) }],
+    })
+    renderMobileWithCounts({ projects: 1, tasks: 1, purge_total: 4, retention_days: 30 })
+    // The sub-line: the count, then the window — two meta words, not a pill.
+    const sub = await screen.findByText('removed after 30 days')
+    expect(sub.closest('.trash-heading-sub')).toHaveTextContent('2 items · removed after 30 days')
+    const ups = title('Trial the second UPS unit').closest('.trash-row') as HTMLElement
+    expect(within(ups).getByText('1 day left')).toHaveClass('trash-meta-expiry')
+    const project = title('Old Wiki Rewrite').closest('.trash-row') as HTMLElement
+    expect(within(project).queryByText(/left/)).not.toBeInTheDocument()
+  })
+
   it('keeps the plain Empty trash count when it matches the item count', async () => {
-    renderMobileWithCounts({ projects: 1, tasks: 2, purge_total: 3 })
+    renderMobileWithCounts({ projects: 1, tasks: 2, purge_total: 3, retention_days: 0 })
     const foot = await screen.findByRole('button', { name: /Empty trash/ })
     expect(foot).toHaveTextContent(/^Empty trash · 3$/)
     expect(foot).not.toHaveTextContent(/archived/)

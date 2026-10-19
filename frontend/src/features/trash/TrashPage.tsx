@@ -8,6 +8,7 @@ import {
   TrashFilterChips,
   TrashFoot,
   TrashGroup,
+  TrashHeadingSub,
   TrashRowMeta,
   TrashSelectRow,
   TrashSelectionBar,
@@ -148,7 +149,7 @@ function DesktopTrashPage() {
           <div className="trash-heading-name">
             <h1>Trash</h1>
             {!loading && !isEmpty && (
-              <p className="trash-heading-sub">{page.countLine}</p>
+              <TrashHeadingSub page={page} />
             )}
           </div>
           {!loading && !isEmpty && (
