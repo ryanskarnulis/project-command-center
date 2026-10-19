@@ -15,7 +15,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db.models import TaskWorkflowStatus
+from app.db.models import TaskDependency, TaskWorkflowStatus
 from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
 
@@ -160,12 +160,16 @@ def test_parent_of_blocked_done_leaf_is_not_done(db_session: Session) -> None:
 
 
 def test_subtask_waiting_on_its_own_ancestor_terminates(db_session: Session) -> None:
-    """A mixed parent/dependency cycle is legal and must resolve, never done."""
+    """A pre-existing mixed parent/dependency cycle resolves, never done.
+
+    ``add_dependency`` rejects this edge now (#354), so it is inserted directly,
+    standing in for data written before the guard.
+    """
     parent = tasks_service.create_task(db_session, project_id=None, title="parent")
     child = tasks_service.create_task(
         db_session, project_id=None, title="child", parent_task_id=parent.id
     )
-    deps_service.add_dependency(db_session, child.id, parent.id)
+    db_session.add(TaskDependency(task_id=child.id, depends_on_task_id=parent.id))
     db_session.commit()
 
     for order in ([parent, child], [child, parent]):

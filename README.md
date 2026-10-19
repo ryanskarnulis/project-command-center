@@ -102,7 +102,9 @@ Key decisions:
 - **Dependencies** are `A depends_on B` edges in `task_dependencies` (B must be
   done before A starts). "Blocked" is never stored — `is_blocked`,
   `is_blocking`, and `blocked_task_count` are derived in Python from the active
-  edge graph. The service layer refuses cycle-creating edges.
+  edge graph. The service layer refuses cycle-creating edges, counting a parent
+  as waiting on its subtasks: a subtask can't depend on its own ancestor, and a
+  task can't be moved under one it already waits on (`409`, #354).
 - **Recurrence** via a shared `recurrence_id` string across a series;
   scheduling math lives in `services/task_recurrence.py`. Successors are spawned
   by `task_recurrence.reconcile`, called after every mutation that can move a
