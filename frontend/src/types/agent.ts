@@ -20,10 +20,20 @@ export type AgentStopReason =
   | 'completed'
   | 'max_iterations'
   | 'correction_limit'
+  // The user pressed Stop (#324). Not a failure — the POST returns 200 — but
+  // like the failure stops, the tool calls listed still ran and are undoable.
+  | 'cancelled'
   // Failure stops: the run couldn't finish. The tool calls listed still ran
-  // (and are undoable via the trash); the backend returns 502 / 504 for these.
+  // (and are undoable via the trash); the backend returns 502 / 504 / 500.
   | 'provider_error'
   | 'timed_out'
+  | 'internal_error'
+
+/** Answer to a Stop request. `cancel_requested` is false when nothing was
+ * running for that conversation (the run already landed, or had not started). */
+export interface RunCancelResult {
+  cancel_requested: boolean
+}
 
 export interface AgentMessage {
   id: number

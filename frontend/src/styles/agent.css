@@ -410,6 +410,28 @@ main.agent-page {
   gap: 4px;
 }
 
+/* Stop (#324) — a plain control for now; desktop is due the mobile design. */
+.agent-stop {
+  margin-left: auto;
+  padding: 4px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.agent-stop:hover:not(:disabled) {
+  border-color: var(--red);
+}
+
+.agent-stop:disabled {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
 .agent-working-dots span {
   width: 6px;
   height: 6px;

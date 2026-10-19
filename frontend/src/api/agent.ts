@@ -3,6 +3,7 @@ import type {
   Conversation,
   ConversationDetail,
   MessageExchange,
+  RunCancelResult,
 } from '../types/agent'
 
 // Posting a message runs the agent loop synchronously on the local GPU: warm
@@ -79,5 +80,15 @@ export async function postMessage(
       body: JSON.stringify({ content }),
       timeoutMs: AGENT_RUN_TIMEOUT_MS,
     },
+  )
+}
+
+/** Ask the conversation's in-flight run to stop (#324). Returns at once; the
+ * run stops at its next model/tool boundary and the pending `postMessage`
+ * then resolves with a `cancelled` assistant turn. */
+export async function cancelRun(conversationId: number): Promise<RunCancelResult> {
+  return apiClient<RunCancelResult>(
+    `/api/agent/conversations/${conversationId}/cancel`,
+    { method: 'POST' },
   )
 }

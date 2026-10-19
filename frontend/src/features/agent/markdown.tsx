@@ -22,4 +22,8 @@ export const STOP_FALLBACK: Record<Exclude<AgentStopReason, 'completed'>, string
     'The run failed partway — the tool calls above still ran (undo any from the trash).',
   timed_out:
     'The run ran out of time — the tool calls above still ran (undo any from the trash).',
+  internal_error:
+    'The run failed unexpectedly — the tool calls above still ran (undo any from the trash).',
+  cancelled:
+    'You stopped the run — any tool calls above still ran (undo them from the trash).',
 }

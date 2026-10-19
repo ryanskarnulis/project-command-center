@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  cancelRun,
   createConversation,
   deleteConversation,
   getConversation,
@@ -21,6 +22,7 @@ import { dismissDeleteUndo } from '../deleteUndoStore'
 /* M07f — the mobile tree, reached through AgentPage at phone width. */
 
 vi.mock('../../../api/agent', () => ({
+  cancelRun: vi.fn(),
   createConversation: vi.fn(),
   deleteConversation: vi.fn(),
   getConversation: vi.fn(),
@@ -44,6 +46,7 @@ const mockRestore = vi.mocked(restoreConversation)
 const mockRename = vi.mocked(renameConversation)
 const mockGet = vi.mocked(getConversation)
 const mockPost = vi.mocked(postMessage)
+const mockCancel = vi.mocked(cancelRun)
 const mockDeleteTask = vi.mocked(deleteTask)
 
 function message(overrides: Partial<AgentMessage>): AgentMessage {
@@ -243,6 +246,65 @@ describe('AgentPage — mobile handoff (M07f)', () => {
     await act(async () => { land({ user_message: user, assistant_message: assistant }) })
     await screen.findByText('Done.')
     expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('offers Stop beside the clock, and shows the truthful cancelled turn when the run lands', async () => {
+    let land: (exchange: MessageExchange) => void = () => {}
+    mockPost.mockImplementation(() => new Promise((resolve) => { land = resolve }))
+    mockCancel.mockResolvedValue({ cancel_requested: true })
+    renderAt('/agent/8')
+    await screen.findByText('Two tasks are overdue:')
+
+    const composer = screen.getByRole('textbox', { name: 'Message the agent' })
+    fireEvent.change(composer, { target: { value: 'Make three tasks' } })
+    fireEvent.submit(composer.closest('form')!)
+    const status = await screen.findByRole('status')
+
+    // Stop sits in the working block, next to the m:ss clock.
+    const stop = within(status).getByRole('button', { name: 'Stop' })
+    expect(stop).toHaveClass('magent-stop')
+    expect(status.querySelector('.magent-clock')?.nextElementSibling).toBe(stop)
+
+    await userEvent.click(stop)
+    expect(mockCancel).toHaveBeenCalledWith(8)
+    expect(within(status).getByRole('button', { name: 'Stopping…' })).toBeDisabled()
+    expect(status).toHaveTextContent('Stopping — finishing the current step')
+
+    // The stopped run's POST returns 200 with the partial turn; the thread
+    // shows what ran (with its undo) and the cancelled note.
+    const user = message({ id: 3, content: 'Make three tasks' })
+    const assistant = message({
+      id: 4,
+      role: 'assistant',
+      content: null,
+      stop_reason: 'cancelled',
+      tool_calls: [
+        { tool: 'create_task', arguments: { data: { title: 'First' } }, result: JSON.stringify({ id: 11, title: 'First' }), error: null },
+        { tool: 'create_task', arguments: { data: { title: 'Second' } }, result: null, error: 'not run: the user stopped the agent run before this call' },
+      ],
+    })
+    mockGet.mockResolvedValue({ ...detail, messages: [...detail.messages, user, assistant], message_count: 4 })
+    await act(async () => { land({ user_message: user, assistant_message: assistant }) })
+
+    expect(await screen.findByText(/You stopped the run/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Undo \(move to trash\): Created task “First”/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Stop/ })).toBeNull()
+    expect(screen.getByRole('textbox', { name: 'Message the agent' })).toBeEnabled()
+  })
+
+  it('re-arms Stop when the server says nothing was running', async () => {
+    mockPost.mockImplementation(() => new Promise(() => {}))
+    mockCancel.mockResolvedValue({ cancel_requested: false })
+    renderAt('/agent/8')
+    await screen.findByText('Two tasks are overdue:')
+
+    const composer = screen.getByRole('textbox', { name: 'Message the agent' })
+    fireEvent.change(composer, { target: { value: 'Plan my Thursday' } })
+    fireEvent.submit(composer.closest('form')!)
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop' }))
+
+    expect(mockCancel).toHaveBeenCalledWith(8)
+    expect(await screen.findByRole('button', { name: 'Stop' })).toBeEnabled()
   })
 
   it('ticks the clock once a second and adds the cold-load note past five seconds', async () => {

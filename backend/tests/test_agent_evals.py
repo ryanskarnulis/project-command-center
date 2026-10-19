@@ -27,6 +27,7 @@ cold-load the model (~100 s); everything after runs warm.
 from __future__ import annotations
 
 import os
+import threading
 import time
 from collections.abc import Generator, Sequence
 from datetime import date, timedelta
@@ -130,9 +131,14 @@ class _RecordingLoop(AgentLoop):
         history: Sequence[dict[str, Any]] | None = None,
         actor: str = LOOP_ACTOR,
         deadline: float | None = None,
+        cancel: threading.Event | None = None,
     ) -> AgentRunResult:
         result = super().run(
-            user_message, history=history, actor=actor, deadline=deadline
+            user_message,
+            history=history,
+            actor=actor,
+            deadline=deadline,
+            cancel=cancel,
         )
         self.runs.append((actor, result))
         return result

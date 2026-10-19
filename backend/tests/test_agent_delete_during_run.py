@@ -35,7 +35,13 @@ class _BlockedLoop:
         self.release = threading.Event()
 
     def run(
-        self, content: str, *, history: object, actor: str, deadline: float
+        self,
+        content: str,
+        *,
+        history: object,
+        actor: str,
+        deadline: float,
+        cancel: object = None,
     ) -> AgentRunResult:
         self.running.set()
         self.release.wait(timeout=10.0)

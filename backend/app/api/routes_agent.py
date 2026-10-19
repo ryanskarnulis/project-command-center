@@ -4,7 +4,8 @@
 it stores the user turn, runs the agent loop (synchronously — v1 is
 non-streaming by decision), stores the assistant turn, and returns both.
 It is rate-limited per client IP; every log line of a run carries the
-request ID the middleware bound.
+request ID the middleware bound. ``POST /agent/conversations/{id}/cancel``
+asks that conversation's in-flight run to stop (#324).
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from app.ai.loop import AgentLoop, AgentRunFailed, resolve_actor
 from app.ai.providers.llamacpp import provider_from_settings
 from app.api.conversation_locks import conversation_idle_lock, conversation_run_lock
 from app.api.rate_limit import rate_limit
+from app.api.run_cancel import active_run, request_cancel
 from app.config import get_settings
 from app.db.models import Conversation
 from app.db.session import get_db, get_db_write
@@ -32,6 +34,7 @@ from app.schemas.conversations import (
     MessageCreate,
     MessageExchange,
     MessageRead,
+    RunCancelRead,
 )
 from app.services import conversations as conversations_service
 
@@ -230,6 +233,12 @@ def post_message(
     ``X-Agent-Actor`` lets a trusted delegate caller (conductor) attribute the
     run's mutations to itself in the audit trail; an absent or unrecognized
     value falls back to the loop's default identity (see ``resolve_actor``).
+
+    A Stop (``POST …/cancel``, #324) ends the run at its next provider/tool
+    boundary with stop reason ``cancelled``. That is a **200**, not an error:
+    the user asked for it and got it, and the response carries the truthful
+    partial turn — the tool calls that ran keep their undo — exactly like a
+    ``max_iterations`` stop.
     """
     _get_or_404(reader, conversation_id)
     actor = resolve_actor(x_agent_actor)
@@ -250,9 +259,16 @@ def post_message(
         db.commit()
 
         try:
-            run = loop.run(
-                data.content, history=history, actor=actor, deadline=deadline
-            )
+            # Registered inside the run lock, so a Stop always targets the run
+            # actually in flight — never a queued or future one (run_cancel).
+            with active_run(conversation_id) as cancel:
+                run = loop.run(
+                    data.content,
+                    history=history,
+                    actor=actor,
+                    deadline=deadline,
+                    cancel=cancel,
+                )
         except AgentRunFailed as exc:
             logger.error(
                 "agent_run_failed",
@@ -274,3 +290,24 @@ def post_message(
             user_message=MessageRead.model_validate(user_message),
             assistant_message=MessageRead.model_validate(assistant_message),
         )
+
+
+@router.post(
+    "/conversations/{conversation_id}/cancel", response_model=RunCancelRead
+)
+def cancel_run(
+    conversation_id: EntityId, reader: Session = Depends(get_db)
+) -> RunCancelRead:
+    """Ask this conversation's in-flight run to stop; **404** if no such thread.
+
+    Idempotent and never blocks: it only sets the running run's cancel event
+    (``run_cancel``) and returns. The run stops at its next boundary — before
+    the next provider call or tool dispatch, never mid-tool, and a model call
+    already in flight finishes first — and its own pending ``POST …/messages``
+    returns 200 with the ``cancelled`` turn. With nothing running the answer is
+    ``cancel_requested: false`` and nothing is remembered. Read-only on the DB:
+    it writes no row, so it takes no write session and cannot contend with the
+    run it is stopping.
+    """
+    _get_or_404(reader, conversation_id)
+    return RunCancelRead(cancel_requested=request_cancel(conversation_id))

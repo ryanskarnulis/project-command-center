@@ -23,7 +23,8 @@ import { formatElapsed, useElapsedSeconds } from './useElapsedSeconds'
  * The thread owns the viewport. The rail leaves the route (it is a sheet
  * behind the 44px title row), the agent's reply gets the full column instead
  * of a 228px bubble, every read the loop made collapses into one row, and the
- * wait shows an elapsed clock instead of three dots. Delete acts immediately
+ * wait shows an elapsed clock (with Stop beside it, #324) instead of three
+ * dots. Delete acts immediately
  * from a swipe or the ⋯ sheet and offers five seconds of undo, which is what
  * lets `window.confirm()` go.
  *
@@ -61,7 +62,7 @@ interface Props {
 export function MobileAgent({ activeId, list, thread }: Props) {
   const navigate = useNavigate()
   const { conversations, loading: listLoading, loadingMore, hasMore, error: listError, loadMore, create, remove, restore, rename } = list
-  const { detail, loading, error, hasMore: threadHasMore, loadingOlder, loadOlder, pendingText, send } = thread
+  const { detail, loading, error, hasMore: threadHasMore, loadingOlder, loadOlder, pendingText, send, stop, stopping } = thread
   const sending = pendingText !== null
 
   const [draft, setDraft] = useState('')
@@ -259,12 +260,24 @@ export function MobileAgent({ activeId, list, thread }: Props) {
                   </div>
                   <div className="magent-working" role="status">
                     <div>
-                      <span className="magent-working-line">Working — reading your projects</span>
-                      {elapsed >= SLOW_RUN_AFTER_S && (
+                      <span className="magent-working-line">
+                        {stopping ? 'Stopping — finishing the current step' : 'Working — reading your projects'}
+                      </span>
+                      {elapsed >= SLOW_RUN_AFTER_S && !stopping && (
                         <span className="magent-working-sub">First run today can take a minute</span>
                       )}
                     </div>
                     <span className="magent-clock">{formatElapsed(elapsed)}</span>
+                    {/* Stops at the next model/tool boundary; the turn that
+                        lands says what ran (#324). */}
+                    <button
+                      type="button"
+                      className="magent-stop"
+                      onClick={() => fireAndForget(stop())}
+                      disabled={stopping}
+                    >
+                      {stopping ? 'Stopping…' : 'Stop'}
+                    </button>
                   </div>
                 </li>
               </>
