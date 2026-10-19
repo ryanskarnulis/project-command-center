@@ -48,10 +48,15 @@ const SLOW_RUN_AFTER_S = 5
 const COMPOSER_MAX_HEIGHT_PX = 96
 const VOICE_OUTPUT_KEY = 'agent-voice-output'
 
+/** Where the actions chain was entered: a row of the conversations sheet, or
+ * the title row's ⋯. Dismissing anything in the chain (#346) goes back to it. */
+type SheetOrigin = 'conversations' | 'title'
+
 type Sheet =
-  | { kind: 'conversations' }
-  | { kind: 'actions'; target: Conversation }
-  | { kind: 'rename'; target: Conversation }
+  /** `focusId`: the row to hand focus back to on returning from its actions. */
+  | { kind: 'conversations'; focusId?: number }
+  | { kind: 'actions'; target: Conversation; from: SheetOrigin }
+  | { kind: 'rename'; target: Conversation; from: SheetOrigin }
 
 interface Props {
   activeId: number | null
@@ -123,6 +128,14 @@ export function MobileAgent({ activeId, list, thread }: Props) {
   const deleteConversation = (target: Conversation) => {
     setSheet(null)
     return removeWithUndo(target)
+  }
+
+  /** Dismissing row actions or their Rename (Escape, Cancel, handle, scrim)
+   * goes back to where the chain started: the conversations sheet, focused on
+   * that row, or — from the title row's ⋯ — nothing (#346). Completing an
+   * action (Delete, Rename save) still closes everything. */
+  const dismissTo = (from: SheetOrigin, target: Conversation) => {
+    setSheet(from === 'conversations' ? { kind: 'conversations', focusId: target.id } : null)
   }
 
   const saveTitle = async (target: Conversation, nextTitle: string) => {
@@ -219,7 +232,7 @@ export function MobileAgent({ activeId, list, thread }: Props) {
               aria-label="Conversation actions"
               aria-haspopup="dialog"
               disabled={active === null}
-              onClick={() => active && setSheet({ kind: 'actions', target: active })}
+              onClick={() => active && setSheet({ kind: 'actions', target: active, from: 'title' })}
             >
               <MoreHorizontal size={18} aria-hidden="true" />
             </button>
@@ -337,7 +350,8 @@ export function MobileAgent({ activeId, list, thread }: Props) {
           onNew={() => fireAndForget(startConversation())}
           onLoadMore={() => fireAndForget(loadMore())}
           onDelete={(target) => fireAndForget(deleteConversation(target))}
-          onActions={(target) => setSheet({ kind: 'actions', target })}
+          focusId={sheet.focusId ?? null}
+          onActions={(target) => setSheet({ kind: 'actions', target, from: 'conversations' })}
           onClose={() => setSheet(null)}
         />
       )}
@@ -349,11 +363,11 @@ export function MobileAgent({ activeId, list, thread }: Props) {
           voiceOutput={voiceOutput}
           onRename={() => {
             setRenameError(null)
-            setSheet({ kind: 'rename', target: sheet.target })
+            setSheet({ kind: 'rename', target: sheet.target, from: sheet.from })
           }}
           onToggleVoice={toggleVoiceOutput}
           onDelete={() => fireAndForget(deleteConversation(sheet.target))}
-          onClose={() => setSheet(null)}
+          onClose={() => dismissTo(sheet.from, sheet.target)}
         />
       )}
 
@@ -362,7 +376,7 @@ export function MobileAgent({ activeId, list, thread }: Props) {
           target={sheet.target}
           error={renameError}
           onSave={(nextTitle) => fireAndForget(saveTitle(sheet.target, nextTitle))}
-          onClose={() => setSheet(null)}
+          onClose={() => dismissTo(sheet.from, sheet.target)}
         />
       )}
     </main>
