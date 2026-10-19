@@ -88,6 +88,11 @@ class ConversationDetail(ConversationRead):
     message_count: int
     # True when messages older than ``messages[0]`` exist.
     has_more: bool
+    # A run is in flight on this conversation right now (#358) — the user turn
+    # is already in ``messages``, its reply is not yet. ``run_started_at`` is
+    # its start (UTC), None when idle.
+    run_in_flight: bool
+    run_started_at: UTCDateTime | None
 
 
 class MessageExchange(BaseModel):

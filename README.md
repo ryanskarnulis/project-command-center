@@ -423,7 +423,9 @@ endpoint — which stores the user turn, runs the loop synchronously, and
 returns the exchange with the full tool-call trajectory, and
 `POST /api/agent/conversations/{id}/cancel`, which asks that conversation's
 in-flight run to stop (`{"cancel_requested": true}`; `false` when nothing is
-running; 404 for a missing or deleted thread). It is rate-limited
+running; 404 for a missing or deleted thread). The conversation detail carries
+`run_in_flight` / `run_started_at`, so a page reloaded mid-run (or another
+tab) shows the run, offers Stop, and polls until it lands. It is rate-limited
 per client IP (`AGENT_MESSAGES_PER_MIN`, default 10; must be a positive
 integer — the limiter cannot be disabled).
 

@@ -103,6 +103,8 @@ const detail: ConversationDetail = {
   messages: [message({ content: "What's overdue in Homelab Migration?" }), reply],
   message_count: 2,
   has_more: false,
+  run_in_flight: false,
+  run_started_at: null,
 }
 
 function Location() {
@@ -318,6 +320,39 @@ describe('AgentPage — mobile handoff (M07f)', () => {
 
     expect(mockCancel).toHaveBeenCalledWith(8)
     expect(await screen.findByRole('button', { name: 'Stop' })).toBeEnabled()
+  })
+
+  it('shows a run the server reports in flight after a reload, with Stop, and polls in the reply (#358)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = message({ id: 3, content: 'Split the relaunch epic' })
+    mockGet.mockResolvedValue({
+      ...detail,
+      messages: [...detail.messages, user],
+      message_count: 3,
+      run_in_flight: true,
+      run_started_at: new Date().toISOString(),
+    })
+    mockCancel.mockResolvedValue({ cancel_requested: true })
+    renderAt('/agent/8')
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent('Working — reading your projects')
+    // One user turn on screen — the thread's, no optimistic repeat.
+    expect(screen.getAllByText('Split the relaunch epic')).toHaveLength(1)
+    expect(screen.getByRole('textbox', { name: 'Message the agent' })).toBeDisabled()
+
+    fireEvent.click(within(status).getByRole('button', { name: 'Stop' }))
+    expect(mockCancel).toHaveBeenCalledWith(8)
+    expect(await within(status).findByRole('button', { name: 'Stopping…' })).toBeDisabled()
+
+    const assistant = message({ id: 4, role: 'assistant', content: null, stop_reason: 'cancelled' })
+    mockGet.mockResolvedValue({ ...detail, messages: [...detail.messages, user, assistant], message_count: 4 })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000)
+    })
+    expect(await screen.findByText(/You stopped the run/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Stop/ })).toBeNull()
+    expect(screen.getByRole('textbox', { name: 'Message the agent' })).toBeEnabled()
   })
 
   it('ticks the clock once a second and adds the cold-load note past five seconds', async () => {

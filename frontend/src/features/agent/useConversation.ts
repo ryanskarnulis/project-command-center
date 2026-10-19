@@ -51,6 +51,20 @@ function forId<T>(tagged: Tagged<T> | null, id: number | null): T | null {
   return tagged !== null && tagged.id === id ? tagged.value : null
 }
 
+/** How often a page that did not start the run on screen re-reads the thread
+ * until the server says the run has landed (#358). The run is synchronous and
+ * nothing streams, so this is only "when does the reply appear" — a couple of
+ * seconds' lag is invisible against a multi-second model call. */
+export const REMOTE_RUN_POLL_MS = 2000
+
+/** A server-reported run start as a wall-clock origin, or null if absent or
+ * unparseable (the clock then counts from the mount). */
+function parseStartedAt(value: string | null): number | null {
+  if (value === null) return null
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? null : parsed
+}
+
 /** The thread with the exchange the server just committed appended — the
  * fallback for when the post-send refetch fails (#233).
  *
@@ -71,6 +85,9 @@ function withExchange(
         ...detail,
         messages: [...detail.messages, ...added],
         message_count: detail.message_count + added.length,
+        // The exchange in hand is the run's outcome, so it has landed.
+        run_in_flight: false,
+        run_started_at: null,
       }
 }
 
@@ -126,6 +143,8 @@ export function useConversation(
   // when the run lands. Any other run on screen was adopted after a remount
   // and is refetched by the effect below.
   const ownRunsRef = useRef(new Set<number>())
+  // A Stop requested on a run only the server knows about (see `remoteRun`).
+  const [remoteStopState, setRemoteStopState] = useState<Tagged<true> | null>(null)
 
   // The conversation the hook is currently routed to, readable from async
   // continuations that started before a navigation.
@@ -136,15 +155,24 @@ export function useConversation(
 
   const detail = forId(loaded, conversationId)
   const error = forId(errorState, conversationId)
-  const pendingText = run?.text ?? null
-  const pendingSince = run?.startedAt ?? null
+  // A run this page knows of only because the server said so (#358): the page
+  // was reloaded mid-run, or the run was started from another tab. The store
+  // above stays the fast path for the tab (or remounted page) that started it;
+  // this one is shown from the detail and polled until it lands. Its user turn
+  // is already in the thread (the server commits it before the run).
+  const remoteRun = run === null && detail?.run_in_flight === true
+  const pendingText = run?.text ?? (remoteRun ? '' : null)
+  const pendingSince =
+    run?.startedAt ?? (remoteRun ? parseStartedAt(detail.run_started_at) : null)
   const afterId = run?.afterId ?? null
   const pendingUserLanded =
-    afterId !== null &&
-    detail !== null &&
-    detail.messages.some((m) => m.role === 'user' && m.id > afterId)
+    remoteRun ||
+    (afterId !== null &&
+      detail !== null &&
+      detail.messages.some((m) => m.role === 'user' && m.id > afterId))
   const loadingOlder = forId(olderPending, conversationId) === true
-  const stopping = run?.stopping ?? false
+  const stopping =
+    run?.stopping ?? (remoteRun && forId(remoteStopState, conversationId) === true)
   const loading = conversationId !== null && detail === null && error === null
   const hasMore = detail?.has_more ?? false
 
@@ -211,6 +239,45 @@ export function useConversation(
       active = false
     }
   }, [conversationId, landed])
+
+  // A run only the server knows about: re-read the thread until the detail says
+  // it has landed — that read already holds the reply — then refresh the
+  // sidebar like any finished exchange. A failed read is surfaced and retried
+  // on the next tick, so a brief outage does not strand the working block.
+  useEffect(() => {
+    if (conversationId === null || !remoteRun) return
+    let active = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const schedule = () => {
+      timer = setTimeout(() => {
+        getConversation(conversationId)
+          .then((data) => {
+            if (!active) return
+            setLoaded((prev) => ({
+              id: conversationId,
+              value: mergeOlder(prev !== null && prev.id === conversationId ? prev.value : null, data),
+            }))
+            setErrorState((prev) => (prev !== null && prev.id === conversationId ? null : prev))
+            if (data.run_in_flight) {
+              schedule()
+            } else {
+              setRemoteStopState((prev) => (prev !== null && prev.id === conversationId ? null : prev))
+              onExchangeRef.current?.()
+            }
+          })
+          .catch((e: unknown) => {
+            if (!active) return
+            setErrorState({ id: conversationId, value: refreshErrorMessage(e) })
+            schedule()
+          })
+      }, REMOTE_RUN_POLL_MS)
+    }
+    schedule()
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [conversationId, remoteRun])
 
   const loadOlder = useCallback(async (): Promise<void> => {
     if (conversationId === null) return
@@ -314,10 +381,19 @@ export function useConversation(
   // Stop only signals the server; the run's own `send` above still owns the
   // outcome — the POST returns 200 with a `cancelled` turn and the usual
   // refetch shows it, tool calls that already ran (and their undo) included.
+  // A run only the server knows about (#358) has no store entry to mark, so its
+  // Stop state lives here; the poll above clears it when the run lands.
   const stop = useCallback(async (): Promise<void> => {
     if (conversationId === null) return
-    setRunStopping(conversationId, true)
-    const clear = () => setRunStopping(conversationId, false)
+    let clear: () => void
+    if (remoteRun) {
+      setRemoteStopState({ id: conversationId, value: true })
+      clear = () =>
+        setRemoteStopState((prev) => (prev !== null && prev.id === conversationId ? null : prev))
+    } else {
+      setRunStopping(conversationId, true)
+      clear = () => setRunStopping(conversationId, false)
+    }
     try {
       const { cancel_requested } = await cancelRun(conversationId)
       // Nothing was running server-side: the run is already landing, or its
@@ -333,7 +409,7 @@ export function useConversation(
         })
       }
     }
-  }, [conversationId])
+  }, [conversationId, remoteRun])
 
   return {
     detail,

@@ -344,3 +344,42 @@ def test_cancel_with_nothing_running_is_a_no_op(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {"cancel_requested": False}
     assert run_cancel._ACTIVE == {}
+
+
+def test_detail_reports_a_run_in_flight_only_while_it_runs(
+    file_client: TestClient, _file_tools: None
+) -> None:
+    """The detail says a run is in flight while one holds the conversation, so a
+    reloaded page or a second tab can show it and stop it (#358)."""
+    conversation_id = file_client.post("/api/agent/conversations", json={}).json()["id"]
+    url = f"/api/agent/conversations/{conversation_id}"
+    idle = file_client.get(url).json()
+    assert idle["run_in_flight"] is False
+    assert idle["run_started_at"] is None
+
+    provider = _GatedProvider([_text("done")])
+    app.dependency_overrides[routes_agent.get_agent_loop] = lambda: AgentLoop(provider)
+    runner = threading.Thread(
+        target=lambda: file_client.post(f"{url}/messages", json={"content": "hi"})
+    )
+    runner.start()
+    try:
+        assert provider.in_call.wait(timeout=5.0)
+        during = file_client.get(url).json()
+        # Stop works from a page that only knows what the detail told it.
+        stopped = file_client.post(f"{url}/cancel").json()
+    finally:
+        provider.release.set()
+        runner.join(timeout=15.0)
+
+    assert during["run_in_flight"] is True
+    assert during["run_started_at"] is not None
+    assert during["run_started_at"].endswith(("Z", "+00:00"))
+    # The user turn is already committed; its reply is not.
+    assert [m["role"] for m in during["messages"]] == ["user"]
+    assert stopped == {"cancel_requested": True}
+
+    after = file_client.get(url).json()
+    assert after["run_in_flight"] is False
+    assert after["run_started_at"] is None
+    assert [m["role"] for m in after["messages"]] == ["user", "assistant"]
