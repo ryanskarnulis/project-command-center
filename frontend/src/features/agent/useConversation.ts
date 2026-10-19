@@ -3,6 +3,7 @@ import { apiErrorMessage } from '../../api/errorMessage'
 import { cancelRun, getConversation, postMessage } from '../../api/agent'
 import type { ConversationDetail, MessageExchange } from '../../types/agent'
 import { refreshErrorMessage, sendErrorMessage } from './errorMessage'
+import { setRunStopping, startRun, useInFlightRun } from './inFlightRunStore'
 
 export interface UseConversation {
   detail: ConversationDetail | null
@@ -16,6 +17,13 @@ export interface UseConversation {
   loadOlder: () => Promise<void>
   /** The optimistic user bubble + "working" indicator while a run is in flight. */
   pendingText: string | null
+  /** Wall-clock start of the in-flight run (null when idle) — the working
+   * block's clock counts from it, so it survives a remount (#353). */
+  pendingSince: number | null
+  /** The thread on screen already holds the in-flight user turn (it was
+   * fetched mid-run, after a remount), so the optimistic bubble is redundant
+   * and the pending block shows only the working status. */
+  pendingUserLanded: boolean
   /** Resolves to the assistant's reply text on success (possibly ''), or
    * null when the run failed — voice uses the text to speak the reply. */
   send: (content: string) => Promise<string | null>
@@ -108,9 +116,16 @@ export function useConversation(
 ): UseConversation {
   const [loaded, setLoaded] = useState<Tagged<ConversationDetail> | null>(null)
   const [errorState, setErrorState] = useState<Tagged<string> | null>(null)
-  const [pending, setPending] = useState<Tagged<string> | null>(null)
   const [olderPending, setOlderPending] = useState<Tagged<true> | null>(null)
-  const [stopRequested, setStopRequested] = useState<Tagged<true> | null>(null)
+  // The in-flight run (its text, clock origin and Stop state) lives in an
+  // external store, not here: navigating away mid-run unmounts this hook,
+  // and the page that comes back must still show the working block and Stop,
+  // then the reply when it lands (#353).
+  const run = useInFlightRun(conversationId)
+  // Conversations whose run *this instance* started: its own `send` refetches
+  // when the run lands. Any other run on screen was adopted after a remount
+  // and is refetched by the effect below.
+  const ownRunsRef = useRef(new Set<number>())
 
   // The conversation the hook is currently routed to, readable from async
   // continuations that started before a navigation.
@@ -121,9 +136,15 @@ export function useConversation(
 
   const detail = forId(loaded, conversationId)
   const error = forId(errorState, conversationId)
-  const pendingText = forId(pending, conversationId)
+  const pendingText = run?.text ?? null
+  const pendingSince = run?.startedAt ?? null
+  const afterId = run?.afterId ?? null
+  const pendingUserLanded =
+    afterId !== null &&
+    detail !== null &&
+    detail.messages.some((m) => m.role === 'user' && m.id > afterId)
   const loadingOlder = forId(olderPending, conversationId) === true
-  const stopping = pendingText !== null && forId(stopRequested, conversationId) === true
+  const stopping = run?.stopping ?? false
   const loading = conversationId !== null && detail === null && error === null
   const hasMore = detail?.has_more ?? false
 
@@ -152,6 +173,44 @@ export function useConversation(
       active = false
     }
   }, [conversationId])
+
+  // A run this instance did not start — the page remounted while it was in
+  // flight — still has to land on screen: wait for its sender's refetch and
+  // take that thread (or fetch one if that refetch failed). The mount-time
+  // load above ran mid-run and cannot show the reply.
+  const landed = run?.landed
+  // `send` reads the thread on screen through this, so its identity does not
+  // churn with every load.
+  const loadedRef = useRef(loaded)
+  useEffect(() => {
+    loadedRef.current = loaded
+  }, [loaded])
+  const onExchangeRef = useRef(onExchange)
+  useEffect(() => {
+    onExchangeRef.current = onExchange
+  }, [onExchange])
+  useEffect(() => {
+    if (conversationId === null || landed === undefined) return
+    if (ownRunsRef.current.has(conversationId)) return
+    let active = true
+    landed
+      .then(async (fresh) => {
+        const data = fresh ?? (await getConversation(conversationId))
+        if (!active) return
+        setLoaded((prev) => ({
+          id: conversationId,
+          value: mergeOlder(prev !== null && prev.id === conversationId ? prev.value : null, data),
+        }))
+        setErrorState((prev) => (prev !== null && prev.id === conversationId ? null : prev))
+        onExchangeRef.current?.()
+      })
+      .catch((e: unknown) => {
+        if (active) setErrorState({ id: conversationId, value: refreshErrorMessage(e) })
+      })
+    return () => {
+      active = false
+    }
+  }, [conversationId, landed])
 
   const loadOlder = useCallback(async (): Promise<void> => {
     if (conversationId === null) return
@@ -187,7 +246,11 @@ export function useConversation(
     async (content: string): Promise<string | null> => {
       if (conversationId === null) return null
       setErrorState(null)
-      setPending({ id: conversationId, value: content })
+      const onScreen = forId(loadedRef.current, conversationId)
+      const afterId = onScreen === null ? null : (onScreen.messages.at(-1)?.id ?? 0)
+      ownRunsRef.current.add(conversationId)
+      const land = startRun(conversationId, content, afterId)
+      let fresh: ConversationDetail | null = null
       let reply: string | null = null
       let committed: MessageExchange | null = null
       try {
@@ -201,7 +264,8 @@ export function useConversation(
       // Success or not, the server is the source of truth for the thread
       // (on failure the user turn may or may not have been persisted).
       try {
-        const fresh = await getConversation(conversationId)
+        fresh = await getConversation(conversationId)
+        const thread = fresh
         // Only write if the user is still on this conversation — otherwise the
         // single slot would clobber whatever thread is on screen now. The
         // refetch asks for the newest page, so any older pages already loaded
@@ -209,7 +273,7 @@ export function useConversation(
         if (currentIdRef.current === conversationId) {
           setLoaded((prev) => ({
             id: conversationId,
-            value: mergeOlder(prev !== null && prev.id === conversationId ? prev.value : null, fresh),
+            value: mergeOlder(prev !== null && prev.id === conversationId ? prev.value : null, thread),
           }))
         }
       } catch (e: unknown) {
@@ -237,8 +301,10 @@ export function useConversation(
           // relevant one — a failed reload is a footnote to a failed run.
         }
       }
-      setPending((prev) => (prev !== null && prev.id === conversationId ? null : prev))
-      setStopRequested((prev) => (prev !== null && prev.id === conversationId ? null : prev))
+      // Hand the fresh thread to any remounted instance waiting on this run,
+      // then clear it from the store (which drops the working block).
+      await land(fresh)
+      ownRunsRef.current.delete(conversationId)
       onExchange?.()
       return reply
     },
@@ -250,9 +316,8 @@ export function useConversation(
   // refetch shows it, tool calls that already ran (and their undo) included.
   const stop = useCallback(async (): Promise<void> => {
     if (conversationId === null) return
-    setStopRequested({ id: conversationId, value: true })
-    const clear = () =>
-      setStopRequested((prev) => (prev !== null && prev.id === conversationId ? null : prev))
+    setRunStopping(conversationId, true)
+    const clear = () => setRunStopping(conversationId, false)
     try {
       const { cancel_requested } = await cancelRun(conversationId)
       // Nothing was running server-side: the run is already landing, or its
@@ -278,6 +343,8 @@ export function useConversation(
     loadingOlder,
     loadOlder,
     pendingText,
+    pendingSince,
+    pendingUserLanded,
     send,
     stop,
     stopping,

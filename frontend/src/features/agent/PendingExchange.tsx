@@ -8,6 +8,12 @@ interface Props {
   onStop?: () => void
   /** A Stop was requested and the run hasn't landed yet. */
   stopping?: boolean
+  /** Wall-clock start of the run; the clock counts from it so a remounted
+   * block does not restart at 0:00 (#353). Defaults to this mount. */
+  since?: number | null
+  /** The thread above already shows the user's turn (fetched mid-run after a
+   * remount), so skip the optimistic bubble rather than repeat it. */
+  hideUserBubble?: boolean
 }
 
 /** The optimistic tail while a run is in flight: the user's bubble plus one
@@ -15,15 +21,23 @@ interface Props {
  * beside it, and past five seconds a note that a cold model load is slow. The
  * run is synchronous and nothing streams, so elapsed time is the only honest
  * signal. Rendered inside an `agent-messages` list by both the agent panel and
- * the command bar's inline exchange. The element mounts with the run, so the
- * clock starts at 0:00 with it. */
-export function PendingExchange({ text, onStop, stopping = false }: Props) {
-  const elapsed = useElapsedSeconds(true)
+ * the command bar's inline exchange. Without `since`, the clock starts at 0:00
+ * when the element mounts. */
+export function PendingExchange({
+  text,
+  onStop,
+  stopping = false,
+  since = null,
+  hideUserBubble = false,
+}: Props) {
+  const elapsed = useElapsedSeconds(true, since)
   return (
     <>
-      <li className="agent-message agent-message--user">
-        <div className="agent-bubble">{text}</div>
-      </li>
+      {!hideUserBubble && (
+        <li className="agent-message agent-message--user">
+          <div className="agent-bubble">{text}</div>
+        </li>
+      )}
       <li className="agent-message agent-message--assistant">
         <div className="agent-label">
           <GlitchMark size={18} className="agent-spider-working" />

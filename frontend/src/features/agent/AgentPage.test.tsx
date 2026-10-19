@@ -15,6 +15,7 @@ import { RequireRouteId } from '../../routes/RequireRouteId'
 import type { AgentMessage, ConversationDetail } from '../../types/agent'
 import { AgentPage } from './AgentPage'
 import { dismissDeleteUndo } from './deleteUndoStore'
+import { resetInFlightRuns } from './inFlightRunStore'
 
 vi.mock('../../api/agent', () => ({
   createConversation: vi.fn(),
@@ -170,6 +171,8 @@ function visibleConversations(): (string | null)[] {
 beforeEach(() => {
   vi.clearAllMocks()
   dismissDeleteUndo()
+  // A test that leaves a send unresolved must not leak its run (#353).
+  resetInFlightRuns()
   mockList.mockResolvedValue([
     { id: 1, title: 'Water the plants', created_at: detail.created_at, updated_at: detail.updated_at },
   ])
