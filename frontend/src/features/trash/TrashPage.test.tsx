@@ -372,6 +372,76 @@ describe('TrashPage — desktop (M08f)', () => {
     expect(screen.getByRole('checkbox', { name: 'Select task Pay invoice' })).toBeChecked()
   })
 
+  describe('Shift-click range selection (#365)', () => {
+    // Display order: Firewall, Billing site | Bill client, Call vet, Pay bills.
+    const longTrash: Trash = {
+      projects: [project, { ...project, id: 3, name: 'Billing site' }],
+      tasks: [task(10, 'Bill client', 2), task(11, 'Call vet', 2), task(12, 'Pay bills', 2)],
+    }
+    const box = (name: string) => screen.getByRole('checkbox', { name: new RegExp(`^Select (project|task) ${name}$`) })
+    const checkedNames = () =>
+      screen
+        .getAllByRole('checkbox')
+        .filter((el) => (el as HTMLInputElement).checked)
+        .map((el) => el.getAttribute('aria-label')?.replace(/^Select (project|task) /, ''))
+
+    it('checks every row from the anchor across the group labels, pivoting on the same anchor', async () => {
+      loadOnce(longTrash)
+      const user = userEvent.setup()
+      renderPage()
+      await user.click(await screen.findByRole('button', { name: 'Select' }))
+      await user.click(box('Billing site'))
+      fireEvent.click(box('Call vet'), { shiftKey: true })
+      expect(checkedNames()).toEqual(['Billing site', 'Bill client', 'Call vet'])
+      expect(screen.getByText('3 selected')).toBeInTheDocument()
+      // The anchor stays put: a Shift-click upward adds that side's range too.
+      fireEvent.click(box('Firewall'), { shiftKey: true })
+      expect(checkedNames()).toEqual(['Firewall', 'Billing site', 'Bill client', 'Call vet'])
+      // A plain click moves the anchor; Shift-click then ranges from there.
+      await user.click(box('Firewall'))
+      fireEvent.click(box('Pay bills'), { shiftKey: true })
+      expect(checkedNames()).toEqual(['Firewall', 'Billing site', 'Bill client', 'Call vet', 'Pay bills'])
+    })
+
+    it('never selects a row the filter hides', async () => {
+      loadOnce(longTrash)
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      mockPurgeSelected.mockResolvedValue({ projects: 1, tasks: 2 })
+      const user = userEvent.setup()
+      renderPage()
+      await user.click(await screen.findByRole('button', { name: 'Filter trash' }))
+      await user.type(screen.getByLabelText('Search trash'), 'bil{Enter}')
+      expect(queryTitle('Call vet')).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Select' }))
+      await user.click(box('Billing site'))
+      fireEvent.click(box('Pay bills'), { shiftKey: true })
+      expect(checkedNames()).toEqual(['Billing site', 'Bill client', 'Pay bills'])
+      expect(screen.getByText('3 selected')).toBeInTheDocument()
+      await user.click(within(screen.getByRole('toolbar')).getByRole('button', { name: 'Delete forever' }))
+      expect(confirm).toHaveBeenCalled()
+      await waitFor(() => expect(mockPurgeSelected).toHaveBeenCalledWith({ project_ids: [3], task_ids: [10, 12] }))
+    })
+
+    it('enters selection mode from a Shift-click on a row without restoring it, then ranges from there', async () => {
+      loadOnce(longTrash)
+      renderPage()
+      fireEvent.click(await screen.findByRole('button', { name: 'Restore project Billing site' }), { shiftKey: true })
+      expect(mockRestoreProject).not.toHaveBeenCalled()
+      expect(checkedNames()).toEqual(['Billing site'])
+      fireEvent.click(box('Call vet'), { shiftKey: true })
+      expect(checkedNames()).toEqual(['Billing site', 'Bill client', 'Call vet'])
+    })
+
+    it('keeps the browser from extending a text selection on Shift-mousedown', async () => {
+      loadOnce(longTrash)
+      renderPage()
+      await screen.findByText('Call vet', { selector: '.trash-row-title' })
+      const row = rowOf('Call vet')
+      expect(fireEvent.mouseDown(row, { shiftKey: true })).toBe(false)
+      expect(fireEvent.mouseDown(row)).toBe(true)
+    })
+  })
+
   it('leaves selection mode on Escape or Done and drops the selection', async () => {
     const user = userEvent.setup()
     renderPage()

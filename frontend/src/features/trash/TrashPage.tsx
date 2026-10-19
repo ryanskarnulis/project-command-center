@@ -32,6 +32,11 @@ export function TrashPage() {
   return <DesktopTrashPage />
 }
 
+/** Shift-mousedown would extend the browser's text selection across rows. */
+function suppressShiftTextSelection(event: MouseEvent): void {
+  if (event.shiftKey) event.preventDefault()
+}
+
 /* M08f at desktop width (#323).
  *
  * The phone's rows, group labels, chips row, foot rows, undo bar and selection
@@ -68,8 +73,16 @@ function DesktopTrashPage() {
   function renderRow(row: TrashRow) {
     const key = rowKey(row)
     if (mode === 'select') {
+      // Shift-click checks the range from the anchor to here (#365). Captured
+      // so the label never also toggles this row's checkbox.
+      const rangeOnShift = (event: MouseEvent) => {
+        if (!event.shiftKey) return
+        event.preventDefault()
+        event.stopPropagation()
+        page.selectRange(row)
+      }
       return (
-        <li key={key}>
+        <li key={key} onMouseDown={suppressShiftTextSelection} onClickCapture={rangeOnShift}>
           <TrashSelectRow row={row} checked={page.selected.has(key)} onToggle={() => page.toggleSelected(row)} />
         </li>
       )
@@ -77,16 +90,18 @@ function DesktopTrashPage() {
     const noun = rowNoun(row)
     // Ctrl/⌘-click anywhere on the row is the pointer's long-press: it enters
     // selection mode with this row checked, and swallows the click so it never
-    // also restores or purges.
+    // also restores or purges. Shift-click does the same with a range, which
+    // with no anchor yet is just this row.
     const selectOnModifier = (event: MouseEvent) => {
-      if (!(event.metaKey || event.ctrlKey)) return
+      if (!(event.metaKey || event.ctrlKey || event.shiftKey)) return
       event.preventDefault()
       event.stopPropagation()
-      page.enterSelect(row)
+      if (event.shiftKey) page.selectRange(row)
+      else page.enterSelect(row)
     }
     return (
       <li key={key}>
-        <div className="trash-row" onClickCapture={selectOnModifier}>
+        <div className="trash-row" onMouseDown={suppressShiftTextSelection} onClickCapture={selectOnModifier}>
           <button
             type="button"
             className="trash-restore-ring"
