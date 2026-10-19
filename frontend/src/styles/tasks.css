@@ -244,6 +244,28 @@
   color: var(--text-meta);
 }
 
+/* Done-archive estimate vs actual (#347): "est 30m · took 45m". The estimate
+   stays a muted word; only "took" carries a verdict, and quietly — green at or
+   under the estimate, the overdue orange over it. Text color only, no fill. */
+.estimate-actual {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-meta);
+  font-weight: 650;
+  line-height: 1.2;
+  color: var(--text-meta);
+}
+
+.estimate-actual-took.took-under,
+.estimate-actual-took.took-equal {
+  color: var(--green);
+}
+
+.estimate-actual-took.took-over {
+  color: var(--orange-strong);
+}
+
 .task-card-actions {
   display: flex;
   align-items: center;

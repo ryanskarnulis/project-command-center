@@ -328,4 +328,55 @@ describe('TaskCard', () => {
     expect(setData).toHaveBeenCalledWith('application/x-pcc-task', '7')
     expect(setData).toHaveBeenCalledWith('text/plain', '7')
   })
+
+  describe('estimate vs actual on a done row (#347)', () => {
+    it('shows est and took as colored words, over the estimate in orange', () => {
+      render_card({ workflow_status: 'done', estimated_minutes: 30, actual_minutes: 45 })
+      expect(screen.getByText('est 30m')).toBeInTheDocument()
+      const took = screen.getByText('took 45m')
+      expect(took).toHaveClass('took-over')
+      expect(took.closest('.estimate-actual')).toHaveAttribute(
+        'title',
+        'Took 45 minutes, 15 minutes over the 30 minutes estimate',
+      )
+      // The comparison replaces the plain estimate word, it doesn't repeat it.
+      expect(screen.queryByText('~30 minutes')).not.toBeInTheDocument()
+    })
+
+    it('marks a finish under the estimate', () => {
+      render_card({ workflow_status: 'done', estimated_minutes: 60, actual_minutes: 40 })
+      expect(screen.getByText('est 1h')).toBeInTheDocument()
+      expect(screen.getByText('took 40m')).toHaveClass('took-under')
+    })
+
+    it('marks a finish on the estimate', () => {
+      render_card({ workflow_status: 'done', estimated_minutes: 45, actual_minutes: 45 })
+      expect(screen.getByText('took 45m')).toHaveClass('took-equal')
+    })
+
+    it('keeps the plain estimate when the completion was untimed', () => {
+      render_card({ workflow_status: 'done', estimated_minutes: 30, actual_minutes: null })
+      expect(screen.getByText('~30 minutes')).toBeInTheDocument()
+      expect(screen.queryByText(/took/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/^est /)).not.toBeInTheDocument()
+    })
+
+    it('says nothing about time with an actual but no estimate', () => {
+      render_card({ workflow_status: 'done', estimated_minutes: null, actual_minutes: 45 })
+      expect(screen.queryByText(/took/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/^est /)).not.toBeInTheDocument()
+    })
+
+    it('says nothing about time with neither', () => {
+      render_card({ workflow_status: 'done' })
+      expect(screen.queryByText(/took/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/^est /)).not.toBeInTheDocument()
+    })
+
+    it('does not compare on a task that is not done', () => {
+      render_card({ workflow_status: 'open', estimated_minutes: 30, actual_minutes: 45 })
+      expect(screen.queryByText(/took/)).not.toBeInTheDocument()
+      expect(screen.getByText('~30 minutes')).toBeInTheDocument()
+    })
+  })
 })

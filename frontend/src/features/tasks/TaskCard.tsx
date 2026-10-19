@@ -8,6 +8,7 @@ import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { dueStatus, formatDueDate } from '../../utils/dates'
 import { formatDuration, formatDurationShort } from '../../utils/duration'
 import { formatRepeatInterval } from '../../utils/recurrence'
+import { estimateVsActual } from './estimateActual'
 import { DueDateChip } from './chips/DueDateChip'
 import { EstimateChip } from './chips/EstimateChip'
 import { PriorityChip } from './chips/PriorityChip'
@@ -183,7 +184,27 @@ export function TaskCard({
       )
     )
   }
-  if (task.estimated_minutes !== null) {
+  // A done task with a timed actual trades its estimate for the comparison
+  // ("est 30m · took 45m"); without one the plain estimate stays.
+  const comparison = estimateVsActual(task)
+  if (comparison !== null) {
+    meta.push(
+      <span
+        className="estimate-actual"
+        title={comparison.description}
+      >
+        <span className="estimate-actual-est">
+          {comparison.estimateLabel}
+        </span>
+        <span className="meta-sep" aria-hidden="true">
+          ·
+        </span>
+        <span className={`estimate-actual-took took-${comparison.verdict}`}>
+          {comparison.actualLabel}
+        </span>
+      </span>
+    )
+  } else if (task.estimated_minutes !== null) {
     meta.push(
       editable ? (
         <EstimateChip
