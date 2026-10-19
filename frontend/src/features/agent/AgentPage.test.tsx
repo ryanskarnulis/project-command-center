@@ -7,6 +7,7 @@ import {
   getConversation,
   listConversations,
   postMessage,
+  renameConversation,
   restoreConversation,
 } from '../../api/agent'
 import { deleteTask } from '../../api/tasks'
@@ -185,6 +186,8 @@ describe('AgentPage', () => {
 
     expect(await screen.findByText('Created the task.')).toBeInTheDocument()
     expect(screen.getByText('Created task “Water plants”')).toBeInTheDocument()
+    // The read is collapsed behind its group row (M07f, #327).
+    fireEvent.click(screen.getByRole('button', { name: 'Read 1 thing' }))
     expect(screen.getByText('Searched for “plants”')).toBeInTheDocument()
 
     // Only the mutation gets an undo; clicking it trashes the created task.
@@ -612,5 +615,165 @@ describe('AgentPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/Rate limited/)
+  })
+})
+
+/* M07f on desktop (#327): the thread follows the phone's design while the
+ * 240px rail stays. */
+describe('AgentPage desktop — M07f thread', () => {
+  const mockRename = vi.mocked(renameConversation)
+
+  const trajectoryTurn = message({
+    id: 6,
+    role: 'assistant',
+    content: 'Two tasks are overdue.',
+    stop_reason: 'completed',
+    tool_calls: [
+      { tool: 'search', arguments: { query: 'overdue' }, result: '{"projects": [], "tasks": []}', error: null },
+      { tool: 'list_projects', arguments: {}, result: '[]', error: null },
+      {
+        tool: 'update_task',
+        arguments: { task_id: 3, data: { priority: 'high' } },
+        result: null,
+        error: 'Task 3 not found',
+      },
+      {
+        tool: 'create_task',
+        arguments: { data: { title: 'Water plants' } },
+        result: JSON.stringify({ id: 7, title: 'Water plants' }),
+        error: null,
+      },
+    ],
+  })
+
+  it('renders the reply as a label line and body, not a bubble; the user keeps the bubble', async () => {
+    mockGet.mockResolvedValue({ ...detail, messages: [message({ content: 'What is overdue?' }), trajectoryTurn] })
+    renderAt('/agent/1')
+
+    const body = await screen.findByText('Two tasks are overdue.')
+    const turn = body.closest<HTMLElement>('.agent-message')!
+    expect(turn).toHaveClass('agent-message--assistant')
+    expect(turn.querySelector('.agent-bubble')).toBeNull()
+    expect(within(turn).getByText(/^Agent · /)).toBeInTheDocument()
+    expect(screen.getByText('What is overdue?')).toHaveClass('agent-bubble')
+  })
+
+  it('collapses successful reads into one row that expands, and keeps a row per mutation', async () => {
+    mockGet.mockResolvedValue({ ...detail, messages: [trajectoryTurn] })
+    renderAt('/agent/1')
+    await screen.findByText('Two tasks are overdue.')
+
+    const reads = screen.getByRole('button', { name: 'Read 2 things' })
+    expect(reads).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('Searched for “overdue”')).toBeNull()
+
+    fireEvent.click(reads)
+    expect(reads).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('Searched for “overdue”')).toBeInTheDocument()
+
+    fireEvent.click(reads)
+    expect(screen.queryByText('Searched for “overdue”')).toBeNull()
+
+    // The mutation is outside the collapse, with its undo.
+    expect(screen.getByRole('link', { name: 'Created task “Water plants”' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Undo (move to trash)' })).toBeInTheDocument()
+  })
+
+  it('keeps a failed call visible and struck through, with its error and no undo', async () => {
+    mockGet.mockResolvedValue({ ...detail, messages: [trajectoryTurn] })
+    renderAt('/agent/1')
+    await screen.findByText('Two tasks are overdue.')
+
+    const error = screen.getByText(/Task 3 not found/)
+    const row = error.closest<HTMLElement>('.agent-trace-call')!
+    expect(row).toHaveClass('agent-trace-call--failed')
+    expect(within(row).queryByRole('button')).toBeNull()
+    // Only the one successful mutation offers an undo.
+    expect(screen.getAllByRole('button', { name: /^Undo/ })).toHaveLength(1)
+  })
+
+  it('shows an elapsed clock beside Stop, and the cold-load note past five seconds', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    mockPost.mockImplementation(() => new Promise(() => {}))
+    renderAt('/agent/1')
+    await screen.findByText('Created the task.')
+
+    fireEvent.change(screen.getByLabelText('Message the agent'), {
+      target: { value: 'Plan my day' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent('0:00')
+    expect(status).not.toHaveTextContent('First run today can take a minute')
+    const stop = within(status).getByRole('button', { name: 'Stop' })
+    expect(status.querySelector('.agent-clock')?.nextElementSibling).toBe(stop)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_100)
+    })
+    expect(status).toHaveTextContent('0:06')
+    expect(status).toHaveTextContent('First run today can take a minute')
+  })
+
+  it('renames a conversation in place: Enter saves, Escape cancels', async () => {
+    mockRename.mockResolvedValue({
+      id: 1,
+      title: 'Garden chores',
+      created_at: detail.created_at,
+      updated_at: detail.updated_at,
+    })
+    renderAt('/agent/1')
+    await screen.findByText('Created the task.')
+
+    // Escape leaves the title as it was and calls nothing.
+    fireEvent.click(screen.getByRole('button', { name: 'Rename conversation Water the plants' }))
+    let field = screen.getByRole('textbox', { name: 'Conversation title' })
+    expect(field).toHaveFocus()
+    fireEvent.change(field, { target: { value: 'Never saved' } })
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(screen.queryByRole('textbox', { name: 'Conversation title' })).toBeNull()
+    expect(screen.getByRole('button', { name: /^Water the plants/ })).toBeInTheDocument()
+    expect(mockRename).not.toHaveBeenCalled()
+
+    // Enter saves the trimmed title once and the row shows it.
+    fireEvent.click(screen.getByRole('button', { name: 'Rename conversation Water the plants' }))
+    field = screen.getByRole('textbox', { name: 'Conversation title' })
+    fireEvent.change(field, { target: { value: '  Garden chores ' } })
+    // The hook refetches the list after a rename; serve the new title.
+    mockList.mockResolvedValue([
+      { id: 1, title: 'Garden chores', created_at: detail.created_at, updated_at: detail.updated_at },
+    ])
+    fireEvent.keyDown(field, { key: 'Enter' })
+    await waitFor(() => expect(mockRename).toHaveBeenCalledWith(1, 'Garden chores'))
+    expect(await screen.findByRole('button', { name: /^Garden chores/ })).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Conversation title' })).toBeNull()
+    expect(mockRename).toHaveBeenCalledOnce()
+  })
+
+  it('keeps a failed rename open with the API reason, across a later list refresh', async () => {
+    const { ApiError } = await import('../../api/client')
+    mockRename.mockRejectedValue(new ApiError(422, { detail: 'Title is too long.' }))
+    renderAt('/agent/1')
+    await screen.findByText('Created the task.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename conversation Water the plants' }))
+    const field = screen.getByRole('textbox', { name: 'Conversation title' })
+    fireEvent.change(field, { target: { value: 'Garden chores' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+
+    expect(await screen.findByText('Title is too long.')).toBeInTheDocument()
+    // The field and the draft stay for a retry.
+    expect(screen.getByRole('textbox', { name: 'Conversation title' })).toHaveValue('Garden chores')
+
+    // An agent turn refreshes the list; the rename error is not the list's.
+    mockPost.mockResolvedValue({
+      user_message: message({ id: 3, content: 'hi' }),
+      assistant_message: message({ id: 4, role: 'assistant', content: 'hello', stop_reason: 'completed' }),
+    })
+    fireEvent.change(screen.getByLabelText('Message the agent'), { target: { value: 'hi' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    await waitFor(() => expect(mockList.mock.calls.length).toBeGreaterThan(1))
+    expect(screen.getByText('Title is too long.')).toBeInTheDocument()
   })
 })

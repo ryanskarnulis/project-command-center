@@ -330,10 +330,24 @@ actually in the trash. Deleting the active conversation navigates to `/agent`,
 and undo navigates back. Deleting from inside the sheet closes it, because the
 sheet is a native modal `<dialog>` whose top layer would sit over the undo bar.
 Rename is `PATCH /api/agent/conversations/{id}` and does not touch the
-conversation's recency. Desktop keeps the current page unchanged.
+conversation's recency.
 
-`Stop` (also in the desktop pending bubble, as a plain control until desktop
-takes the mobile design) calls `POST /api/agent/conversations/{id}/cancel`.
+Desktop follows the same thread design and keeps its 240px rail (#327). The
+reply is the label line, trajectory and full-column body (held to a ~72ch
+measure); the trajectory collapses reads into `Read n things` and keeps a row
+per mutation with its full undo label (`Undo (reopen)`, `Reopen (keeps next
+occurrence)`) as a blue word; the pending block shows the `m:ss` clock with
+`Stop` beside it and the cold-load note. Desktop and phone share the grouping
+and undo (`useTrajectory`) and the clock (`useElapsedSeconds`), so they can't
+drift. What stays desktop-only is the rail: rename happens in place on a row
+(the pencil beside delete — Enter or leaving the field saves, Escape cancels,
+a failed save keeps the field open with the reason), delete is the same
+five-second undo with the bar at the foot of the rail, and the spoken-replies
+toggle stays in the composer. Swipe, long-press and the sheets are phone-only.
+The command bar's inline ask renders the same turn and pending components, so
+it picks up the label line and the clock too.
+
+`Stop` (beside the clock on both layouts) calls `POST /api/agent/conversations/{id}/cancel`.
 The run stops at its next model/tool boundary — never mid-tool, and a model
 call already generating finishes first — so the button reads `Stopping…` until
 the turn lands. That turn is the truthful partial one: the tool calls that ran
@@ -465,9 +479,9 @@ drives that API: conversations in a sidebar, the thread with every tool call
 the agent made rendered on the assistant turn — failed calls included — and
 an undo affordance on each mutation (create → trash, trash → restore,
 complete → reopen), routed through the same REST endpoints as the rest of
-the UI so undo is audited too. v1 is non-streaming: a working indicator
-shows while the loop runs. At phone width the panel swaps to the M07f tree
-(see [Mobile agent](#mobile-agent)).
+the UI so undo is audited too. v1 is non-streaming: an elapsed clock shows
+while the loop runs. Both layouts follow the M07f thread design; at phone
+width the rail becomes a sheet (see [Mobile agent](#mobile-agent)).
 
 Two opt-in live suites (the default test run never touches the GPU): the
 provider smoke, and the agent eval harness — six scripted scenarios through

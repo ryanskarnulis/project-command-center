@@ -9,6 +9,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   MessageSquarePlus,
+  Pencil,
   SendHorizontal,
   Trash2,
   Volume2,
@@ -21,6 +22,7 @@ import { fireAndForget } from '../../utils/async'
 import { formatRelative } from '../../utils/dates'
 import { MicButton } from '../../voice/MicButton'
 import { playText } from '../../voice/tts'
+import { ConversationTitleField } from './ConversationTitleField'
 import { ConversationUndoBar } from './ConversationUndoBar'
 import { MessageBubble } from './MessageBubble'
 import { MobileAgent } from './mobile/MobileAgent'
@@ -47,6 +49,7 @@ export function AgentPage() {
     create,
     remove,
     restore,
+    rename,
   } = list
   const onExchange = useCallback(() => void refresh(), [refresh])
   const routedId = activeId !== null && Number.isFinite(activeId) ? activeId : null
@@ -71,6 +74,8 @@ export function AgentPage() {
 
   const [draft, setDraft] = useState('')
   const [createError, setCreateError] = useState<string | null>(null)
+  const [renamingId, setRenamingId] = useState<number | null>(null)
+  const [renameError, setRenameError] = useState<string | null>(null)
   const threadEndRef = useRef<HTMLLIElement>(null)
   const sending = pendingText !== null
 
@@ -138,6 +143,26 @@ export function AgentPage() {
   const { undo, deleteError, deleteConversation, undoDelete } =
     useConversationDelete(routedId, remove, restore)
 
+  // Rename in place on the rail row (#327; the phone uses a sheet). Same
+  // contract as delete: the failure lands in component state the list's own
+  // load error can't wipe, and the field stays open for a retry (it rethrows
+  // to tell the field so).
+  const startRename = (id: number) => {
+    setRenameError(null)
+    setRenamingId(id)
+  }
+  const cancelRename = () => setRenamingId(null)
+  const saveRename = async (id: number, title: string) => {
+    setRenameError(null)
+    try {
+      await rename(id, title)
+      setRenamingId(null)
+    } catch (e: unknown) {
+      setRenameError(apiErrorMessage(e, 'Could not rename the conversation'))
+      throw e
+    }
+  }
+
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     const content = draft.trim()
@@ -174,6 +199,7 @@ export function AgentPage() {
         {/* The sidebar is always mounted, so one alert covers both buttons. */}
         {createError && <p role="alert" className="error">{createError}</p>}
         {deleteError && <p role="alert" className="error">{deleteError}</p>}
+        {renameError && <p role="alert" className="error">{renameError}</p>}
         {listError && <p role="alert" className="error">{listError}</p>}
         {listLoading && <div className="page-loading">Loading…</div>}
         {!listLoading && conversations.length === 0 && (
@@ -188,34 +214,57 @@ export function AgentPage() {
                   conversation.id === activeId ? ' active' : ''
                 }`}
               >
-                <button
-                  type="button"
-                  className="agent-conversation-open"
-                  onClick={() => openConversation(conversation.id)}
-                >
-                  <span className="agent-conversation-title">
-                    {conversation.title ?? 'New conversation'}
-                  </span>
-                  <span className="agent-conversation-time">
-                    {formatRelative(conversation.updated_at)}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="agent-conversation-delete"
-                  aria-label={`Delete conversation ${conversation.title ?? conversation.id}`}
-                  // The server rejects a delete during that conversation's run
-                  // with 409 (#149); don't offer the action we know will fail.
-                  disabled={sending && conversation.id === activeId}
-                  title={
-                    sending && conversation.id === activeId
-                      ? 'The agent is working — you can delete this once it finishes'
-                      : undefined
-                  }
-                  onClick={() => fireAndForget(deleteConversation(conversation))}
-                >
-                  <Trash2 size={15} aria-hidden="true" />
-                </button>
+                {renamingId === conversation.id ? (
+                  <div className="agent-conversation-edit">
+                    <ConversationTitleField
+                      conversation={conversation}
+                      onSave={(title) => saveRename(conversation.id, title)}
+                      onCancel={cancelRename}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="agent-conversation-open"
+                      onClick={() => openConversation(conversation.id)}
+                    >
+                      <span className="agent-conversation-title">
+                        {conversation.title ?? 'New conversation'}
+                      </span>
+                      <span className="agent-conversation-time">
+                        {formatRelative(conversation.updated_at)}
+                      </span>
+                    </button>
+                    {/* Editing owns the row; the actions return when it settles. */}
+                    <button
+                      type="button"
+                      className="agent-conversation-action"
+                      aria-label={`Rename conversation ${conversation.title ?? conversation.id}`}
+                      title="Rename"
+                      onClick={() => startRename(conversation.id)}
+                    >
+                      <Pencil size={14} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="agent-conversation-action agent-conversation-delete"
+                      aria-label={`Delete conversation ${conversation.title ?? conversation.id}`}
+                      // The server rejects a delete during that conversation's
+                      // run with 409 (#149); don't offer the action we know
+                      // will fail.
+                      disabled={sending && conversation.id === activeId}
+                      title={
+                        sending && conversation.id === activeId
+                          ? 'The agent is working — you can delete this once it finishes'
+                          : undefined
+                      }
+                      onClick={() => fireAndForget(deleteConversation(conversation))}
+                    >
+                      <Trash2 size={15} aria-hidden="true" />
+                    </button>
+                  </>
+                )}
               </div>
             </li>
           ))}

@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react'
 
+/** Past this many seconds the working block adds the cold-model-load note —
+ * the run is synchronous, so a first run of the day can take a minute. Shared
+ * by the desktop `PendingExchange` and the mobile working block. */
+export const SLOW_RUN_AFTER_S = 5
+
 /**
  * Whole seconds since `running` last became true; 0 while it is false.
  *
  * Computed from a wall-clock origin on every tick rather than by counting
- * ticks: a phone that backgrounds the tab throttles timers, and the clock has
+ * ticks: a browser that backgrounds the tab throttles timers, and the clock has
  * to be honest about how long the run has actually taken when the tab comes
  * back — it is the only signal the user has before the reply lands.
  */

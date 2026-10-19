@@ -15,30 +15,29 @@ export function MessageBubble({ message }: { message: AgentMessage }) {
     )
   }
 
+  // M07f (#327): the agent's reply is not a bubble — a label line (mark,
+  // `Agent · n min ago`), the trajectory, then the body across the full
+  // column. One speaker gets a bubble, and it isn't the page.
   const stopReason = message.stop_reason
   return (
     <li className="agent-message agent-message--assistant">
-      <span className="agent-avatar" aria-hidden="true">
-        <GlitchMark size={20} />
-      </span>
-      <div className="agent-message-body">
-        {message.tool_calls !== null && message.tool_calls.length > 0 && (
-          <ToolCallList messageId={message.id} records={message.tool_calls} />
-        )}
-        {message.content !== null && (
-          <div className="agent-bubble">
-            <ReactMarkdown components={MARKDOWN_COMPONENTS}>
-              {message.content}
-            </ReactMarkdown>
-          </div>
-        )}
-        {stopReason !== null && stopReason !== 'completed' && (
-          <p className="agent-stop-note" role="status">
-            {STOP_FALLBACK[stopReason]}
-          </p>
-        )}
-        <span className="agent-message-time">{formatRelative(message.created_at)}</span>
+      <div className="agent-label">
+        <GlitchMark size={18} />
+        <span>Agent · {formatRelative(message.created_at)}</span>
       </div>
+      {message.tool_calls !== null && message.tool_calls.length > 0 && (
+        <ToolCallList messageId={message.id} records={message.tool_calls} />
+      )}
+      {message.content !== null && (
+        <div className="agent-body">
+          <ReactMarkdown components={MARKDOWN_COMPONENTS}>{message.content}</ReactMarkdown>
+        </div>
+      )}
+      {stopReason !== null && stopReason !== 'completed' && (
+        <p className="agent-stop-note" role="status">
+          {STOP_FALLBACK[stopReason]}
+        </p>
+      )}
     </li>
   )
 }
