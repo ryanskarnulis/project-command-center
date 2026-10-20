@@ -225,6 +225,70 @@ def update_entry(
     return entry
 
 
+def reorder_pins(
+    db: Session, *, plan_date: date, entry_ids: Sequence[int]
+) -> list[FocusPlanEntry]:
+    """Put the named pins of ``plan_date`` in ``entry_ids`` order (#375).
+
+    ``entry_ids`` may be any subset of the day's live task pins: a client only
+    sees the pins the plan currently places, not the ignored ones (done,
+    deferred, blocked). The named pins trade the slots they already hold, so
+    every other pin keeps its place, and the day's pins are then renumbered
+    ``0..n-1`` (which also untangles position ties a restore can leave). A timed
+    pin may be named: its position only matters once it floats, which is exactly
+    when the plan shows it as floating. A commitment has no order and is
+    refused, as is any id that isn't a live entry of the day. Returns the day's
+    pins in their new order. Caller commits.
+    """
+    if not entry_ids:
+        raise FocusEntryError("Name at least one pin to reorder")
+    if len(set(entry_ids)) != len(entry_ids):
+        raise FocusEntryError("Each pin can appear only once in the new order")
+    entries = list_entries(db, plan_date)
+    by_id = {entry.id: entry for entry in entries}
+    for entry_id in entry_ids:
+        entry = by_id.get(entry_id)
+        if entry is None:
+            raise FocusEntryError(
+                f"Focus entry {entry_id} is not a live entry of {plan_date.isoformat()}"
+            )
+        if entry.task_id is None:
+            raise FocusEntryError(
+                f'Commitment "{entry.title}" sits at its own time and has no order'
+            )
+
+    pins = [entry for entry in entries if entry.task_id is not None]
+    named = set(entry_ids)
+    queue = iter(entry_ids)
+    ordered = [by_id[next(queue)] if pin.id in named else pin for pin in pins]
+    moved = ordered != pins
+    if not moved and all(pin.position == index for index, pin in enumerate(pins)):
+        return ordered
+    for index, pin in enumerate(ordered):
+        pin.position = index
+    db.flush()
+    if moved:
+        titles = dict(
+            db.execute(
+                select(Task.id, Task.title).where(
+                    Task.id.in_([pin.task_id for pin in ordered])
+                )
+            ).tuples().all()
+        )
+        sequence = ", ".join(f'"{titles.get(pin.task_id or 0, "?")}"' for pin in ordered)
+        # One event for the whole reorder (a drag shifts several rows and the
+        # log has no batch notion), so, as with the project order, entity_id 0.
+        activity.record_event(
+            db,
+            project_id=None,
+            entity_type=ENTITY_TYPE,
+            entity_id=0,
+            action="reordered",
+            summary=f"Focus pins on {plan_date.isoformat()} reordered: {sequence}",
+        )
+    return ordered
+
+
 def remove_entry(db: Session, entry: FocusPlanEntry) -> None:
     """Soft-delete an entry (unpin / drop a commitment). Undo with restore_entry."""
     soft_delete(entry)

@@ -251,6 +251,7 @@ def _pack(
         block_start: int,
         entry: FocusPlanEntry | None = None,
         fixed: bool = False,
+        pin_order: int | None = None,
     ) -> None:
         nonlocal used
         used += max(0, block_start + minutes - max(block_start, start_minutes))
@@ -281,6 +282,7 @@ def _pack(
                 entry_id=entry.id if entry is not None else None,
                 pinned=entry is not None,
                 fixed=fixed,
+                pin_order=pin_order,
             )
         )
 
@@ -299,13 +301,15 @@ def _pack(
     # fixed block, one after another.
     late_cursor = max([window_end, *(end for _start, end in fixed_intervals)])
 
-    for pin in floating:
+    for order, pin in enumerate(floating):
         minutes, assumed = _effective_estimate(pin.task, rollups)
         block_start = _place(minutes, gaps)
         if block_start is None:
             block_start = late_cursor
             late_cursor += minutes
-        _schedule(pin.task, minutes, assumed, None, block_start, pin.entry)
+        _schedule(
+            pin.task, minutes, assumed, None, block_start, pin.entry, pin_order=order
+        )
 
     for task in ranked:
         minutes, assumed = _effective_estimate(task, rollups)

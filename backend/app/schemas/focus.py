@@ -69,6 +69,10 @@ class ScheduledBlock(BaseModel):
     entry_id: int | None = None
     pinned: bool = False
     fixed: bool = False
+    # A floating pin's place among the day's floating pins, 0 first (#375).
+    # First-fit packing can put a later pin earlier on the clock, so this, not
+    # the start time, is the order a reorder edits. Null for every other block.
+    pin_order: int | None = None
 
 
 class CommitmentBlock(BaseModel):
@@ -174,6 +178,16 @@ class FocusEntryUpdate(MutationModel):
     start_time: TimeOfDay | None = None
     title: CommitmentTitle | None = None
     duration_minutes: CommitmentMinutes | None = None
+
+
+class FocusPinOrder(MutationModel):
+    """A new order for some of a day's pins (#375): ``entry_ids`` first to last.
+
+    The named pins trade the slots they hold; pins left out keep their place.
+    """
+
+    plan_date: date
+    entry_ids: list[EntityId] = Field(min_length=1, max_length=500)
 
 
 class FocusEntryRead(BaseModel):

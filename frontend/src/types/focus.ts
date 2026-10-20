@@ -35,6 +35,10 @@ export interface ScheduledBlock {
   entry_id: number | null
   pinned: boolean
   fixed: boolean
+  // A floating pin's place among the day's floating pins, 0 first (#375). The
+  // order a reorder edits: first-fit packing can put a later pin earlier on the
+  // clock. Null for every other block.
+  pin_order: number | null
 }
 
 /** A fixed-time commitment that is not a task (a meeting). */

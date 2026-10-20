@@ -16,6 +16,7 @@ import {
   addFocusCommitment,
   pinFocusTask,
   removeFocusEntry,
+  reorderFocusPins,
   restoreFocusEntry,
   updateFocusEntry,
 } from '../../../api/focus'
@@ -29,6 +30,7 @@ import {
   FocusSessionSheet,
   type RowSheetTarget,
 } from './FocusSheets'
+import { floatingPinOrder, shiftPin } from '../pinOrder'
 import { SwipeRow } from './SwipeRow'
 import { useFocusClock } from './useFocusClock'
 import { useFocusSessionLog } from './useFocusSessionLog'
@@ -265,6 +267,24 @@ export function MobileFocus({
     })
   }
 
+  // Floating pins in their stored order (#375). Swipes are taken, so the ⋯
+  // sheet's Move up / Move down is how a phone reorders them.
+  const pinOrder = floatingPinOrder(scheduled)
+
+  async function movePin(row: DayRow, delta: number): Promise<void> {
+    const entryId = row.block?.entry_id ?? null
+    const next = entryId === null ? null : shiftPin(pinOrder, entryId, delta)
+    if (next === null) return
+    const previous = pinOrder
+    const planDate = plan?.date ?? date
+    await mutate(async () => {
+      await reorderFocusPins(planDate, next)
+      armUndo(`${delta < 0 ? 'Moved up' : 'Moved down'} · ${row.title}`, async () => {
+        await reorderFocusPins(planDate, previous)
+      })
+    })
+  }
+
   async function addCommitment(title: string, start: string, minutes: number): Promise<void> {
     await mutate(async () => {
       const entry = await addFocusCommitment(plan?.date ?? date, title, start, minutes)
@@ -302,6 +322,8 @@ export function MobileFocus({
       setCommitmentTarget(row)
       return
     }
+    // A finished row is a receipt, so it never offers a move.
+    const entryId = row.kind === 'done' ? null : (row.block?.entry_id ?? null)
     setRowTarget({
       taskId: row.taskId,
       title: row.title,
@@ -312,6 +334,8 @@ export function MobileFocus({
       isRecurring: row.block?.is_recurring ?? false,
       isDone: row.kind === 'done',
       isPinned: row.block?.pinned ?? false,
+      canMoveUp: entryId !== null && shiftPin(pinOrder, entryId, -1) !== null,
+      canMoveDown: entryId !== null && shiftPin(pinOrder, entryId, 1) !== null,
     })
   }
 
@@ -752,6 +776,11 @@ export function MobileFocus({
             const row = rows.find((candidate) => candidate.taskId === rowTarget.taskId)
             setRowTarget(null)
             if (row) void unpin(row)
+          }}
+          onMove={(delta) => {
+            const row = rows.find((candidate) => candidate.taskId === rowTarget.taskId)
+            setRowTarget(null)
+            if (row) void movePin(row, delta)
           }}
           onClose={() => setRowTarget(null)}
         />

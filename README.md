@@ -138,12 +138,13 @@ Key decisions:
 
   Routes:
   - `POST /api/focus/pins`
+  - `PUT /api/focus/pins/order` (reorder floating pins, #375)
   - `POST /api/focus/commitments`
   - `PATCH` and `DELETE /api/focus/entries/{id}`
   - `POST /api/focus/entries/{id}/restore`
 
-  Agent tools: `pin_focus_task`, `add_focus_commitment`,
-  `remove_focus_entry` and `restore_focus_entry`.
+  Agent tools: `pin_focus_task`, `reorder_focus_pins`,
+  `add_focus_commitment`, `remove_focus_entry` and `restore_focus_entry`.
 - **Dependencies** are `A depends_on B` edges in `task_dependencies` (B must be
   done before A starts). "Blocked" is never stored — `is_blocked`,
   `is_blocking`, and `blocked_task_count` are derived in Python from the active

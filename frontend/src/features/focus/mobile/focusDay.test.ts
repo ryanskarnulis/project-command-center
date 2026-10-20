@@ -33,6 +33,7 @@ function block(overrides: Partial<ScheduledBlock> = {}): ScheduledBlock {
     entry_id: null,
     pinned: false,
     fixed: false,
+    pin_order: null,
     ...overrides,
   }
 }

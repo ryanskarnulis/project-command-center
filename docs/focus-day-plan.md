@@ -41,7 +41,7 @@ With an overlay:
 | `title` | the commitment's title. Null for a task pin |
 | `start_minute` | minutes after midnight on `plan_date` (0–1439). Null means a **floating** pin. Commitments always carry one |
 | `duration_minutes` | the commitment's length. Null for a task pin, which uses the task's own estimate |
-| `position` | order among the day's floating pins (append = max + 1) |
+| `position` | order among the day's floating pins (append = max + 1; reorder renumbers) |
 | `deleted_at` | soft delete. Removing an entry is undoable via restore |
 
 There are three kinds of entry:
@@ -110,6 +110,28 @@ task.
   page creates it, and nothing global does.
 - **Defer** is unchanged: it writes `deferred_until`, and rule 2 above ignores
   the pin.
+- **Reorder** (#375) puts floating pins in a new order:
+  `PUT /api/focus/pins/order` with `{plan_date, entry_ids}`, the agent tool
+  `reorder_focus_pins`, `focus_plan.reorder_pins` underneath.
+  - `entry_ids` may be any subset of the day's live task pins. The named pins
+    trade the slots they already hold, and pins left out keep their place.
+    A client only sees the pins the plan currently places, so the ignored ones
+    (done, deferred, blocked) can't be named and must not move.
+  - The day's pins are then renumbered `0..n-1`, which also untangles position
+    ties a restore can leave. A new pin still appends.
+  - A commitment has no order and is refused (409), as is an id that isn't a
+    live entry of that day, or a repeated id. A timed pin is accepted: its
+    position only matters once it has floated, which is exactly when the plan
+    shows it as floating.
+  - One `activity_events` row per reorder that changes anything
+    (`action="reordered"`, `entity_id` 0, like the project order), naming the
+    new sequence. Undo is reordering back; the mobile undo bar does that.
+  - The plan reports each floating pin's place as `pin_order` on its block.
+    First-fit packing can put a later pin earlier on the clock, so clients
+    reorder by `pin_order`, never by start time.
+  - UI: on desktop a floating pin's row drags onto another floating pin's
+    slot, and its grip moves it with the arrow keys. On the mobile timeline
+    swipes are taken, so the row's ⋯ sheet offers Move up / Move down.
 
 ## The mobile day shape
 
@@ -125,5 +147,4 @@ everything after it. With fixed rows:
 
 - Moving the session log and the running clock from `localStorage` onto the
   server (#374).
-- Reordering floating pins (#375).
 - Recurring commitments (#376).

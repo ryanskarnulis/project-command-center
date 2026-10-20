@@ -48,6 +48,22 @@ export async function pinFocusTask(
   })
 }
 
+/**
+ * Reorder a day's floating pins, first to last (#375). The named pins trade
+ * the slots they hold; pins left out (including ones the plan is ignoring)
+ * keep their place. Returns the day's pins in their new order.
+ */
+export async function reorderFocusPins(
+  planDate: string,
+  entryIds: number[],
+): Promise<FocusEntry[]> {
+  return apiClient<FocusEntry[]>('/api/focus/pins/order', {
+    method: 'PUT',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ plan_date: planDate, entry_ids: entryIds }),
+  })
+}
+
 /** Block fixed time for something that is not a task (a meeting). */
 export async function addFocusCommitment(
   planDate: string,

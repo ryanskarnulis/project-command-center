@@ -186,6 +186,9 @@ export interface RowSheetTarget {
   isDone: boolean
   /** Pinned into the day (#319), so the sheet offers Unpin. */
   isPinned: boolean
+  /** A floating pin with another above / below it (#375): Move up / Move down. */
+  canMoveUp: boolean
+  canMoveDown: boolean
 }
 
 interface RowSheetProps {
@@ -198,6 +201,8 @@ interface RowSheetProps {
   onDefer: () => void
   onSkip: () => void
   onUnpin: () => void
+  /** Reorder a floating pin: -1 moves it up, +1 down. */
+  onMove: (delta: number) => void
   onClose: () => void
 }
 
@@ -207,7 +212,7 @@ interface RowSheetProps {
  * of it, and the state verb appears here because the chip that carries it on
  * the band reads as a status readout.
  */
-export function FocusRowSheet({ target, run, onStart, onPause, onDone, onDefer, onSkip, onUnpin, onClose }: RowSheetProps) {
+export function FocusRowSheet({ target, run, onStart, onPause, onDone, onDefer, onSkip, onUnpin, onMove, onClose }: RowSheetProps) {
   return (
     <BottomSheet className="focus-sheet focus-row-sheet" labelledBy="focus-row-sheet-title" handleLabel="Close block actions" onClose={onClose}>
       <header className="focus-sheet-head focus-row-sheet-head">
@@ -240,6 +245,16 @@ export function FocusRowSheet({ target, run, onStart, onPause, onDone, onDefer, 
         <button type="button" className="focus-sheet-action" onClick={onDefer}>
           Defer to tomorrow
         </button>
+        {target.canMoveUp && (
+          <button type="button" className="focus-sheet-action" onClick={() => onMove(-1)}>
+            Move up
+          </button>
+        )}
+        {target.canMoveDown && (
+          <button type="button" className="focus-sheet-action" onClick={() => onMove(1)}>
+            Move down
+          </button>
+        )}
         {target.isPinned && (
           <button type="button" className="focus-sheet-action" onClick={onUnpin}>
             Unpin

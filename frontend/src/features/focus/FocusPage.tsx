@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -7,6 +7,7 @@ import {
   ChevronRight,
   ChevronsRight,
   Clock3,
+  GripVertical,
   Inbox,
   Pin,
   PinOff,
@@ -19,6 +20,7 @@ import {
   addFocusCommitment,
   pinFocusTask,
   removeFocusEntry,
+  reorderFocusPins,
   updateFocusEntry,
 } from '../../api/focus'
 import { markTaskDone, skipOccurrence, updateTask } from '../../api/tasks'
@@ -39,6 +41,7 @@ import { addDaysISO, formatDueDate } from '../../utils/dates'
 import { TaskPanelProvider } from '../tasks/panel/TaskPanelProvider'
 import { useTaskLinkTo } from '../tasks/panel/taskPanelContext'
 import { MobileFocus } from './mobile/MobileFocus'
+import { dropPin, floatingPinOrder, shiftPin } from './pinOrder'
 import { DEFAULT_START_TIME, useFocusPlan } from './useFocusPlan'
 
 // Capacity presets keep the control daily-scannable while staying inside the
@@ -384,25 +387,108 @@ function NowMarker({ label }: { label: string }) {
   )
 }
 
+// dataTransfer type for dragging a floating pin to a new place (#375).
+const PIN_DRAG_TYPE = 'application/x-pcc-focus-pin'
+
+/**
+ * How a floating pin's row takes part in reordering (#375): the whole row
+ * drags onto another floating pin's slot, and its grip handle moves it with
+ * the arrow keys, so the reorder is never pointer-only.
+ */
+interface PinReorder {
+  entryId: number
+  dragging: boolean
+  dropTarget: boolean
+  /** Return focus to the grip once the reordered plan has rendered. */
+  focusGrip: boolean
+  onDragStart: (entryId: number) => void
+  onDragOver: (entryId: number) => void
+  onDrop: (entryId: number) => void
+  onDragEnd: () => void
+  onKeyMove: (entryId: number, delta: number) => void
+}
+
+function PinGrip({ title, reorder }: { title: string; reorder: PinReorder }) {
+  const ref = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (reorder.focusGrip) ref.current?.focus()
+  }, [reorder.focusGrip])
+  return (
+    <button
+      ref={ref}
+      type="button"
+      className="focus-pin-grip"
+      aria-label={`Reorder ${title}`}
+      title="Drag to reorder, or use the up and down arrow keys"
+      onKeyDown={(event) => {
+        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+        event.preventDefault()
+        reorder.onKeyMove(reorder.entryId, event.key === 'ArrowUp' ? -1 : 1)
+      }}
+    >
+      <GripVertical size={14} aria-hidden="true" />
+    </button>
+  )
+}
+
 function ScheduledRow({
   block,
   past,
   planDate,
   onMutated,
   onSkip,
+  reorder = null,
 }: {
   block: ScheduledBlock
   past: boolean
   planDate: string
   onMutated: () => void
   onSkip: (taskId: number, title: string) => void
+  // Set only on a floating pin when the day has more than one of them.
+  reorder?: PinReorder | null
 }) {
   const taskLinkTo = useTaskLinkTo()
+  const className = [
+    'focus-block',
+    past && 'focus-block-past',
+    reorder && 'focus-block-reorderable',
+    reorder?.dragging && 'focus-block-dragging',
+    reorder?.dropTarget && 'focus-block-drop-target',
+  ]
+    .filter(Boolean)
+    .join(' ')
+  const dragProps = reorder
+    ? {
+        draggable: true,
+        onDragStart: (event: React.DragEvent) => {
+          event.dataTransfer.setData(PIN_DRAG_TYPE, String(reorder.entryId))
+          event.dataTransfer.effectAllowed = 'move'
+          reorder.onDragStart(reorder.entryId)
+        },
+        onDragOver: (event: React.DragEvent) => {
+          if (!event.dataTransfer.types.includes(PIN_DRAG_TYPE)) return
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'move'
+          reorder.onDragOver(reorder.entryId)
+        },
+        onDrop: (event: React.DragEvent) => {
+          if (!event.dataTransfer.types.includes(PIN_DRAG_TYPE)) return
+          event.preventDefault()
+          reorder.onDrop(reorder.entryId)
+        },
+        onDragEnd: () => reorder.onDragEnd(),
+      }
+    : {}
   return (
-    <li className={past ? 'focus-block focus-block-past' : 'focus-block'}>
-      <div className="focus-block-time" aria-hidden="true">
-        <strong>{formatBlockTime(planDate, block.start_time, block.start_day_offset)}</strong>
-        <span>{formatBlockTime(planDate, block.end_time, block.end_day_offset)}</span>
+    <li className={className} data-entry-id={reorder?.entryId} {...dragProps}>
+      <div className="focus-block-time">
+        <strong aria-hidden="true">
+          {formatBlockTime(planDate, block.start_time, block.start_day_offset)}
+        </strong>
+        <span aria-hidden="true">
+          {formatBlockTime(planDate, block.end_time, block.end_day_offset)}
+        </span>
+        {reorder && <PinGrip title={block.title} reorder={reorder} />}
       </div>
       <div className="focus-block-body">
         <div className="focus-block-head">
@@ -788,6 +874,56 @@ export function FocusPage() {
     null,
   )
 
+  // Reordering floating pins (#375). The drag only highlights the slot it is
+  // over; the timeline is in clock order, so the new order shows after the
+  // save, re-packed by the server, rather than as a local preview.
+  const pinOrder = plan ? floatingPinOrder(plan.scheduled) : []
+  const [draggedPin, setDraggedPin] = useState<number | null>(null)
+  const [dropPinTarget, setDropPinTarget] = useState<number | null>(null)
+  const [focusPin, setFocusPin] = useState<number | null>(null)
+  const savingPins = useRef(false)
+
+  async function savePinOrder(next: number[] | null, focusAfter: number | null) {
+    if (!plan || next === null || savingPins.current) return
+    savingPins.current = true
+    setFocusPin(focusAfter)
+    try {
+      await withToast(reorderFocusPins(plan.date, next), { success: 'Pins reordered' })
+      refetch()
+    } catch {
+      // The error toast already surfaced; the order on screen is unchanged.
+    } finally {
+      savingPins.current = false
+    }
+  }
+
+  function pinReorder(block: ScheduledBlock): PinReorder | null {
+    const entryId = block.entry_id
+    if (entryId === null || pinOrder.length < 2 || !pinOrder.includes(entryId)) return null
+    return {
+      entryId,
+      dragging: draggedPin === entryId,
+      dropTarget: dropPinTarget === entryId && draggedPin !== entryId,
+      focusGrip: focusPin === entryId,
+      onDragStart: (id) => {
+        setDraggedPin(id)
+        setFocusPin(null)
+      },
+      onDragOver: (id) => setDropPinTarget(id),
+      onDrop: (id) => {
+        const dragged = draggedPin
+        setDraggedPin(null)
+        setDropPinTarget(null)
+        if (dragged !== null) fireAndForget(savePinOrder(dropPin(pinOrder, dragged, id), null))
+      },
+      onDragEnd: () => {
+        setDraggedPin(null)
+        setDropPinTarget(null)
+      },
+      onKeyMove: (id, delta) => fireAndForget(savePinOrder(shiftPin(pinOrder, id, delta), id)),
+    }
+  }
+
   async function confirmSkip() {
     if (!skipTarget) return
     const { id } = skipTarget
@@ -949,6 +1085,7 @@ export function FocusPage() {
                         planDate={plan.date}
                         onMutated={refetch}
                         onSkip={(id, title) => setSkipTarget({ id, title })}
+                        reorder={pinReorder(item.block)}
                       />
                     ) : (
                       <CommitmentRow
