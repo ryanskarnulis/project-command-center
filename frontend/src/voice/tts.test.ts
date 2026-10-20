@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { audioIdle, playText } from './tts'
+import { audioIdle, playText, stopPlayback, unlockAudio } from './tts'
 
 // Issue #97: playText/currentPlayback are documented as never rejecting, but
 // the speak() fetch used to sit outside any error handling, so a transport
@@ -7,17 +7,36 @@ import { audioIdle, playText } from './tts'
 
 // jsdom's HTMLMediaElement.play() is unimplemented (it returns undefined and
 // logs), so the shared element is a stand-in that ends the clip immediately.
+// `holdClips` makes a clip play until paused instead (#366's long reply).
 class FakeAudio {
+  static holdClips = false
+  static instance: FakeAudio | null = null
   src = ''
+  paused = true
+  pauses = 0
   onended: (() => void) | null = null
   onerror: (() => void) | null = null
+  constructor() {
+    FakeAudio.instance = this
+  }
   play(): Promise<void> {
-    queueMicrotask(() => this.onended?.())
+    this.paused = false
+    if (!FakeAudio.holdClips) {
+      queueMicrotask(() => {
+        this.paused = true
+        this.onended?.()
+      })
+    }
     return Promise.resolve()
+  }
+  pause(): void {
+    this.paused = true
+    this.pauses++
   }
 }
 
 beforeEach(() => {
+  FakeAudio.holdClips = false
   vi.stubGlobal('Audio', FakeAudio)
   vi.stubGlobal('URL', {
     ...URL,
@@ -119,5 +138,82 @@ describe('playText transport failures', () => {
     // The failed request never reached the element, so it must not revoke a
     // URL it does not own.
     expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+  })
+})
+
+describe('stopPlayback (#366)', () => {
+  const clipFetch = () =>
+    vi.fn(() =>
+      Promise.resolve({ ok: true, blob: () => Promise.resolve(new Blob(['ogg'])) } as Response),
+    )
+
+  it('cuts off the clip that is playing and releases audioIdle', async () => {
+    FakeAudio.holdClips = true
+    vi.stubGlobal('fetch', clipFetch())
+    const playback = playText('a long reply')
+    await vi.waitFor(() => expect(FakeAudio.instance?.paused).toBe(false))
+    let idle = false
+    void audioIdle().then(() => {
+      idle = true
+    })
+    await Promise.resolve()
+    expect(idle).toBe(false)
+
+    stopPlayback()
+    await expect(playback).resolves.toBe('interrupted')
+    await expect(audioIdle()).resolves.toBeUndefined()
+    expect(FakeAudio.instance?.paused).toBe(true)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:clip')
+  })
+
+  it('cancels a clip still being fetched, so it never starts playing', async () => {
+    const signals: (AbortSignal | undefined)[] = []
+    let answer: (res: Response) => void = () => {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) => {
+        signals.push(init?.signal ?? undefined)
+        return new Promise<Response>((resolve) => {
+          answer = resolve
+        })
+      }),
+    )
+    vi.mocked(URL.createObjectURL).mockReturnValueOnce('blob:late')
+    const playback = playText('not yet fetched')
+    await Promise.resolve()
+
+    stopPlayback()
+    await expect(playback).resolves.toBe('interrupted')
+    await expect(audioIdle()).resolves.toBeUndefined()
+    expect(signals[0]?.aborted).toBe(true)
+    // A body that lands after the stop is dropped, not played or leaked.
+    answer({ ok: true, blob: () => Promise.resolve(new Blob(['ogg'])) } as Response)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:late')
+    expect(FakeAudio.instance?.src).not.toBe('blob:late')
+  })
+
+  it('is a no-op with nothing playing, and leaves an unlock in progress alone', async () => {
+    unlockAudio()
+    const audio = FakeAudio.instance
+    const pausesBefore = audio?.pauses ?? 0
+    stopPlayback()
+    expect(audio?.pauses ?? 0).toBe(pausesBefore)
+    await expect(audioIdle()).resolves.toBeUndefined()
+  })
+
+  it('leaves the shared element ready for the next reply', async () => {
+    FakeAudio.holdClips = true
+    vi.stubGlobal('fetch', clipFetch())
+    const first = playText('first')
+    await vi.waitFor(() => expect(FakeAudio.instance?.paused).toBe(false))
+    const shared = FakeAudio.instance
+    stopPlayback()
+    await first
+
+    FakeAudio.holdClips = false
+    await expect(playText('second')).resolves.toBe('ended')
+    // Same element — the one a gesture unlocked — not a fresh one.
+    expect(FakeAudio.instance).toBe(shared)
   })
 })

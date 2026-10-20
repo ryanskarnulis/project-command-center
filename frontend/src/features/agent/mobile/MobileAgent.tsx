@@ -8,7 +8,7 @@ import type { AgentMessage, Conversation } from '../../../types/agent'
 import { fireAndForget } from '../../../utils/async'
 import { formatRelative } from '../../../utils/dates'
 import { MicButton } from '../../../voice/MicButton'
-import { playText } from '../../../voice/tts'
+import { playText, stopPlayback } from '../../../voice/tts'
 import { MARKDOWN_COMPONENTS, STOP_FALLBACK } from '../markdown'
 import type { UseConversation } from '../useConversation'
 import type { UseConversations } from '../useConversations'
@@ -86,7 +86,12 @@ export function MobileAgent({ activeId, list, thread }: Props) {
   const [voiceOutput, setVoiceOutput] = useState(
     () => localStorage.getItem(VOICE_OUTPUT_KEY) !== 'off',
   )
+  // Muting also silences the reply already being spoken (#366) — both mute
+  // paths (the mic hold and the ⋯ sheet switch) come through here. The stop
+  // settles that playback, so a hands-free loop waiting on audioIdle() reopens
+  // the mic rather than staying paused.
   const toggleVoiceOutput = () => {
+    if (voiceOutput) stopPlayback()
     setVoiceOutput((on) => {
       localStorage.setItem(VOICE_OUTPUT_KEY, on ? 'off' : 'on')
       return !on

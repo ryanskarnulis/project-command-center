@@ -35,9 +35,11 @@ let unlocked = false
 /** Object URL of the clip currently loaded in the shared element. */
 let liveUrl: string | null = null
 /** How one playback ended. `ended` played to the end; `error` failed while
- * playing; `interrupted` was cut off by a newer clip; `blocked` was refused
- * by the browser (autoplay); `no_audio` never got a clip (voice unavailable,
- * a transport failure); `timeout` gave up at the speak deadline. */
+ * playing; `interrupted` was cut off before it ended — by a newer clip, or by
+ * stopPlayback() (mid-clip or while its audio was still being fetched);
+ * `blocked` was refused by the browser (autoplay); `no_audio` never got a clip
+ * (voice unavailable, a transport failure); `timeout` gave up at the speak
+ * deadline. */
 export type PlaybackOutcome =
   | 'ended'
   | 'error'
@@ -62,6 +64,9 @@ let currentPlayback: Promise<PlaybackOutcome | void> = Promise.resolve()
 /** Settles the promise of the clip currently in the element; called when a
  * new clip interrupts it, because its own onended will never fire. */
 let settleInterrupted: (() => void) | null = null
+/** Cancels each speak request still fetching its clip; stopPlayback() runs
+ * them all, since any of them would otherwise start playing when it lands. */
+const pendingStops = new Set<() => void>()
 
 function element(): HTMLAudioElement {
   if (!sharedAudio) sharedAudio = new Audio()
@@ -109,6 +114,23 @@ export function playText(text: string, observer?: PlaybackObserver): Promise<Pla
 }
 
 /**
+ * Stop speaking now: cut off the clip that is playing and cancel any clip
+ * still being fetched. Every playback this cuts short resolves `interrupted`,
+ * so audioIdle() resolves and a hands-free loop awaiting it reopens the mic.
+ * The shared element is paused, not replaced, so its mobile-autoplay unlock
+ * survives and the next playText() plays normally. No-op when nothing is
+ * playing or pending — in particular it leaves an in-progress unlockAudio()
+ * alone, since pausing that silent clip would void the unlock.
+ */
+export function stopPlayback(): void {
+  for (const stop of [...pendingStops]) stop()
+  if (liveUrl === null) return
+  element().pause()
+  // finish() revokes the live URL and clears the settle hook.
+  settleInterrupted?.()
+}
+
+/**
  * Request the audio for `text` and hand back an object URL for it, or null
  * when voice is unavailable (503/502) or the deadline has already passed.
  */
@@ -143,29 +165,40 @@ async function speak(text: string, observer?: PlaybackObserver): Promise<Playbac
   // audioIdle() never reopens the mic. So the deadline resolves the race with
   // "no clip" — the same best-effort completion every other failure produces —
   // rather than rejecting, and it settles the wait even if the request itself
-  // stays pending forever.
+  // stays pending forever. stopPlayback() cuts the wait short the same way.
   const controller = new AbortController()
-  let expire = () => {}
-  let timedOut = false
-  const expired = new Promise<null>((resolve) => {
-    expire = () => resolve(null)
+  let release = () => {}
+  /** Why the wait was cut short — the deadline or a stop — once it was. */
+  let cut: PlaybackOutcome | null = null
+  const cutShort = new Promise<null>((resolve) => {
+    release = () => resolve(null)
   })
-  const deadline = setTimeout(() => {
-    timedOut = true
+  const cutOff = (outcome: PlaybackOutcome) => {
+    if (cut !== null) return
+    cut = outcome
     controller.abort()
-    expire()
-  }, SPEAK_DEADLINE_MS)
+    release()
+  }
+  const deadline = setTimeout(() => cutOff('timeout'), SPEAK_DEADLINE_MS)
+  const stop = () => cutOff('interrupted')
+  pendingStops.add(stop)
 
   let url: string
   try {
-    const clip = await Promise.race([loadClip(text, controller.signal, observer?.id), expired])
-    if (clip === null) return timedOut ? 'timeout' : 'no_audio'
+    const clip = await Promise.race([loadClip(text, controller.signal, observer?.id), cutShort])
+    if (clip !== null && cut !== null) {
+      // The clip landed in the same tick it was given up on; nobody wants it.
+      URL.revokeObjectURL(clip)
+    }
+    if (clip === null || cut !== null) return cut ?? 'no_audio'
     url = clip
   } catch {
-    return timedOut ? 'timeout' : 'no_audio'
+    return cut ?? 'no_audio'
   } finally {
-    // Every exit — played, unavailable, failed, expired — drops the timer.
+    // Every exit — played, unavailable, failed, expired, stopped — drops the
+    // timer and the stop hook.
     clearTimeout(deadline)
+    pendingStops.delete(stop)
   }
   const el = element()
   // A new clip interrupts whatever was loaded: settle the old clip's promise

@@ -21,7 +21,7 @@ import { useMobileViewport } from '../../hooks/useMobileViewport'
 import { fireAndForget } from '../../utils/async'
 import { formatRelative } from '../../utils/dates'
 import { MicButton } from '../../voice/MicButton'
-import { playText } from '../../voice/tts'
+import { playText, stopPlayback } from '../../voice/tts'
 import { ConversationTitleField } from './ConversationTitleField'
 import { ConversationUndoBar } from './ConversationUndoBar'
 import { MessageBubble } from './MessageBubble'
@@ -87,7 +87,10 @@ export function AgentPage() {
   const [voiceOutput, setVoiceOutput] = useState(
     () => localStorage.getItem('agent-voice-output') !== 'off',
   )
+  // Muting also cuts off a reply already being spoken (#366); the stop
+  // settles it, so the hands-free loop's audioIdle() wait still ends.
   const toggleVoiceOutput = () => {
+    if (voiceOutput) stopPlayback()
     setVoiceOutput((on) => {
       localStorage.setItem('agent-voice-output', on ? 'off' : 'on')
       return !on
