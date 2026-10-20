@@ -1,10 +1,14 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ApiError, ApiTimeoutError } from '../api/client'
-import { useToast } from './ToastContext'
+import { useToast, type ToastAction } from './ToastContext'
 import { ToastProvider } from './ToastProvider'
 
-type Messages = { success: string; error?: string }
+type Messages = {
+  success: string
+  error?: string
+  action?: (result: unknown) => ToastAction
+}
 type Settled = (outcome: 'resolved' | 'rejected', value: unknown) => void
 
 /** Runs one `withToast` call on click and reports how the wrapped promise settled. */
@@ -98,5 +102,26 @@ describe('ToastProvider withToast', () => {
     const toast = await screen.findByRole('status')
     fireEvent.click(within(toast).getByRole('button', { name: 'Dismiss notification' }))
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('offers an action built from the result, which dismisses then runs once', async () => {
+    const onAction = vi.fn()
+    renderAndTrigger(() => Promise.resolve(7), {
+      success: 'Skipped',
+      action: (result) => ({ label: 'Undo', onAction: () => onAction(result) }),
+    })
+    const toast = await screen.findByRole('status')
+    expect(toast).toHaveTextContent('Skipped')
+    fireEvent.click(within(toast).getByRole('button', { name: 'Undo' }))
+    expect(onAction).toHaveBeenCalledExactlyOnceWith(7)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('shows no action button on a failure', async () => {
+    const action = vi.fn()
+    renderAndTrigger(() => Promise.reject(new Error('nope')), { success: 'Skipped', action })
+    expect(await screen.findByRole('alert')).toHaveTextContent('nope')
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+    expect(action).not.toHaveBeenCalled()
   })
 })

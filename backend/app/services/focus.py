@@ -16,6 +16,7 @@ from app.schemas.focus import (
     DueSignal,
     OverflowTask,
     ScheduledBlock,
+    SkippedCommitmentBlock,
     FocusPlan,
 )
 from app.services import focus_plan as focus_plan_service
@@ -447,6 +448,18 @@ def get_focus_plan(
             continue
         commitments.append(_commitment_block(entry))
         busy.append((entry.start_minute, end))
+    # Skipped occurrences (#429) hold no time; they are listed so a skip can be
+    # taken back later, with the same "already over" cut as live commitments.
+    skipped_commitments: list[SkippedCommitmentBlock] = []
+    for series, skip in focus_plan_service.day_skipped_commitments(db, target_date):
+        assert series.start_minute is not None and series.duration_minutes is not None
+        if series.start_minute + series.duration_minutes <= window_start:
+            continue
+        skipped_commitments.append(
+            SkippedCommitmentBlock(
+                **_commitment_block(series).model_dump(), skip_entry_id=skip.id
+            )
+        )
     for entry in focus_plan_service.list_entries(db, target_date):
         if entry.task_id is None:
             continue
@@ -491,6 +504,7 @@ def get_focus_plan(
         used_minutes=used,
         scheduled=blocks,
         commitments=commitments,
+        skipped_commitments=skipped_commitments,
         overflow=overflow,
         blocked=blocked,
     )

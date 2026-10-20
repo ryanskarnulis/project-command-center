@@ -133,7 +133,9 @@ Key decisions:
     **series** that repeats from its `plan_date` on (#376):
     one row, its occurrences worked out per day on read, never stored ahead;
   - a **skip** (`series_id` set, nothing else): that series' occurrence on
-    `plan_date` doesn't happen. Removing the skip brings it back.
+    `plan_date` doesn't happen. Removing the skip brings it back. The plan
+    lists a day's skipped occurrences in `skipped_commitments` (#429), apart
+    from the live ones, so the Focus page can show them and un-skip one.
 
   Tasks are first-fit packed into the gaps around the fixed blocks. A pin
   whose task is done, trashed, deferred or blocked is ignored, never deleted.

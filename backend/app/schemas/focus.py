@@ -133,6 +133,20 @@ class CommitmentBlock(BaseModel):
     repeat_interval: CommitmentRepeatInterval | None = None
 
 
+class SkippedCommitmentBlock(CommitmentBlock):
+    """A repeating commitment's occurrence that has been skipped for the day (#429).
+
+    Listed apart from ``FocusPlan.commitments`` so nothing reading the plan
+    mistakes it for time that is taken: it holds no time and blocks nothing.
+    ``entry_id`` is the series; ``skip_entry_id`` is the skip row, and
+    ``DELETE /focus/entries/{skip_entry_id}`` un-skips the occurrence (its undo
+    is ``POST /focus/entries/{skip_entry_id}/restore``).
+    """
+
+    # Required, no default: always emitted (a skipped block without it is useless).
+    skip_entry_id: int
+
+
 class OverflowTask(BaseModel):
     """A schedulable task that did not fit in the available capacity.
 
@@ -193,6 +207,9 @@ class FocusPlan(BaseModel):
     # Fixed-time commitments that fall in the plan, in start order. Kept apart
     # from ``scheduled`` so every scheduled block is still a task.
     commitments: list[CommitmentBlock] = []
+    # Occurrences of repeating commitments skipped for this day (#429), in start
+    # order. Not part of the day: shown so a skip can be taken back later.
+    skipped_commitments: list[SkippedCommitmentBlock] = []
     overflow: list[OverflowTask]
     blocked: list[BlockedTask]
 

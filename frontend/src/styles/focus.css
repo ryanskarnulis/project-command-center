@@ -410,6 +410,24 @@
   text-decoration: none;
 }
 
+/* A skipped occurrence (#429) holds no time: muted, title struck through,
+   so it reads as "not today" while staying where it would have been. */
+.focus-skipped .focus-block-time,
+.focus-skipped .focus-block-title {
+  color: var(--text-faint);
+}
+
+.focus-skipped .focus-block-title,
+.focus-skipped .focus-block-title:hover {
+  text-decoration: line-through;
+}
+
+.focus-skipped-word {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
 .focus-pin-form,
 .focus-commitment-form {
   display: flex;

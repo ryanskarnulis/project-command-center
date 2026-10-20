@@ -303,6 +303,12 @@ before the window starts. Task pins are still read from that day's own rows.
 A plan's `CommitmentBlock` carries `repeat_interval`. For an occurrence,
 `entry_id` is the **series** row, the same id on every day.
 
+A skipped occurrence (#429) is listed apart, in the plan's
+`skipped_commitments` (`focus_plan.day_skipped_commitments`): the same block
+plus `skip_entry_id`, the skip row. It holds no time, packs around nothing and
+isn't in `used_minutes`; it is there so the skip can be taken back later. The
+same "already over before the window" cut applies as for a live one.
+
 ### Verbs
 
 - **Add** (`POST /api/focus/commitments` with an optional `repeat_interval`)
@@ -317,6 +323,8 @@ A plan's `CommitmentBlock` carries `repeat_interval`. For an occurrence,
   - **Undo** is removing the skip (`DELETE /api/focus/entries/{skip_id}`), a
     soft delete like every other removal. Restoring a removed skip skips the
     day again. Nothing is hard-deleted.
+  - **Un-skip later** (#429) is the same write, from the skipped row the plan
+    lists: no new endpoint. Activity names it `un-skipped` / `skipped again`.
   - Activity: `skipped` when stored, then `deleted` / `restored` as for any
     entry, with summaries that name the series and the day.
 - **Stop the series**: remove the series row (`DELETE` on its id). This takes
@@ -338,11 +346,6 @@ A plan's `CommitmentBlock` carries `repeat_interval`. For an occurrence,
 - **Changing the cadence** of an existing commitment. `PATCH` takes no
   `repeat_interval`, so a one-off can't be turned into a series or back.
   Remove the series and add a new one.
-- **Weekdays only.** The task cadence has no "every weekday", so a Mon–Fri
-  standup is a daily series with weekend days skipped, or five weekly series.
-- **Showing a skipped day.** A skipped occurrence just isn't in that day's
-  plan. The mobile undo bar can bring it back; after that, only the API can
-  (remove the skip).
 
 ### UI
 
@@ -350,11 +353,18 @@ A plan's `CommitmentBlock` carries `repeat_interval`. For an occurrence,
   `every 2 weeks`, `weekdays`, `weekly on Mon, Wed`), beside `fixed`, never
   a pill.
 - Desktop: a repeating commitment's row adds **Skip day**, and its Remove
-  reads **Remove series**.
+  reads **Remove series**. Skip day and Remove (series or one-off) toast with
+  an **Undo** (#429), standing 5 s like the mobile undo bar: the toast system
+  takes an optional action built from the write's result. A skipped occurrence
+  stays on the timeline at its time, muted and struck through, with a
+  `skipped` word and one verb, **Un-skip** (its toast's Undo skips it again).
 - Mobile: the `⋯` sheet adds **Skip this day**, with the undo bar (its undo
   removes the skip), and its Remove reads **Remove series**. A skipped
   occurrence leaves the timeline, and `buildDayShape` needs no change: an
-  occurrence arrives as an ordinary fixed row.
+  occurrence arrives as an ordinary fixed row. Since the timeline's height is
+  its duration, a skipped one (holding none) is listed in the foot instead,
+  under a **Skipped · N** disclosure shown only when there is one: struck
+  through, with **Un-skip** and the undo bar (#429).
 
 ### Agent
 
@@ -368,6 +378,9 @@ Two things the agent does see:
   `get_focus_plan`'s commitments, and `repeat_interval` / `series_id` on
   entries. Since #427 a `repeat_interval` in those results may carry `days`
   (output only; no tool takes a cadence yet, see #426).
+- `get_focus_plan` gains `skipped_commitments` (#429), a separate list, so
+  `commitments` stays the day's live time. Each names its `skip_entry_id`, so
+  `remove_focus_entry` on it un-skips the day.
 - `remove_focus_entry` given a series' `entry_id` removes the whole series.
   It stays undoable with `restore_focus_entry`, and the activity summary names
   the cadence ("…, daily from 2026-10-20, removed from Focus").

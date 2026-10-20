@@ -122,6 +122,33 @@ def occurs_on(series: FocusPlanEntry, day: date) -> bool:
     raise ValueError(f"Unknown recurrence unit: {unit!r}")
 
 
+def _day_series(
+    db: Session, plan_date: date
+) -> tuple[list[FocusPlanEntry], dict[int, FocusPlanEntry]]:
+    """The live series with an occurrence on ``plan_date``, and that day's live skips by series."""
+    series = [
+        entry
+        for entry in db.execute(
+            active(FocusPlanEntry).where(
+                FocusPlanEntry.repeat_interval.is_not(None),
+                FocusPlanEntry.plan_date <= plan_date,
+            )
+        ).scalars()
+        if occurs_on(entry, plan_date)
+    ]
+    skips: dict[int, FocusPlanEntry] = {}
+    if series:
+        for skip in db.execute(
+            active(FocusPlanEntry).where(
+                FocusPlanEntry.series_id.in_([entry.id for entry in series]),
+                FocusPlanEntry.plan_date == plan_date,
+            )
+        ).scalars():
+            assert skip.series_id is not None
+            skips[skip.series_id] = skip
+    return series, skips
+
+
 def day_commitments(db: Session, plan_date: date) -> list[FocusPlanEntry]:
     """The commitments that happen on ``plan_date``, in start order.
 
@@ -140,29 +167,22 @@ def day_commitments(db: Session, plan_date: date) -> list[FocusPlanEntry]:
             )
         ).scalars()
     )
-    series = [
-        entry
-        for entry in db.execute(
-            active(FocusPlanEntry).where(
-                FocusPlanEntry.repeat_interval.is_not(None),
-                FocusPlanEntry.plan_date <= plan_date,
-            )
-        ).scalars()
-        if occurs_on(entry, plan_date)
-    ]
-    skipped: set[int | None] = set()
-    if series:
-        skipped = set(
-            db.execute(
-                select(FocusPlanEntry.series_id).where(
-                    FocusPlanEntry.series_id.in_([entry.id for entry in series]),
-                    FocusPlanEntry.plan_date == plan_date,
-                    FocusPlanEntry.deleted_at.is_(None),
-                )
-            ).scalars()
-        )
-    happening = [*one_offs, *(entry for entry in series if entry.id not in skipped)]
+    series, skips = _day_series(db, plan_date)
+    happening = [*one_offs, *(entry for entry in series if entry.id not in skips)]
     return sorted(happening, key=lambda entry: (entry.start_minute or 0, entry.id))
+
+
+def day_skipped_commitments(
+    db: Session, plan_date: date
+) -> list[tuple[FocusPlanEntry, FocusPlanEntry]]:
+    """The occurrences skipped on ``plan_date`` as ``(series, skip)``, in start order (#429).
+
+    The other half of ``day_commitments``: a live skip of a live series that
+    does occur that day. Removing the skip (``remove_entry``) un-skips it.
+    """
+    series, skips = _day_series(db, plan_date)
+    skipped = [(entry, skips[entry.id]) for entry in series if entry.id in skips]
+    return sorted(skipped, key=lambda pair: (pair[0].start_minute or 0, pair[0].id))
 
 
 def list_entries(db: Session, plan_date: date) -> list[FocusPlanEntry]:

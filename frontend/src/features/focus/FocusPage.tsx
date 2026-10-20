@@ -14,6 +14,7 @@ import {
   Play,
   Plus,
   SkipForward,
+  Undo2,
   X,
 } from 'lucide-react'
 import {
@@ -21,12 +22,13 @@ import {
   pinFocusTask,
   removeFocusEntry,
   reorderFocusPins,
+  restoreFocusEntry,
   skipFocusOccurrence,
   updateFocusEntry,
 } from '../../api/focus'
 import { markTaskDone, skipOccurrence, updateTask } from '../../api/tasks'
 import { useMobileViewport } from '../../hooks/useMobileViewport'
-import { useToast } from '../../components/ToastContext'
+import { useToast, type ToastAction } from '../../components/ToastContext'
 import { fireAndForget } from '../../utils/async'
 import type { TaskPriority, TaskWorkflowStatus } from '../../types/task'
 import { SkipOccurrenceConfirm } from '../tasks/SkipOccurrenceConfirm'
@@ -36,6 +38,7 @@ import type {
   DueSignal,
   OverflowTask,
   ScheduledBlock,
+  SkippedCommitmentBlock,
 } from '../../types/focus'
 import { formatDuration } from '../../utils/duration'
 import {
@@ -117,17 +120,22 @@ function absoluteMinute(time: string, dayOffset: number): number {
 
 // The timeline interleaves task blocks with fixed-time commitments (#319); the
 // plan keeps them in separate lists so every scheduled block is still a task.
+// A skipped occurrence (#429) sits at its time too, muted, so it can be taken
+// back; it holds no time.
 type TimelineItem =
   | { kind: 'task'; block: ScheduledBlock }
   | { kind: 'commitment'; commitment: CommitmentBlock }
+  | { kind: 'skipped'; commitment: SkippedCommitmentBlock }
 
 function timelineItems(
   scheduled: ScheduledBlock[],
   commitments: CommitmentBlock[],
+  skipped: SkippedCommitmentBlock[],
 ): TimelineItem[] {
   const items: TimelineItem[] = [
     ...scheduled.map((block) => ({ kind: 'task' as const, block })),
     ...commitments.map((commitment) => ({ kind: 'commitment' as const, commitment })),
+    ...skipped.map((commitment) => ({ kind: 'skipped' as const, commitment })),
   ]
   const start = (item: TimelineItem): number =>
     item.kind === 'task'
@@ -143,9 +151,9 @@ function itemEnd(item: TimelineItem): number {
 }
 
 function itemKey(item: TimelineItem): string {
-  return item.kind === 'task'
-    ? `task-${item.block.task_id}`
-    : `commitment-${item.commitment.entry_id}`
+  if (item.kind === 'task') return `task-${item.block.task_id}`
+  if (item.kind === 'skipped') return `skipped-${item.commitment.skip_entry_id}`
+  return `commitment-${item.commitment.entry_id}`
 }
 
 function formatBlockTime(planDate: string, time: string, dayOffset: number): string {
@@ -547,12 +555,20 @@ function CommitmentRow({
   const [pending, setPending] = useState(false)
   const [moveTo, setMoveTo] = useState<string | null>(null)
   const repeat = commitment.repeat_interval
+  const undoAction = useUndoAction(onMutated)
 
-  async function run(action: () => Promise<unknown>, success: string): Promise<void> {
+  async function run<T>(
+    action: () => Promise<T>,
+    success: string,
+    undo?: (result: T) => Promise<unknown>,
+  ): Promise<void> {
     if (pending) return
     setPending(true)
     try {
-      await withToast(action(), { success })
+      await withToast(action(), {
+        success,
+        action: undo && ((result: T) => undoAction(() => undo(result))),
+      })
       setMoveTo(null)
       onMutated()
     } catch {
@@ -638,6 +654,8 @@ function CommitmentRow({
               void run(
                 () => skipFocusOccurrence(commitment.entry_id, planDate),
                 `Skipped ${commitment.title} on this day`,
+                // Undo removes the skip, which brings the occurrence back.
+                (skip) => removeFocusEntry(skip.id),
               )
             }
           >
@@ -656,11 +674,104 @@ function CommitmentRow({
             void run(
               () => removeFocusEntry(commitment.entry_id),
               repeat ? 'Repeating commitment removed' : 'Commitment removed',
+              () => restoreFocusEntry(commitment.entry_id),
             )
           }
         >
           <X size={15} aria-hidden="true" />
           {repeat ? 'Remove series' : 'Remove'}
+        </button>
+      </div>
+    </li>
+  )
+}
+
+/**
+ * The Undo on a desktop toast (#429), matching the phone's undo bar: one click
+ * runs the inverse write, then refetches. A refused undo (the state moved on)
+ * gets its own error toast. Built from page-level callbacks only, so it still
+ * works after the row that armed it has left the timeline.
+ */
+function useUndoAction(onMutated: () => void): (undo: () => Promise<unknown>) => ToastAction {
+  const { withToast } = useToast()
+  return (undo) => ({
+    label: 'Undo',
+    onAction: () => fireAndForget(withToast(undo(), { success: 'Undone' }).then(onMutated)),
+  })
+}
+
+// A skipped occurrence of a repeating commitment (#429): muted and struck
+// through at its time, holding none of the day. Its one verb brings it back by
+// removing the skip, the same write as the Undo right after skipping.
+function SkippedCommitmentRow({
+  commitment,
+  past,
+  planDate,
+  onMutated,
+}: {
+  commitment: SkippedCommitmentBlock
+  past: boolean
+  planDate: string
+  onMutated: () => void
+}) {
+  const { withToast } = useToast()
+  const [pending, setPending] = useState(false)
+  const undoAction = useUndoAction(onMutated)
+
+  async function unskip(): Promise<void> {
+    if (pending) return
+    setPending(true)
+    try {
+      await withToast(removeFocusEntry(commitment.skip_entry_id), {
+        success: `${commitment.title} is back on this day`,
+        // Undo skips it again: the skip row is restored.
+        action: () => undoAction(() => restoreFocusEntry(commitment.skip_entry_id)),
+      })
+      onMutated()
+    } catch {
+      // The error toast already surfaced; keep the row interactive to retry.
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <li
+      className={
+        past
+          ? 'focus-block focus-commitment focus-skipped focus-block-past'
+          : 'focus-block focus-commitment focus-skipped'
+      }
+    >
+      <div className="focus-block-time" aria-hidden="true">
+        <strong>
+          {formatBlockTime(planDate, commitment.start_time, commitment.start_day_offset)}
+        </strong>
+        <span>{formatBlockTime(planDate, commitment.end_time, commitment.end_day_offset)}</span>
+      </div>
+      <div className="focus-block-body">
+        <div className="focus-block-head">
+          <span className="focus-block-title">{commitment.title}</span>
+        </div>
+        <div className="focus-block-meta">
+          <span className="focus-skipped-word">skipped</span>
+          {commitment.repeat_interval && (
+            <span className="focus-repeat-word">
+              {formatCommitmentRepeat(commitment.repeat_interval)}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="focus-row-actions">
+        <button
+          type="button"
+          className="task-action"
+          disabled={pending}
+          aria-label={`Un-skip ${commitment.title} on this day`}
+          onClick={() => void unskip()}
+        >
+          <Undo2 size={15} aria-hidden="true" />
+          Un-skip
         </button>
       </div>
     </li>
@@ -993,7 +1104,7 @@ export function FocusPage() {
   // final row and every block is dimmed). `null` means "not viewing today", so
   // no marker and no dimming — distinct from the fully-elapsed case, which a
   // bare findIndex() of -1 used to conflate.
-  const timeline = plan ? timelineItems(plan.scheduled, plan.commitments) : []
+  const timeline = plan ? timelineItems(plan.scheduled, plan.commitments, plan.skipped_commitments) : []
   let nowIndex: number | null = null
   if (viewingToday && plan) {
     const upcoming = timeline.findIndex((item) => itemEnd(item) > nowMinutes)
@@ -1137,6 +1248,13 @@ export function FocusPage() {
                         onMutated={refetch}
                         onSkip={(id, title) => setSkipTarget({ id, title })}
                         reorder={pinReorder(item.block)}
+                      />
+                    ) : item.kind === 'skipped' ? (
+                      <SkippedCommitmentRow
+                        commitment={item.commitment}
+                        past={nowIndex !== null && index < nowIndex}
+                        planDate={plan.date}
+                        onMutated={refetch}
                       />
                     ) : (
                       <CommitmentRow
