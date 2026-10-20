@@ -35,24 +35,11 @@ from app.tools.registry import UnknownToolError
 if TYPE_CHECKING:
     from app.ai.loop import ToolCallRecord
 
-# The tools that only read — exactly the registry's ``tool_session(...,
-# write=False)`` bodies, which a test pins. Named as the reads rather than the
-# writes so a tool added later without a classification fails towards "done",
+# The tools that only read, from the registry's ``read_only`` marking. A tool
+# added without the marking counts as a write, so it fails towards "done",
 # which the user can see and undo, rather than towards "looked up", which the
 # summary would then leave out.
-READ_TOOLS = frozenset(
-    {
-        "list_tasks",
-        "get_task",
-        "list_dependencies",
-        "list_projects",
-        "get_project",
-        "search",
-        "get_focus_plan",
-        "list_trash",
-        "list_activity",
-    }
-)
+READ_TOOLS = registry.read_only_tool_names()
 
 Outcome = Literal["done", "refused", "looked_up", "not_run"]
 

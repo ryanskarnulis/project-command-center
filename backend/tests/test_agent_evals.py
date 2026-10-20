@@ -53,19 +53,15 @@ from app.main import app
 from app.services import projects as projects_service
 from app.services import task_trash
 from app.services import tasks as tasks_service
-from app.tools import runtime
+from app.tools import registry, runtime
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("PCC_AGENT_EVALS") != "1",
     reason="agent evals run the real model: set PCC_AGENT_EVALS=1",
 )
 
-# Tool-name prefixes that never write; everything else counts as a mutation.
-_READ_PREFIXES = ("list_", "get_")
-
-
 def _is_read(tool: str) -> bool:
-    return tool.startswith(_READ_PREFIXES) or tool == "search"
+    return tool in registry.read_only_tool_names()
 
 
 def _mutations(result: AgentRunResult) -> list[ToolCallRecord]:
