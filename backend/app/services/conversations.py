@@ -203,7 +203,8 @@ def history_for_loop(db: Session, conversation_id: int) -> list[dict[str, str]]:
     but deliberately not round-tripped into future model context — replaying
     stale tool transcripts bloats the local model's window, and the loop
     re-reads live state through its tools instead. Assistant turns that ended
-    without a reply (iteration/correction limit) are skipped.
+    without a reply (a limit stop where nothing ran, or whose summary failed;
+    a failure; a Stop) are skipped.
 
     **Bounded** (#244): a per-turn character cap does not bound a
     conversation, so the result is the newest coherent window that fits

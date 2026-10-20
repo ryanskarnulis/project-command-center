@@ -197,13 +197,17 @@ def test_max_iterations_terminates_the_loop(tool_db: sessionmaker[Session]) -> N
         [
             _calls(("list_projects", {})),
             _calls(("list_tasks", {})),
+            _text("Looked through your projects and tasks; ran out of steps there."),
         ]
     )
     result = AgentLoop(provider, max_iterations=2).run("Browse forever.")
 
     assert result.stop_reason == "max_iterations"
     assert result.iterations == 2
-    assert len(provider.requests) == 2
+    # Two loop turns, then the tool-free summary of what ran (#399).
+    assert len(provider.requests) == 3
+    assert provider.requests[2]["tools"] == []
+    assert result.reply == "Looked through your projects and tasks; ran out of steps there."
 
 
 def test_a_turn_that_only_repeats_itself_ends_the_run_no_progress(
@@ -217,22 +221,29 @@ def test_a_turn_that_only_repeats_itself_ends_the_run_no_progress(
             _calls(("list_projects", {}), ("search", {"query": "garage"})),
             # An exchange the run has already seen, answered the same way.
             _calls(("search", {"query": "garage"})),
-            _calls(("list_projects", {})),  # never requested: the run ended
+            # The run ended: the next request is the tool-free summary (#399).
+            _text("Searched for garage and found nothing new."),
         ]
     )
     result = AgentLoop(provider).run("What's in my garage project?")
 
     assert result.stop_reason == "no_progress"
-    assert result.reply is None
+    assert result.reply == "Searched for garage and found nothing new."
     assert result.iterations == 2
-    assert len(provider.requests) == 2
+    assert len(provider.requests) == 3
+    assert provider.requests[2]["tools"] == []
     assert [record.tool for record in result.tool_calls] == [
         "list_projects",
         "search",
         "search",
     ]
-    # The transcript stays well-formed: it ends on the repeated call's answer.
-    assert result.messages[-1]["role"] == "tool"
+    # The transcript stays well-formed: the repeated call's answer, then the
+    # summary as the closing assistant turn.
+    assert result.messages[-2]["role"] == "tool"
+    assert result.messages[-1] == {
+        "role": "assistant",
+        "content": "Searched for garage and found nothing new.",
+    }
 
 
 def test_exchange_key_ignores_argument_order() -> None:
@@ -296,15 +307,15 @@ def test_tool_call_cap_answers_excess_calls_not_run_and_never_dispatches_them(
                 ("create_project", {"data": {"name": "P3"}}),
                 ("create_project", {"data": {"name": "P4"}}),
             ),
-            _text("never requested"),
+            _text("Made P1 and P2; P3 and P4 weren't made."),  # the summary
         ]
     )
     result = AgentLoop(provider, max_tool_calls=2).run("Make four projects.")
 
     assert result.stop_reason == "tool_call_limit"
-    assert result.reply is None
+    assert result.reply == "Made P1 and P2; P3 and P4 weren't made."
     assert result.iterations == 2
-    assert len(provider.requests) == 2
+    assert len(provider.requests) == 3
     assert [record.error is None for record in result.tool_calls] == [
         True,
         True,
@@ -317,7 +328,7 @@ def test_tool_call_cap_answers_excess_calls_not_run_and_never_dispatches_them(
     turn = next(
         m for m in reversed(result.messages) if m.get("tool_calls")
     )
-    answers = result.messages[result.messages.index(turn) + 1 :]
+    answers = result.messages[result.messages.index(turn) + 1 : -1]
     assert [m["tool_call_id"] for m in answers] == [
         c["id"] for c in turn["tool_calls"]
     ]
@@ -367,6 +378,8 @@ def test_cut_off_text_turn_is_dropped_and_ends_truncated(
             ChatResult(
                 content=fragment, tool_calls=[], finish_reason="length", usage=None
             ),
+            # The summary call (#399) fails, so the run keeps no reply.
+            ProviderRequestError("connect timeout"),
         ]
     )
     result = AgentLoop(provider).run("What projects do I have?")

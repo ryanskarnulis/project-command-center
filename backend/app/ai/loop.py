@@ -42,7 +42,7 @@ unbounded and a degenerate generation would otherwise run until the run's
 time budget. A call the cap cut off (``finish_reason == "length"``) never
 passes its *words* on: a cut-off text turn is not a reply, so the fragment is
 dropped — not returned, not appended to the transcript — and the run ends
-with stop reason ``truncated`` and no reply. A cut-off turn's *tool calls*
+with stop reason ``truncated`` and no reply of its own. A cut-off turn's *tool calls*
 still run: the provider parses each call's arguments whole before the result
 exists, so a call that arrived is a complete call. Only the text fragment
 beside them is dropped from history.
@@ -59,7 +59,19 @@ goes on. And a run dispatches at most ``max_tool_calls`` tool calls (default
 (one ``role: tool`` answer per call, so the transcript stays well-formed),
 never reaches the registry, and the run ends ``tool_call_limit`` after that
 turn — the next one could only be refused more of the same. Both are limits
-like ``max_iterations``, not failures, and like it they end with no reply.
+like ``max_iterations``, not failures.
+
+A run that stops at a limit — ``max_iterations``, ``correction_limit``,
+``truncated``, ``no_progress`` or ``tool_call_limit`` — still says what it did
+(#399). If any call reached the service layer, the loop makes one tool-free
+model call that reads a code-built record of the run (:mod:`app.ai.run_record`:
+done / refused / looked up / not run, from the :class:`ToolCallRecord` list,
+never from the model's words) under the note that whatever the record does not
+show as done was not done, and saves its text as the reply. The stop reason is
+unchanged. When nothing ran, or the summary call fails, runs out of time, is
+cut off, or comes back empty, the reply stays ``None`` as before. ``cancelled``
+and the failure stops never summarise: the user asked it to stop, or the run
+broke.
 """
 
 from __future__ import annotations
@@ -69,6 +81,7 @@ import threading
 import time
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -76,7 +89,7 @@ from typing import Any, Literal, Protocol
 import structlog
 from pydantic import BaseModel, ValidationError
 
-from app.ai import context_budget
+from app.ai import context_budget, run_record
 from app.ai.providers.llamacpp import (
     ChatResult,
     ProviderError,
@@ -102,16 +115,18 @@ DELEGATE_ACTORS = frozenset({"agent:conductor"})
 
 # Recorded (and fed back) for a tool call the run's deadline passed before we
 # could start it — the call never reached the registry or the service layer.
-_SKIPPED_ERROR = "not run: the agent run's time budget was exhausted before this call"
+_SKIPPED_ERROR = (
+    f"{run_record.NOT_RUN_PREFIX}the agent run's time budget was exhausted before this call"
+)
 
 # Recorded (and fed back) for a tool call the user's Stop arrived before — the
 # call never reached the registry or the service layer.
-_CANCELLED_ERROR = "not run: the user stopped the agent run before this call"
+_CANCELLED_ERROR = f"{run_record.NOT_RUN_PREFIX}the user stopped the agent run before this call"
 
 # Recorded (and fed back) for a call past the run's tool-call cap (#398) — the
 # call never reached the registry or the service layer.
 _TOOL_CALL_LIMIT_ERROR = (
-    "not run: the agent run reached its limit of tool calls before this call"
+    f"{run_record.NOT_RUN_PREFIX}the agent run reached its limit of tool calls before this call"
 )
 
 
@@ -193,6 +208,11 @@ DEFAULT_MAX_TOKENS = context_budget.COMPLETION_RESERVE_TOKENS
 # included — that is how the 18 was counted.
 DEFAULT_MAX_TOOL_CALLS = 24
 
+# The summary call's completion cap (#399): a few sentences of what the run
+# did. Far under the turn cap, so a runaway summary is cut off — and dropped —
+# long before it can eat the run's time budget.
+SUMMARY_MAX_TOKENS = 512
+
 # ``finish_reason`` of a call the ``max_tokens`` cap cut off.
 _FINISH_LENGTH = "length"
 
@@ -243,6 +263,15 @@ class ChatProvider(Protocol):
         max_tokens: int | None = None,
         timeout: float | None = None,
     ) -> ChatResult: ...
+
+
+@dataclass(frozen=True)
+class _RunContext:
+    """What a limit stop needs from the run to summarise it (#399)."""
+
+    user_message: str
+    deadline: float | None
+    cancel: threading.Event | None
 
 
 class ToolCallRecord(BaseModel):
@@ -404,6 +433,7 @@ class AgentLoop:
             {"role": "user", "content": user_message},
         ]
         records: list[ToolCallRecord] = []
+        ctx = _RunContext(user_message=user_message, deadline=deadline, cancel=cancel)
         corrections = 0
         iterations = 0
         # Calls that reached the registry this run (the cap's count), and every
@@ -450,7 +480,7 @@ class AgentLoop:
                     corrections=corrections,
                 )
                 if corrections > self._max_corrections:
-                    return self._finish("correction_limit", None, records, iteration, messages)
+                    return self._limit_stop("correction_limit", ctx, records, iteration, messages)
                 messages.append(
                     {
                         "role": "user",
@@ -479,7 +509,7 @@ class AgentLoop:
                     # Cut off by the cap: the fragment is not a reply. Drop it
                     # (never returned, never in the transcript) and end the
                     # run under its own stop reason.
-                    return self._finish("truncated", None, records, iteration, messages)
+                    return self._limit_stop("truncated", ctx, records, iteration, messages)
                 # A text turn terminates the loop, even when content is empty.
                 messages.append(result.to_message())
                 return self._finish("completed", result.content, records, iteration, messages)
@@ -555,21 +585,106 @@ class AgentLoop:
                 seen.add(exchange)
             if over_cap:
                 # The next turn could only be refused more of the same.
-                return self._finish(
-                    "tool_call_limit", None, records, iteration, messages
+                return self._limit_stop(
+                    "tool_call_limit", ctx, records, iteration, messages
                 )
             if schema_error_this_turn:
                 corrections += 1
                 if corrections > self._max_corrections:
-                    return self._finish("correction_limit", None, records, iteration, messages)
+                    return self._limit_stop("correction_limit", ctx, records, iteration, messages)
                 # A malformed call is what the correction budget is for, so a
                 # turn with one is never judged a stall.
             elif not progressed:
                 # Every call this turn repeated an exchange the run had already
                 # seen: another turn can bring nothing new back (#398).
                 logger.warning("agent_run_no_progress", tool_calls=len(result.tool_calls))
-                return self._finish("no_progress", None, records, iteration, messages)
-        return self._finish("max_iterations", None, records, iterations, messages)
+                return self._limit_stop("no_progress", ctx, records, iteration, messages)
+        return self._limit_stop("max_iterations", ctx, records, iterations, messages)
+
+    def _limit_stop(
+        self,
+        stop_reason: _StopReason,
+        ctx: _RunContext,
+        records: list[ToolCallRecord],
+        iterations: int,
+        messages: list[dict[str, Any]],
+    ) -> AgentRunResult:
+        """End the run at a limit — with a reply from what ran, when anything did (#399).
+
+        The stop reason is kept as is (delegates and the UI read it); only the
+        reply changes. When no call reached the service layer there is nothing
+        verified to say, so the reply stays ``None`` and the client shows its
+        stop line, exactly as before.
+        """
+        reply = self._summarise(stop_reason, ctx, records)
+        if reply is not None:
+            messages.append({"role": "assistant", "content": reply})
+        return self._finish(stop_reason, reply, records, iterations, messages)
+
+    def _summarise(
+        self,
+        stop_reason: _StopReason,
+        ctx: _RunContext,
+        records: list[ToolCallRecord],
+    ) -> str | None:
+        """One tool-free model call that says what a limit-stopped run did.
+
+        It reads the code-built record (:mod:`app.ai.run_record`), never the
+        run's transcript, under the note that whatever the record does not show
+        as done was not done. Bounded like every call: ``max_tokens`` and the
+        time left before the run's deadline. Anything short of a whole answer —
+        no time left, a Stop, a provider failure, a reply the cap cut off, an
+        empty one — returns ``None``: the run keeps today's stop line rather
+        than a fragment or an error.
+        """
+        if not run_record.any_ran(records):
+            return None
+        if ctx.cancel is not None and ctx.cancel.is_set():
+            return None
+        timeout: float | None = None
+        if ctx.deadline is not None:
+            timeout = ctx.deadline - time.monotonic()
+            if timeout <= 0:
+                logger.warning("agent_summary_skipped", reason="deadline_exceeded")
+                return None
+        request = run_record.summary_messages(
+            ctx.user_message,
+            records,
+            stop_reason,
+            _GLOBAL_PERSONALITY,
+            date.today(),
+        )
+        try:
+            result = self._provider.chat(
+                request,
+                tools=None,
+                max_tokens=min(self._max_tokens, SUMMARY_MAX_TOKENS),
+                timeout=timeout,
+            )
+        except Exception as exc:
+            # A provider fault, a timeout or a bug: the run's work is already
+            # committed and its record stands, so the summary is dropped, never
+            # the run.
+            logger.warning(
+                "agent_summary_failed",
+                stop_reason=stop_reason,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            return None
+        if result.finish_reason == _FINISH_LENGTH:
+            logger.warning("agent_summary_truncated", stop_reason=stop_reason)
+            return None
+        reply = (result.content or "").strip()
+        if result.tool_calls or not reply:
+            logger.warning(
+                "agent_summary_unusable",
+                stop_reason=stop_reason,
+                tool_calls=len(result.tool_calls),
+            )
+            return None
+        logger.info("agent_summary", stop_reason=stop_reason, chars=len(reply))
+        return reply
 
     @staticmethod
     def _skip_remaining(
@@ -639,7 +754,7 @@ class AgentLoop:
             record.error = str(exc)
             schema_error = True
         except ValidationError as exc:
-            record.error = f"Invalid arguments: {_validation_summary(exc)}"
+            record.error = f"{run_record.INVALID_ARGUMENTS_PREFIX}{_validation_summary(exc)}"
             schema_error = True
         except ToolError as exc:
             # Domain rejection with a reason the model can act on.

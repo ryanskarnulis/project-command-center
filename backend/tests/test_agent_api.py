@@ -328,12 +328,14 @@ def test_cut_off_reply_is_saved_as_truncated_without_content(
 def test_run_that_repeats_itself_is_saved_as_no_progress(
     client: TestClient, tool_db: sessionmaker[Session]
 ) -> None:
-    """A stalled run (#398) is a limit, not a failure: 200, no content, stop
-    reason ``no_progress``, and the calls that ran are on the saved turn."""
+    """A stalled run (#398) is a limit, not a failure: 200, stop reason
+    ``no_progress``, and the calls that ran are on the saved turn. Its summary
+    call (#399) fails here, so no content is saved and the stop line stands."""
     provider = ScriptedProvider(
         [
             tool_calls_turn(("list_projects", {})),
             tool_calls_turn(("list_projects", {})),
+            ProviderRequestError("connect timeout"),
         ]
     )
     _use_loop(provider)
