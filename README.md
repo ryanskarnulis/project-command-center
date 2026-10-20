@@ -123,12 +123,16 @@ Key decisions:
 - **Stored day plan** (#319, design in
   [`docs/focus-day-plan.md`](docs/focus-day-plan.md)): `focus_plan_entries`
   holds the user's decisions for one day, which the otherwise derived Focus
-  plan honours. There are three kinds:
+  plan honours. There are four kinds:
   - a **floating pin**: the task joins the day ahead of the ranked work and
     never lands in "Didn't fit";
   - a **timed pin**: a fixed block at `start_minute`;
   - a **commitment**: a fixed block with a title and a duration that is not a
-    task, e.g. a 14:00 meeting.
+    task, e.g. a 14:00 meeting. With `repeat_interval` (the task cadence
+    shape) it is a **series** that repeats from its `plan_date` on (#376):
+    one row, its occurrences worked out per day on read, never stored ahead;
+  - a **skip** (`series_id` set, nothing else): that series' occurrence on
+    `plan_date` doesn't happen. Removing the skip brings it back.
 
   Tasks are first-fit packed into the gaps around the fixed blocks. A pin
   whose task is done, trashed, deferred or blocked is ignored, never deleted.
@@ -140,8 +144,9 @@ Key decisions:
   - `POST /api/focus/pins`
   - `PUT /api/focus/pins/order` (reorder floating pins, #375)
   - `POST /api/focus/commitments`
-  - `PATCH` and `DELETE /api/focus/entries/{id}`
+  - `PATCH` and `DELETE /api/focus/entries/{id}` (on a series: every day)
   - `POST /api/focus/entries/{id}/restore`
+  - `POST /api/focus/entries/{id}/skip` (one day of a series, #376)
 
   Agent tools: `pin_focus_task`, `reorder_focus_pins`,
   `add_focus_commitment`, `remove_focus_entry` and `restore_focus_entry`.
@@ -323,10 +328,12 @@ Three things the design assumes are stored, and how they behave here:
   jumps past it. The push notice names a commitment the overrun runs into.
   Open time before a fixed row shows as a dashed `… open` spacer. A
   commitment has no swipe: Move and Remove live behind `⋯`, and Add
-  commitment lives in the session sheet.
+  commitment lives in the session sheet. A repeating commitment's `⋯` adds
+  Skip this day; its Move and Remove act on the whole series.
 
 Desktop keeps its controls, its four-column rows and its now-marker. Its
-timeline interleaves commitments, with Move and Remove. Scheduled rows offer
+timeline interleaves commitments, with Move and Remove (and Skip day on a
+repeating one). Scheduled rows offer
 Pin, optionally at a time, and Unpin. "Didn't fit" rows offer Schedule.
 
 ## Mobile trash

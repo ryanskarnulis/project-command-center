@@ -2,6 +2,13 @@ import { useState } from 'react'
 import { BottomSheet } from '../../../components/BottomSheet'
 import { formatClockDuration, formatClockTime } from './focusDay'
 import type { RunState } from './focusDay'
+import type { RepeatInterval } from '../../../types/task'
+import { formatRepeatInterval } from '../../../utils/recurrence'
+import {
+  COMMITMENT_REPEATS,
+  commitmentRepeatInterval,
+  type CommitmentRepeat,
+} from '../commitmentRepeat'
 
 /* The M05i bottom sheets. Both use the shared `BottomSheet` primitive, so
    they inherit its scrim, focus containment, Escape and swipe-down dismiss. */
@@ -46,7 +53,12 @@ interface SessionSheetProps {
   onDate: (date: string) => void
   onStartTime: (startTime: string) => void
   onCapacity: (minutes: number) => void
-  onAddCommitment: (title: string, start: string, minutes: number) => void
+  onAddCommitment: (
+    title: string,
+    start: string,
+    minutes: number,
+    repeat: RepeatInterval | null,
+  ) => void
   onClose: () => void
 }
 
@@ -59,18 +71,21 @@ const COMMITMENT_MINUTES = [15, 30, 45, 60, 90, 120]
 function CommitmentForm({
   onAdd,
 }: {
-  onAdd: (title: string, start: string, minutes: number) => void
+  onAdd: (title: string, start: string, minutes: number, repeat: RepeatInterval | null) => void
 }) {
   const [title, setTitle] = useState('')
   const [start, setStart] = useState('')
   const [minutes, setMinutes] = useState(30)
+  const [repeat, setRepeat] = useState<CommitmentRepeat>('once')
   return (
     <form
       className="focus-sheet-group focus-sheet-commitment"
       aria-label="Add commitment"
       onSubmit={(event) => {
         event.preventDefault()
-        if (title.trim() && start) onAdd(title.trim(), start, minutes)
+        if (title.trim() && start) {
+          onAdd(title.trim(), start, minutes, commitmentRepeatInterval(repeat))
+        }
       }}
     >
       <h4>Add commitment</h4>
@@ -99,6 +114,17 @@ function CommitmentForm({
           {COMMITMENT_MINUTES.map((value) => (
             <option key={value} value={value}>
               {formatClockDuration(value)}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Commitment repeat"
+          value={repeat}
+          onChange={(event) => setRepeat(event.target.value as CommitmentRepeat)}
+        >
+          {COMMITMENT_REPEATS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
             </option>
           ))}
         </select>
@@ -279,13 +305,19 @@ interface CommitmentSheetProps {
   title: string
   start: number
   duration: number
+  /** Set when the commitment repeats (#376): Move and Remove then act on the series. */
+  repeat: RepeatInterval | null
   onMove: (start: string) => void
+  onSkip: () => void
   onRemove: () => void
   onClose: () => void
 }
 
-/** A commitment's ⋯ sheet: it is not a task, so Move and Remove are all it offers. */
-export function FocusCommitmentSheet({ title, start, duration, onMove, onRemove, onClose }: CommitmentSheetProps) {
+/**
+ * A commitment's ⋯ sheet: it is not a task, so Move and Remove are all it
+ * offers, plus Skip this day when it repeats.
+ */
+export function FocusCommitmentSheet({ title, start, duration, repeat, onMove, onSkip, onRemove, onClose }: CommitmentSheetProps) {
   const [moveTo, setMoveTo] = useState(formatClockTime(start))
   return (
     <BottomSheet className="focus-sheet focus-row-sheet" labelledBy="focus-commitment-sheet-title" handleLabel="Close commitment actions" onClose={onClose}>
@@ -293,6 +325,12 @@ export function FocusCommitmentSheet({ title, start, duration, onMove, onRemove,
         <h2 id="focus-commitment-sheet-title">{title}</h2>
         <span>
           {formatClockTime(start)} → {formatClockTime(start + duration)} · {formatClockDuration(duration)}
+          {repeat && (
+            <>
+              {' · '}
+              <span className="focus-repeat-word">{formatRepeatInterval(repeat)}</span>
+            </>
+          )}
         </span>
       </header>
       <form
@@ -310,12 +348,17 @@ export function FocusCommitmentSheet({ title, start, duration, onMove, onRemove,
           onChange={(event) => setMoveTo(event.target.value)}
         />
         <button type="submit" className="focus-sheet-chip">
-          Move
+          {repeat ? 'Move every day' : 'Move'}
         </button>
       </form>
       <div className="focus-sheet-actions">
+        {repeat && (
+          <button type="button" className="focus-sheet-action" onClick={onSkip}>
+            Skip this day
+          </button>
+        )}
         <button type="button" className="focus-sheet-action danger" onClick={onRemove}>
-          Remove
+          {repeat ? 'Remove series' : 'Remove'}
         </button>
       </div>
       <button type="button" className="focus-sheet-cancel" onClick={onClose}>

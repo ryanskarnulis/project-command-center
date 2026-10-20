@@ -2,13 +2,16 @@
 
 The only write path for ``focus_plan_entries``. Each write lands in
 ``activity_events`` as ``entity_type="focus_entry"``; removal is a soft delete
-and ``restore_entry`` is its undo. The packer that reads these rows lives in
-``services/focus.py``; the design is ``docs/focus-day-plan.md``.
+and ``restore_entry`` is its undo. A repeating commitment is one series row
+whose occurrences are worked out per day on read (``day_commitments``, #376);
+skipping one day stores a skip row for that day. The packer that reads these
+rows lives in ``services/focus.py``; the design is ``docs/focus-day-plan.md``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from calendar import monthrange
+from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any
 
@@ -18,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import FocusPlanEntry, Task, TaskWorkflowStatus
 from app.schemas.focus import FocusEntryRead
+from app.schemas.tasks import RepeatInterval
 from app.services import activity
 from app.services import tasks as tasks_service
 from app.services.common import active, restore, soft_delete
@@ -49,9 +53,96 @@ def entry_read(entry: FocusPlanEntry) -> FocusEntryRead:
         start_time=None if entry.start_minute is None else format_time(entry.start_minute),
         duration_minutes=entry.duration_minutes,
         position=entry.position,
+        repeat_interval=RepeatInterval.model_validate(entry.repeat_interval)
+        if entry.repeat_interval is not None
+        else None,
+        series_id=entry.series_id,
         created_at=entry.created_at,
         deleted_at=entry.deleted_at,
     )
+
+
+# --- Repeating commitments (#376) ---------------------------------------------
+
+_SHORTHAND = {"day": "daily", "week": "weekly", "month": "monthly"}
+
+
+def format_repeat(interval: Mapping[str, Any]) -> str:
+    """``{"unit": "day", "every": 1}`` -> "daily"; ``every`` > 1 -> "every 2 weeks"."""
+    unit, every = str(interval["unit"]), int(interval["every"])
+    if every == 1:
+        return _SHORTHAND[unit]
+    return f"every {every} {unit}s"
+
+
+def occurs_on(series: FocusPlanEntry, day: date) -> bool:
+    """Whether a commitment has an occurrence on ``day``.
+
+    A repeating one counts from its own ``plan_date`` (its first occurrence),
+    never chained from the previous occurrence, so a monthly series that starts
+    on the 31st lands on the last day of a short month and back on the 31st
+    after it. Skips are not consulted here; ``day_commitments`` applies them.
+    """
+    interval = series.repeat_interval
+    if interval is None:
+        return series.plan_date == day
+    anchor = series.plan_date
+    if day < anchor:
+        return False
+    unit, every = interval["unit"], int(interval["every"])
+    if unit == "day":
+        return (day - anchor).days % every == 0
+    if unit == "week":
+        return (day - anchor).days % (7 * every) == 0
+    if unit == "month":
+        months = (day.year - anchor.year) * 12 + (day.month - anchor.month)
+        if months % every:
+            return False
+        return day.day == min(anchor.day, monthrange(day.year, day.month)[1])
+    raise ValueError(f"Unknown recurrence unit: {unit!r}")
+
+
+def day_commitments(db: Session, plan_date: date) -> list[FocusPlanEntry]:
+    """The commitments that happen on ``plan_date``, in start order.
+
+    That day's one-off commitments, plus every live series with an occurrence
+    that day which no live skip removes. A series is one row however many days
+    it covers: its occurrences are worked out here, on read, and nothing is
+    stored for a day until somebody makes a decision about it.
+    """
+    one_offs = list(
+        db.execute(
+            active(FocusPlanEntry).where(
+                FocusPlanEntry.plan_date == plan_date,
+                FocusPlanEntry.task_id.is_(None),
+                FocusPlanEntry.series_id.is_(None),
+                FocusPlanEntry.repeat_interval.is_(None),
+            )
+        ).scalars()
+    )
+    series = [
+        entry
+        for entry in db.execute(
+            active(FocusPlanEntry).where(
+                FocusPlanEntry.repeat_interval.is_not(None),
+                FocusPlanEntry.plan_date <= plan_date,
+            )
+        ).scalars()
+        if occurs_on(entry, plan_date)
+    ]
+    skipped: set[int | None] = set()
+    if series:
+        skipped = set(
+            db.execute(
+                select(FocusPlanEntry.series_id).where(
+                    FocusPlanEntry.series_id.in_([entry.id for entry in series]),
+                    FocusPlanEntry.plan_date == plan_date,
+                    FocusPlanEntry.deleted_at.is_(None),
+                )
+            ).scalars()
+        )
+    happening = [*one_offs, *(entry for entry in series if entry.id not in skipped)]
+    return sorted(happening, key=lambda entry: (entry.start_minute or 0, entry.id))
 
 
 def list_entries(db: Session, plan_date: date) -> list[FocusPlanEntry]:
@@ -120,11 +211,19 @@ def _ensure_pinnable(db: Session, task: Task) -> None:
         raise FocusEntryError(f'Task "{task.title}" is done and can\'t be pinned')
 
 
-def _label(entry: FocusPlanEntry, task_title: str | None) -> str:
+def _label(db: Session, entry: FocusPlanEntry, task_title: str | None) -> str:
     when = "" if entry.start_minute is None else f" at {format_time(entry.start_minute)}"
+    day = entry.plan_date.isoformat()
+    if entry.series_id is not None:
+        series = db.get(FocusPlanEntry, entry.series_id)
+        title = series.title if series is not None else "?"
+        return f'Commitment "{title}" on {day}'
     if entry.task_id is None:
-        return f'Commitment "{entry.title}"{when} on {entry.plan_date.isoformat()}'
-    return f'Task "{task_title}" pinned{when} on {entry.plan_date.isoformat()}'
+        if entry.repeat_interval is not None:
+            cadence = format_repeat(entry.repeat_interval)
+            return f'Commitment "{entry.title}"{when}, {cadence} from {day},'
+        return f'Commitment "{entry.title}"{when} on {day}'
+    return f'Task "{task_title}" pinned{when} on {day}'
 
 
 def _record(
@@ -136,7 +235,7 @@ def _record(
         entity_type=ENTITY_TYPE,
         entity_id=entry.id,
         action=action,
-        summary=f"{_label(entry, task.title if task else None)} {verb}",
+        summary=f"{_label(db, entry, task.title if task else None)} {verb}",
     )
 
 
@@ -180,19 +279,59 @@ def add_commitment(
     title: str,
     start_minute: int,
     duration_minutes: int,
+    repeat_interval: Mapping[str, Any] | None = None,
 ) -> FocusPlanEntry:
-    """Add a fixed-time commitment that is not a task. Caller commits."""
+    """Add a fixed-time commitment that is not a task. Caller commits.
+
+    With ``repeat_interval`` it is a series that recurs from ``plan_date`` on
+    (#376): still one row, read per day by ``day_commitments``.
+    """
     entry = FocusPlanEntry(
         plan_date=plan_date,
         title=title,
         start_minute=start_minute,
         duration_minutes=duration_minutes,
         position=_next_position(db, plan_date),
+        repeat_interval=None if repeat_interval is None else dict(repeat_interval),
     )
     db.add(entry)
     db.flush()
     _record(db, entry, "created", None, "added to Focus")
     return entry
+
+
+def _live_skip(db: Session, series_id: int, plan_date: date) -> FocusPlanEntry | None:
+    return db.execute(
+        active(FocusPlanEntry).where(
+            FocusPlanEntry.series_id == series_id, FocusPlanEntry.plan_date == plan_date
+        )
+    ).scalar_one_or_none()
+
+
+def skip_occurrence(
+    db: Session, series: FocusPlanEntry, plan_date: date
+) -> FocusPlanEntry:
+    """Skip one day's occurrence of a repeating commitment (#376). Caller commits.
+
+    Stores a skip row for that day; the series and its other days are
+    untouched. Idempotent: skipping a skipped day returns the skip already
+    there. Undo is ``remove_entry`` on the returned skip. Stopping the whole
+    series is ``remove_entry`` on the series itself.
+    """
+    if series.task_id is not None or series.repeat_interval is None:
+        raise FocusEntryError("Only a repeating commitment has occurrences to skip")
+    if not occurs_on(series, plan_date):
+        raise FocusEntryError(
+            f'Commitment "{series.title}" doesn\'t happen on {plan_date.isoformat()}'
+        )
+    existing = _live_skip(db, series.id, plan_date)
+    if existing is not None:
+        return existing
+    skip = FocusPlanEntry(plan_date=plan_date, series_id=series.id)
+    db.add(skip)
+    db.flush()
+    _record(db, skip, "skipped", None, "skipped")
+    return skip
 
 
 def update_entry(
@@ -203,6 +342,10 @@ def update_entry(
     A commitment always keeps a time, title and duration; a pin carries only a
     time. Caller commits.
     """
+    if entry.series_id is not None:
+        raise FocusEntryError(
+            "A skipped occurrence has nothing to edit; remove the skip to bring it back"
+        )
     is_commitment = entry.task_id is None
     if not is_commitment and ({"title", "duration_minutes"} & fields.keys()):
         raise FocusEntryError("A pinned task takes its title and length from the task")
@@ -252,6 +395,8 @@ def reorder_pins(
             raise FocusEntryError(
                 f"Focus entry {entry_id} is not a live entry of {plan_date.isoformat()}"
             )
+        if entry.series_id is not None:
+            raise FocusEntryError(f"Focus entry {entry_id} is a skip and has no order")
         if entry.task_id is None:
             raise FocusEntryError(
                 f'Commitment "{entry.title}" sits at its own time and has no order'
@@ -290,14 +435,25 @@ def reorder_pins(
 
 
 def remove_entry(db: Session, entry: FocusPlanEntry) -> None:
-    """Soft-delete an entry (unpin / drop a commitment). Undo with restore_entry."""
+    """Soft-delete an entry. Undo with restore_entry.
+
+    Unpins a task, drops a commitment, stops a whole repeating series (every
+    day it covers, #376), or removes a skip so that occurrence happens again.
+    """
     soft_delete(entry)
     db.flush()
-    _record(db, entry, "deleted", _task_of(db, entry), "removed from Focus")
+    verb = "un-skipped" if entry.series_id is not None else "removed from Focus"
+    _record(db, entry, "deleted", _task_of(db, entry), verb)
 
 
 def restore_entry(db: Session, entry: FocusPlanEntry) -> FocusPlanEntry:
-    """Bring back a removed entry; refused if the task has been pinned again since."""
+    """Bring back a removed entry; refused if the task has been pinned again since.
+
+    Restoring a removed skip skips that occurrence again, unless it has been
+    skipped again since.
+    """
+    if entry.series_id is not None and _live_skip(db, entry.series_id, entry.plan_date):
+        raise FocusEntryError("That occurrence is already skipped")
     if entry.task_id is not None:
         if _live_pin(db, entry.plan_date, entry.task_id) is not None:
             raise FocusEntryError("That task is already pinned to this day")
@@ -306,7 +462,8 @@ def restore_entry(db: Session, entry: FocusPlanEntry) -> FocusPlanEntry:
             raise FocusEntryError("The pinned task is in the trash")
     restore(entry)
     db.flush()
-    _record(db, entry, "restored", _task_of(db, entry), "restored to Focus")
+    verb = "skipped again" if entry.series_id is not None else "restored to Focus"
+    _record(db, entry, "restored", _task_of(db, entry), verb)
     return entry
 
 

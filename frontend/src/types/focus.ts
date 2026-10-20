@@ -1,4 +1,4 @@
-import type { TaskPriority, TaskWorkflowStatus } from './task'
+import type { RepeatInterval, TaskPriority, TaskWorkflowStatus } from './task'
 
 // Mirrors backend app/schemas/focus.py. How a task's due date relates to the
 // plan's target day; derived in the scheduler, no stored column.
@@ -50,6 +50,9 @@ export interface CommitmentBlock {
   start_day_offset: number
   end_day_offset: number
   duration_minutes: number
+  // Set when the commitment repeats (#376). `entry_id` is then the series:
+  // editing or removing it changes every day; skipping takes out one day.
+  repeat_interval: RepeatInterval | null
 }
 
 export interface OverflowTask {
@@ -107,6 +110,10 @@ export interface FocusEntry {
   start_time: string | null // HH:MM; null = a floating pin
   duration_minutes: number | null
   position: number
+  // A repeating commitment's cadence (#376); null on every other kind.
+  repeat_interval: RepeatInterval | null
+  // Set only on a skip: the series whose `plan_date` occurrence it skips.
+  series_id: number | null
   created_at: string
   deleted_at: string | null
 }

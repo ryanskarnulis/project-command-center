@@ -44,7 +44,8 @@ With an overlay:
 | `position` | order among the day's floating pins (append = max + 1; reorder renumbers) |
 | `deleted_at` | soft delete. Removing an entry is undoable via restore |
 
-There are three kinds of entry:
+There are three kinds of entry (a fourth, the skip, came with repeating
+commitments; see below):
 
 1. **Floating pin**: "this task is in today's plan". It sits ahead of the ranked
    list in `position` order and never lands in "Didn't fit".
@@ -241,6 +242,121 @@ Client (`mobile/useFocusClock.ts`, `mobile/useFocusSessionLog.ts`):
   adopted when the server has none. A key stays for a retry if the server was
   unreachable.
 
+## Repeating commitments (#376)
+
+A daily 10:00 standup used to need re-adding every day. A commitment can now
+repeat, and the overlay rule above still holds: a series is one stored
+decision, and its occurrences are worked out per day when the plan is read.
+Nothing is stored for a future day ahead of time.
+
+**Decision: a column on the commitment row, not a separate rule table.** A
+series *is* a commitment (title, start, length), plus a cadence. A rule table
+would duplicate those columns and give the plan two places to read a
+commitment from. Two nullable columns on `focus_plan_entries`:
+
+| column | meaning |
+|---|---|
+| `repeat_interval` | the cadence, the task shape `{"unit": "day"\|"week"\|"month", "every": 1-12}`. Set means this commitment is a **series** that repeats from its `plan_date` (the first occurrence) on |
+| `series_id` | set only on a **skip**: the series whose occurrence on `plan_date` doesn't happen |
+
+The kind check gains a fourth kind: a skip carries `series_id` and nothing
+else (no task, title, time, length or cadence). The other kinds carry no
+`series_id`, and only a commitment may carry a cadence. A partial unique
+index allows one live skip per series per day. `repeat_interval` is
+`JSON(none_as_null=True)`, so Python `None` is SQL `NULL` and never the JSON
+`null` the check would count as set.
+
+**Which days a series covers** (`focus_plan.occurs_on`), counted from the
+first occurrence, never chained from the previous one:
+
+- `day` / `week`: every `every` days / `7 × every` days from `plan_date`.
+- `month`: every `every` months, on the first occurrence's day-of-month,
+  clamped to a short month's last day. A series starting on 31 January lands
+  on 28 February and on 31 March. This differs on purpose from task
+  recurrence, which chains from the last due date and so drifts to the 28th
+  for good.
+
+**How a day reads its commitments** (`focus_plan.day_commitments`): that
+day's one-off commitments, plus every live series with `plan_date <= day`
+that `occurs_on` the day, minus the series with a live skip for that day. The
+series query is all live series up to the day, filtered in Python. A person
+has a handful, so it isn't indexed. The packer treats an occurrence exactly
+like a one-off commitment: a fixed block, dropped as past once it has ended
+before the window starts. Task pins are still read from that day's own rows.
+
+A plan's `CommitmentBlock` carries `repeat_interval`. For an occurrence,
+`entry_id` is the **series** row, the same id on every day.
+
+### Verbs
+
+- **Add** (`POST /api/focus/commitments` with an optional `repeat_interval`)
+  creates the series. Creation stays lane-scoped: the Focus page's
+  add-commitment form (desktop) and the session sheet (mobile) gain a Repeat
+  choice of Once, Daily, Weekly or Monthly. The API takes any task cadence.
+- **Skip one day** (`POST /api/focus/entries/{series_id}/skip` with
+  `{plan_date}`) stores a skip row for that day and returns it. It is
+  idempotent: skipping a skipped day returns the skip already there. Skipping
+  a one-off commitment, a pin, or a day the series doesn't cover is a 409.
+  - **Undo** is removing the skip (`DELETE /api/focus/entries/{skip_id}`), a
+    soft delete like every other removal. Restoring a removed skip skips the
+    day again. Nothing is hard-deleted.
+  - Activity: `skipped` when stored, then `deleted` / `restored` as for any
+    entry, with summaries that name the series and the day.
+- **Stop the series**: remove the series row (`DELETE` on its id). This takes
+  out every occurrence, past days included, and restore brings them all back.
+  A past day's plan isn't a record of what happened (`focus_sessions` is), so
+  losing a past occurrence from it costs nothing. "Stop from today on, keep
+  the earlier days" would need an end date, and is out of scope (below).
+- **Edit the series**: `PATCH` on the series row changes the time, title or
+  length of every occurrence, past and future. On both Focus pages, Move on a
+  repeating commitment says so ("Move every day" on mobile; the desktop toast
+  says "every time"). A skip has nothing to edit (409).
+
+**Out of scope, deliberately:**
+
+- **Editing one occurrence** ("just today, standup is at 10:30"). The shape
+  leaves room for it: a skip-like row for that day carrying its own time. For
+  now, skip the day and add a one-off commitment instead.
+- An **end date** ("stop from today on") and a **count** ("ten times").
+- **Changing the cadence** of an existing commitment. `PATCH` takes no
+  `repeat_interval`, so a one-off can't be turned into a series or back.
+  Remove the series and add a new one.
+- **Weekdays only.** The task cadence has no "every weekday", so a Mon–Fri
+  standup is a daily series with weekend days skipped, or five weekly series.
+- **Showing a skipped day.** A skipped occurrence just isn't in that day's
+  plan. The mobile undo bar can bring it back; after that, only the API can
+  (remove the skip).
+
+### UI
+
+- The cadence is a coloured word in the meta line (`daily`, `weekly`,
+  `every 2 weeks`), beside `fixed`, never a pill.
+- Desktop: a repeating commitment's row adds **Skip day**, and its Remove
+  reads **Remove series**.
+- Mobile: the `⋯` sheet adds **Skip this day**, with the undo bar (its undo
+  removes the skip), and its Remove reads **Remove series**. A skipped
+  occurrence leaves the timeline, and `buildDayShape` needs no change: an
+  occurrence arrives as an ordinary fixed row.
+
+### Agent
+
+The tool schemas are unchanged in this PR, so the eval gate isn't triggered by
+an input-schema change. `add_focus_commitment` still adds a one-off. Its
+service call simply leaves the new `repeat_interval` argument at its default.
+
+Two things the agent does see:
+
+- Results gain the new nullable fields: `repeat_interval` on
+  `get_focus_plan`'s commitments, and `repeat_interval` / `series_id` on
+  entries.
+- `remove_focus_entry` given a series' `entry_id` removes the whole series.
+  It stays undoable with `restore_focus_entry`, and the activity summary names
+  the cadence ("…, daily from 2026-10-20, removed from Focus").
+
+Letting the agent create a series or skip one day means a tool-schema change,
+which runs the eval gate, so it is a follow-up.
+
 ## Not built (follow-ups)
 
-- Recurring commitments (#376).
+- Editing one occurrence of a repeating commitment, an end date for a series,
+  weekday cadences, and agent tools for series and skips (#376's follow-ups).

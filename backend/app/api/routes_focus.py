@@ -18,6 +18,7 @@ from app.schemas.focus import (
     FocusEntryRead,
     FocusEntryUpdate,
     FocusFinishedBlockRead,
+    FocusOccurrenceSkip,
     FocusPinCreate,
     FocusPinOrder,
     FocusPlan,
@@ -159,10 +160,39 @@ def add_commitment(
         title=data.title,
         start_minute=focus_plan_service.parse_time(data.start_time),
         duration_minutes=data.duration_minutes,
+        repeat_interval=None
+        if data.repeat_interval is None
+        else data.repeat_interval.model_dump(),
     )
     db.commit()
-    logger.info("focus_commitment_added", entry_id=entry.id)
+    logger.info(
+        "focus_commitment_added", entry_id=entry.id, repeats=entry.repeat_interval is not None
+    )
     return focus_plan_service.entry_read(entry)
+
+
+@router.post("/focus/entries/{entry_id}/skip", response_model=FocusEntryRead)
+def skip_occurrence(
+    entry_id: EntityId, data: FocusOccurrenceSkip, db: Session = Depends(get_db_write)
+) -> FocusEntryRead:
+    """Skip one day's occurrence of a repeating commitment (#376).
+
+    Returns the skip; removing it (``DELETE /focus/entries/{id}``) is the undo.
+    Idempotent: a day already skipped returns its skip.
+    """
+    series = _entry_or_404(db, entry_id)
+    try:
+        skip = focus_plan_service.skip_occurrence(db, series, data.plan_date)
+    except focus_plan_service.FocusEntryError as exc:
+        raise _conflict(exc) from exc
+    db.commit()
+    logger.info(
+        "focus_occurrence_skipped",
+        entry_id=skip.id,
+        series_id=series.id,
+        date=data.plan_date.isoformat(),
+    )
+    return focus_plan_service.entry_read(skip)
 
 
 @router.patch("/focus/entries/{entry_id}", response_model=FocusEntryRead)
@@ -181,7 +211,11 @@ def update_entry(
 
 @router.delete("/focus/entries/{entry_id}", response_model=FocusEntryRead)
 def remove_entry(entry_id: EntityId, db: Session = Depends(get_db_write)) -> FocusEntryRead:
-    """Soft-delete an entry (unpin a task or drop a commitment); undo with restore."""
+    """Soft-delete an entry; undo with restore.
+
+    Unpins a task, drops a commitment, stops a repeating series (every day it
+    covers), or removes a skip so that day's occurrence happens again (#376).
+    """
     entry = _entry_or_404(db, entry_id)
     focus_plan_service.remove_entry(db, entry)
     db.commit()
