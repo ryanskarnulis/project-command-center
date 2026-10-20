@@ -24,7 +24,10 @@ import {
 import { markTaskDone, reopenTask, updateTask } from '../../../api/tasks'
 import { addDaysISO } from '../../../utils/dates'
 import { formatCommitmentRepeat } from '../commitmentRepeat'
-import type { CommitmentRepeatInterval } from '../../../types/focus'
+import type {
+  CommitmentRepeatInterval,
+  SkippedCommitmentBlock,
+} from '../../../types/focus'
 import { useTaskLinkTo } from '../../tasks/panel/taskPanelContext'
 import type { FocusPlan } from '../../../types/focus'
 import {
@@ -130,6 +133,7 @@ export function MobileFocus({
   const [commitmentTarget, setCommitmentTarget] = useState<DayRow | null>(null)
   const [openFit, setOpenFit] = useState(false)
   const [openBlocked, setOpenBlocked] = useState(false)
+  const [openSkipped, setOpenSkipped] = useState(false)
   const [undo, setUndo] = useState<PendingUndo | null>(null)
   const [mutationError, setMutationError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
@@ -188,6 +192,7 @@ export function MobileFocus({
   const blocking = blockingCounts(plan?.blocked ?? [])
   const overflow = plan?.overflow ?? []
   const blocked = plan?.blocked ?? []
+  const skipped = plan?.skipped_commitments ?? []
   const dayClear = currentIndex < 0
   const capacityEnd = dayStart + capacity
 
@@ -323,6 +328,17 @@ export function MobileFocus({
       const skip = await skipFocusOccurrence(commitment.entry_id, plan?.date ?? date)
       armUndo(`Skipped · ${row.title}`, async () => {
         await removeFocusEntry(skip.id)
+      })
+    })
+  }
+
+  // A skipped occurrence (#429), long after the undo bar has gone: removing the
+  // skip brings it back, and the undo bar's Undo skips it again.
+  async function unskipCommitment(commitment: SkippedCommitmentBlock): Promise<void> {
+    await mutate(async () => {
+      await removeFocusEntry(commitment.skip_entry_id)
+      armUndo(`Un-skipped · ${commitment.title}`, async () => {
+        await restoreFocusEntry(commitment.skip_entry_id)
       })
     })
   }
@@ -722,6 +738,48 @@ export function MobileFocus({
                   </li>
                 ))}
               </ul>
+            )}
+            {skipped.length > 0 && (
+              <>
+                <button type="button" className="focus-disclosure" aria-expanded={openSkipped} onClick={() => setOpenSkipped((value) => !value)}>
+                  {openSkipped ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
+                  Skipped · {skipped.length}
+                </button>
+                {openSkipped && (
+                  <ul className="focus-foot-list focus-skipped-foot">
+                    {skipped.map((commitment) => (
+                      <li key={commitment.skip_entry_id}>
+                        <span className="focus-row-main">
+                          <span className="focus-row-title">{commitment.title}</span>
+                          <span className="focus-row-meta">
+                            {commitment.repeat_interval && (
+                              <>
+                                <span className="focus-repeat-word">
+                                  {formatCommitmentRepeat(commitment.repeat_interval)}
+                                </span>
+                                <span className="focus-meta-sep" aria-hidden="true">·</span>
+                              </>
+                            )}
+                            <span>
+                              {commitment.start_time}–{commitment.end_time} ·{' '}
+                              {formatClockDuration(commitment.duration_minutes)}
+                            </span>
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          className="focus-schedule"
+                          disabled={pending}
+                          aria-label={`Un-skip ${commitment.title} on this day`}
+                          onClick={() => void unskipCommitment(commitment)}
+                        >
+                          Un-skip
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
             )}
           </section>
         </>

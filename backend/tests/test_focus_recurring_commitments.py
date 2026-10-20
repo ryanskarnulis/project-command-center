@@ -309,6 +309,79 @@ def test_routes_add_a_daily_commitment_and_skip_a_day(client: TestClient) -> Non
     assert len(client.get("/api/focus", params={"date": later}).json()["commitments"]) == 1
 
 
+def test_a_skipped_occurrence_is_listed_flagged_and_un_skips(client: TestClient) -> None:
+    """#429: the plan lists a day's skipped occurrences apart, so the UI can take one back."""
+    series = client.post(
+        "/api/focus/commitments",
+        json={
+            "plan_date": START.isoformat(),
+            "title": "Standup",
+            "start_time": "10:00",
+            "duration_minutes": 15,
+            "repeat_interval": DAILY,
+        },
+    ).json()
+    day = (START + timedelta(days=3)).isoformat()
+    assert client.get("/api/focus", params={"date": day}).json()["skipped_commitments"] == []
+
+    skip = client.post(
+        f"/api/focus/entries/{series['id']}/skip", json={"plan_date": day}
+    ).json()
+    plan = client.get("/api/focus", params={"date": day, "start_time": "09:00"}).json()
+    # Skipped: out of the live list and taking no time, but listed with its skip.
+    assert plan["commitments"] == []
+    assert plan["used_minutes"] == 0
+    assert [
+        (c["entry_id"], c["skip_entry_id"], c["title"], c["start_time"], c["end_time"])
+        for c in plan["skipped_commitments"]
+    ] == [(series["id"], skip["id"], "Standup", "10:00", "10:15")]
+    assert plan["skipped_commitments"][0]["repeat_interval"] == DAILY
+    # Only that day carries it.
+    other = client.get("/api/focus", params={"date": START.isoformat()}).json()
+    assert other["skipped_commitments"] == []
+    # A window that starts after the occurrence ended drops it, as for a live one.
+    late = client.get("/api/focus", params={"date": day, "start_time": "11:00"}).json()
+    assert late["skipped_commitments"] == []
+
+    # Un-skip through the existing write path: the occurrence is live again.
+    assert client.delete(f"/api/focus/entries/{skip['id']}").status_code == 200
+    plan = client.get("/api/focus", params={"date": day}).json()
+    assert plan["skipped_commitments"] == []
+    assert [c["entry_id"] for c in plan["commitments"]] == [series["id"]]
+    # And its undo skips it again.
+    assert client.post(f"/api/focus/entries/{skip['id']}/restore").status_code == 200
+    plan = client.get("/api/focus", params={"date": day}).json()
+    assert [c["skip_entry_id"] for c in plan["skipped_commitments"]] == [skip["id"]]
+
+
+def test_a_removed_series_lists_no_skipped_occurrences(db_session: Session) -> None:
+    series = _series(db_session, DAILY)
+    focus_plan_service.skip_occurrence(db_session, series, START)
+    focus_plan_service.remove_entry(db_session, series)
+    db_session.commit()
+    plan = focus_service.get_focus_plan(db_session, target_date=START, start_time="09:00")
+    assert plan.skipped_commitments == []
+    assert plan.commitments == []
+
+
+def test_un_skip_is_audited(db_session: Session) -> None:
+    series = _series(db_session, DAILY)
+    skip = focus_plan_service.skip_occurrence(db_session, series, START)
+    focus_plan_service.remove_entry(db_session, skip)
+    focus_plan_service.restore_entry(db_session, skip)
+    db_session.commit()
+    events = db_session.execute(
+        select(ActivityEvent.action, ActivityEvent.summary)
+        .where(ActivityEvent.entity_type == "focus_entry", ActivityEvent.entity_id == skip.id)
+        .order_by(ActivityEvent.id)
+    ).all()
+    assert [tuple(event) for event in events] == [
+        ("skipped", 'Commitment "Standup" on 2026-06-20 skipped'),
+        ("deleted", 'Commitment "Standup" on 2026-06-20 un-skipped'),
+        ("restored", 'Commitment "Standup" on 2026-06-20 skipped again'),
+    ]
+
+
 def test_skip_route_refusals(client: TestClient) -> None:
     one_off = client.post(
         "/api/focus/commitments",

@@ -21,6 +21,7 @@ import {
 } from '../../api/tasks'
 import type { CommitmentBlock, FocusEntry, ScheduledBlock, FocusPlan } from '../../types/focus'
 import type { Task } from '../../types/task'
+import { ToastProvider } from '../../components/ToastProvider'
 import { FocusPage } from './FocusPage'
 import { resetFocusSessionSyncForTests } from './mobile/sessionSync'
 
@@ -220,6 +221,17 @@ function scheduledBlock(overrides: Partial<ScheduledBlock> = {}): ScheduledBlock
   }
 }
 
+const dailyStandup: CommitmentBlock = {
+  entry_id: 5,
+  title: 'Standup',
+  start_time: '10:00',
+  end_time: '10:15',
+  start_day_offset: 0,
+  end_day_offset: 0,
+  duration_minutes: 15,
+  repeat_interval: { unit: 'day', every: 1 },
+}
+
 function makePlan(overrides: Partial<FocusPlan> = {}): FocusPlan {
   return {
     date: '2026-06-20',
@@ -228,6 +240,7 @@ function makePlan(overrides: Partial<FocusPlan> = {}): FocusPlan {
     used_minutes: 90,
     scheduled: [],
     commitments: [],
+    skipped_commitments: [],
     overflow: [],
     blocked: [],
     ...overrides,
@@ -837,6 +850,77 @@ describe('FocusPage', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Remove every Standup' }))
     await waitFor(() => expect(mockRemoveFocusEntry).toHaveBeenCalledWith(5))
+  })
+
+  it('offers Undo on the Skip day and Remove series toasts (#429)', async () => {
+    mockGetFocusPlan.mockResolvedValue(
+      makePlan({
+        scheduled: [scheduledBlock({ task_id: 7 })],
+        commitments: [dailyStandup],
+      }),
+    )
+    mockSkipFocusOccurrence.mockResolvedValue(focusEntry({ id: 9, series_id: 5 }))
+    mockRemoveFocusEntry.mockResolvedValue(focusEntry({ id: 5 }))
+    mockRestoreFocusEntry.mockResolvedValue(focusEntry({ id: 5 }))
+    render(
+      <ToastProvider>
+        <MemoryRouter>
+          <FocusPage />
+        </MemoryRouter>
+      </ToastProvider>,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip Standup on this day' }))
+    let toast = await screen.findByText('Skipped Standup on this day')
+    fireEvent.click(within(toast.closest('.toast') as HTMLElement).getByRole('button', { name: 'Undo' }))
+    // Undoing a skip removes the skip row (id 9), not the series (id 5).
+    await waitFor(() => expect(mockRemoveFocusEntry).toHaveBeenCalledWith(9))
+    expect(mockRemoveFocusEntry).not.toHaveBeenCalledWith(5)
+    await screen.findByText('Undone')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove every Standup' }))
+    toast = await screen.findByText('Repeating commitment removed')
+    fireEvent.click(within(toast.closest('.toast') as HTMLElement).getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(mockRestoreFocusEntry).toHaveBeenCalledWith(5))
+  })
+
+  it('shows a skipped occurrence struck through at its time and un-skips it (#429)', async () => {
+    mockGetFocusPlan.mockResolvedValue(
+      makePlan({
+        scheduled: [
+          scheduledBlock({ task_id: 7 }),
+          scheduledBlock({ task_id: 8, title: 'After lunch', start_time: '13:00', end_time: '13:30' }),
+        ],
+        skipped_commitments: [{ ...dailyStandup, skip_entry_id: 9 }],
+      }),
+    )
+    mockRemoveFocusEntry.mockResolvedValue(focusEntry({ id: 9, series_id: 5 }))
+    mockRestoreFocusEntry.mockResolvedValue(focusEntry({ id: 9, series_id: 5 }))
+    render(
+      <ToastProvider>
+        <MemoryRouter>
+          <FocusPage />
+        </MemoryRouter>
+      </ToastProvider>,
+    )
+
+    await screen.findByText('Standup')
+    const titles = Array.from(document.querySelectorAll('.focus-timeline .focus-block-title')).map(
+      (node) => node.textContent,
+    )
+    expect(titles).toEqual(['Draft launch checklist', 'Standup', 'After lunch'])
+    const row = document.querySelector('.focus-skipped')
+    expect(row?.querySelector('.focus-skipped-word')?.textContent).toBe('skipped')
+    // A skipped occurrence offers only Un-skip: no Move, Skip day or Remove.
+    expect(screen.queryByRole('button', { name: 'Move Standup' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Remove every Standup' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Un-skip Standup on this day' }))
+    // Un-skip is the existing write: remove the skip row.
+    await waitFor(() => expect(mockRemoveFocusEntry).toHaveBeenCalledWith(9))
+    const toast = await screen.findByText('Standup is back on this day')
+    fireEvent.click(within(toast.closest('.toast') as HTMLElement).getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(mockRestoreFocusEntry).toHaveBeenCalledWith(9))
   })
 
   it('offers a weekdays cadence and names a weekday series (#427)', async () => {
@@ -1452,6 +1536,34 @@ describe('FocusPage', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
       // Undoing a skip removes the skip row, not the series.
       await waitFor(() => expect(mockRemoveFocusEntry).toHaveBeenCalledWith(9))
+    })
+
+    it('lists a skipped occurrence under Skipped and un-skips it, with an undo (#429)', async () => {
+      mockRemoveFocusEntry.mockResolvedValue(focusEntry({ id: 9, series_id: 5 }))
+      mockRestoreFocusEntry.mockResolvedValue(focusEntry({ id: 9, series_id: 5 }))
+      renderMobile(
+        makePlan({
+          scheduled: [dnsBlock],
+          skipped_commitments: [{ ...dailyStandup, skip_entry_id: 9 }],
+        }),
+      )
+      fireEvent.click(await screen.findByRole('button', { name: 'Skipped · 1' }))
+      const list = document.querySelector('.focus-skipped-foot') as HTMLElement
+      expect(within(list).getByText('Standup')).toBeInTheDocument()
+      expect(within(list).getByText('daily')).toBeInTheDocument()
+      // Not on the timeline: a skipped occurrence holds no time.
+      expect(document.querySelector('.focus-row[data-kind="commitment"]')).toBeNull()
+
+      fireEvent.click(within(list).getByRole('button', { name: 'Un-skip Standup on this day' }))
+      await waitFor(() => expect(mockRemoveFocusEntry).toHaveBeenCalledWith(9))
+      fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
+      await waitFor(() => expect(mockRestoreFocusEntry).toHaveBeenCalledWith(9))
+    })
+
+    it('shows no Skipped disclosure when nothing is skipped', async () => {
+      renderMobile(makePlan({ scheduled: [dnsBlock] }))
+      await screen.findByRole('button', { name: /Didn’t fit/ })
+      expect(screen.queryByRole('button', { name: /^Skipped/ })).toBeNull()
     })
 
     it('adds a commitment from the session sheet', async () => {

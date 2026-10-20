@@ -7,15 +7,45 @@ import {
   type ReactNode,
 } from 'react'
 import { apiErrorMessage } from '../api/errorMessage'
-import { ToastContext, type ToastApi, type ToastKind } from './ToastContext'
+import {
+  ToastContext,
+  type ToastAction,
+  type ToastApi,
+  type ToastKind,
+} from './ToastContext'
 
 interface Toast {
   id: number
   kind: ToastKind
   message: string
+  action?: ToastAction
 }
 
 const DISMISS_MS = 4000
+// A toast with a button (Undo) stands as long as the phone's undo bar does, so
+// the window to take a change back is the same on both surfaces.
+const ACTION_DISMISS_MS = 5000
+
+function ToastActionButton({
+  action,
+  onDismiss,
+}: {
+  action: ToastAction
+  onDismiss: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className="toast-action"
+      onClick={() => {
+        onDismiss()
+        action.onAction()
+      }}
+    >
+      {action.label}
+    </button>
+  )
+}
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -32,12 +62,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const notify = useCallback(
-    (kind: ToastKind, message: string) => {
+    (kind: ToastKind, message: string, action?: ToastAction) => {
       const id = nextId.current++
-      setToasts((prev) => [...prev, { id, kind, message }])
+      setToasts((prev) => [...prev, { id, kind, message, action }])
       timers.current.set(
         id,
-        setTimeout(() => dismiss(id), DISMISS_MS),
+        setTimeout(() => dismiss(id), action ? ACTION_DISMISS_MS : DISMISS_MS),
       )
     },
     [dismiss],
@@ -46,11 +76,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const withToast = useCallback(
     async <T,>(
       promise: Promise<T>,
-      messages: { success: string; error?: string },
+      messages: { success: string; error?: string; action?: (result: T) => ToastAction },
     ): Promise<T> => {
       try {
         const result = await promise
-        notify('success', messages.success)
+        notify('success', messages.success, messages.action?.(result))
         return result
       } catch (e: unknown) {
         // An explicit override wins. Otherwise show the server's `detail` —
@@ -87,6 +117,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             role={toast.kind === 'error' ? 'alert' : 'status'}
           >
             <span>{toast.message}</span>
+            {toast.action && (
+              <ToastActionButton
+                action={toast.action}
+                // One shot: the toast goes before the action runs, so a second
+                // click can't undo twice.
+                onDismiss={() => dismiss(toast.id)}
+              />
+            )}
             <button
               type="button"
               className="toast-dismiss"

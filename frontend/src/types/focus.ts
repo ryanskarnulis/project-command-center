@@ -64,6 +64,15 @@ export interface CommitmentBlock {
   repeat_interval: CommitmentRepeatInterval | null
 }
 
+/**
+ * A repeating commitment's occurrence skipped for the day (#429). Holds no
+ * time; listed so the skip can be taken back. `entry_id` is the series,
+ * `skip_entry_id` the skip: `removeFocusEntry(skip_entry_id)` un-skips it.
+ */
+export interface SkippedCommitmentBlock extends CommitmentBlock {
+  skip_entry_id: number
+}
+
 export interface OverflowTask {
   task_id: number
   title: string
@@ -106,6 +115,9 @@ export interface FocusPlan {
   // Fixed-time commitments in start order; kept apart so every scheduled block
   // is a task.
   commitments: CommitmentBlock[]
+  // Occurrences skipped for this day (#429), in start order. Not part of the
+  // day's time; shown muted with an Un-skip.
+  skipped_commitments: SkippedCommitmentBlock[]
   overflow: OverflowTask[]
   blocked: BlockedTask[]
 }
