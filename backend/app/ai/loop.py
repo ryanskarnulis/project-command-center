@@ -35,6 +35,17 @@ is allowed to complete. If that turn asked for tools, they are recorded as
 not run; if it was the final text reply, the run simply completed — there was
 no boundary left to stop at. So Stop takes effect within one model turn, never
 mid-tool.
+
+Every model call is capped (#397): ``max_tokens`` goes out on every request
+(default :data:`DEFAULT_MAX_TOKENS`), because llama-server's own default is
+unbounded and a degenerate generation would otherwise run until the run's
+time budget. A call the cap cut off (``finish_reason == "length"``) never
+passes its *words* on: a cut-off text turn is not a reply, so the fragment is
+dropped — not returned, not appended to the transcript — and the run ends
+with stop reason ``truncated`` and no reply. A cut-off turn's *tool calls*
+still run: the provider parses each call's arguments whole before the result
+exists, so a call that arrived is a complete call. Only the text fragment
+beside them is dropped from history.
 """
 
 from __future__ import annotations
@@ -150,9 +161,18 @@ def build_system_prompt(today: date) -> str:
         f"Today's date is {today.isoformat()}."
     )
 
+# The per-call completion cap (#397). It is the completion reserve the context
+# budget already sets aside in the window, so a capped call always fits. Moves
+# into the per-model profile in phase 2 (#402).
+DEFAULT_MAX_TOKENS = context_budget.COMPLETION_RESERVE_TOKENS
+
+# ``finish_reason`` of a call the ``max_tokens`` cap cut off.
+_FINISH_LENGTH = "length"
+
 _StopReason = Literal[
     "completed",
     "max_iterations",
+    "truncated",
     "correction_limit",
     "provider_error",
     "timed_out",
@@ -163,7 +183,9 @@ _StopReason = Literal[
 # HTTP status the route surfaces for each failure stop reason: a provider fault
 # is an upstream 502; exhausting the time budget is a 504; an unexpected
 # exception (a bug, a DB failure) is our own 500. ``cancelled`` is absent on
-# purpose: a user-requested stop is not a failure. It finishes like
+# purpose: a user-requested stop is not a failure. Neither is ``truncated``:
+# the model ran on past the per-call cap, a limit like ``max_iterations``, not
+# a fault. Both finish like
 # ``max_iterations`` — a 200 carrying the truthful partial turn — so the client
 # renders what ran from the response rather than treating Stop as an error.
 _FAILURE_STATUS: dict[_StopReason, int] = {
@@ -244,12 +266,16 @@ class AgentLoop:
         *,
         max_iterations: int = 10,
         max_corrections: int = 3,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
     ) -> None:
         if max_iterations < 1:
             raise ValueError("max_iterations must be >= 1")
+        if max_tokens < 1:
+            raise ValueError("max_tokens must be >= 1")
         self._provider = provider
         self._max_iterations = max_iterations
         self._max_corrections = max_corrections
+        self._max_tokens = max_tokens
 
     def run(
         self,
@@ -367,7 +393,12 @@ class AgentLoop:
                 None if deadline is None else max(0.0, deadline - time.monotonic())
             )
             try:
-                result = self._provider.chat(messages, tools=specs, timeout=call_timeout)
+                result = self._provider.chat(
+                    messages,
+                    tools=specs,
+                    max_tokens=self._max_tokens,
+                    timeout=call_timeout,
+                )
             except ToolCallArgumentsError as exc:
                 # The turn is unusable — its tool calls can't round-trip into
                 # history — so the correction goes back as a user-role message
@@ -397,10 +428,26 @@ class AgentLoop:
                 if deadline is not None and time.monotonic() >= deadline:
                     raise self._out_of_time(records, iteration, messages) from exc
                 raise self._provider_failed(exc, records, iteration, messages) from exc
+            truncated = result.finish_reason == _FINISH_LENGTH
+            if truncated:
+                logger.warning(
+                    "agent_turn_truncated",
+                    max_tokens=self._max_tokens,
+                    tool_calls=len(result.tool_calls),
+                )
             if not result.tool_calls:
+                if truncated:
+                    # Cut off by the cap: the fragment is not a reply. Drop it
+                    # (never returned, never in the transcript) and end the
+                    # run under its own stop reason.
+                    return self._finish("truncated", None, records, iteration, messages)
                 # A text turn terminates the loop, even when content is empty.
                 messages.append(result.to_message())
                 return self._finish("completed", result.content, records, iteration, messages)
+            if truncated:
+                # The calls arrived whole and run; only the cut-off text beside
+                # them is dropped from history.
+                result = result.model_copy(update={"content": None})
             messages.append(result.to_message())
             schema_error_this_turn = False
             for index, call in enumerate(result.tool_calls):
