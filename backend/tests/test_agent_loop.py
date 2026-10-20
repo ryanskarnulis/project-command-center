@@ -192,10 +192,11 @@ def test_correction_limit_terminates_the_loop(tool_db: sessionmaker[Session]) ->
 
 
 def test_max_iterations_terminates_the_loop(tool_db: sessionmaker[Session]) -> None:
+    # Two different lookups, so the stall rule (#398) never fires first.
     provider = ScriptedProvider(
         [
             _calls(("list_projects", {})),
-            _calls(("list_projects", {})),
+            _calls(("list_tasks", {})),
         ]
     )
     result = AgentLoop(provider, max_iterations=2).run("Browse forever.")
@@ -203,6 +204,138 @@ def test_max_iterations_terminates_the_loop(tool_db: sessionmaker[Session]) -> N
     assert result.stop_reason == "max_iterations"
     assert result.iterations == 2
     assert len(provider.requests) == 2
+
+
+def test_a_turn_that_only_repeats_itself_ends_the_run_no_progress(
+    tool_db: sessionmaker[Session],
+) -> None:
+    """Every call this turn repeats an exchange the run already saw (#398):
+    the run ends ``no_progress`` with no reply, instead of spending the rest
+    of the iteration budget re-reading the same thing."""
+    provider = ScriptedProvider(
+        [
+            _calls(("list_projects", {}), ("search", {"query": "garage"})),
+            # An exchange the run has already seen, answered the same way.
+            _calls(("search", {"query": "garage"})),
+            _calls(("list_projects", {})),  # never requested: the run ended
+        ]
+    )
+    result = AgentLoop(provider).run("What's in my garage project?")
+
+    assert result.stop_reason == "no_progress"
+    assert result.reply is None
+    assert result.iterations == 2
+    assert len(provider.requests) == 2
+    assert [record.tool for record in result.tool_calls] == [
+        "list_projects",
+        "search",
+        "search",
+    ]
+    # The transcript stays well-formed: it ends on the repeated call's answer.
+    assert result.messages[-1]["role"] == "tool"
+
+
+def test_exchange_key_ignores_argument_order() -> None:
+    assert loop_module._exchange_key(
+        "list_tasks", {"project_id": 1, "status": "todo"}, "[]"
+    ) == loop_module._exchange_key("list_tasks", {"status": "todo", "project_id": 1}, "[]")
+
+
+def test_a_repeated_call_that_answers_differently_is_progress(
+    tool_db: sessionmaker[Session],
+) -> None:
+    """The repeat is keyed on the answer too: the same lookup after a write
+    comes back different, so the run goes on to its reply."""
+    provider = ScriptedProvider(
+        [
+            _calls(("list_projects", {})),
+            _calls(("create_project", {"data": {"name": "Garage"}})),
+            _calls(("list_projects", {})),  # same call, new answer
+            _text("Created 'Garage'; it's your only project."),
+        ]
+    )
+    result = AgentLoop(provider).run("Make a Garage project and list my projects.")
+
+    assert result.stop_reason == "completed"
+    assert result.reply == "Created 'Garage'; it's your only project."
+    assert [record.tool for record in result.tool_calls] == [
+        "list_projects",
+        "create_project",
+        "list_projects",
+    ]
+
+
+def test_a_turn_with_one_new_exchange_is_progress(
+    tool_db: sessionmaker[Session],
+) -> None:
+    """Only a turn in which *every* call repeats is a stall."""
+    provider = ScriptedProvider(
+        [
+            _calls(("list_projects", {})),
+            _calls(("list_projects", {}), ("list_tasks", {})),
+            _text("Nothing here yet."),
+        ]
+    )
+    result = AgentLoop(provider).run("What do I have?")
+
+    assert result.stop_reason == "completed"
+    assert len(result.tool_calls) == 3
+
+
+def test_tool_call_cap_answers_excess_calls_not_run_and_never_dispatches_them(
+    tool_db: sessionmaker[Session],
+) -> None:
+    """Past the per-run cap (#398) a call is answered "not run" — one answer
+    per call — never reaches the service layer, and the run ends
+    ``tool_call_limit`` after that turn."""
+    provider = ScriptedProvider(
+        [
+            _calls(("create_project", {"data": {"name": "P1"}})),
+            _calls(
+                ("create_project", {"data": {"name": "P2"}}),
+                ("create_project", {"data": {"name": "P3"}}),
+                ("create_project", {"data": {"name": "P4"}}),
+            ),
+            _text("never requested"),
+        ]
+    )
+    result = AgentLoop(provider, max_tool_calls=2).run("Make four projects.")
+
+    assert result.stop_reason == "tool_call_limit"
+    assert result.reply is None
+    assert result.iterations == 2
+    assert len(provider.requests) == 2
+    assert [record.error is None for record in result.tool_calls] == [
+        True,
+        True,
+        False,
+        False,
+    ]
+    for refused in result.tool_calls[2:]:
+        assert refused.error == loop_module._TOOL_CALL_LIMIT_ERROR
+    # One role:tool answer per call of the capped turn, in order.
+    turn = next(
+        m for m in reversed(result.messages) if m.get("tool_calls")
+    )
+    answers = result.messages[result.messages.index(turn) + 1 :]
+    assert [m["tool_call_id"] for m in answers] == [
+        c["id"] for c in turn["tool_calls"]
+    ]
+    assert all("not run" in m["content"] for m in answers[1:])
+    # The refused calls never ran: no project, no audit row.
+    with tool_db() as db:
+        assert sorted(db.execute(select(Project.name)).scalars().all()) == ["P1", "P2"]
+        created = db.execute(
+            select(ActivityEvent).where(ActivityEvent.action == "created")
+        ).scalars().all()
+        assert len(created) == 2
+
+
+def test_default_tool_call_cap_fits_the_largest_deployed_batch() -> None:
+    # The largest deployed run made 18 calls (#398).
+    assert loop_module.DEFAULT_MAX_TOOL_CALLS >= 18
+    with pytest.raises(ValueError):
+        AgentLoop(ScriptedProvider([]), max_tool_calls=0)
 
 
 def test_every_model_call_is_capped(tool_db: sessionmaker[Session]) -> None:

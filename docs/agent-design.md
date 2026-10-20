@@ -86,9 +86,18 @@ worst case (the provider timeout tolerates it). Containers reach it via
   its words on: a cut-off text turn is dropped — no reply saved, nothing
   added to history — and the run ends `truncated`; a cut-off turn's tool
   calls still run (each call's arguments arrived whole), only the text beside
-  them is dropped.
+  them is dropped. Work is bounded too (#398): a turn in which *every* call
+  repeats an exchange the run already made — keyed on tool + canonicalised
+  arguments + the answer, so a repeat that comes back different (a list
+  after a write) is progress — ends the run `no_progress`; a turn with a
+  schema error is left to the correction budget instead. A run dispatches at
+  most `DEFAULT_MAX_TOOL_CALLS` = 24 calls (the largest deployed run made 18,
+  an 8-task batch made twice after schema errors; schema-invalid calls
+  count); a call past it is answered "not run" (one tool answer per call),
+  never dispatched, and the run ends `tool_call_limit` after that turn. Both
+  end with no reply, like `max_iterations`; a reply from what ran is #399.
 - **Stop reasons**: `completed`, `max_iterations`, `correction_limit`,
-  `truncated` and `cancelled` return 200; `provider_error` (502), `timed_out` (504) and
+  `truncated`, `no_progress`, `tool_call_limit` and `cancelled` return 200; `provider_error` (502), `timed_out` (504) and
   `internal_error` (500) are failures. Every one persists a truthful assistant
   turn. The deadline and the cancel event (`POST …/cancel`, #324,
   `app/api/run_cancel.py`) are checked at the same two boundaries — before each

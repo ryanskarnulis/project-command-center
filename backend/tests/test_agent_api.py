@@ -325,6 +325,34 @@ def test_cut_off_reply_is_saved_as_truncated_without_content(
     assert all(fragment not in str(message.get("content")) for message in sent)
 
 
+def test_run_that_repeats_itself_is_saved_as_no_progress(
+    client: TestClient, tool_db: sessionmaker[Session]
+) -> None:
+    """A stalled run (#398) is a limit, not a failure: 200, no content, stop
+    reason ``no_progress``, and the calls that ran are on the saved turn."""
+    provider = ScriptedProvider(
+        [
+            tool_calls_turn(("list_projects", {})),
+            tool_calls_turn(("list_projects", {})),
+        ]
+    )
+    _use_loop(provider)
+    conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
+
+    response = client.post(
+        f"/api/agent/conversations/{conversation_id}/messages",
+        json={"content": "What projects do I have?"},
+    )
+    assert response.status_code == 200
+    assistant = response.json()["assistant_message"]
+    assert assistant["content"] is None
+    assert assistant["stop_reason"] == "no_progress"
+    assert [call["tool"] for call in assistant["tool_calls"]] == [
+        "list_projects",
+        "list_projects",
+    ]
+
+
 def test_provider_failure_before_any_tool_is_502_with_a_truthful_turn(
     client: TestClient, tool_db: sessionmaker[Session]
 ) -> None:
