@@ -602,6 +602,17 @@ cd backend && PCC_LLM_INTEGRATION=1 .venv/bin/pytest tests/test_ai_llamacpp_inte
 cd backend && PCC_AGENT_EVALS=1 .venv/bin/pytest tests/test_agent_evals.py -v -s
 ```
 
+**Run trace.** Set `PCC_TRACE_PATH` (off by default; e.g.
+`../data/traces/agent.jsonl` in `backend/.env`, `/data/traces/agent.jsonl` in
+the docker `.env`) and every agent run — app, delegate or eval — appends one
+JSONL record: the ask and the history it was shown, every tool call with its
+arguments and result, the stop reason and the limit behind it, the reply, one
+entry per model call (status, ms, prompt/completion/cached tokens), and hashes
+of the system prompt and tool schemas beside the model. A failed write is
+logged and never costs the run. Read it with
+`python backend/scripts/read_trace.py <file>` (`--run <id>` for one run in
+full); the record layout is in [`docs/agent-tracing.md`](docs/agent-tracing.md).
+
 ## Status & roadmap
 
 The core is complete and stable: tasks/projects, recurrence, subtasks +

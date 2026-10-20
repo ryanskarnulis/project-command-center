@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -96,6 +97,14 @@ class Settings(BaseSettings):
     # anything below -1 raises ValueError at request time. inf/nan are rejected
     # for the same reason — bad config must fail at startup, not per request.
     agent_run_budget_seconds: float = Field(default=240.0, gt=0, allow_inf_nan=False)
+
+    # Agent run trace (#400): when set, every agent run appends one JSONL
+    # record to this file (app/ai/trace.py, docs/agent-tracing.md). Off by
+    # default. A relative path resolves against the backend's working
+    # directory; in the docker deployment put it under /data (the mounted
+    # ./data) so it outlives the container. A failed write is logged and never
+    # costs the run.
+    pcc_trace_path: Path | None = None
 
     # Trash retention (issue #321): a trashed project or standalone task whose
     # ``deleted_at`` is older than this many days is permanently deleted by the

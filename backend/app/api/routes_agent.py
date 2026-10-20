@@ -268,7 +268,12 @@ def post_message(
         try:
             # Registered inside the run lock, so a Stop always targets the run
             # actually in flight — never a queued or future one (run_cancel).
-            with active_run(conversation_id) as cancel:
+            # The conversation id rides the log context into the run, which
+            # stamps it on the run's log lines and its trace record (#400).
+            with (
+                active_run(conversation_id) as cancel,
+                structlog.contextvars.bound_contextvars(conversation_id=conversation_id),
+            ):
                 run = loop.run(
                     data.content,
                     history=history,

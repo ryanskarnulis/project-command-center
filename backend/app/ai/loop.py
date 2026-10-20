@@ -72,6 +72,15 @@ unchanged. When nothing ran, or the summary call fails, runs out of time, is
 cut off, or comes back empty, the reply stays ``None`` as before. ``cancelled``
 and the failure stops never summarise: the user asked it to stop, or the run
 broke.
+
+Every run can leave a trace (#400): with ``PCC_TRACE_PATH`` set, the loop
+appends one JSONL record per run (:mod:`app.ai.trace`) — the utterance, the
+history kept and dropped, every tool call, the stop reason and its limit, the
+reply, one entry per model call with its status, time and tokens, and hashes of
+the prompts and tool schemas. It is written from :meth:`AgentLoop.run`, so
+every exit — completed, a limit, a Stop, a failure, a crash — leaves one, and a
+write that fails is logged and never costs the run. Each run has a ``run_id``
+(bound on its log lines, returned on the result) that the record is keyed by.
 """
 
 from __future__ import annotations
@@ -84,12 +93,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Literal, Protocol
 
 import structlog
 from pydantic import BaseModel, ValidationError
 
 from app.ai import context_budget, run_record
+from app.ai import trace as run_trace
 from app.ai.providers.llamacpp import (
     ChatResult,
     ProviderError,
@@ -190,11 +201,17 @@ def build_system_prompt(today: date) -> str:
     PCC ships no app-flavor layer (nothing has earned it); the date is the only
     dynamic layer.
     """
-    return (
-        f"{_APP_BASE_PROMPT}\n\n"
-        f"{_GLOBAL_PERSONALITY}\n\n"
-        f"Today's date is {today.isoformat()}."
-    )
+    return f"{_STATIC_SYSTEM_PROMPT}\n\nToday's date is {today.isoformat()}."
+
+
+# Layers 1 and 2 — everything but the date. The run trace hashes this (#400),
+# so a prompt's hash changes with its wording and never with the calendar.
+_STATIC_SYSTEM_PROMPT = f"{_APP_BASE_PROMPT}\n\n{_GLOBAL_PERSONALITY}"
+SYSTEM_PROMPT_SHA256 = run_trace.sha256(_STATIC_SYSTEM_PROMPT)
+# The limit summary's prompt (#399), hashed the same way.
+SUMMARY_PROMPT_SHA256 = run_trace.sha256(
+    f"{run_record.SUMMARY_RULES}\n\n{_GLOBAL_PERSONALITY}"
+)
 
 # The per-call completion cap (#397). It is the completion reserve the context
 # budget already sets aside in the window, so a capped call always fits. Moves
@@ -245,6 +262,19 @@ _FAILURE_STATUS: dict[_StopReason, int] = {
     "internal_error": 500,
 }
 
+# Which configured limit each limit stop ran into, as the trace names it
+# (#400): the key in its ``limits`` block, or the rule's name for a stop with
+# no number behind it. Stops absent here (completed, cancelled, failures other
+# than the deadline) hit no limit.
+_STOP_LIMITS: dict[str, str] = {
+    "max_iterations": "max_iterations",
+    "correction_limit": "max_corrections",
+    "truncated": "max_tokens",
+    "tool_call_limit": "max_tool_calls",
+    "no_progress": "no_progress",
+    "timed_out": "deadline",
+}
+
 # Recorded (and fed back) for a call whose dispatch blew up unexpectedly. The
 # call may or may not have reached the service layer, so the record claims
 # neither success nor a clean rejection (#103).
@@ -267,11 +297,13 @@ class ChatProvider(Protocol):
 
 @dataclass(frozen=True)
 class _RunContext:
-    """What a limit stop needs from the run to summarise it (#399)."""
+    """What a limit stop needs from the run to summarise it (#399), and the
+    trace the run fills in as it goes (#400)."""
 
     user_message: str
     deadline: float | None
     cancel: threading.Event | None
+    trace: run_trace.RunTrace
 
 
 class ToolCallRecord(BaseModel):
@@ -289,13 +321,18 @@ class ToolCallRecord(BaseModel):
 
 
 class AgentRunResult(BaseModel):
-    """Outcome of one loop run. ``messages`` is the full transcript."""
+    """Outcome of one loop run. ``messages`` is the full transcript.
+
+    ``run_id`` names the run: its log lines carry it and its trace record
+    (#400) is keyed by it. Empty only on a result built outside ``run``.
+    """
 
     reply: str | None
     stop_reason: _StopReason
     tool_calls: list[ToolCallRecord]
     iterations: int
     messages: list[dict[str, Any]]
+    run_id: str = ""
 
 
 class AgentRunFailed(Exception):
@@ -328,7 +365,10 @@ class AgentLoop:
         max_corrections: int = 3,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
+        tracer: run_trace.Tracer | None = None,
     ) -> None:
+        """``tracer`` receives one record per run (#400); ``None`` (the
+        default) uses the configured one — ``PCC_TRACE_PATH``, or no tracing."""
         if max_iterations < 1:
             raise ValueError("max_iterations must be >= 1")
         if max_tokens < 1:
@@ -340,6 +380,7 @@ class AgentLoop:
         self._max_corrections = max_corrections
         self._max_tokens = max_tokens
         self._max_tool_calls = max_tool_calls
+        self._tracer = tracer if tracer is not None else run_trace.tracer_from_settings()
 
     def run(
         self,
@@ -376,14 +417,45 @@ class AgentLoop:
         ``cancelled`` and the partial trajectory: the calls that ran, plus any
         calls of the current turn it declined to start, recorded as not run.
         A provider request or tool call already in flight is not interrupted.
+
+        Every exit writes the run's trace record (#400) when a tracer is
+        configured. The run is named by a ``run_id`` bound on its log lines —
+        one the caller already bound is reused — and returned on the result
+        (and on a failure's partial result). A ``conversation_id`` the caller
+        bound is recorded with it.
         """
+        bound = structlog.contextvars.get_contextvars()
         bindings: dict[str, str] = {}
-        if "request_id" not in structlog.contextvars.get_contextvars():
+        if "request_id" not in bound:
             bindings["request_id"] = uuid.uuid4().hex[:8]
+        run_id = str(bound.get("run_id") or run_trace.new_run_id())
+        bindings["run_id"] = run_id
+        conversation_id = bound.get("conversation_id")
+        trace = run_trace.RunTrace(
+            run_id=run_id,
+            actor=actor,
+            utterance=user_message,
+            conversation_id=conversation_id if isinstance(conversation_id, int) else None,
+            # The alias the provider sends; the weights behind it are in each
+            # call's ``served_model``. Profiles (#402) will add theirs.
+            model=getattr(self._provider, "model", None),
+            limits={
+                "max_iterations": self._max_iterations,
+                "max_corrections": self._max_corrections,
+                "max_tokens": self._max_tokens,
+                "summary_max_tokens": min(self._max_tokens, SUMMARY_MAX_TOKENS),
+                "max_tool_calls": self._max_tool_calls,
+                # Filled from the first turn's own clock reading (``_run``).
+                "deadline_s": None,
+            },
+        )
+        started = perf_counter()
         with structlog.contextvars.bound_contextvars(**bindings):
             try:
-                return self._run(user_message, history, actor, deadline, cancel)
-            except AgentRunFailed:
+                result = self._run(user_message, history, actor, deadline, cancel, trace)
+            except AgentRunFailed as exc:
+                exc.result.run_id = run_id
+                self._write_trace(trace, exc.result, started, error=str(exc))
                 raise
             except Exception as exc:
                 # Backstop: anything unexpected that escaped the per-call guard
@@ -395,7 +467,84 @@ class AgentLoop:
                     error=str(exc),
                     error_type=type(exc).__name__,
                 )
-                raise self._internal_failed(exc, [], 0, []) from exc
+                failed = self._internal_failed(exc, [], 0, [])
+                failed.result.run_id = run_id
+                self._write_trace(
+                    trace, failed.result, started, error=f"{type(exc).__name__}: {exc}"
+                )
+                raise failed from exc
+            result.run_id = run_id
+            self._write_trace(trace, result, started)
+            return result
+
+    def _write_trace(
+        self,
+        trace: run_trace.RunTrace,
+        result: AgentRunResult,
+        started: float,
+        *,
+        error: str = "",
+    ) -> None:
+        """Append the run's record, when tracing is on. Never raises.
+
+        The trace is diagnostics: a full disk, a bad path or an unserialisable
+        value is logged as a warning and the run's outcome stands.
+        """
+        if self._tracer is None:
+            return
+        try:
+            record = trace.record(
+                result,
+                limit=_STOP_LIMITS.get(result.stop_reason),
+                error=error,
+                total_ms=_ms_since(started),
+            )
+            self._tracer.write(record)
+        except Exception as exc:
+            logger.warning(
+                "agent_trace_write_failed",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+
+    def _chat(
+        self,
+        trace: run_trace.RunTrace,
+        phase: run_trace.CallPhase,
+        messages: Sequence[dict[str, Any]],
+        *,
+        tools: Sequence[ToolSpec] | None,
+        max_tokens: int,
+        timeout: float | None,
+    ) -> ChatResult:
+        """One provider call, metered into the run's trace however it ends.
+
+        Re-raises whatever the provider raised: the caller's handling is
+        unchanged, the trace only watches.
+        """
+        call = run_trace.ModelCall(phase=phase)
+        trace.calls.append(call)
+        started = perf_counter()
+        try:
+            result = self._provider.chat(
+                messages, tools=tools, max_tokens=max_tokens, timeout=timeout
+            )
+        except ToolCallArgumentsError as exc:
+            call.status = "bad_args"
+            call.failure = f"{type(exc).__name__}: {exc}"
+            call.meter(exc.usage, exc.server)
+            raise
+        except Exception as exc:
+            call.status = "failed"
+            call.failure = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            call.ms = _ms_since(started)
+        call.status = "truncated" if result.finish_reason == _FINISH_LENGTH else "ok"
+        call.finish_reason = result.finish_reason
+        call.tool_calls = len(result.tool_calls)
+        call.meter(result.usage, result.server)
+        return result
 
     def _run(
         self,
@@ -404,9 +553,14 @@ class AgentLoop:
         actor: str,
         deadline: float | None,
         cancel: threading.Event | None,
+        trace: run_trace.RunTrace,
     ) -> AgentRunResult:
         specs = registry.tool_specs()
         system_prompt = build_system_prompt(date.today())
+        trace.system_prompt_sha256 = SYSTEM_PROMPT_SHA256
+        trace.summary_prompt_sha256 = SUMMARY_PROMPT_SHA256
+        trace.tool_schemas_sha256 = run_trace.tool_schemas_sha256(specs)
+        trace.tools_offered = len(specs)
         # Last gate before any provider request (#244). The service layer
         # already applied this policy when it built the history, but the loop
         # is the only place that can measure the request's real overhead —
@@ -427,13 +581,17 @@ class AgentLoop:
                 )
             ),
         )
+        trace.history_given = len(history or [])
+        trace.history_kept = list(windowed)
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
             *windowed,
             {"role": "user", "content": user_message},
         ]
         records: list[ToolCallRecord] = []
-        ctx = _RunContext(user_message=user_message, deadline=deadline, cancel=cancel)
+        ctx = _RunContext(
+            user_message=user_message, deadline=deadline, cancel=cancel, trace=trace
+        )
         corrections = 0
         iterations = 0
         # Calls that reached the registry this run (the cap's count), and every
@@ -461,8 +619,13 @@ class AgentLoop:
             call_timeout = (
                 None if deadline is None else max(0.0, deadline - time.monotonic())
             )
+            if iteration == 1 and call_timeout is not None:
+                # The budget left as the first model call starts, for the trace.
+                trace.limits["deadline_s"] = round(call_timeout, 1)
             try:
-                result = self._provider.chat(
+                result = self._chat(
+                    trace,
+                    "turn",
                     messages,
                     tools=specs,
                     max_tokens=self._max_tokens,
@@ -473,6 +636,7 @@ class AgentLoop:
                 # history — so the correction goes back as a user-role message
                 # instead of a tool result.
                 corrections += 1
+                trace.corrections = corrections
                 logger.warning(
                     "agent_unparseable_tool_call",
                     tool=exc.tool_name,
@@ -590,6 +754,7 @@ class AgentLoop:
                 )
             if schema_error_this_turn:
                 corrections += 1
+                trace.corrections = corrections
                 if corrections > self._max_corrections:
                     return self._limit_stop("correction_limit", ctx, records, iteration, messages)
                 # A malformed call is what the correction budget is for, so a
@@ -655,7 +820,9 @@ class AgentLoop:
             date.today(),
         )
         try:
-            result = self._provider.chat(
+            result = self._chat(
+                ctx.trace,
+                "summary",
                 request,
                 tools=None,
                 max_tokens=min(self._max_tokens, SUMMARY_MAX_TOKENS),
@@ -684,6 +851,7 @@ class AgentLoop:
             )
             return None
         logger.info("agent_summary", stop_reason=stop_reason, chars=len(reply))
+        ctx.trace.summarised = True
         return reply
 
     @staticmethod
@@ -866,6 +1034,13 @@ def _exchange_key(name: str, arguments: dict[str, Any], answer: str) -> tuple[st
     raising inside the loop.
     """
     return name, json.dumps(arguments, sort_keys=True, default=str), answer
+
+
+def _ms_since(started: float) -> int:
+    """Whole ms since a ``perf_counter`` reading. The trace's durations use
+    their own clock, never ``time.monotonic``: that one is the deadline's, and
+    the deadline tests script its readings one by one."""
+    return round((perf_counter() - started) * 1000)
 
 
 def _validation_summary(exc: ValidationError) -> str:

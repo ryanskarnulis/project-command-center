@@ -65,7 +65,7 @@ def _cut_off(content: str = "and then I will also") -> ChatResult:
 
 
 # Each limit stop, scripted so one write (task "Alpha") runs before it fires.
-_LIMIT_RUNS: dict[str, tuple[list[ChatResult], dict[str, int]]] = {
+_LIMIT_RUNS: dict[str, tuple[list[ChatResult], dict[str, Any]]] = {
     "max_iterations": ([_calls(_alpha())], {"max_iterations": 1}),
     "correction_limit": ([_calls(_alpha(), _invalid())], {"max_corrections": 0}),
     "truncated": ([_calls(_alpha()), _cut_off()], {}),
@@ -132,7 +132,7 @@ def test_every_limit_stop_has_a_reason_line() -> None:
 def test_no_summary_call_when_nothing_ran(
     tool_db: sessionmaker[Session],
     turns: list[ChatResult],
-    options: dict[str, int],
+    options: dict[str, Any],
     stop_reason: str,
 ) -> None:
     provider = ScriptedProvider(turns)
