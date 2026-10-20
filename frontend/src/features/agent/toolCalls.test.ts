@@ -282,3 +282,19 @@ describe('focus plan tools (#319)', () => {
     expect(vi.mocked(restoreFocusEntry)).toHaveBeenCalledWith(14)
   })
 })
+
+describe('reorder_focus_pins (#394)', () => {
+  it('has its own label, links to /focus and offers no undo', () => {
+    const call = record({
+      tool: 'reorder_focus_pins',
+      arguments: { entry_ids: [12, 11] },
+      result: JSON.stringify([{ id: 12 }, { id: 11 }]),
+    })
+    expect(describeToolCall(call)).toBe('Reordered the pins in the focus plan')
+    expect(isMutation(call)).toBe(true)
+    expect(linkFor(call)).toBe('/focus')
+    // The prior order isn't in the record, so there's no inverse to offer.
+    expect(undoFor(call)).toBeNull()
+    expect(linkFor(record({ tool: 'reorder_focus_pins', error: 'boom' }))).toBeNull()
+  })
+})
