@@ -12,11 +12,23 @@ import {
   Plus,
 } from 'lucide-react'
 import { apiErrorMessage } from '../../../api/errorMessage'
+import {
+  addFocusCommitment,
+  pinFocusTask,
+  removeFocusEntry,
+  restoreFocusEntry,
+  updateFocusEntry,
+} from '../../../api/focus'
 import { markTaskDone, reopenTask, updateTask } from '../../../api/tasks'
 import { addDaysISO } from '../../../utils/dates'
 import { useTaskLinkTo } from '../../tasks/panel/taskPanelContext'
 import type { FocusPlan } from '../../../types/focus'
-import { FocusRowSheet, FocusSessionSheet, type RowSheetTarget } from './FocusSheets'
+import {
+  FocusCommitmentSheet,
+  FocusRowSheet,
+  FocusSessionSheet,
+  type RowSheetTarget,
+} from './FocusSheets'
 import { SwipeRow } from './SwipeRow'
 import { useFocusClock } from './useFocusClock'
 import { useFocusSessionLog } from './useFocusSessionLog'
@@ -50,16 +62,17 @@ import {
  *    sheet says "Defer to tomorrow" because that is what happens. The undo bar
  *    is what makes the gesture recoverable.
  *  - "Didn't fit" is the plan's overflow — work that didn't fit the capacity
- *    you set. Scheduling one therefore extends the session to fit it and
- *    everything ranked above it, which is the only honest way to pull an item
- *    into a deterministically packed day. Pinning would need a stored plan.
+ *    you set. Scheduling one pins it into the day (the stored day plan, #319):
+ *    only that item enters, the capacity is left alone, and the undo bar
+ *    unpins it.
+ *  - Commitments (a 14:00 meeting) are fixed rows: they keep their time when
+ *    the current block overruns, and carry no swipe — Move and Remove live
+ *    behind ⋯, and Add commitment in the session sheet.
  *  - Completing a timed block sends its actual minutes with the completion,
  *    which stores them on the task (`actual_minutes`). An untimed block sends
  *    none — its estimate is what the session log books it at, but it is not an
  *    actual and must not land in the column as one.
  */
-
-const MAX_CAPACITY_MINUTES = 1440
 
 interface Props {
   plan: FocusPlan | null
@@ -109,6 +122,7 @@ export function MobileFocus({
 
   const [sessionOpen, setSessionOpen] = useState(false)
   const [rowTarget, setRowTarget] = useState<RowSheetTarget | null>(null)
+  const [commitmentTarget, setCommitmentTarget] = useState<DayRow | null>(null)
   const [openFit, setOpenFit] = useState(false)
   const [openBlocked, setOpenBlocked] = useState(false)
   const [undo, setUndo] = useState<PendingUndo | null>(null)
@@ -160,11 +174,12 @@ export function MobileFocus({
   const shape = buildDayShape({
     finished: log.finished,
     scheduled,
+    commitments: plan?.commitments ?? [],
     dayStart,
     capacity,
     elapsed: clock.elapsed,
   })
-  const { rows, currentIndex, dayEnd, spent, free, overage, shift } = shape
+  const { rows, currentIndex, dayEnd, spent, free, overage, shift, collision } = shape
   const blocking = blockingCounts(plan?.blocked ?? [])
   const overflow = plan?.overflow ?? []
   const blocked = plan?.blocked ?? []
@@ -173,6 +188,8 @@ export function MobileFocus({
 
   /** Mark a block done: the clock's minutes when it was timed, the estimate when it wasn't. */
   async function markDone(row: DayRow): Promise<void> {
+    const taskId = row.taskId
+    if (taskId === null) return
     const timed = row.kind === 'current' && (clock.run !== 'idle' || clock.elapsed > 0)
     // The prototype books `max(1, elapsed)` unconditionally, which would charge
     // an untimed 2h block one minute and collapse the day's arithmetic. An
@@ -180,8 +197,8 @@ export function MobileFocus({
     const minutes = timed ? Math.max(1, clock.elapsed) : row.planned
     const snapshot = clock.snapshot()
     await mutate(async () => {
-      await (timed ? markTaskDone(row.taskId, minutes) : markTaskDone(row.taskId))
-      log.record({ taskId: row.taskId, title: row.title, minutes, plannedMinutes: row.planned })
+      await (timed ? markTaskDone(taskId, minutes) : markTaskDone(taskId))
+      log.record({ taskId, title: row.title, minutes, plannedMinutes: row.planned })
       // Only the block that owns the clock ends it. Completing a later row from
       // its ⋯ sheet must not throw away the time logged against the one you are
       // actually in — the same guard `defer` has always had.
@@ -189,8 +206,8 @@ export function MobileFocus({
       armUndo(`Marked done · ${row.title}`, async () => {
         // Reopening leaves any occurrence the recurrence roll-forward created,
         // but that roll-forward is idempotent — completing again reuses it.
-        await reopenTask(row.taskId)
-        log.remove(row.taskId)
+        await reopenTask(taskId)
+        log.remove(taskId)
         clock.restore(snapshot)
       })
     })
@@ -198,39 +215,93 @@ export function MobileFocus({
 
   /** Defer a block out of the day. `deferred_until` is the existing verb; undo clears it. */
   async function defer(row: DayRow): Promise<void> {
+    const taskId = row.taskId
+    if (taskId === null) return
     const snapshot = clock.snapshot()
     await mutate(async () => {
-      await updateTask(row.taskId, { deferred_until: addDaysISO(plan?.date ?? date, 1) })
+      await updateTask(taskId, { deferred_until: addDaysISO(plan?.date ?? date, 1) })
       if (row.kind === 'current') clock.reset()
       armUndo(`Deferred · ${row.title}`, async () => {
-        await updateTask(row.taskId, { deferred_until: null })
+        await updateTask(taskId, { deferred_until: null })
         clock.restore(snapshot)
       })
     })
   }
 
   async function reopen(row: DayRow): Promise<void> {
+    const taskId = row.taskId
+    if (taskId === null) return
     await mutate(async () => {
-      await reopenTask(row.taskId)
-      log.remove(row.taskId)
+      await reopenTask(taskId)
+      log.remove(taskId)
     })
   }
 
   /**
-   * Pull the nth overflow item onto the timeline by extending the session to
-   * hold it. The packer is greedy in rank order, so fitting item n means fitting
-   * everything above it too — they outrank it, and the capacity bar says so
-   * immediately.
+   * Pull the nth overflow item onto the timeline by pinning it into the day.
+   * Only that item enters — the capacity is untouched, so whatever it displaces
+   * drops to "Didn't fit" — and the undo bar unpins it.
    */
-  function schedule(index: number): void {
-    const needed = overflow
-      .slice(0, index + 1)
-      .reduce((total, task) => total + task.estimated_minutes, 0)
-    const used = plan?.used_minutes ?? 0
-    setCapacityMinutes(Math.min(MAX_CAPACITY_MINUTES, log.spent + used + needed))
+  async function schedule(index: number): Promise<void> {
+    const task = overflow[index]
+    if (!task) return
+    await mutate(async () => {
+      const entry = await pinFocusTask(plan?.date ?? date, task.task_id)
+      armUndo(`Scheduled · ${task.title}`, async () => {
+        await removeFocusEntry(entry.id)
+      })
+    })
+  }
+
+  /** Unpin a task: it goes back to being ranked like everything else. */
+  async function unpin(row: DayRow): Promise<void> {
+    const entryId = row.block?.entry_id ?? null
+    if (entryId === null) return
+    await mutate(async () => {
+      await removeFocusEntry(entryId)
+      armUndo(`Unpinned · ${row.title}`, async () => {
+        await restoreFocusEntry(entryId)
+      })
+    })
+  }
+
+  async function addCommitment(title: string, start: string, minutes: number): Promise<void> {
+    await mutate(async () => {
+      const entry = await addFocusCommitment(plan?.date ?? date, title, start, minutes)
+      armUndo(`Added · ${title}`, async () => {
+        await removeFocusEntry(entry.id)
+      })
+    })
+  }
+
+  async function moveCommitment(row: DayRow, start: string): Promise<void> {
+    const commitment = row.commitment
+    if (!commitment) return
+    const previous = commitment.start_time
+    await mutate(async () => {
+      await updateFocusEntry(commitment.entry_id, { start_time: start })
+      armUndo(`Moved · ${row.title}`, async () => {
+        await updateFocusEntry(commitment.entry_id, { start_time: previous })
+      })
+    })
+  }
+
+  async function removeCommitment(row: DayRow): Promise<void> {
+    const commitment = row.commitment
+    if (!commitment) return
+    await mutate(async () => {
+      await removeFocusEntry(commitment.entry_id)
+      armUndo(`Removed · ${row.title}`, async () => {
+        await restoreFocusEntry(commitment.entry_id)
+      })
+    })
   }
 
   function openRowSheet(row: DayRow): void {
+    if (row.taskId === null) {
+      setCommitmentTarget(row)
+      return
+    }
     setRowTarget({
       taskId: row.taskId,
       title: row.title,
@@ -240,6 +311,7 @@ export function MobileFocus({
       isCurrent: row.kind === 'current',
       isRecurring: row.block?.is_recurring ?? false,
       isDone: row.kind === 'done',
+      isPinned: row.block?.pinned ?? false,
     })
   }
 
@@ -256,14 +328,74 @@ export function MobileFocus({
           ? `Paused · ${formatClockDuration(Math.max(0, remaining))} left`
           : `${formatClockDuration(Math.max(0, remaining))} left`
 
+  function renderCommitment(row: DayRow) {
+    return (
+      <div key={`commitment-${row.commitment?.entry_id}`} className="focus-row" data-kind="commitment" style={{ minHeight: `${row.height}px` }}>
+        <div className="focus-gutter">
+          <span className="focus-time">{formatClockTime(row.start)}</span>
+          <span className="focus-spine">
+            <span style={{ height: '0%' }} />
+          </span>
+        </div>
+        <div className="focus-row-body">
+          <span className="focus-ring" aria-hidden="true" />
+          <span className="focus-row-main">
+            <span className="focus-row-title">{row.title}</span>
+            <span className="focus-row-meta">
+              <span className="focus-fixed-word">Fixed</span>
+              <span className="focus-meta-sep" aria-hidden="true">·</span>
+              <span>
+                {formatClockTime(row.start)}–{formatClockTime(row.start + row.duration)} ·{' '}
+                {formatClockDuration(row.duration)}
+              </span>
+            </span>
+          </span>
+          <button
+            type="button"
+            className="focus-more"
+            aria-label={`Actions for ${row.title}`}
+            aria-haspopup="dialog"
+            onClick={() => openRowSheet(row)}
+          >
+            <MoreHorizontal size={18} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  function renderGap(row: DayRow) {
+    if (row.gapBefore <= 0 || row.kind === 'done') return null
+    return (
+      <div key={`gap-${row.kind}-${row.taskId ?? row.commitment?.entry_id}`} className="focus-gap" aria-hidden="true">
+        <span>{formatClockDuration(row.gapBefore)} open</span>
+      </div>
+    )
+  }
+
   function renderRow(row: DayRow, index: number) {
+    if (row.kind === 'commitment') return [renderGap(row), renderCommitment(row)]
+    const taskId = row.taskId ?? 0
     const isCurrent = index === currentIndex
     const spineFill = row.kind === 'done' ? 100 : isCurrent ? Math.min(100, (clock.elapsed / Math.max(1, row.duration)) * 100) : 0
     const signal = row.block ? rowSignal(row.block.priority, row.block.workflow_status, row.block.due_signal) : null
-    const context = row.block ? rowContext(row.block, blocking.get(row.taskId) ?? 0) : ''
+    const context = row.block ? rowContext(row.block, blocking.get(taskId) ?? 0) : ''
+    // A pinned row leads with where it is pinned when nothing louder claims the
+    // signal slot — the cap stays at two meta items.
+    const pinWord = row.block?.pinned
+      ? row.block.fixed
+        ? `Pinned ${row.block.start_time}`
+        : 'Pinned'
+      : null
     const meta = signal ? (
       <span className="focus-row-meta">
         <span className={`focus-signal tone-${signal.tone}`}>{signal.label}</span>
+        <span className="focus-meta-sep" aria-hidden="true">·</span>
+        <span>{context}</span>
+      </span>
+    ) : pinWord ? (
+      <span className="focus-row-meta">
+        <span className="focus-fixed-word">{pinWord}</span>
         <span className="focus-meta-sep" aria-hidden="true">·</span>
         <span>{context}</span>
       </span>
@@ -284,8 +416,8 @@ export function MobileFocus({
       </button>
     )
 
-    return (
-      <div key={`${row.kind}-${row.taskId}`} className="focus-row" data-kind={row.kind} style={{ minHeight: `${row.height}px` }}>
+    return [renderGap(row), (
+      <div key={`${row.kind}-${taskId}`} className="focus-row" data-kind={row.kind} data-fixed={row.fixed || undefined} style={{ minHeight: `${row.height}px` }}>
         <div className="focus-gutter">
           <span className="focus-time">{formatClockTime(row.start)}</span>
           <span className="focus-spine">
@@ -314,7 +446,7 @@ export function MobileFocus({
               {/* Anchors are natively draggable, and the browser's own
                   drag-and-drop pre-empts the pointermove stream — a swipe that
                   started on the title would stall after a few pixels. */}
-              <Link to={taskLinkTo(row.taskId)} className="focus-band-title" draggable={false}>
+              <Link to={taskLinkTo(taskId)} className="focus-band-title" draggable={false}>
                 {row.title}
               </Link>
               <div className="focus-band-foot">
@@ -331,7 +463,7 @@ export function MobileFocus({
                 {row.kind === 'done' ? (
                   <span className="focus-row-title">{row.title}</span>
                 ) : (
-                  <Link to={taskLinkTo(row.taskId)} className="focus-row-title" draggable={false}>
+                  <Link to={taskLinkTo(taskId)} className="focus-row-title" draggable={false}>
                     {row.title}
                   </Link>
                 )}
@@ -342,7 +474,7 @@ export function MobileFocus({
           )}
         </SwipeRow>
       </div>
-    )
+    )]
   }
 
   return (
@@ -422,14 +554,29 @@ export function MobileFocus({
             </p>
           )}
 
-          {shift > 0 && (
+          {collision ? (
             <div className="focus-push-notice">
               <Clock3 size={15} aria-hidden="true" />
               <span>
-                Ran {formatClockDuration(shift)} long — every block after it moved. The day now ends{' '}
-                {formatClockTime(dayEnd)}.
+                Ran {formatClockDuration(overage)} long — runs into {formatClockTime(collision.start)}{' '}
+                {collision.title}, which stays put. The day now ends {formatClockTime(dayEnd)}.
               </span>
             </div>
+          ) : (
+            shift > 0 && (
+              <div className="focus-push-notice">
+                <Clock3 size={15} aria-hidden="true" />
+                <span>
+                  {/* With fixed rows the day can slip by more than the overrun —
+                      a block that no longer fits before a meeting jumps past it —
+                      so name the overrun itself and let the end time carry the rest. */}
+                  {rows.some((row) => row.fixed && row.kind !== 'current')
+                    ? `Ran ${formatClockDuration(overage > 0 ? overage : shift)} long — the blocks after it moved; fixed times stay put.`
+                    : `Ran ${formatClockDuration(shift)} long — every block after it moved.`}{' '}
+                  The day now ends {formatClockTime(dayEnd)}.
+                </span>
+              </div>
+            )
           )}
 
           <div className="focus-timeline">
@@ -449,7 +596,7 @@ export function MobileFocus({
                     : `${formatClockDuration(-free)} past capacity`}
                 </span>
                 {overflow.length > 0 && free > 0 && (
-                  <button type="button" className="focus-pull" onClick={() => schedule(0)}>
+                  <button type="button" className="focus-pull" disabled={pending} onClick={() => void schedule(0)}>
                     <Plus size={16} aria-hidden="true" />
                     Pull from Didn’t fit · {overflow.length}
                   </button>
@@ -490,7 +637,7 @@ export function MobileFocus({
                         </span>
                       </span>
                     </span>
-                    <button type="button" className="focus-schedule" onClick={() => schedule(index)}>
+                    <button type="button" className="focus-schedule" disabled={pending} onClick={() => void schedule(index)}>
                       Schedule
                     </button>
                   </li>
@@ -553,7 +700,30 @@ export function MobileFocus({
           onDate={setDate}
           onStartTime={setStartTime}
           onCapacity={setCapacityMinutes}
+          onAddCommitment={(title, start, minutes) => {
+            setSessionOpen(false)
+            void addCommitment(title, start, minutes)
+          }}
           onClose={() => setSessionOpen(false)}
+        />
+      )}
+
+      {commitmentTarget && (
+        <FocusCommitmentSheet
+          title={commitmentTarget.title}
+          start={commitmentTarget.start}
+          duration={commitmentTarget.duration}
+          onMove={(start) => {
+            const row = commitmentTarget
+            setCommitmentTarget(null)
+            void moveCommitment(row, start)
+          }}
+          onRemove={() => {
+            const row = commitmentTarget
+            setCommitmentTarget(null)
+            void removeCommitment(row)
+          }}
+          onClose={() => setCommitmentTarget(null)}
         />
       )}
 
@@ -577,6 +747,11 @@ export function MobileFocus({
           onSkip={() => {
             setRowTarget(null)
             onSkip(rowTarget.taskId, rowTarget.title)
+          }}
+          onUnpin={() => {
+            const row = rows.find((candidate) => candidate.taskId === rowTarget.taskId)
+            setRowTarget(null)
+            if (row) void unpin(row)
           }}
           onClose={() => setRowTarget(null)}
         />

@@ -16,6 +16,7 @@ const emptyPlan: FocusPlan = {
   available_minutes: 30,
   used_minutes: 0,
   scheduled: [],
+  commitments: [],
   overflow: [],
   blocked: [],
 }

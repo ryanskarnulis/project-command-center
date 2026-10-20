@@ -29,6 +29,23 @@ export interface ScheduledBlock {
   // the remaining capacity; the UI labels it "part of <parent_title>".
   parent_task_id: number | null
   parent_title: string | null
+  // The stored day plan (#319): the pin this block came from, whether the task
+  // is pinned into the day, and whether that pin holds a clock time (a fixed
+  // block never moves).
+  entry_id: number | null
+  pinned: boolean
+  fixed: boolean
+}
+
+/** A fixed-time commitment that is not a task (a meeting). */
+export interface CommitmentBlock {
+  entry_id: number
+  title: string
+  start_time: string // HH:MM
+  end_time: string // HH:MM
+  start_day_offset: number
+  end_day_offset: number
+  duration_minutes: number
 }
 
 export interface OverflowTask {
@@ -70,6 +87,28 @@ export interface FocusPlan {
   available_minutes: number
   used_minutes: number
   scheduled: ScheduledBlock[]
+  // Fixed-time commitments in start order; kept apart so every scheduled block
+  // is a task.
+  commitments: CommitmentBlock[]
   overflow: OverflowTask[]
   blocked: BlockedTask[]
+}
+
+/** One stored decision about a day's plan, as the write routes return it. */
+export interface FocusEntry {
+  id: number
+  plan_date: string // YYYY-MM-DD
+  task_id: number | null
+  title: string | null
+  start_time: string | null // HH:MM; null = a floating pin
+  duration_minutes: number | null
+  position: number
+  created_at: string
+  deleted_at: string | null
+}
+
+export interface FocusEntryUpdate {
+  start_time?: string | null
+  title?: string
+  duration_minutes?: number
 }

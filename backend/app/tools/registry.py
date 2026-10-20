@@ -38,7 +38,7 @@ from app.api.task_reads import read_with_blocked, reads_with_blocked
 from app.db.models import Project, Task, TaskWorkflowStatus
 from app.schemas.activity import ActivityEventRead
 from app.schemas.common import EntityId, PaginationOffset
-from app.schemas.focus import FocusPlan
+from app.schemas.focus import CommitmentMinutes, CommitmentTitle, FocusEntryRead, FocusPlan
 from app.schemas.projects import ProjectCreate, ProjectRead, ProjectUpdate
 from app.schemas.search import SearchResults
 from app.schemas.task_dependencies import TaskDependenciesRead, TaskDependencyRead
@@ -46,6 +46,7 @@ from app.schemas.tasks import TaskCreate, TaskRead, TaskUpdate
 from app.schemas.trash import ProjectRestoreResult, ProjectTrashRead, TrashRead
 from app.services import activity as activity_service
 from app.services import focus as focus_service
+from app.services import focus_plan as focus_plan_service
 from app.services import projects as projects_service
 from app.services import search as search_service
 from app.services import task_dependencies as deps_service
@@ -561,6 +562,92 @@ def get_focus_plan(
             start_time=start_time,
             available_minutes=available_minutes,
         )
+
+
+@_tool
+def pin_focus_task(
+    task_id: EntityId,
+    date: date_type | None = None,
+    start_time: _StartTime | None = None,
+) -> FocusEntryRead:
+    """Pin a task into the Focus plan for `date` (default: today) so it never lands in "Didn't fit".
+
+    With start_time (HH:MM) it becomes a fixed block at that time; without, it
+    joins the day ahead of the ranked work. Pinning an already pinned task moves
+    it. Undo with remove_focus_entry(entry_id).
+    """
+    with tool_session("pin_focus_task") as db:
+        task = _task_or_error(db, task_id)
+        start_minute = (
+            None if start_time is None else focus_plan_service.parse_time(start_time)
+        )
+        try:
+            entry = focus_plan_service.pin_task(
+                db,
+                plan_date=date or date_type.today(),
+                task=task,
+                start_minute=start_minute,
+            )
+        except focus_plan_service.FocusEntryError as exc:
+            raise ToolError(str(exc)) from exc
+        logger.info("tool_focus_task_pinned", entry_id=entry.id, task_id=task_id)
+        return focus_plan_service.entry_read(entry)
+
+
+@_tool
+def add_focus_commitment(
+    title: CommitmentTitle,
+    start_time: _StartTime,
+    duration_minutes: CommitmentMinutes,
+    date: date_type | None = None,
+) -> FocusEntryRead:
+    """Block fixed time in the Focus plan for something that is not a task, e.g. a 14:00 meeting.
+
+    The plan packs tasks around it. Undo with remove_focus_entry(entry_id).
+    """
+    with tool_session("add_focus_commitment") as db:
+        entry = focus_plan_service.add_commitment(
+            db,
+            plan_date=date or date_type.today(),
+            title=title,
+            start_minute=focus_plan_service.parse_time(start_time),
+            duration_minutes=duration_minutes,
+        )
+        logger.info("tool_focus_commitment_added", entry_id=entry.id)
+        return focus_plan_service.entry_read(entry)
+
+
+@_tool
+def remove_focus_entry(entry_id: EntityId) -> str:
+    """Unpin a task or drop a commitment from the Focus plan (entry_id from get_focus_plan).
+
+    Undo with restore_focus_entry(entry_id).
+    """
+    with tool_session("remove_focus_entry") as db:
+        entry = focus_plan_service.get_entry(db, entry_id)
+        if entry is None:
+            raise ToolError(f"Focus entry {entry_id} not found")
+        focus_plan_service.remove_entry(db, entry)
+        logger.info("tool_focus_entry_removed", entry_id=entry_id)
+        return (
+            f"Focus entry {entry_id} removed "
+            f"(undo with restore_focus_entry({entry_id}))"
+        )
+
+
+@_tool
+def restore_focus_entry(entry_id: EntityId) -> FocusEntryRead:
+    """Bring back a Focus pin or commitment removed with remove_focus_entry."""
+    with tool_session("restore_focus_entry") as db:
+        entry = focus_plan_service.get_deleted_entry(db, entry_id)
+        if entry is None:
+            raise ToolError(f"No removed focus entry with id {entry_id}")
+        try:
+            focus_plan_service.restore_entry(db, entry)
+        except focus_plan_service.FocusEntryError as exc:
+            raise ToolError(str(exc)) from exc
+        logger.info("tool_focus_entry_restored", entry_id=entry_id)
+        return focus_plan_service.entry_read(entry)
 
 
 @_tool

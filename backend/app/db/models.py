@@ -4,7 +4,7 @@ import enum
 from datetime import UTC, date, datetime
 from typing import Any
 
-from sqlalchemy import JSON, ForeignKey, Index, String, func, text
+from sqlalchemy import JSON, CheckConstraint, ForeignKey, Index, String, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -218,6 +218,58 @@ class TaskDependency(Base, TimestampMixin, SoftDeleteMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"))
     depends_on_task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"))
+
+
+class FocusPlanEntry(Base, TimestampMixin, SoftDeleteMixin):
+    """One stored decision about one day's Focus plan (issue #319).
+
+    The plan itself stays derived; these rows are an overlay the packer honours
+    (``services/focus.py``, design in ``docs/focus-day-plan.md``). Three kinds,
+    told apart by which columns are set:
+
+    * floating pin — ``task_id`` set, ``start_minute`` null: the task is in the
+      day ahead of the ranked list, ordered by ``position``;
+    * timed pin — ``task_id`` and ``start_minute`` set: a fixed block of the
+      task's own estimate;
+    * commitment — ``task_id`` null; ``title``, ``start_minute`` and
+      ``duration_minutes`` set: a fixed block that is not a task (a meeting).
+
+    ``start_minute`` is minutes after midnight on ``plan_date``. A purge of the
+    pinned task takes its entries with it (``task_trash.purge_task``).
+    """
+
+    __tablename__ = "focus_plan_entries"
+    __table_args__ = (
+        # One live pin per task per day; soft-deleted history is exempt so a
+        # removed pin can be re-added (same shape as the dependency edge index).
+        Index(
+            "uq_focus_plan_entries_live_pin",
+            "plan_date",
+            "task_id",
+            unique=True,
+            sqlite_where=text("task_id IS NOT NULL AND deleted_at IS NULL"),
+        ),
+        CheckConstraint(
+            "(task_id IS NOT NULL AND title IS NULL AND duration_minutes IS NULL)"
+            " OR (task_id IS NULL AND title IS NOT NULL"
+            " AND start_minute IS NOT NULL AND duration_minutes IS NOT NULL)",
+            name="ck_focus_plan_entries_kind",
+        ),
+        CheckConstraint(
+            "start_minute IS NULL OR (start_minute >= 0 AND start_minute < 1440)",
+            name="ck_focus_plan_entries_start_minute",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    plan_date: Mapped[date] = mapped_column(index=True)
+    task_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tasks.id"), default=None, index=True
+    )
+    title: Mapped[str | None] = mapped_column(default=None)
+    start_minute: Mapped[int | None] = mapped_column(default=None)
+    duration_minutes: Mapped[int | None] = mapped_column(default=None)
+    position: Mapped[int] = mapped_column(default=0, server_default="0")
 
 
 class ConversationRole(enum.StrEnum):

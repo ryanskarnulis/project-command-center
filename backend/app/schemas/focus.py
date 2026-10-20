@@ -2,10 +2,20 @@ from __future__ import annotations
 
 import enum
 from datetime import date
+from typing import Annotated
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.db.models import TaskPriority, TaskWorkflowStatus
+from app.schemas.common import EntityId, MutationModel, NonBlankStr, UTCDateTime
+
+# HH:MM, 24-hour clock — the one shape a Focus time of day takes at the boundary
+# (the plan query, the agent tool and the stored-plan writes alike).
+TIME_OF_DAY_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
+TimeOfDay = Annotated[str, Field(pattern=TIME_OF_DAY_PATTERN)]
+# A commitment lasts at least five minutes and at most a whole day.
+CommitmentMinutes = Annotated[int, Field(ge=5, le=1440)]
+CommitmentTitle = Annotated[NonBlankStr, Field(max_length=200)]
 
 
 class DueSignal(enum.StrEnum):
@@ -53,6 +63,24 @@ class ScheduledBlock(BaseModel):
     # null for a normally scheduled top-level task.
     parent_task_id: int | None = None
     parent_title: str | None = None
+    # The stored day plan (#319). ``entry_id`` names the pin this block came
+    # from; ``pinned`` is true for any pinned task (floating or timed), ``fixed``
+    # only for a timed one — a fixed block sits at its own time and never moves.
+    entry_id: int | None = None
+    pinned: bool = False
+    fixed: bool = False
+
+
+class CommitmentBlock(BaseModel):
+    """A fixed-time commitment that is not a task (a meeting), placed on the day."""
+
+    entry_id: int
+    title: str
+    start_time: str  # HH:MM, local clock time
+    end_time: str  # HH:MM, local clock time
+    start_day_offset: int
+    end_day_offset: int
+    duration_minutes: int
 
 
 class OverflowTask(BaseModel):
@@ -112,5 +140,51 @@ class FocusPlan(BaseModel):
     available_minutes: int
     used_minutes: int
     scheduled: list[ScheduledBlock]
+    # Fixed-time commitments that fall in the plan, in start order. Kept apart
+    # from ``scheduled`` so every scheduled block is still a task.
+    commitments: list[CommitmentBlock] = []
     overflow: list[OverflowTask]
     blocked: list[BlockedTask]
+
+
+class FocusPinCreate(MutationModel):
+    """Pin a task into a day's plan; with ``start_time`` it becomes a fixed block."""
+
+    plan_date: date
+    task_id: EntityId
+    start_time: TimeOfDay | None = None
+
+
+class FocusCommitmentCreate(MutationModel):
+    """Add a fixed-time commitment that is not a task, e.g. a meeting."""
+
+    plan_date: date
+    title: CommitmentTitle
+    start_time: TimeOfDay
+    duration_minutes: CommitmentMinutes
+
+
+class FocusEntryUpdate(MutationModel):
+    """Partial edit of a stored entry; only the fields present are touched.
+
+    ``start_time: null`` floats a timed pin again (a commitment always keeps a
+    time); ``title`` and ``duration_minutes`` apply to commitments only.
+    """
+
+    start_time: TimeOfDay | None = None
+    title: CommitmentTitle | None = None
+    duration_minutes: CommitmentMinutes | None = None
+
+
+class FocusEntryRead(BaseModel):
+    """A stored entry as written; ``start_time`` is HH:MM or null (floating)."""
+
+    id: int
+    plan_date: date
+    task_id: int | None
+    title: str | None
+    start_time: str | None
+    duration_minutes: int | None
+    position: int
+    created_at: UTCDateTime
+    deleted_at: UTCDateTime | None

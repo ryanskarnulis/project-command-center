@@ -2,7 +2,14 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../../api/client'
-import { getFocusPlan } from '../../api/focus'
+import {
+  addFocusCommitment,
+  getFocusPlan,
+  pinFocusTask,
+  removeFocusEntry,
+  restoreFocusEntry,
+  updateFocusEntry,
+} from '../../api/focus'
 import {
   getTask,
   markTaskDone,
@@ -10,12 +17,17 @@ import {
   skipOccurrence,
   updateTask,
 } from '../../api/tasks'
-import type { ScheduledBlock, FocusPlan } from '../../types/focus'
+import type { CommitmentBlock, FocusEntry, ScheduledBlock, FocusPlan } from '../../types/focus'
 import type { Task } from '../../types/task'
 import { FocusPage } from './FocusPage'
 
 vi.mock('../../api/focus', () => ({
+  addFocusCommitment: vi.fn(),
   getFocusPlan: vi.fn(),
+  pinFocusTask: vi.fn(),
+  removeFocusEntry: vi.fn(),
+  restoreFocusEntry: vi.fn(),
+  updateFocusEntry: vi.fn(),
 }))
 
 vi.mock('../../api/tasks', () => ({
@@ -44,6 +56,26 @@ vi.mock('../../api/taskDependencies', () => ({
 }))
 
 const mockGetFocusPlan = vi.mocked(getFocusPlan)
+const mockPinFocusTask = vi.mocked(pinFocusTask)
+const mockAddFocusCommitment = vi.mocked(addFocusCommitment)
+const mockRemoveFocusEntry = vi.mocked(removeFocusEntry)
+const mockRestoreFocusEntry = vi.mocked(restoreFocusEntry)
+const mockUpdateFocusEntry = vi.mocked(updateFocusEntry)
+
+function focusEntry(overrides: Partial<FocusEntry> = {}): FocusEntry {
+  return {
+    id: 41,
+    plan_date: '2026-06-20',
+    task_id: null,
+    title: null,
+    start_time: null,
+    duration_minutes: null,
+    position: 0,
+    created_at: '2026-06-20T08:00:00Z',
+    deleted_at: null,
+    ...overrides,
+  }
+}
 const mockMarkTaskDone = vi.mocked(markTaskDone)
 const mockReopenTask = vi.mocked(reopenTask)
 const mockSkipOccurrence = vi.mocked(skipOccurrence)
@@ -92,6 +124,9 @@ function scheduledBlock(overrides: Partial<ScheduledBlock> = {}): ScheduledBlock
     reason: 'open · high priority',
     parent_task_id: null,
     parent_title: null,
+    entry_id: null,
+    pinned: false,
+    fixed: false,
     ...overrides,
   }
 }
@@ -103,6 +138,7 @@ function makePlan(overrides: Partial<FocusPlan> = {}): FocusPlan {
     available_minutes: 360,
     used_minutes: 90,
     scheduled: [],
+    commitments: [],
     overflow: [],
     blocked: [],
     ...overrides,
@@ -142,6 +178,9 @@ describe('FocusPage', () => {
             reason: 'in-progress · due today · high priority',
             parent_task_id: null,
             parent_title: null,
+            entry_id: null,
+            pinned: false,
+            fixed: false,
           },
         ],
       }),
@@ -270,6 +309,9 @@ describe('FocusPage', () => {
             reason: 'open · medium priority',
             parent_task_id: null,
             parent_title: null,
+            entry_id: null,
+            pinned: false,
+            fixed: false,
           },
         ],
         overflow: [
@@ -430,6 +472,133 @@ describe('FocusPage', () => {
       expect(mockUpdateTask).toHaveBeenCalledWith(7, { deferred_until: '2026-06-21' }),
     )
     await waitFor(() => expect(mockGetFocusPlan).toHaveBeenCalledTimes(2))
+  })
+
+  it('schedules a task from Didn\u2019t fit by pinning it into the day', async () => {
+    mockGetFocusPlan.mockResolvedValue(
+      makePlan({
+        overflow: [
+          {
+            task_id: 8,
+            title: 'Patch the hosts',
+            project_id: 1,
+            priority: 'medium',
+            workflow_status: 'open',
+            due_date: null,
+            due_signal: 'none',
+            is_recurring: false,
+            estimated_minutes: 45,
+            estimate_assumed: false,
+            scheduled_subtask_count: 0,
+          },
+        ],
+      }),
+    )
+    mockPinFocusTask.mockResolvedValue(focusEntry({ task_id: 8 }))
+    render(
+      <MemoryRouter>
+        <FocusPage />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: /Didn.t fit/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Schedule Patch the hosts today' }))
+
+    await waitFor(() => expect(mockPinFocusTask).toHaveBeenCalledWith('2026-06-20', 8))
+    await waitFor(() => expect(mockGetFocusPlan).toHaveBeenCalledTimes(2))
+  })
+
+  it('pins a scheduled task at a time and unpins a pinned one', async () => {
+    mockGetFocusPlan.mockResolvedValue(
+      makePlan({
+        scheduled: [
+          scheduledBlock({ task_id: 7 }),
+          scheduledBlock({
+            task_id: 9,
+            title: 'Pinned work',
+            start_time: '14:00',
+            end_time: '14:30',
+            entry_id: 33,
+            pinned: true,
+            fixed: true,
+          }),
+        ],
+      }),
+    )
+    mockPinFocusTask.mockResolvedValue(focusEntry({ task_id: 7, start_time: '11:00' }))
+    mockRemoveFocusEntry.mockResolvedValue(focusEntry({ id: 33 }))
+    render(
+      <MemoryRouter>
+        <FocusPage />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('pinned at 14:00')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Pin Draft launch checklist' }))
+    fireEvent.change(screen.getByLabelText('Pin Draft launch checklist at'), {
+      target: { value: '11:00' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Pin' }))
+    await waitFor(() =>
+      expect(mockPinFocusTask).toHaveBeenCalledWith('2026-06-20', 7, '11:00'),
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Unpin Pinned work' }))
+    await waitFor(() => expect(mockRemoveFocusEntry).toHaveBeenCalledWith(33))
+  })
+
+  it('interleaves commitments with tasks and adds, moves and removes them', async () => {
+    mockGetFocusPlan.mockResolvedValue(
+      makePlan({
+        scheduled: [
+          scheduledBlock({ task_id: 7 }),
+          scheduledBlock({ task_id: 8, title: 'After lunch', start_time: '13:00', end_time: '13:30' }),
+        ],
+        commitments: [
+          {
+            entry_id: 5,
+            title: 'Standup',
+            start_time: '10:00',
+            end_time: '10:30',
+            start_day_offset: 0,
+            end_day_offset: 0,
+            duration_minutes: 30,
+          },
+        ],
+      }),
+    )
+    mockAddFocusCommitment.mockResolvedValue(focusEntry({ id: 6 }))
+    mockUpdateFocusEntry.mockResolvedValue(focusEntry({ id: 5 }))
+    mockRemoveFocusEntry.mockResolvedValue(focusEntry({ id: 5 }))
+    render(
+      <MemoryRouter>
+        <FocusPage />
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('Standup')
+    const titles = Array.from(document.querySelectorAll('.focus-timeline .focus-block-title')).map(
+      (node) => node.textContent,
+    )
+    expect(titles).toEqual(['Draft launch checklist', 'Standup', 'After lunch'])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add commitment' }))
+    fireEvent.change(screen.getByLabelText('Commitment title'), { target: { value: 'Dentist' } })
+    fireEvent.change(screen.getByLabelText('Commitment start'), { target: { value: '15:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    await waitFor(() =>
+      expect(mockAddFocusCommitment).toHaveBeenCalledWith('2026-06-20', 'Dentist', '15:00', 30),
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Move Standup' }))
+    fireEvent.change(screen.getByLabelText('Move Standup to'), { target: { value: '10:45' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }))
+    await waitFor(() =>
+      expect(mockUpdateFocusEntry).toHaveBeenCalledWith(5, { start_time: '10:45' }),
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove Standup' }))
+    await waitFor(() => expect(mockRemoveFocusEntry).toHaveBeenCalledWith(5))
   })
 
   it('swallows a rejected skip and does not refetch the plan', async () => {
@@ -831,7 +1000,9 @@ describe('FocusPage', () => {
       )
     })
 
-    it('schedules from Didn\u2019t fit by extending the session to hold it', async () => {
+    it('schedules from Didn\u2019t fit by pinning only that item into the day', async () => {
+      mockPinFocusTask.mockResolvedValue(focusEntry({ id: 41, task_id: 8 }))
+      mockRemoveFocusEntry.mockResolvedValue(focusEntry({ id: 41, task_id: 8 }))
       renderMobile(
         makePlan({
           used_minutes: 120,
@@ -856,8 +1027,85 @@ describe('FocusPage', () => {
       await screen.findByText('Now')
 
       fireEvent.click(screen.getByRole('button', { name: /Pull from Didn/ }))
-      // 120 scheduled + a 45m item that didn't fit; nothing finished yet.
-      await waitFor(() => expect(localStorage.getItem('focus.capacity')).toBe('165'))
+      // The stored day plan (#319): a pin, not a bigger session.
+      await waitFor(() => expect(mockPinFocusTask).toHaveBeenCalledWith('2026-06-20', 8))
+      expect(localStorage.getItem('focus.capacity')).toBeNull()
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
+      await waitFor(() => expect(mockRemoveFocusEntry).toHaveBeenCalledWith(41))
+    })
+
+    it('keeps a commitment at its time when the current block overruns into it', async () => {
+      const standup: CommitmentBlock = {
+        entry_id: 5,
+        title: 'Standup',
+        start_time: '10:00',
+        end_time: '10:30',
+        start_day_offset: 0,
+        end_day_offset: 0,
+        duration_minutes: 30,
+      }
+      renderMobile(
+        makePlan({
+          used_minutes: 90,
+          scheduled: [
+            scheduledBlock({ task_id: 1, title: 'Write the brief', estimated_minutes: 60, end_time: '10:00' }),
+          ],
+          commitments: [standup],
+        }),
+      )
+      await screen.findByText('Now')
+      // Start the clock and run 20 minutes past the 60m estimate.
+      fireEvent.click(screen.getByRole('button', { name: /Start Write the brief/ }))
+      act(() => {
+        vi.advanceTimersByTime(80 * 60_000)
+      })
+
+      expect(await screen.findByText(/runs into 10:00 Standup, which stays put/)).toBeInTheDocument()
+      const commitmentRow = document.querySelector('.focus-row[data-kind="commitment"]')
+      expect(commitmentRow?.querySelector('.focus-time')?.textContent).toBe('10:00')
+    })
+
+    it('removes a commitment from its sheet, with an undo that restores it', async () => {
+      mockRemoveFocusEntry.mockResolvedValue(focusEntry({ id: 5 }))
+      mockRestoreFocusEntry.mockResolvedValue(focusEntry({ id: 5 }))
+      renderMobile(
+        makePlan({
+          scheduled: [dnsBlock],
+          commitments: [
+            {
+              entry_id: 5,
+              title: 'Standup',
+              start_time: '14:00',
+              end_time: '14:30',
+              start_day_offset: 0,
+              end_day_offset: 0,
+              duration_minutes: 30,
+            },
+          ],
+        }),
+      )
+      fireEvent.click(await screen.findByRole('button', { name: 'Actions for Standup' }))
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }))
+
+      await waitFor(() => expect(mockRemoveFocusEntry).toHaveBeenCalledWith(5))
+      fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
+      await waitFor(() => expect(mockRestoreFocusEntry).toHaveBeenCalledWith(5))
+    })
+
+    it('adds a commitment from the session sheet', async () => {
+      mockAddFocusCommitment.mockResolvedValue(focusEntry({ id: 6, title: 'Dentist' }))
+      renderMobile(makePlan({ scheduled: [dnsBlock] }))
+      fireEvent.click(await screen.findByRole('button', { name: /capacity/ }))
+      const sheet = screen.getByRole('dialog')
+      fireEvent.change(within(sheet).getByLabelText('Commitment title'), { target: { value: 'Dentist' } })
+      fireEvent.change(within(sheet).getByLabelText('Commitment start'), { target: { value: '15:00' } })
+      fireEvent.change(within(sheet).getByLabelText('Commitment length'), { target: { value: '60' } })
+      fireEvent.click(within(sheet).getByRole('button', { name: 'Add' }))
+
+      await waitFor(() =>
+        expect(mockAddFocusCommitment).toHaveBeenCalledWith('2026-06-20', 'Dentist', '15:00', 60),
+      )
     })
     /* Regression, found in Chromium: a captured pointer retargets its own
        `pointerup` and the click derived from it to the capturing element, so
@@ -970,6 +1218,10 @@ describe('FocusPage', () => {
     describe('exhausted capacity (#308)', () => {
       interface FakeTask { id: number; title: string; minutes: number }
 
+      // Tasks pinned into the day; like the real packer, a pin never overflows.
+      const pinned = new Set<number>()
+      beforeEach(() => pinned.clear())
+
       function fakeScheduler(open: FakeTask[]) {
         mockGetFocusPlan.mockImplementation(async (params = {}) => {
           const capacity = params.availableMinutes ?? 360
@@ -981,7 +1233,7 @@ describe('FocusPage', () => {
           const scheduled: ScheduledBlock[] = []
           const overflow: FocusPlan['overflow'] = []
           for (const task of open) {
-            if (used + task.minutes <= capacity) {
+            if (pinned.has(task.id) || used + task.minutes <= capacity) {
               scheduled.push(scheduledBlock({
                 task_id: task.id,
                 title: task.title,
@@ -1089,7 +1341,11 @@ describe('FocusPage', () => {
         expect(screen.getByRole('button', { name: /Didn.t fit · 1/ })).toBeInTheDocument()
       })
 
-      it('schedules overflow again only when the user extends the session', async () => {
+      it('schedules overflow into a spent session only by pinning it', async () => {
+        mockPinFocusTask.mockImplementation(async (_date, taskId) => {
+          pinned.add(taskId)
+          return focusEntry({ id: 50, task_id: taskId })
+        })
         fakeScheduler([
           { id: 1, title: 'Fill the session', minutes: 30 },
           { id: 2, title: 'Short overflow task', minutes: 10 },
@@ -1101,10 +1357,13 @@ describe('FocusPage', () => {
         fireEvent.click(screen.getByRole('button', { name: /Didn.t fit · 1/ }))
         fireEvent.click(screen.getByRole('button', { name: 'Schedule' }))
 
-        await waitFor(() => expect(localStorage.getItem('focus.capacity')).toBe('40'))
-        await waitFor(() => expect(lastCapacity()).toBe(10))
-        expect(await screen.findByRole('link', { name: 'Short overflow task' })).toBeInTheDocument()
-        expect(screen.queryByText(/over capacity/)).toBeNull()
+        // The session itself is untouched — the pin carries the task in, and
+        // the bar says honestly that it runs past the capacity.
+        await waitFor(() => expect(mockPinFocusTask).toHaveBeenCalledWith('2026-06-20', 2))
+        expect((await screen.findAllByText(/10m over capacity/)).length).toBeGreaterThan(0)
+        expect(screen.queryByRole('heading', { name: 'Day clear' })).toBeNull()
+        expect(localStorage.getItem('focus.capacity')).toBe('30')
+        expect(lastCapacity()).toBe(0)
       })
     })
   })

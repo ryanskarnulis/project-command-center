@@ -22,6 +22,10 @@ Tools map 1:1 onto service functions — (validate args) → (open session) →
 - **Search/focus/trash/activity:** `search` (FTS-tiered — this *is* the
   retrieval story), `get_focus_plan`, `list_trash`,
   `restore_task`/`restore_project`, `list_activity`.
+- **Stored day plan (#319):** `pin_focus_task` (floating, or fixed with
+  `start_time`), `add_focus_commitment` (fixed non-task time),
+  `remove_focus_entry` (soft) / `restore_focus_entry`. Entry ids come back in
+  `get_focus_plan` (`entry_id` on blocks and commitments).
 - **Dependencies/recurrence:** `list_dependencies`, `add_dependency`,
   `remove_dependency`, `skip_occurrence`, `stop_recurrence`. Recurrence
   creation/editing rides on `create_task`/`update_task`.

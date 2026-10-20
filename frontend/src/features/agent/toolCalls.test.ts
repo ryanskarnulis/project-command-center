@@ -9,6 +9,11 @@ vi.mock('../../api/tasks', () => ({
   restoreTask: vi.fn(),
 }))
 
+vi.mock('../../api/focus', () => ({
+  removeFocusEntry: vi.fn(),
+  restoreFocusEntry: vi.fn(),
+}))
+
 vi.mock('../../api/projects', () => ({
   deleteProject: vi.fn(),
   restoreProject: vi.fn(),
@@ -247,5 +252,33 @@ describe('undoFor', () => {
     expect(
       undoFor(record({ tool: 'stop_recurrence', result: '{"id": 1}' })),
     ).toBeNull()
+  })
+})
+
+describe('focus plan tools (#319)', () => {
+  it('unpins a pin, removes a commitment and restores a removal', async () => {
+    const { removeFocusEntry, restoreFocusEntry } = await import('../../api/focus')
+    const pin = undoFor(
+      record({ tool: 'pin_focus_task', arguments: { task_id: 3 }, result: JSON.stringify({ id: 12 }) }),
+    )
+    expect(pin?.label).toBe('Unpin')
+    await pin?.perform()
+    expect(vi.mocked(removeFocusEntry)).toHaveBeenCalledWith(12)
+
+    const commitment = record({
+      tool: 'add_focus_commitment',
+      arguments: { title: 'Standup', start_time: '14:00', duration_minutes: 30 },
+      result: JSON.stringify({ id: 13, title: 'Standup' }),
+    })
+    expect(describeToolCall(commitment)).toBe('Added “Standup” to the focus plan')
+    expect(linkFor(commitment)).toBe('/focus')
+    await undoFor(commitment)?.perform()
+    expect(vi.mocked(removeFocusEntry)).toHaveBeenCalledWith(13)
+
+    const removal = undoFor(
+      record({ tool: 'remove_focus_entry', arguments: { entry_id: 14 }, result: 'Focus entry 14 removed' }),
+    )
+    await removal?.perform()
+    expect(vi.mocked(restoreFocusEntry)).toHaveBeenCalledWith(14)
   })
 })

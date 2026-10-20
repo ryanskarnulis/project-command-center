@@ -383,3 +383,57 @@
     flex-wrap: wrap;
   }
 }
+
+/* ── Stored day plan (#319) ───────────────────────────────────────────── */
+/* Pinned / fixed state is a coloured word in the meta line, never a pill. */
+.focus-pin-word {
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.focus-commitment-word {
+  color: var(--violet);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+/* A commitment is not a task: its title is plain text, not a link. */
+.focus-commitment .focus-block-title:hover {
+  text-decoration: none;
+}
+
+.focus-pin-form,
+.focus-commitment-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.focus-pin-form input,
+.focus-commitment-form input,
+.focus-commitment-form select {
+  min-height: var(--field-h);
+  padding: 5px 8px;
+  border: 1px solid var(--rule-field);
+  border-radius: 7px;
+  background: var(--fill-subtle);
+  color: var(--text-h);
+  font-family: var(--sans);
+  font-size: 13px;
+}
+
+.focus-commitment-form {
+  padding-top: 10px;
+}
+
+.focus-commitment-form input[type='text'] {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.focus-add-commitment {
+  align-self: flex-start;
+  margin-top: 8px;
+}
