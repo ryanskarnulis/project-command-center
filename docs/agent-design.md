@@ -133,7 +133,7 @@ with `delegate_actor` added):**
 | --- | --- | --- | --- |
 | `create_task_with_fields` | routing, priority, date math, audit | 3–5 | 3.0–5.9 s |
 | `find_and_complete` | described task found via read, completed | 3 | 1.2–1.8 s |
-| `reschedule` | targeted due-date update only | 3 | 1.5–4.5 s |
+| `reschedule` | targeted due-date update only (ISO target relative to today, #380) | 3 | 1.5–4.5 s |
 | `delete_is_soft` | lands in trash, restorable, audited | 3 | 1.0–3.2 s |
 | `read_only_count` | correct count, zero mutations | 3 | 1.4–2.0 s |
 | `honest_about_missing` | nothing invented or acted on; frugality tripwire ≤7 iterations / ≤6 reads | 2–5 | 0.9–2.3 s |
