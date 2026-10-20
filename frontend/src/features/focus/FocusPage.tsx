@@ -21,6 +21,7 @@ import {
   pinFocusTask,
   removeFocusEntry,
   reorderFocusPins,
+  skipFocusOccurrence,
   updateFocusEntry,
 } from '../../api/focus'
 import { markTaskDone, skipOccurrence, updateTask } from '../../api/tasks'
@@ -37,6 +38,12 @@ import type {
   ScheduledBlock,
 } from '../../types/focus'
 import { formatDuration } from '../../utils/duration'
+import { formatRepeatInterval } from '../../utils/recurrence'
+import {
+  COMMITMENT_REPEATS,
+  commitmentRepeatInterval,
+  type CommitmentRepeat,
+} from './commitmentRepeat'
 import { addDaysISO, formatDueDate } from '../../utils/dates'
 import { TaskPanelProvider } from '../tasks/panel/TaskPanelProvider'
 import { useTaskLinkTo } from '../tasks/panel/taskPanelContext'
@@ -523,7 +530,8 @@ function ScheduledRow({
 }
 
 // A fixed-time commitment that is not a task (a meeting): no task link, no
-// task verbs — only Move (to another time) and Remove.
+// task verbs — only Move (to another time) and Remove. A repeating one (#376)
+// also offers Skip day; its Move and Remove act on the whole series.
 function CommitmentRow({
   commitment,
   past,
@@ -538,6 +546,7 @@ function CommitmentRow({
   const { withToast } = useToast()
   const [pending, setPending] = useState(false)
   const [moveTo, setMoveTo] = useState<string | null>(null)
+  const repeat = commitment.repeat_interval
 
   async function run(action: () => Promise<unknown>, success: string): Promise<void> {
     if (pending) return
@@ -571,6 +580,7 @@ function CommitmentRow({
         </div>
         <div className="focus-block-meta">
           <span className="focus-commitment-word">fixed</span>
+          {repeat && <span className="focus-repeat-word">{formatRepeatInterval(repeat)}</span>}
           <EstimateLabel minutes={commitment.duration_minutes} assumed={false} />
         </div>
       </div>
@@ -594,7 +604,7 @@ function CommitmentRow({
               if (!moveTo) return
               void run(
                 () => updateFocusEntry(commitment.entry_id, { start_time: moveTo }),
-                `Moved to ${moveTo}`,
+                repeat ? `Moved to ${moveTo} every time` : `Moved to ${moveTo}`,
               )
             }}
           >
@@ -618,17 +628,39 @@ function CommitmentRow({
             </button>
           </form>
         )}
+        {repeat && (
+          <button
+            type="button"
+            className="task-action"
+            disabled={pending}
+            aria-label={`Skip ${commitment.title} on this day`}
+            onClick={() =>
+              void run(
+                () => skipFocusOccurrence(commitment.entry_id, planDate),
+                `Skipped ${commitment.title} on this day`,
+              )
+            }
+          >
+            <SkipForward size={15} aria-hidden="true" />
+            Skip day
+          </button>
+        )}
         <button
           type="button"
           className="task-action"
           disabled={pending}
-          aria-label={`Remove ${commitment.title}`}
+          aria-label={
+            repeat ? `Remove every ${commitment.title}` : `Remove ${commitment.title}`
+          }
           onClick={() =>
-            void run(() => removeFocusEntry(commitment.entry_id), 'Commitment removed')
+            void run(
+              () => removeFocusEntry(commitment.entry_id),
+              repeat ? 'Repeating commitment removed' : 'Commitment removed',
+            )
           }
         >
           <X size={15} aria-hidden="true" />
-          Remove
+          {repeat ? 'Remove series' : 'Remove'}
         </button>
       </div>
     </li>
@@ -654,6 +686,7 @@ function AddCommitmentForm({
   const [title, setTitle] = useState('')
   const [start, setStart] = useState('')
   const [minutes, setMinutes] = useState(30)
+  const [repeat, setRepeat] = useState<CommitmentRepeat>('once')
   const [pending, setPending] = useState(false)
 
   if (!open) {
@@ -669,11 +702,18 @@ function AddCommitmentForm({
     if (pending || !title.trim() || !start) return
     setPending(true)
     try {
-      await withToast(addFocusCommitment(planDate, title.trim(), start, minutes), {
-        success: `Added ${title.trim()} at ${start}`,
-      })
+      const interval = commitmentRepeatInterval(repeat)
+      await withToast(
+        addFocusCommitment(planDate, title.trim(), start, minutes, interval),
+        {
+          success: interval
+            ? `Added ${title.trim()} at ${start}, ${formatRepeatInterval(interval)}`
+            : `Added ${title.trim()} at ${start}`,
+        },
+      )
       setTitle('')
       setStart('')
+      setRepeat('once')
       setOpen(false)
       onMutated()
     } catch {
@@ -716,6 +756,17 @@ function AddCommitmentForm({
         {COMMITMENT_MINUTES.map((value) => (
           <option key={value} value={value}>
             {formatDuration(value)}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="Commitment repeat"
+        value={repeat}
+        onChange={(event) => setRepeat(event.target.value as CommitmentRepeat)}
+      >
+        {COMMITMENT_REPEATS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
           </option>
         ))}
       </select>

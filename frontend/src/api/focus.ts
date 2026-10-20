@@ -1,5 +1,6 @@
 import { apiClient } from './client'
 import type { FocusEntry, FocusEntryUpdate, FocusPlan } from '../types/focus'
+import type { RepeatInterval } from '../types/task'
 
 export interface FocusPlanParams {
   date?: string // YYYY-MM-DD
@@ -64,12 +65,16 @@ export async function reorderFocusPins(
   })
 }
 
-/** Block fixed time for something that is not a task (a meeting). */
+/**
+ * Block fixed time for something that is not a task (a meeting). With
+ * `repeatInterval` it repeats from `planDate` on (#376).
+ */
 export async function addFocusCommitment(
   planDate: string,
   title: string,
   startTime: string,
   durationMinutes: number,
+  repeatInterval: RepeatInterval | null = null,
 ): Promise<FocusEntry> {
   return apiClient<FocusEntry>('/api/focus/commitments', {
     method: 'POST',
@@ -79,7 +84,23 @@ export async function addFocusCommitment(
       title,
       start_time: startTime,
       duration_minutes: durationMinutes,
+      ...(repeatInterval ? { repeat_interval: repeatInterval } : {}),
     }),
+  })
+}
+
+/**
+ * Skip one day's occurrence of a repeating commitment (#376). Returns the
+ * skip; `removeFocusEntry(skip.id)` undoes it.
+ */
+export async function skipFocusOccurrence(
+  seriesEntryId: number,
+  planDate: string,
+): Promise<FocusEntry> {
+  return apiClient<FocusEntry>(`/api/focus/entries/${seriesEntryId}/skip`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ plan_date: planDate }),
   })
 }
 

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.db.models import TaskPriority, TaskWorkflowStatus
 from app.schemas.common import EntityId, MutationModel, NonBlankStr, UTCDateTime
+from app.schemas.tasks import RepeatInterval
 
 # HH:MM, 24-hour clock — the one shape a Focus time of day takes at the boundary
 # (the plan query, the agent tool and the stored-plan writes alike).
@@ -85,6 +86,10 @@ class CommitmentBlock(BaseModel):
     start_day_offset: int
     end_day_offset: int
     duration_minutes: int
+    # Set when the commitment repeats (#376). ``entry_id`` is then the series
+    # row: editing or removing it changes every occurrence, and
+    # ``POST /focus/entries/{entry_id}/skip`` skips just this day's.
+    repeat_interval: RepeatInterval | None = None
 
 
 class OverflowTask(BaseModel):
@@ -166,6 +171,15 @@ class FocusCommitmentCreate(MutationModel):
     title: CommitmentTitle
     start_time: TimeOfDay
     duration_minutes: CommitmentMinutes
+    # Repeat from ``plan_date`` on, in the task cadence shape (#376). Occurrences
+    # are read per day, never stored ahead of time.
+    repeat_interval: RepeatInterval | None = None
+
+
+class FocusOccurrenceSkip(MutationModel):
+    """Skip one day's occurrence of a repeating commitment (#376)."""
+
+    plan_date: date
 
 
 class FocusEntryUpdate(MutationModel):
@@ -200,6 +214,10 @@ class FocusEntryRead(BaseModel):
     start_time: str | None
     duration_minutes: int | None
     position: int
+    # A repeating commitment's cadence (#376); null on every other kind.
+    repeat_interval: RepeatInterval | None = None
+    # Set only on a skip: the series whose ``plan_date`` occurrence it skips.
+    series_id: int | None = None
     created_at: UTCDateTime
     deleted_at: UTCDateTime | None
 

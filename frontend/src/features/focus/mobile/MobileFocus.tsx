@@ -18,10 +18,13 @@ import {
   removeFocusEntry,
   reorderFocusPins,
   restoreFocusEntry,
+  skipFocusOccurrence,
   updateFocusEntry,
 } from '../../../api/focus'
 import { markTaskDone, reopenTask, updateTask } from '../../../api/tasks'
 import { addDaysISO } from '../../../utils/dates'
+import { formatRepeatInterval } from '../../../utils/recurrence'
+import type { RepeatInterval } from '../../../types/task'
 import { useTaskLinkTo } from '../../tasks/panel/taskPanelContext'
 import type { FocusPlan } from '../../../types/focus'
 import {
@@ -285,9 +288,14 @@ export function MobileFocus({
     })
   }
 
-  async function addCommitment(title: string, start: string, minutes: number): Promise<void> {
+  async function addCommitment(
+    title: string,
+    start: string,
+    minutes: number,
+    repeat: RepeatInterval | null,
+  ): Promise<void> {
     await mutate(async () => {
-      const entry = await addFocusCommitment(plan?.date ?? date, title, start, minutes)
+      const entry = await addFocusCommitment(plan?.date ?? date, title, start, minutes, repeat)
       armUndo(`Added · ${title}`, async () => {
         await removeFocusEntry(entry.id)
       })
@@ -302,6 +310,19 @@ export function MobileFocus({
       await updateFocusEntry(commitment.entry_id, { start_time: start })
       armUndo(`Moved · ${row.title}`, async () => {
         await updateFocusEntry(commitment.entry_id, { start_time: previous })
+      })
+    })
+  }
+
+  // A repeating commitment (#376): skip just this day's occurrence. Undo
+  // removes the skip, which brings the occurrence back.
+  async function skipCommitment(row: DayRow): Promise<void> {
+    const commitment = row.commitment
+    if (!commitment) return
+    await mutate(async () => {
+      const skip = await skipFocusOccurrence(commitment.entry_id, plan?.date ?? date)
+      armUndo(`Skipped · ${row.title}`, async () => {
+        await removeFocusEntry(skip.id)
       })
     })
   }
@@ -367,6 +388,14 @@ export function MobileFocus({
             <span className="focus-row-title">{row.title}</span>
             <span className="focus-row-meta">
               <span className="focus-fixed-word">Fixed</span>
+              {row.commitment?.repeat_interval && (
+                <>
+                  <span className="focus-meta-sep" aria-hidden="true">·</span>
+                  <span className="focus-repeat-word">
+                    {formatRepeatInterval(row.commitment.repeat_interval)}
+                  </span>
+                </>
+              )}
               <span className="focus-meta-sep" aria-hidden="true">·</span>
               <span>
                 {formatClockTime(row.start)}–{formatClockTime(row.start + row.duration)} ·{' '}
@@ -724,9 +753,9 @@ export function MobileFocus({
           onDate={setDate}
           onStartTime={setStartTime}
           onCapacity={setCapacityMinutes}
-          onAddCommitment={(title, start, minutes) => {
+          onAddCommitment={(title, start, minutes, repeat) => {
             setSessionOpen(false)
-            void addCommitment(title, start, minutes)
+            void addCommitment(title, start, minutes, repeat)
           }}
           onClose={() => setSessionOpen(false)}
         />
@@ -737,10 +766,16 @@ export function MobileFocus({
           title={commitmentTarget.title}
           start={commitmentTarget.start}
           duration={commitmentTarget.duration}
+          repeat={commitmentTarget.commitment?.repeat_interval ?? null}
           onMove={(start) => {
             const row = commitmentTarget
             setCommitmentTarget(null)
             void moveCommitment(row, start)
+          }}
+          onSkip={() => {
+            const row = commitmentTarget
+            setCommitmentTarget(null)
+            void skipCommitment(row)
           }}
           onRemove={() => {
             const row = commitmentTarget

@@ -9,6 +9,7 @@ import {
   removeFocusEntry,
   reorderFocusPins,
   restoreFocusEntry,
+  skipFocusOccurrence,
   updateFocusEntry,
 } from '../../api/focus'
 import {
@@ -30,6 +31,7 @@ vi.mock('../../api/focus', () => ({
   removeFocusEntry: vi.fn(),
   reorderFocusPins: vi.fn(),
   restoreFocusEntry: vi.fn(),
+  skipFocusOccurrence: vi.fn(),
   updateFocusEntry: vi.fn(),
 }))
 
@@ -111,6 +113,7 @@ const mockPinFocusTask = vi.mocked(pinFocusTask)
 const mockAddFocusCommitment = vi.mocked(addFocusCommitment)
 const mockRemoveFocusEntry = vi.mocked(removeFocusEntry)
 const mockRestoreFocusEntry = vi.mocked(restoreFocusEntry)
+const mockSkipFocusOccurrence = vi.mocked(skipFocusOccurrence)
 const mockUpdateFocusEntry = vi.mocked(updateFocusEntry)
 const mockReorderFocusPins = vi.mocked(reorderFocusPins)
 
@@ -154,6 +157,8 @@ function focusEntry(overrides: Partial<FocusEntry> = {}): FocusEntry {
     start_time: null,
     duration_minutes: null,
     position: 0,
+    repeat_interval: null,
+    series_id: null,
     created_at: '2026-06-20T08:00:00Z',
     deleted_at: null,
     ...overrides,
@@ -743,6 +748,7 @@ describe('FocusPage', () => {
             start_day_offset: 0,
             end_day_offset: 0,
             duration_minutes: 30,
+            repeat_interval: null,
           },
         ],
       }),
@@ -767,7 +773,7 @@ describe('FocusPage', () => {
     fireEvent.change(screen.getByLabelText('Commitment start'), { target: { value: '15:00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add' }))
     await waitFor(() =>
-      expect(mockAddFocusCommitment).toHaveBeenCalledWith('2026-06-20', 'Dentist', '15:00', 30),
+      expect(mockAddFocusCommitment).toHaveBeenCalledWith('2026-06-20', 'Dentist', '15:00', 30, null),
     )
 
     fireEvent.click(await screen.findByRole('button', { name: 'Move Standup' }))
@@ -778,6 +784,58 @@ describe('FocusPage', () => {
     )
 
     fireEvent.click(await screen.findByRole('button', { name: 'Remove Standup' }))
+    await waitFor(() => expect(mockRemoveFocusEntry).toHaveBeenCalledWith(5))
+  })
+
+  it('adds a daily commitment, and skips one day of a repeating one (#376)', async () => {
+    mockGetFocusPlan.mockResolvedValue(
+      makePlan({
+        scheduled: [scheduledBlock({ task_id: 7 })],
+        commitments: [
+          {
+            entry_id: 5,
+            title: 'Standup',
+            start_time: '10:00',
+            end_time: '10:15',
+            start_day_offset: 0,
+            end_day_offset: 0,
+            duration_minutes: 15,
+            repeat_interval: { unit: 'day', every: 1 },
+          },
+        ],
+      }),
+    )
+    mockAddFocusCommitment.mockResolvedValue(focusEntry({ id: 6 }))
+    mockSkipFocusOccurrence.mockResolvedValue(focusEntry({ id: 9, series_id: 5 }))
+    mockRemoveFocusEntry.mockResolvedValue(focusEntry({ id: 5 }))
+    render(
+      <MemoryRouter>
+        <FocusPage />
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('Standup')
+    // The cadence is a coloured word in the meta line, not a pill.
+    expect(document.querySelector('.focus-commitment .focus-repeat-word')?.textContent).toBe(
+      'daily',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add commitment' }))
+    fireEvent.change(screen.getByLabelText('Commitment title'), { target: { value: 'Sync' } })
+    fireEvent.change(screen.getByLabelText('Commitment start'), { target: { value: '16:00' } })
+    fireEvent.change(screen.getByLabelText('Commitment repeat'), { target: { value: 'week' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    await waitFor(() =>
+      expect(mockAddFocusCommitment).toHaveBeenCalledWith('2026-06-20', 'Sync', '16:00', 30, {
+        unit: 'week',
+        every: 1,
+      }),
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip Standup on this day' }))
+    await waitFor(() => expect(mockSkipFocusOccurrence).toHaveBeenCalledWith(5, '2026-06-20'))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove every Standup' }))
     await waitFor(() => expect(mockRemoveFocusEntry).toHaveBeenCalledWith(5))
   })
 
@@ -1257,6 +1315,7 @@ describe('FocusPage', () => {
         start_day_offset: 0,
         end_day_offset: 0,
         duration_minutes: 30,
+        repeat_interval: null,
       }
       renderMobile(
         makePlan({
@@ -1294,6 +1353,7 @@ describe('FocusPage', () => {
               start_day_offset: 0,
               end_day_offset: 0,
               duration_minutes: 30,
+              repeat_interval: null,
             },
           ],
         }),
@@ -1304,6 +1364,42 @@ describe('FocusPage', () => {
       await waitFor(() => expect(mockRemoveFocusEntry).toHaveBeenCalledWith(5))
       fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
       await waitFor(() => expect(mockRestoreFocusEntry).toHaveBeenCalledWith(5))
+    })
+
+    it('skips one day of a repeating commitment from its sheet, with an undo (#376)', async () => {
+      mockSkipFocusOccurrence.mockResolvedValue(focusEntry({ id: 9, series_id: 5 }))
+      mockRemoveFocusEntry.mockResolvedValue(focusEntry({ id: 9, series_id: 5 }))
+      renderMobile(
+        makePlan({
+          scheduled: [dnsBlock],
+          commitments: [
+            {
+              entry_id: 5,
+              title: 'Standup',
+              start_time: '14:00',
+              end_time: '14:15',
+              start_day_offset: 0,
+              end_day_offset: 0,
+              duration_minutes: 15,
+              repeat_interval: { unit: 'day', every: 1 },
+            },
+          ],
+        }),
+      )
+      const row = await screen.findByRole('button', { name: 'Actions for Standup' })
+      expect(
+        document.querySelector('.focus-row[data-kind="commitment"] .focus-repeat-word')
+          ?.textContent,
+      ).toBe('daily')
+      fireEvent.click(row)
+      const sheet = screen.getByRole('dialog')
+      expect(within(sheet).getByRole('button', { name: 'Remove series' })).toBeInTheDocument()
+      fireEvent.click(within(sheet).getByRole('button', { name: 'Skip this day' }))
+
+      await waitFor(() => expect(mockSkipFocusOccurrence).toHaveBeenCalledWith(5, '2026-06-20'))
+      fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
+      // Undoing a skip removes the skip row, not the series.
+      await waitFor(() => expect(mockRemoveFocusEntry).toHaveBeenCalledWith(9))
     })
 
     it('adds a commitment from the session sheet', async () => {
@@ -1317,7 +1413,7 @@ describe('FocusPage', () => {
       fireEvent.click(within(sheet).getByRole('button', { name: 'Add' }))
 
       await waitFor(() =>
-        expect(mockAddFocusCommitment).toHaveBeenCalledWith('2026-06-20', 'Dentist', '15:00', 60),
+        expect(mockAddFocusCommitment).toHaveBeenCalledWith('2026-06-20', 'Dentist', '15:00', 60, null),
       )
     })
     /* Regression, found in Chromium: a captured pointer retargets its own

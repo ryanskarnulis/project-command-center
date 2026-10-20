@@ -17,6 +17,7 @@ from app.schemas.focus import (
     ScheduledBlock,
     FocusPlan,
 )
+from app.schemas.tasks import RepeatInterval
 from app.services import focus_plan as focus_plan_service
 from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
@@ -362,6 +363,9 @@ def _commitment_block(entry: FocusPlanEntry) -> CommitmentBlock:
         start_day_offset=start_day_offset,
         end_day_offset=end_day_offset,
         duration_minutes=entry.duration_minutes,
+        repeat_interval=RepeatInterval.model_validate(entry.repeat_interval)
+        if entry.repeat_interval is not None
+        else None,
     )
 
 
@@ -434,14 +438,17 @@ def get_focus_plan(
     timed: list[_Pin] = []
     commitments: list[CommitmentBlock] = []
     busy: list[tuple[int, int]] = []
+    # Commitments: the day's one-offs plus the occurrences of repeating series
+    # (#376), worked out for this day on read.
+    for entry in focus_plan_service.day_commitments(db, target_date):
+        assert entry.start_minute is not None and entry.duration_minutes is not None
+        end = entry.start_minute + entry.duration_minutes
+        if end <= window_start:
+            continue
+        commitments.append(_commitment_block(entry))
+        busy.append((entry.start_minute, end))
     for entry in focus_plan_service.list_entries(db, target_date):
         if entry.task_id is None:
-            assert entry.start_minute is not None and entry.duration_minutes is not None
-            end = entry.start_minute + entry.duration_minutes
-            if end <= window_start:
-                continue
-            commitments.append(_commitment_block(entry))
-            busy.append((entry.start_minute, end))
             continue
         pinned_task = schedulable_by_id.get(entry.task_id)
         if pinned_task is None:
