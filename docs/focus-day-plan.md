@@ -346,8 +346,6 @@ same "already over before the window" cut applies as for a live one.
 - **Changing the cadence** of an existing commitment. `PATCH` takes no
   `repeat_interval`, so a one-off can't be turned into a series or back.
   Remove the series and add a new one.
-- **Weekdays only.** The task cadence has no "every weekday", so a Mon–Fri
-  standup is a daily series with weekend days skipped, or five weekly series.
 
 ### UI
 
