@@ -618,6 +618,28 @@ def add_focus_commitment(
 
 
 @_tool
+def reorder_focus_pins(
+    entry_ids: Annotated[list[EntityId], Field(min_length=1, max_length=500)],
+    date: date_type | None = None,
+) -> list[FocusEntryRead]:
+    """Reorder the pinned tasks in the Focus plan for `date` (default: today), first to last.
+
+    entry_ids are pin entry_ids from get_focus_plan; pins left out keep their
+    place. Commitments and pins at a fixed time keep their own times. Undo by
+    reordering back.
+    """
+    with tool_session("reorder_focus_pins") as db:
+        try:
+            pins = focus_plan_service.reorder_pins(
+                db, plan_date=date or date_type.today(), entry_ids=entry_ids
+            )
+        except focus_plan_service.FocusEntryError as exc:
+            raise ToolError(str(exc)) from exc
+        logger.info("tool_focus_pins_reordered", entry_ids=entry_ids)
+        return [focus_plan_service.entry_read(pin) for pin in pins]
+
+
+@_tool
 def remove_focus_entry(entry_id: EntityId) -> str:
     """Unpin a task or drop a commitment from the Focus plan (entry_id from get_focus_plan).
 

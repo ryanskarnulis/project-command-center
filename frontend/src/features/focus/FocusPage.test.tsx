@@ -7,6 +7,7 @@ import {
   getFocusPlan,
   pinFocusTask,
   removeFocusEntry,
+  reorderFocusPins,
   restoreFocusEntry,
   updateFocusEntry,
 } from '../../api/focus'
@@ -26,6 +27,7 @@ vi.mock('../../api/focus', () => ({
   getFocusPlan: vi.fn(),
   pinFocusTask: vi.fn(),
   removeFocusEntry: vi.fn(),
+  reorderFocusPins: vi.fn(),
   restoreFocusEntry: vi.fn(),
   updateFocusEntry: vi.fn(),
 }))
@@ -61,6 +63,38 @@ const mockAddFocusCommitment = vi.mocked(addFocusCommitment)
 const mockRemoveFocusEntry = vi.mocked(removeFocusEntry)
 const mockRestoreFocusEntry = vi.mocked(restoreFocusEntry)
 const mockUpdateFocusEntry = vi.mocked(updateFocusEntry)
+const mockReorderFocusPins = vi.mocked(reorderFocusPins)
+
+/** A floating pin (#375): pinned, not fixed, with its place among the pins. */
+function floatingPin(
+  taskId: number,
+  entryId: number,
+  pinOrder: number,
+  overrides: Partial<ScheduledBlock> = {},
+): ScheduledBlock {
+  return scheduledBlock({
+    task_id: taskId,
+    title: `Pin ${pinOrder + 1}`,
+    entry_id: entryId,
+    pinned: true,
+    fixed: false,
+    pin_order: pinOrder,
+    ...overrides,
+  })
+}
+
+/** jsdom has no DataTransfer; the drag handlers only need types + setData. */
+function fakeDataTransfer() {
+  const types: string[] = []
+  return {
+    types,
+    effectAllowed: '',
+    dropEffect: '',
+    setData(type: string) {
+      types.push(type)
+    },
+  }
+}
 
 function focusEntry(overrides: Partial<FocusEntry> = {}): FocusEntry {
   return {
@@ -127,6 +161,7 @@ function scheduledBlock(overrides: Partial<ScheduledBlock> = {}): ScheduledBlock
     entry_id: null,
     pinned: false,
     fixed: false,
+    pin_order: null,
     ...overrides,
   }
 }
@@ -181,6 +216,7 @@ describe('FocusPage', () => {
             entry_id: null,
             pinned: false,
             fixed: false,
+            pin_order: null,
           },
         ],
       }),
@@ -312,6 +348,7 @@ describe('FocusPage', () => {
             entry_id: null,
             pinned: false,
             fixed: false,
+            pin_order: null,
           },
         ],
         overflow: [
@@ -521,6 +558,7 @@ describe('FocusPage', () => {
             entry_id: 33,
             pinned: true,
             fixed: true,
+            pin_order: null,
           }),
         ],
       }),
@@ -545,6 +583,97 @@ describe('FocusPage', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Unpin Pinned work' }))
     await waitFor(() => expect(mockRemoveFocusEntry).toHaveBeenCalledWith(33))
+  })
+
+  it('reorders floating pins by dragging one onto another (#375)', async () => {
+    mockGetFocusPlan.mockResolvedValue(
+      makePlan({
+        scheduled: [
+          floatingPin(1, 51, 0, { start_time: '09:00', end_time: '09:30' }),
+          floatingPin(2, 52, 1, { start_time: '09:30', end_time: '10:00' }),
+          floatingPin(3, 53, 2, { start_time: '10:00', end_time: '10:30' }),
+          scheduledBlock({ task_id: 7, start_time: '10:30', end_time: '11:00' }),
+        ],
+      }),
+    )
+    mockReorderFocusPins.mockResolvedValue([])
+    render(
+      <MemoryRouter>
+        <FocusPage />
+      </MemoryRouter>,
+    )
+
+    await screen.findByRole('button', { name: 'Reorder Pin 1' })
+    // Only floating pins take part: the ranked row has no grip.
+    expect(screen.queryByRole('button', { name: 'Reorder Draft launch checklist' })).toBeNull()
+
+    const rows = document.querySelectorAll('.focus-block-reorderable')
+    expect(rows).toHaveLength(3)
+    const dataTransfer = fakeDataTransfer()
+    fireEvent.dragStart(rows[2], { dataTransfer })
+    fireEvent.dragOver(rows[0], { dataTransfer })
+    expect(rows[0]).toHaveClass('focus-block-drop-target')
+    fireEvent.drop(rows[0], { dataTransfer })
+
+    await waitFor(() =>
+      expect(mockReorderFocusPins).toHaveBeenCalledWith('2026-06-20', [53, 51, 52]),
+    )
+    // The save refetches so the server re-packs the day in the new order.
+    await waitFor(() => expect(mockGetFocusPlan).toHaveBeenCalledTimes(2))
+  })
+
+  it('moves a floating pin with the arrow keys on its grip, by pin order not clock (#375)', async () => {
+    // First-fit put the second pin earlier on the clock than the first.
+    mockGetFocusPlan.mockResolvedValue(
+      makePlan({
+        scheduled: [
+          floatingPin(2, 52, 1, { start_time: '09:00', end_time: '09:30' }),
+          floatingPin(1, 51, 0, { start_time: '10:00', end_time: '11:00' }),
+        ],
+      }),
+    )
+    mockReorderFocusPins.mockResolvedValue([])
+    render(
+      <MemoryRouter>
+        <FocusPage />
+      </MemoryRouter>,
+    )
+
+    const grip = await screen.findByRole('button', { name: 'Reorder Pin 1' })
+    fireEvent.keyDown(grip, { key: 'ArrowUp' })
+    expect(mockReorderFocusPins).not.toHaveBeenCalled() // already first
+    fireEvent.keyDown(grip, { key: 'ArrowDown' })
+    await waitFor(() =>
+      expect(mockReorderFocusPins).toHaveBeenCalledWith('2026-06-20', [52, 51]),
+    )
+  })
+
+  it('offers no reorder with a single floating pin or only fixed pins', async () => {
+    mockGetFocusPlan.mockResolvedValue(
+      makePlan({
+        scheduled: [
+          floatingPin(1, 51, 0),
+          scheduledBlock({
+            task_id: 9,
+            title: 'Fixed',
+            start_time: '14:00',
+            end_time: '14:30',
+            entry_id: 33,
+            pinned: true,
+            fixed: true,
+          }),
+        ],
+      }),
+    )
+    render(
+      <MemoryRouter>
+        <FocusPage />
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('pinned at 14:00')
+    expect(screen.queryByRole('button', { name: /^Reorder / })).toBeNull()
+    expect(document.querySelector('[draggable="true"]')).toBeNull()
   })
 
   it('interleaves commitments with tasks and adds, moves and removes them', async () => {
@@ -998,6 +1127,39 @@ describe('FocusPage', () => {
       await waitFor(() =>
         expect(mockUpdateTask).toHaveBeenCalledWith(2, { deferred_until: '2026-06-21' }),
       )
+    })
+
+    it('moves a floating pin up or down from its row sheet, with undo (#375)', async () => {
+      mockReorderFocusPins.mockResolvedValue([])
+      renderMobile(
+        makePlan({
+          scheduled: [
+            floatingPin(1, 51, 0, { title: 'First pin', start_time: '09:00', end_time: '09:30' }),
+            floatingPin(2, 52, 1, { title: 'Second pin', start_time: '09:30', end_time: '10:00' }),
+            scheduledBlock({ task_id: 7, start_time: '10:00', end_time: '10:30' }),
+          ],
+        }),
+      )
+      await screen.findByText('Now')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Actions for First pin' }))
+      let sheet = screen.getByRole('dialog')
+      expect(within(sheet).queryByRole('button', { name: 'Move up' })).toBeNull()
+      fireEvent.click(within(sheet).getByRole('button', { name: 'Move down' }))
+      await waitFor(() =>
+        expect(mockReorderFocusPins).toHaveBeenCalledWith('2026-06-20', [52, 51]),
+      )
+      expect(await screen.findByText('Moved down · First pin')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+      await waitFor(() =>
+        expect(mockReorderFocusPins).toHaveBeenLastCalledWith('2026-06-20', [51, 52]),
+      )
+
+      // A ranked (unpinned) row never offers a move.
+      fireEvent.click(screen.getByRole('button', { name: 'Actions for Draft launch checklist' }))
+      sheet = screen.getByRole('dialog')
+      expect(within(sheet).queryByRole('button', { name: 'Move up' })).toBeNull()
+      expect(within(sheet).queryByRole('button', { name: 'Move down' })).toBeNull()
     })
 
     it('schedules from Didn\u2019t fit by pinning only that item into the day', async () => {

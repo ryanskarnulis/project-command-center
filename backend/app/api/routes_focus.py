@@ -15,6 +15,7 @@ from app.schemas.focus import (
     FocusEntryRead,
     FocusEntryUpdate,
     FocusPinCreate,
+    FocusPinOrder,
     FocusPlan,
 )
 from app.services import focus as focus_service
@@ -117,6 +118,24 @@ def pin_task(data: FocusPinCreate, db: Session = Depends(get_db_write)) -> Focus
     db.commit()
     logger.info("focus_task_pinned", entry_id=entry.id, task_id=task.id)
     return focus_plan_service.entry_read(entry)
+
+
+@router.put("/focus/pins/order", response_model=list[FocusEntryRead])
+def reorder_pins(
+    data: FocusPinOrder, db: Session = Depends(get_db_write)
+) -> list[FocusEntryRead]:
+    """Reorder a day's floating pins; the named pins trade the slots they hold."""
+    try:
+        pins = focus_plan_service.reorder_pins(
+            db, plan_date=data.plan_date, entry_ids=data.entry_ids
+        )
+    except focus_plan_service.FocusEntryError as exc:
+        raise _conflict(exc) from exc
+    db.commit()
+    logger.info(
+        "focus_pins_reordered", date=data.plan_date.isoformat(), entry_ids=data.entry_ids
+    )
+    return [focus_plan_service.entry_read(pin) for pin in pins]
 
 
 @router.post(
