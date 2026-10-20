@@ -94,8 +94,24 @@ worst case (the provider timeout tolerates it). Containers reach it via
   most `DEFAULT_MAX_TOOL_CALLS` = 24 calls (the largest deployed run made 18,
   an 8-task batch made twice after schema errors; schema-invalid calls
   count); a call past it is answered "not run" (one tool answer per call),
-  never dispatched, and the run ends `tool_call_limit` after that turn. Both
-  end with no reply, like `max_iterations`; a reply from what ran is #399.
+  never dispatched, and the run ends `tool_call_limit` after that turn.
+- **Limit stops say what they did** (#399): when a run ends `max_iterations`,
+  `correction_limit`, `truncated`, `no_progress` or `tool_call_limit` and at
+  least one call reached the service layer (done, refused or looked up), the
+  loop makes one more model call — offered no tools, capped at
+  `SUMMARY_MAX_TOKENS` = 512, bounded by the time left on the run deadline —
+  that reads a fresh brief, not the run's transcript: the user's message, a
+  code-built record of the run (`app/ai/run_record.py`, sorted from the
+  `ToolCallRecord`s into Done / Refused / Looked up / Not run, one compact line
+  per call, "Done: nothing" said outright) and the note "Whatever the record
+  above does not show as done was not done." Its text is saved as the reply
+  (and so enters the next turn's history); the stop reason is unchanged, so
+  the UI still shows its stop line and delegates still read the limit. Reads
+  are `READ_TOOLS` — exactly the registry bodies opened with
+  `tool_session(..., write=False)`, pinned by a test; any other tool that
+  answers is "done". No call ran, a Stop, or a summary that fails, times out,
+  is cut off (`finish_reason: "length"`) or comes back empty or as a tool call:
+  no reply, as before. `cancelled` and the failure stops never summarise.
 - **Stop reasons**: `completed`, `max_iterations`, `correction_limit`,
   `truncated`, `no_progress`, `tool_call_limit` and `cancelled` return 200; `provider_error` (502), `timed_out` (504) and
   `internal_error` (500) are failures. Every one persists a truthful assistant
