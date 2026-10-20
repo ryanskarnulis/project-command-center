@@ -202,3 +202,65 @@ class FocusEntryRead(BaseModel):
     position: int
     created_at: UTCDateTime
     deleted_at: UTCDateTime | None
+
+
+# --- The session log and running clock (#374) --------------------------------
+
+# A booked block is at most a week of minutes: a clock left going overnight still
+# books what it read. The clock's elapsed time has the same ceiling, in ms.
+_MAX_BLOCK_MINUTES = 7 * 1440
+_MAX_CLOCK_MS = _MAX_BLOCK_MINUTES * 60_000
+
+
+class FocusClockState(enum.StrEnum):
+    running = "running"
+    paused = "paused"
+
+
+class FocusClockSet(MutationModel):
+    """Put the one live clock in a state: start, pause, resume or an undo's restore.
+
+    ``elapsed_ms`` is the time already on the block as the client sees it. The
+    server stamps "now" itself, so two devices' clocks never have to agree: a
+    running clock is banked ``elapsed_ms`` plus a leg starting at the server's now.
+    """
+
+    plan_date: date
+    task_id: EntityId
+    state: FocusClockState
+    elapsed_ms: int = Field(ge=0, le=_MAX_CLOCK_MS)
+
+
+class FocusClockRead(BaseModel):
+    """The live clock. ``elapsed_ms`` is as of the response, measured server-side."""
+
+    id: int
+    plan_date: date
+    task_id: int
+    state: FocusClockState
+    elapsed_ms: int
+    leg_started_at: UTCDateTime | None
+
+
+class FocusBlockFinish(MutationModel):
+    """Book a finished block into the day's session log."""
+
+    minutes: int = Field(ge=0, le=_MAX_BLOCK_MINUTES)
+    planned_minutes: int = Field(ge=0, le=_MAX_BLOCK_MINUTES)
+
+
+class FocusFinishedBlockRead(BaseModel):
+    id: int
+    plan_date: date
+    task_id: int
+    title: str
+    minutes: int
+    planned_minutes: int
+    finished_at: UTCDateTime
+
+
+class FocusSessionLogRead(BaseModel):
+    """A day's finished blocks, in the order they were finished."""
+
+    plan_date: date
+    finished: list[FocusFinishedBlockRead]

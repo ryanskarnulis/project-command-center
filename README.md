@@ -60,7 +60,7 @@ test.sh         full quality gate
 
 ## Database schema
 
-Tables: `projects`, `tasks`, `task_dependencies`, `focus_plan_entries`,
+Tables: `projects`, `tasks`, `task_dependencies`, `focus_plan_entries`, `focus_sessions`,
 `activity_events`, `conversations`, `conversation_messages`.
 
 Key decisions:
@@ -145,6 +145,26 @@ Key decisions:
 
   Agent tools: `pin_focus_task`, `reorder_focus_pins`,
   `add_focus_commitment`, `remove_focus_entry` and `restore_focus_entry`.
+- **Focus session** (#374, same doc): `focus_sessions` holds what the mobile
+  Focus day has cost, so a reload or a second device sees the same day. One
+  table, two kinds of row:
+  - the one live **clock** (`finished_at` null; a partial unique expression
+    index allows a single live clock in the whole table). Running while
+    `leg_started_at` is set, paused otherwise; `accumulated_ms` is banked time;
+  - a **finished block** per task per day (`minutes` booked,
+    `planned_minutes` estimate).
+
+  Writes go through `services/focus_sessions.py` (activity `entity_type`
+  `focus_session`) on `BEGIN IMMEDIATE`; clearing a clock or taking a block
+  back out is a soft delete. Starting a block clears any other live clock;
+  finishing a block stops its own. A task purge takes its rows with it. No
+  agent tool.
+
+  Routes:
+  - `GET /api/focus/sessions?plan_date=`
+  - `PUT` and `DELETE /api/focus/sessions/{plan_date}/tasks/{task_id}`
+  - `GET`, `PUT` and `DELETE /api/focus/clock` (`DELETE` takes optional
+    `task_id`/`plan_date` filters)
 - **Dependencies** are `A depends_on B` edges in `task_dependencies` (B must be
   done before A starts). "Blocked" is never stored — `is_blocked`,
   `is_blocking`, and `blocked_task_count` are derived in Python from the active
@@ -276,9 +296,13 @@ reachable by gesture: **Skip occurrence** stays behind `⋯` and its confirm.
 
 Three things the design assumes are stored, and how they behave here:
 
-- **Elapsed time** has no column. The clock lives in `localStorage`, keyed by
-  task and day, and is always recomputed from the start timestamp rather than
-  accumulated — a backgrounded tab comes back with the right number. Completing
+- **Elapsed time** is the one live clock in `focus_sessions` (#374), keyed by
+  task and day, so a reload or another device picks up the running block. The
+  readout is always recomputed from wall-clock time rather than accumulated —
+  a backgrounded tab comes back with the right number — and the page re-reads
+  the server when the tab becomes visible again. A write that can't reach the
+  server (lost signal) waits in an in-memory outbox and is resent in order;
+  see `docs/focus-day-plan.md`. Completing
   a timed block records its actual minutes in the same session log **and**
   sends them with the completion (`POST /api/tasks/{id}/done` body
   `{"actual_minutes": n}`), which stores them on the task. An untimed block

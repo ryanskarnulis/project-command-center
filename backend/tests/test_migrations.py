@@ -460,3 +460,58 @@ def test_always_filed_migration_backfills_legacy_unfiled_tasks(tmp_path: Path) -
         ("open unfiled", True),
         ("trashed unfiled", True),
     ]
+
+
+def test_focus_sessions_migration_upgrades_enforces_and_downgrades(
+    tmp_path: Path,
+) -> None:
+    """The #374 table applies, its hand-written live-clock index bites, and it reverses."""
+    db_path = tmp_path / "focus_sessions.db"
+    assert _alembic(db_path, "upgrade", "4c7d2e9a1b35").returncode == 0
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO projects (name, created_at, updated_at) "
+                    "VALUES ('P', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO tasks (project_id, title, workflow_status, priority, "
+                    "created_at, updated_at) VALUES (1, 't', 'open', 'medium', "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+        insert_clock = text(
+            "INSERT INTO focus_sessions (plan_date, task_id, accumulated_ms, "
+            "created_at, updated_at) VALUES (:day, 1, 0, CURRENT_TIMESTAMP, "
+            "CURRENT_TIMESTAMP)"
+        )
+        with engine.begin() as conn:
+            conn.execute(insert_clock, {"day": "2026-06-20"})
+        # A second live clock is refused, even on another day.
+        with pytest.raises(IntegrityError), engine.begin() as conn:
+            conn.execute(insert_clock, {"day": "2026-06-21"})
+        # A finished block needs its minutes (the kind check).
+        with pytest.raises(IntegrityError), engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO focus_sessions (plan_date, task_id, accumulated_ms, "
+                    "finished_at, created_at, updated_at) VALUES ('2026-06-20', 1, 0, "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+    finally:
+        engine.dispose()
+
+    result = _alembic(db_path, "downgrade", "6899f8513645")
+    assert result.returncode == 0, result.stderr
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        assert "focus_sessions" not in set(inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
+    assert _alembic(db_path, "upgrade", "head").returncode == 0

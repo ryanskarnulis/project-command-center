@@ -1,25 +1,31 @@
-import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { clearFocusClock, getFocusClock, setFocusClock } from '../../../api/focusSessions'
+import type { FocusClock as ServerClock } from '../../../types/focus'
 import type { RunState } from './focusDay'
+import { migrateLegacyFocusStorage, onTabVisible, readSession, sendWrite } from './sessionSync'
 
 /* The current block's clock.
  *
- * There is no server column for "this block started at": the plan is derived,
- * not stored. So the clock lives on the client, keyed by task and day, and
+ * Held on the server (`focus_sessions`, #374): one live clock, so a reload, a
+ * closed tab or a second device all come back to the same running block.
  * `elapsed` is always recomputed from wall-clock time rather than accumulated
- * by a ticking counter — a backgrounded tab, a sleeping phone or a reload all
- * come back with the right number. The interval below only forces a re-render;
- * it never advances the value.
+ * by a ticking counter — a backgrounded tab or a sleeping phone comes back with
+ * the right number. The interval below only forces a re-render; it never
+ * advances the value.
  *
- * Persisted in localStorage rather than sessionStorage because a block you
- * started is still running when the tab is closed and reopened. */
-const STORAGE_KEY = 'focus.clock'
+ * The server never sees this device's clock. It reports the block's elapsed
+ * time as of its response; we anchor that to our own `Date.now()` on arrival,
+ * and every write sends elapsed time, not a timestamp, so two devices whose
+ * clocks disagree still agree on the block. Writes are optimistic and queued
+ * (`sessionSync`): one that can't reach the server is retried from the outbox,
+ * and one the server refuses re-reads the server's clock. */
 
 interface ClockRecord {
   taskId: number
   /** Plan date, so yesterday's clock can't be adopted by today's block. */
   date: string
   state: Exclude<RunState, 'idle'>
-  /** Epoch ms the current run leg began; meaningless while paused. */
+  /** Local epoch ms the current run leg began; meaningless while paused. */
   startedAt: number
   /** Milliseconds banked by earlier legs. */
   accumulatedMs: number
@@ -28,39 +34,22 @@ interface ClockRecord {
 /** A clock value that can be handed back after an undo. */
 export type ClockSnapshot = ClockRecord | null
 
-function read(): ClockRecord | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const value: unknown = JSON.parse(raw)
-    if (!value || typeof value !== 'object') return null
-    const record = value as Partial<ClockRecord>
-    if (typeof record.taskId !== 'number' || typeof record.date !== 'string') return null
-    if (record.state !== 'running' && record.state !== 'paused') return null
-    if (typeof record.startedAt !== 'number' || typeof record.accumulatedMs !== 'number') return null
-    return record as ClockRecord
-  } catch {
-    return null
-  }
-}
-
-function write(record: ClockRecord | null): void {
-  try {
-    if (record) localStorage.setItem(STORAGE_KEY, JSON.stringify(record))
-    else localStorage.removeItem(STORAGE_KEY)
-  } catch {
-    /* The clock still runs for this render pass; only persistence is lost. */
+function fromServer(clock: ServerClock | null, receivedAt: number): ClockRecord | null {
+  if (!clock) return null
+  return {
+    taskId: clock.task_id,
+    date: clock.plan_date,
+    state: clock.state,
+    startedAt: receivedAt,
+    accumulatedMs: clock.elapsed_ms,
   }
 }
 
 /* The wall clock, as an external store.
  *
- * `elapsed` is always recomputed from the record's `startedAt`, never
- * accumulated by a counter, so a backgrounded tab, a sleeping phone or a
- * reload all come back with the right number — the heartbeat below only moves
- * the sample. Bucketed to the tick so the snapshot is stable between beats,
- * and only subscribed while a block is actually running. 15s rather than the
- * spec's 60s: the readout is minute-granular, and a whole minute of lag at the
+ * Bucketed to the tick so the snapshot is stable between beats, and only
+ * subscribed while a block is actually running. 15s rather than the spec's
+ * 60s: the readout is minute-granular, and a whole minute of lag at the
  * boundary is visible. */
 const TICK_MS = 15_000
 
@@ -82,6 +71,15 @@ function elapsedMsOf(record: ClockRecord | null, now: number): number {
   return record.accumulatedMs + (record.state === 'running' ? Math.max(0, now - record.startedAt) : 0)
 }
 
+/**
+ * The write for a running record. Elapsed is sampled when the request actually
+ * leaves, not when it was queued: the server starts its leg at its own now, so
+ * time spent waiting behind earlier writes would otherwise fall out of the block.
+ */
+function sendRunning(record: ClockRecord): () => Promise<ServerClock> {
+  return () => setFocusClock(record.date, record.taskId, 'running', elapsedMsOf(record, Date.now()))
+}
+
 export interface FocusClock {
   run: RunState
   /** Minutes spent in the current block, floored — the readout is minute-granular. */
@@ -99,7 +97,25 @@ export interface FocusClock {
  * @param date   The plan's date, so a stale clock is dropped rather than reused.
  */
 export function useFocusClock(taskId: number | null, date: string): FocusClock {
-  const [record, setRecord] = useState<ClockRecord | null>(read)
+  const [record, setRecord] = useState<ClockRecord | null>(null)
+  // Bumped by every local write: a read that a newer local change overtook
+  // must not paint the older server state over it.
+  const version = useRef(0)
+
+  const load = useCallback(() => {
+    const started = version.current
+    void migrateLegacyFocusStorage()
+    readSession(getFocusClock)
+      .then((clock) => {
+        if (version.current === started) setRecord(fromServer(clock, Date.now()))
+      })
+      .catch(() => {
+        /* Unreachable, or writes still unsent: keep what is shown. */
+      })
+  }, [])
+
+  useEffect(() => load(), [load])
+  useEffect(() => onTabVisible(load), [load])
 
   // A clock belongs only to the block that started it: a record naming another
   // task simply doesn't apply here. Deliberately filtered rather than deleted —
@@ -113,30 +129,40 @@ export function useFocusClock(taskId: number | null, date: string): FocusClock {
   const now = useSyncExternalStore(subscribe, tickSnapshot, () => 0)
   const elapsed = Math.floor(elapsedMsOf(live, now) / 60_000)
 
-  const commit = useCallback((next: ClockRecord | null) => {
-    setRecord(next)
-    write(next)
-  }, [])
+  /** Apply `next` here at once; send it behind any writes still queued. */
+  const commit = useCallback(
+    (next: ClockRecord | null, write: () => Promise<unknown>) => {
+      version.current += 1
+      setRecord(next)
+      // The local record stays authoritative on this device; the server copy is
+      // for the next load and the next device. A write that can't reach the
+      // server waits in the outbox; only a refusal re-reads the server.
+      sendWrite(write, load)
+    },
+    [load],
+  )
 
   const start = useCallback(() => {
     if (taskId === null) return
     const now = Date.now()
-    commit({
-      taskId,
-      date,
-      state: 'running',
-      startedAt: now,
-      accumulatedMs: elapsedMsOf(live, now),
-    })
+    const running: ClockRecord = { taskId, date, state: 'running', startedAt: now, accumulatedMs: elapsedMsOf(live, now) }
+    commit(running, sendRunning(running))
   }, [commit, date, live, taskId])
 
   const pause = useCallback(() => {
     if (live?.state !== 'running') return
     const now = Date.now()
-    commit({ ...live, state: 'paused', startedAt: now, accumulatedMs: elapsedMsOf(live, now) })
+    const paused: ClockRecord = { ...live, state: 'paused', startedAt: now, accumulatedMs: elapsedMsOf(live, now) }
+    commit(paused, () => setFocusClock(paused.date, paused.taskId, 'paused', paused.accumulatedMs))
   }, [commit, live])
 
-  const reset = useCallback(() => commit(null), [commit])
+  const clear = useCallback(
+    () => commit(null, async () => {
+      // Only this block's clock: another device may have started the next one.
+      if (taskId !== null) await clearFocusClock(date, taskId)
+    }),
+    [commit, date, taskId],
+  )
 
   return useMemo<FocusClock>(
     () => ({
@@ -144,12 +170,23 @@ export function useFocusClock(taskId: number | null, date: string): FocusClock {
       elapsed,
       start,
       pause,
-      reset,
+      reset: clear,
       snapshot: () => live,
       // Undo puts the running clock back, not just the row: a swipe taken by
       // accident should cost nothing, including the time already logged.
-      restore: (value) => commit(value),
+      restore: (value) => {
+        if (!value) {
+          clear()
+          return
+        }
+        commit(
+          value,
+          value.state === 'running'
+            ? sendRunning(value)
+            : () => setFocusClock(value.date, value.taskId, 'paused', value.accumulatedMs),
+        )
+      },
     }),
-    [commit, elapsed, live, pause, reset, start],
+    [clear, commit, elapsed, live, pause, start],
   )
 }
