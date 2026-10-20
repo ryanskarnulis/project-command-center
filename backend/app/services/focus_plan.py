@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from calendar import monthrange
 from collections.abc import Mapping, Sequence
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import delete as sql_delete
@@ -20,8 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import FocusPlanEntry, Task, TaskWorkflowStatus
-from app.schemas.focus import FocusEntryRead
-from app.schemas.tasks import RepeatInterval
+from app.schemas.focus import CommitmentRepeatInterval, FocusEntryRead
 from app.services import activity
 from app.services import tasks as tasks_service
 from app.services.common import active, restore, soft_delete
@@ -53,7 +52,7 @@ def entry_read(entry: FocusPlanEntry) -> FocusEntryRead:
         start_time=None if entry.start_minute is None else format_time(entry.start_minute),
         duration_minutes=entry.duration_minutes,
         position=entry.position,
-        repeat_interval=RepeatInterval.model_validate(entry.repeat_interval)
+        repeat_interval=CommitmentRepeatInterval.model_validate(entry.repeat_interval)
         if entry.repeat_interval is not None
         else None,
         series_id=entry.series_id,
@@ -65,11 +64,23 @@ def entry_read(entry: FocusPlanEntry) -> FocusEntryRead:
 # --- Repeating commitments (#376) ---------------------------------------------
 
 _SHORTHAND = {"day": "daily", "week": "weekly", "month": "monthly"}
+_WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+_MON_TO_FRI = [0, 1, 2, 3, 4]
 
 
 def format_repeat(interval: Mapping[str, Any]) -> str:
-    """``{"unit": "day", "every": 1}`` -> "daily"; ``every`` > 1 -> "every 2 weeks"."""
+    """``{"unit": "day", "every": 1}`` -> "daily"; ``every`` > 1 -> "every 2 weeks".
+
+    A weekday set (#427) names its days: Mon-Fri every week is "weekdays",
+    anything else "weekly on Mon, Wed" or "every 2 weeks on Tue, Thu".
+    """
     unit, every = str(interval["unit"]), int(interval["every"])
+    days = interval.get("days")
+    if days:
+        if every == 1 and sorted(days) == _MON_TO_FRI:
+            return "weekdays"
+        names = ", ".join(_WEEKDAY_NAMES[day] for day in sorted(days))
+        return f"weekly on {names}" if every == 1 else f"every {every} weeks on {names}"
     if every == 1:
         return _SHORTHAND[unit]
     return f"every {every} {unit}s"
@@ -81,7 +92,10 @@ def occurs_on(series: FocusPlanEntry, day: date) -> bool:
     A repeating one counts from its own ``plan_date`` (its first occurrence),
     never chained from the previous occurrence, so a monthly series that starts
     on the 31st lands on the last day of a short month and back on the 31st
-    after it. Skips are not consulted here; ``day_commitments`` applies them.
+    after it. A weekly series with ``days`` (#427) lands on each of those
+    weekdays in every ``every``-th calendar week (Monday-based) counted from the
+    week ``plan_date`` falls in; ``plan_date`` itself need not be one of them.
+    Skips are not consulted here; ``day_commitments`` applies them.
     """
     interval = series.repeat_interval
     if interval is None:
@@ -93,6 +107,12 @@ def occurs_on(series: FocusPlanEntry, day: date) -> bool:
     if unit == "day":
         return (day - anchor).days % every == 0
     if unit == "week":
+        days = interval.get("days")
+        if days:
+            anchor_monday = anchor - timedelta(days=anchor.weekday())
+            day_monday = day - timedelta(days=day.weekday())
+            weeks = (day_monday - anchor_monday).days // 7
+            return weeks % every == 0 and day.weekday() in days
         return (day - anchor).days % (7 * every) == 0
     if unit == "month":
         months = (day.year - anchor.year) * 12 + (day.month - anchor.month)

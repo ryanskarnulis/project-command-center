@@ -4,7 +4,13 @@ import enum
 from datetime import date
 from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import (
+    BaseModel,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 from app.db.models import TaskPriority, TaskWorkflowStatus
 from app.schemas.common import EntityId, MutationModel, NonBlankStr, UTCDateTime
@@ -17,6 +23,41 @@ TimeOfDay = Annotated[str, Field(pattern=TIME_OF_DAY_PATTERN)]
 # A commitment lasts at least five minutes and at most a whole day.
 CommitmentMinutes = Annotated[int, Field(ge=5, le=1440)]
 CommitmentTitle = Annotated[NonBlankStr, Field(max_length=200)]
+# A day of the week, Monday 0 to Sunday 6 (Python's ``date.weekday()``).
+Weekday = Annotated[int, Field(ge=0, le=6)]
+
+
+class CommitmentRepeatInterval(RepeatInterval):
+    """A commitment series' cadence: the task shape plus an optional weekday set (#427).
+
+    ``{"unit": "week", "every": 1, "days": [0, 1, 2, 3, 4]}`` is a Mon-Fri
+    standup; ``every: 2`` with ``days`` is "every other week on those days".
+    ``days`` is only meaningful with ``unit: "week"``; without it a weekly series
+    lands on its first day's weekday, as before. Task recurrence keeps the plain
+    ``RepeatInterval``: this subclass is commitments-only.
+    """
+
+    days: list[Weekday] | None = Field(default=None, min_length=1, max_length=7)
+
+    @model_validator(mode="after")
+    def _check_days(self) -> CommitmentRepeatInterval:
+        if self.days is None:
+            return self
+        if self.unit != "week":
+            raise ValueError('days applies only to unit "week"')
+        if len(set(self.days)) != len(self.days):
+            raise ValueError("days must not repeat a weekday")
+        self.days = sorted(self.days)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_days(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
+        # Without a weekday set the cadence keeps the plain task shape, both as
+        # stored on the series row and in every response.
+        data: dict[str, object] = handler(self)
+        if data.get("days") is None:
+            data.pop("days", None)
+        return data
 
 
 class DueSignal(enum.StrEnum):
@@ -89,7 +130,7 @@ class CommitmentBlock(BaseModel):
     # Set when the commitment repeats (#376). ``entry_id`` is then the series
     # row: editing or removing it changes every occurrence, and
     # ``POST /focus/entries/{entry_id}/skip`` skips just this day's.
-    repeat_interval: RepeatInterval | None = None
+    repeat_interval: CommitmentRepeatInterval | None = None
 
 
 class OverflowTask(BaseModel):
@@ -171,9 +212,10 @@ class FocusCommitmentCreate(MutationModel):
     title: CommitmentTitle
     start_time: TimeOfDay
     duration_minutes: CommitmentMinutes
-    # Repeat from ``plan_date`` on, in the task cadence shape (#376). Occurrences
-    # are read per day, never stored ahead of time.
-    repeat_interval: RepeatInterval | None = None
+    # Repeat from ``plan_date`` on, in the task cadence shape (#376) plus an
+    # optional weekday set (#427). Occurrences are read per day, never stored
+    # ahead of time.
+    repeat_interval: CommitmentRepeatInterval | None = None
 
 
 class FocusOccurrenceSkip(MutationModel):
@@ -215,7 +257,7 @@ class FocusEntryRead(BaseModel):
     duration_minutes: int | None
     position: int
     # A repeating commitment's cadence (#376); null on every other kind.
-    repeat_interval: RepeatInterval | None = None
+    repeat_interval: CommitmentRepeatInterval | None = None
     # Set only on a skip: the series whose ``plan_date`` occurrence it skips.
     series_id: int | None = None
     created_at: UTCDateTime

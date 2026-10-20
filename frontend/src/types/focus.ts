@@ -1,5 +1,14 @@
 import type { RepeatInterval, TaskPriority, TaskWorkflowStatus } from './task'
 
+/**
+ * A commitment series' cadence (#376): the task shape plus, for `unit: 'week'`,
+ * an optional weekday set (#427) — Monday 0 to Sunday 6, sorted. Mirrors the
+ * backend CommitmentRepeatInterval; task recurrence never carries `days`.
+ */
+export interface CommitmentRepeatInterval extends RepeatInterval {
+  days?: number[]
+}
+
 // Mirrors backend app/schemas/focus.py. How a task's due date relates to the
 // plan's target day; derived in the scheduler, no stored column.
 export type DueSignal = 'overdue' | 'due_today' | 'due_soon' | 'none'
@@ -52,7 +61,7 @@ export interface CommitmentBlock {
   duration_minutes: number
   // Set when the commitment repeats (#376). `entry_id` is then the series:
   // editing or removing it changes every day; skipping takes out one day.
-  repeat_interval: RepeatInterval | null
+  repeat_interval: CommitmentRepeatInterval | null
 }
 
 export interface OverflowTask {
@@ -111,7 +120,7 @@ export interface FocusEntry {
   duration_minutes: number | null
   position: number
   // A repeating commitment's cadence (#376); null on every other kind.
-  repeat_interval: RepeatInterval | null
+  repeat_interval: CommitmentRepeatInterval | null
   // Set only on a skip: the series whose `plan_date` occurrence it skips.
   series_id: number | null
   created_at: string

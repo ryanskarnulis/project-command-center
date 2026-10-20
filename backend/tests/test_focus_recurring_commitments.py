@@ -15,6 +15,8 @@ from app.services import tasks as tasks_service
 
 START = date(2026, 6, 20)  # a Saturday
 DAILY = {"unit": "day", "every": 1}
+WEEKDAYS = {"unit": "week", "every": 1, "days": [0, 1, 2, 3, 4]}
+EVERY_OTHER_TUE_THU = {"unit": "week", "every": 2, "days": [1, 3]}
 
 
 def _series(
@@ -68,6 +70,20 @@ def _row_count(db: Session) -> int:
         ({"unit": "month", "every": 1}, date(2026, 1, 31), date(2026, 3, 28), False),
         ({"unit": "month", "every": 2}, date(2026, 1, 15), date(2026, 2, 15), False),
         ({"unit": "month", "every": 2}, date(2026, 1, 15), date(2026, 3, 15), True),
+        # A weekday set (#427): Mon-Fri from a Saturday start skips the weekend.
+        (WEEKDAYS, START, START, False),
+        (WEEKDAYS, START, START + timedelta(days=1), False),
+        (WEEKDAYS, START, START + timedelta(days=2), True),
+        (WEEKDAYS, START, START + timedelta(days=6), True),
+        (WEEKDAYS, START, START + timedelta(days=7), False),
+        (WEEKDAYS, START, START - timedelta(days=2), False),
+        # Mid-week start: nothing before the anchor, even in the same week.
+        (WEEKDAYS, date(2026, 6, 17), date(2026, 6, 16), False),
+        (WEEKDAYS, date(2026, 6, 17), date(2026, 6, 18), True),
+        # Every other week counts calendar weeks from the anchor's week.
+        (EVERY_OTHER_TUE_THU, date(2026, 6, 17), date(2026, 6, 18), True),
+        (EVERY_OTHER_TUE_THU, date(2026, 6, 17), date(2026, 6, 23), False),
+        (EVERY_OTHER_TUE_THU, date(2026, 6, 17), date(2026, 6, 30), True),
     ],
 )
 def test_occurs_on(
@@ -200,7 +216,56 @@ def test_series_writes_are_audited(db_session: Session) -> None:
     assert events[1][1] == 'Commitment "Standup" on 2026-06-20 skipped'
 
 
+def test_a_weekday_series_reads_mon_to_fri_and_names_itself(db_session: Session) -> None:
+    _series(db_session, WEEKDAYS)
+    monday = START + timedelta(days=2)
+    week = [_titles_on(db_session, monday + timedelta(days=n)) for n in range(7)]
+    assert week == [["Standup"]] * 5 + [[], []]
+
+    summary = db_session.execute(
+        select(ActivityEvent.summary).where(ActivityEvent.entity_type == "focus_entry")
+    ).scalar_one()
+    assert "weekdays from 2026-06-20" in summary
+
+
+@pytest.mark.parametrize(
+    ("interval", "label"),
+    [
+        (DAILY, "daily"),
+        ({"unit": "week", "every": 2}, "every 2 weeks"),
+        (WEEKDAYS, "weekdays"),
+        ({"unit": "week", "every": 1, "days": [0, 2, 4]}, "weekly on Mon, Wed, Fri"),
+        (EVERY_OTHER_TUE_THU, "every 2 weeks on Tue, Thu"),
+    ],
+)
+def test_format_repeat(interval: dict[str, Any], label: str) -> None:
+    assert focus_plan_service.format_repeat(interval) == label
+
+
 # --- Routes -----------------------------------------------------------------------
+
+
+def test_route_adds_a_weekday_commitment(client: TestClient) -> None:
+    created = client.post(
+        "/api/focus/commitments",
+        json={
+            "plan_date": START.isoformat(),
+            "title": "Standup",
+            "start_time": "09:30",
+            "duration_minutes": 15,
+            # Out of order on the way in; stored and read back sorted.
+            "repeat_interval": {"unit": "week", "every": 1, "days": [4, 3, 2, 1, 0]},
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["repeat_interval"] == WEEKDAYS
+
+    def cadences_on(day: date) -> list[Any]:
+        plan = client.get("/api/focus", params={"date": day.isoformat()}).json()
+        return [c["repeat_interval"] for c in plan["commitments"]]
+
+    assert cadences_on(START + timedelta(days=1)) == []  # Sunday
+    assert cadences_on(START + timedelta(days=3)) == [WEEKDAYS]  # Tuesday
 
 
 def test_routes_add_a_daily_commitment_and_skip_a_day(client: TestClient) -> None:
@@ -261,7 +326,18 @@ def test_skip_route_refusals(client: TestClient) -> None:
 
 @pytest.mark.parametrize(
     "repeat",
-    [{"unit": "year", "every": 1}, {"unit": "day", "every": 0}, {"unit": "day"}],
+    [
+        {"unit": "year", "every": 1},
+        {"unit": "day", "every": 0},
+        {"unit": "day"},
+        # A weekday set (#427) is weekly-only, non-empty, Mon 0..Sun 6, no repeats.
+        {"unit": "day", "every": 1, "days": [0]},
+        {"unit": "month", "every": 1, "days": [0]},
+        {"unit": "week", "every": 1, "days": []},
+        {"unit": "week", "every": 1, "days": [7]},
+        {"unit": "week", "every": 1, "days": [-1]},
+        {"unit": "week", "every": 1, "days": [1, 1]},
+    ],
 )
 def test_a_bad_repeat_interval_is_422(client: TestClient, repeat: dict[str, Any]) -> None:
     response = client.post(

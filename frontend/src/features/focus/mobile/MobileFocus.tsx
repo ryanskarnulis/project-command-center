@@ -23,8 +23,8 @@ import {
 } from '../../../api/focus'
 import { markTaskDone, reopenTask, updateTask } from '../../../api/tasks'
 import { addDaysISO } from '../../../utils/dates'
-import { formatRepeatInterval } from '../../../utils/recurrence'
-import type { RepeatInterval } from '../../../types/task'
+import { formatCommitmentRepeat } from '../commitmentRepeat'
+import type { CommitmentRepeatInterval } from '../../../types/focus'
 import { useTaskLinkTo } from '../../tasks/panel/taskPanelContext'
 import type { FocusPlan } from '../../../types/focus'
 import {
@@ -292,7 +292,7 @@ export function MobileFocus({
     title: string,
     start: string,
     minutes: number,
-    repeat: RepeatInterval | null,
+    repeat: CommitmentRepeatInterval | null,
   ): Promise<void> {
     await mutate(async () => {
       const entry = await addFocusCommitment(plan?.date ?? date, title, start, minutes, repeat)
@@ -392,7 +392,7 @@ export function MobileFocus({
                 <>
                   <span className="focus-meta-sep" aria-hidden="true">·</span>
                   <span className="focus-repeat-word">
-                    {formatRepeatInterval(row.commitment.repeat_interval)}
+                    {formatCommitmentRepeat(row.commitment.repeat_interval)}
                   </span>
                 </>
               )}

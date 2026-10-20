@@ -1,6 +1,10 @@
 import { apiClient } from './client'
-import type { FocusEntry, FocusEntryUpdate, FocusPlan } from '../types/focus'
-import type { RepeatInterval } from '../types/task'
+import type {
+  CommitmentRepeatInterval,
+  FocusEntry,
+  FocusEntryUpdate,
+  FocusPlan,
+} from '../types/focus'
 
 export interface FocusPlanParams {
   date?: string // YYYY-MM-DD
@@ -74,7 +78,7 @@ export async function addFocusCommitment(
   title: string,
   startTime: string,
   durationMinutes: number,
-  repeatInterval: RepeatInterval | null = null,
+  repeatInterval: CommitmentRepeatInterval | null = null,
 ): Promise<FocusEntry> {
   return apiClient<FocusEntry>('/api/focus/commitments', {
     method: 'POST',
