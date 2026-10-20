@@ -20,6 +20,10 @@ export const STOP_FALLBACK: Record<Exclude<AgentStopReason, 'completed'>, string
     'The agent kept producing invalid tool calls and gave up on this request.',
   truncated:
     'The reply ran past its length limit and was cut off — any tool calls above still ran.',
+  no_progress:
+    'The agent kept repeating the same steps without learning anything new, so it stopped — the tool calls above still ran.',
+  tool_call_limit:
+    'The agent reached its limit of tool calls for one request — the calls above ran up to that point; ask again to continue.',
   provider_error:
     'The run failed partway — the tool calls above still ran (undo any from the trash).',
   timed_out:

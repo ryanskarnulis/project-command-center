@@ -23,6 +23,12 @@ export type AgentStopReason =
   // The model's reply ran past the per-call token cap (#397): the cut-off
   // fragment is dropped, so the message has no content. Not a failure.
   | 'truncated'
+  // Run limits on work (#398), not failures; the message has no content.
+  // no_progress: a turn only repeated exchanges the run had already seen.
+  // tool_call_limit: the run hit its per-run tool-call cap; calls past it are
+  // listed as not run.
+  | 'no_progress'
+  | 'tool_call_limit'
   // The user pressed Stop (#324). Not a failure — the POST returns 200 — but
   // like the failure stops, the tool calls listed still ran and are undoable.
   | 'cancelled'

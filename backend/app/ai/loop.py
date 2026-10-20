@@ -46,6 +46,20 @@ with stop reason ``truncated`` and no reply. A cut-off turn's *tool calls*
 still run: the provider parses each call's arguments whole before the result
 exists, so a call that arrived is a complete call. Only the text fragment
 beside them is dropped from history.
+
+Work is bounded too, not just turns (#398). A turn in which *every* call
+repeats one this run already made and comes back with the same answer ends
+the run with stop reason ``no_progress``: nothing new can come back from
+another turn, so the loop stops instead of spending the rest of the iteration
+budget re-reading. The repeat is keyed on the tool, its canonicalised
+arguments *and* what it answered (:func:`_exchange_key`) — a repeated call
+that comes back different (a list after a write) did new work and the run
+goes on. And a run dispatches at most ``max_tool_calls`` tool calls (default
+:data:`DEFAULT_MAX_TOOL_CALLS`): a call past the cap is answered "not run"
+(one ``role: tool`` answer per call, so the transcript stays well-formed),
+never reaches the registry, and the run ends ``tool_call_limit`` after that
+turn — the next one could only be refused more of the same. Both are limits
+like ``max_iterations``, not failures, and like it they end with no reply.
 """
 
 from __future__ import annotations
@@ -93,6 +107,12 @@ _SKIPPED_ERROR = "not run: the agent run's time budget was exhausted before this
 # Recorded (and fed back) for a tool call the user's Stop arrived before — the
 # call never reached the registry or the service layer.
 _CANCELLED_ERROR = "not run: the user stopped the agent run before this call"
+
+# Recorded (and fed back) for a call past the run's tool-call cap (#398) — the
+# call never reached the registry or the service layer.
+_TOOL_CALL_LIMIT_ERROR = (
+    "not run: the agent run reached its limit of tool calls before this call"
+)
 
 
 def resolve_actor(header_value: str | None) -> str:
@@ -166,6 +186,13 @@ def build_system_prompt(today: date) -> str:
 # into the per-model profile in phase 2 (#402).
 DEFAULT_MAX_TOKENS = context_budget.COMPLETION_RESERVE_TOKENS
 
+# The per-run tool-call cap (#398). The largest deployed run made 18 calls (an
+# 8-task batch, made twice after schema errors), so a real batch fits with
+# headroom; a run that needs more is better split across messages than left
+# to spin. Every call that reaches the registry counts, schema-invalid ones
+# included — that is how the 18 was counted.
+DEFAULT_MAX_TOOL_CALLS = 24
+
 # ``finish_reason`` of a call the ``max_tokens`` cap cut off.
 _FINISH_LENGTH = "length"
 
@@ -173,6 +200,8 @@ _StopReason = Literal[
     "completed",
     "max_iterations",
     "truncated",
+    "no_progress",
+    "tool_call_limit",
     "correction_limit",
     "provider_error",
     "timed_out",
@@ -183,9 +212,11 @@ _StopReason = Literal[
 # HTTP status the route surfaces for each failure stop reason: a provider fault
 # is an upstream 502; exhausting the time budget is a 504; an unexpected
 # exception (a bug, a DB failure) is our own 500. ``cancelled`` is absent on
-# purpose: a user-requested stop is not a failure. Neither is ``truncated``:
-# the model ran on past the per-call cap, a limit like ``max_iterations``, not
-# a fault. Both finish like
+# purpose: a user-requested stop is not a failure. Neither are ``truncated``
+# (the model ran on past the per-call token cap), ``no_progress`` (a turn that
+# only repeated exchanges the run had already seen) or ``tool_call_limit``
+# (the per-run tool-call cap): each is a limit like ``max_iterations``, not a
+# fault. All of them finish like
 # ``max_iterations`` — a 200 carrying the truthful partial turn — so the client
 # renders what ran from the response rather than treating Stop as an error.
 _FAILURE_STATUS: dict[_StopReason, int] = {
@@ -267,15 +298,19 @@ class AgentLoop:
         max_iterations: int = 10,
         max_corrections: int = 3,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
     ) -> None:
         if max_iterations < 1:
             raise ValueError("max_iterations must be >= 1")
         if max_tokens < 1:
             raise ValueError("max_tokens must be >= 1")
+        if max_tool_calls < 1:
+            raise ValueError("max_tool_calls must be >= 1")
         self._provider = provider
         self._max_iterations = max_iterations
         self._max_corrections = max_corrections
         self._max_tokens = max_tokens
+        self._max_tool_calls = max_tool_calls
 
     def run(
         self,
@@ -371,6 +406,10 @@ class AgentLoop:
         records: list[ToolCallRecord] = []
         corrections = 0
         iterations = 0
+        # Calls that reached the registry this run (the cap's count), and every
+        # exchange the run has seen (the stall rule's memory).
+        dispatched = 0
+        seen: set[tuple[str, str, str]] = set()
         logger.info(
             "agent_run_started",
             tools=len(specs),
@@ -450,6 +489,8 @@ class AgentLoop:
                 result = result.model_copy(update={"content": None})
             messages.append(result.to_message())
             schema_error_this_turn = False
+            progressed = False
+            over_cap = False
             for index, call in enumerate(result.tool_calls):
                 if cancel is not None and cancel.is_set():
                     # The user stopped the run before this call started (most
@@ -479,6 +520,20 @@ class AgentLoop:
                         reason="deadline_exceeded",
                     )
                     raise self._out_of_time(records, iteration, messages)
+                if dispatched >= self._max_tool_calls:
+                    # Past the run's cap: this call and the rest of the turn are
+                    # answered "not run" and never dispatched. They are neither
+                    # progress nor a stall — they never ran.
+                    self._skip_remaining(
+                        result.tool_calls[index:],
+                        records,
+                        messages,
+                        error=_TOOL_CALL_LIMIT_ERROR,
+                        reason="tool_call_limit",
+                    )
+                    over_cap = True
+                    break
+                dispatched += 1
                 try:
                     record, feedback, schema_error = self._dispatch(call, actor)
                 except Exception as exc:
@@ -493,10 +548,27 @@ class AgentLoop:
                 records.append(record)
                 messages.append(tool_result_message(call.id, feedback))
                 schema_error_this_turn = schema_error_this_turn or schema_error
+                # Judged on what came back, not the call alone: a repeat that
+                # answers differently (a list after a write) is new work.
+                exchange = _exchange_key(call.name, call.arguments, feedback)
+                progressed = progressed or exchange not in seen
+                seen.add(exchange)
+            if over_cap:
+                # The next turn could only be refused more of the same.
+                return self._finish(
+                    "tool_call_limit", None, records, iteration, messages
+                )
             if schema_error_this_turn:
                 corrections += 1
                 if corrections > self._max_corrections:
                     return self._finish("correction_limit", None, records, iteration, messages)
+                # A malformed call is what the correction budget is for, so a
+                # turn with one is never judged a stall.
+            elif not progressed:
+                # Every call this turn repeated an exchange the run had already
+                # seen: another turn can bring nothing new back (#398).
+                logger.warning("agent_run_no_progress", tool_calls=len(result.tool_calls))
+                return self._finish("no_progress", None, records, iteration, messages)
         return self._finish("max_iterations", None, records, iterations, messages)
 
     @staticmethod
@@ -667,6 +739,18 @@ class AgentLoop:
         return AgentRunFailed(
             result, http_status=_FAILURE_STATUS[stop_reason], message=message
         )
+
+
+def _exchange_key(name: str, arguments: dict[str, Any], answer: str) -> tuple[str, str, str]:
+    """Identity of one exchange — the tool, its arguments and what it answered.
+
+    The answer is part of the key because the call alone is not: the same
+    lookup after a write comes back different, and that is progress. Sorted
+    keys so the key is the exchange, not how the model happened to order the
+    arguments; ``default=str`` so an odd value still yields a key rather than
+    raising inside the loop.
+    """
+    return name, json.dumps(arguments, sort_keys=True, default=str), answer
 
 
 def _validation_summary(exc: ValidationError) -> str:
