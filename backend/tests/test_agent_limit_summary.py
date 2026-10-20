@@ -9,6 +9,7 @@ behavior (no reply, the client's stop line).
 from __future__ import annotations
 
 import inspect
+import json
 import threading
 import time
 from collections.abc import Generator, Sequence
@@ -341,15 +342,22 @@ def test_record_lines_stay_compact() -> None:
     assert len(line) < 400
 
 
-def test_read_tools_are_exactly_the_registry_reads() -> None:
-    """``READ_TOOLS`` mirrors the registry's own marking: the bodies that open
-    ``tool_session(..., write=False)``. A new read must be added to both."""
-    reads = {
-        tool.name
-        for tool in registry.all_tools()
-        if "write=False" in inspect.getsource(tool.fn)
-    }
-    assert reads == run_record.READ_TOOLS
+def test_read_only_flag_agrees_with_the_session_each_body_opens() -> None:
+    """A tool is ``read_only`` exactly when its body opens
+    ``tool_session(..., write=False)``: the flag and the session mode cannot drift."""
+    for tool in registry.all_tools():
+        opens_read_session = "write=False" in inspect.getsource(tool.fn)
+        assert tool.read_only == opens_read_session, tool.name
+    assert run_record.READ_TOOLS == {t.name for t in registry.all_tools() if t.read_only}
+    assert run_record.READ_TOOLS  # the derivation found the reads
+
+
+def test_read_only_flag_is_not_in_any_emitted_schema() -> None:
+    for tool in registry.all_tools():
+        assert "read_only" not in json.dumps(tool.parameters)
+    for spec in registry.tool_specs():
+        assert "read_only" not in json.dumps(spec.parameters)
+        assert "read_only" not in spec.description
 
 
 # --- Route --------------------------------------------------------------------

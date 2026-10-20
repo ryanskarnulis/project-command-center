@@ -75,6 +75,9 @@ class RegisteredTool:
     description: str
     fn: Callable[..., Any]
     metadata: FuncMetadata
+    # True for a tool that only reads. Registry metadata only: never part of
+    # ``parameters``, ``tool_specs`` or the MCP schema.
+    read_only: bool = False
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -87,8 +90,7 @@ _REGISTRY: dict[str, RegisteredTool] = {}
 _F = TypeVar("_F", bound=Callable[..., Any])
 
 
-def _tool(fn: _F) -> _F:
-    """Register a tool body: name from ``__name__``, description from the docstring."""
+def _register(fn: _F, *, read_only: bool) -> _F:
     description = inspect.getdoc(fn)
     if not description:
         raise ValueError(f"tool {fn.__name__} must have a docstring")
@@ -97,8 +99,28 @@ def _tool(fn: _F) -> _F:
         description=description,
         fn=fn,
         metadata=func_metadata(fn),
+        read_only=read_only,
     )
     return fn
+
+
+def _tool(fn: _F) -> _F:
+    """Register a tool body: name from ``__name__``, description from the docstring."""
+    return _register(fn, read_only=False)
+
+
+def _read_tool(fn: _F) -> _F:
+    """Register a tool that only reads (its body opens ``tool_session(write=False)``).
+
+    Unmarked tools count as writes, so a new tool defaults towards "done" in
+    the run record rather than being left out of it as a lookup.
+    """
+    return _register(fn, read_only=True)
+
+
+def read_only_tool_names() -> frozenset[str]:
+    """Names of the registered tools that only read."""
+    return frozenset(tool.name for tool in all_tools() if tool.read_only)
 
 
 def all_tools() -> tuple[RegisteredTool, ...]:
@@ -178,7 +200,7 @@ def _ensure_project_exists(db: Session, project_id: int) -> None:
 # --- Tasks -------------------------------------------------------------------
 
 
-@_tool
+@_read_tool
 def list_tasks(
     project_id: EntityId | None = None,
     workflow_status: TaskWorkflowStatus | None = None,
@@ -203,7 +225,7 @@ def list_tasks(
         return reads_with_blocked(db, tasks)
 
 
-@_tool
+@_read_tool
 def get_task(task_id: EntityId) -> TaskRead:
     """Fetch one task with its subtask roll-up and blocked/blocking flags."""
     with tool_session("get_task", write=False) as db:
@@ -335,7 +357,7 @@ def restore_task(task_id: EntityId, restore_subtasks: bool = False) -> TaskRead:
 # --- Dependencies and recurrence ----------------------------------------------
 
 
-@_tool
+@_read_tool
 def list_dependencies(task_id: EntityId) -> TaskDependenciesRead:
     """Both directions of a task's dependency graph: what it waits on (depends_on) and what waits on it (dependents)."""
     with tool_session("list_dependencies", write=False) as db:
@@ -426,7 +448,7 @@ def stop_recurrence(task_id: EntityId) -> TaskRead:
 # --- Projects ----------------------------------------------------------------
 
 
-@_tool
+@_read_tool
 def list_projects(include_closed: bool = False) -> list[ProjectRead]:
     """List active projects in display order."""
     with tool_session("list_projects", write=False) as db:
@@ -434,7 +456,7 @@ def list_projects(include_closed: bool = False) -> list[ProjectRead]:
         return [ProjectRead.model_validate(p) for p in projects]
 
 
-@_tool
+@_read_tool
 def get_project(project_id: EntityId) -> ProjectRead:
     """Fetch one project."""
     with tool_session("get_project", write=False) as db:
@@ -541,14 +563,14 @@ def restore_project(
 # --- Search, focus, trash, activity ------------------------------------------
 
 
-@_tool
+@_read_tool
 def search(query: str, per_kind: _PerKind = 8) -> SearchResults:
     """Full-text search over active projects and tasks (title, description)."""
     with tool_session("search", write=False) as db:
         return search_service.search(db, query, per_kind=per_kind)
 
 
-@_tool
+@_read_tool
 def get_focus_plan(
     date: date_type | None = None,
     start_time: _StartTime = focus_service.DEFAULT_START_TIME,
@@ -672,7 +694,7 @@ def restore_focus_entry(entry_id: EntityId) -> FocusEntryRead:
         return focus_plan_service.entry_read(entry)
 
 
-@_tool
+@_read_tool
 def list_trash(limit: _ListLimit = 50) -> TrashRead:
     """Recently trashed projects and tasks — what restore_task/restore_project can bring back."""
     with tool_session("list_trash", write=False) as db:
@@ -695,7 +717,7 @@ def list_trash(limit: _ListLimit = 50) -> TrashRead:
         )
 
 
-@_tool
+@_read_tool
 def list_activity(project_id: EntityId, limit: _ListLimit = 50) -> list[ActivityEventRead]:
     """A project's audit trail, newest first. actor is null for the user; agents stamp theirs (e.g. "agent:mcp", "agent:loop")."""
     with tool_session("list_activity", write=False) as db:
