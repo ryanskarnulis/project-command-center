@@ -431,3 +431,39 @@ a.focus-row-title:hover { color: var(--link); }
   font-size: 13.5px;
   font-weight: 650;
 }
+
+/* ── Stored day plan (#319) ───────────────────────────────────────────── */
+/* A fixed row — a commitment, or a task pinned at a time — keeps its clock
+   time; the word says so in violet, the workflow-state accent. */
+.focus-fixed-word { color: var(--violet); }
+.mobile-focus .focus-row[data-kind='commitment'] .focus-ring { border-style: dashed; }
+.mobile-focus .focus-row[data-fixed='true'] .focus-time,
+.mobile-focus .focus-row[data-kind='commitment'] .focus-time { color: var(--violet); }
+
+/* Open time before a fixed row: the next row's gutter time jumps, so a short
+   dashed spacer says why instead of pretending the rows touch. */
+.mobile-focus .focus-gap {
+  display: flex;
+  align-items: center;
+  min-height: 26px;
+  padding-left: calc(var(--focus-gutter) + 30px);
+  border-bottom: 1px dashed rgba(199, 211, 228, .2);
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.focus-sheet-commitment input,
+.focus-sheet-commitment select,
+.focus-commitment-when input,
+.focus-commitment-when select {
+  min-height: 44px;
+  padding: 0 11px;
+  border: 1px solid var(--rule-control);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-h);
+  font-size: 13px;
+}
+.focus-commitment-when { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+.focus-commitment-when input[type='time'] { flex: 1 1 110px; min-width: 0; }

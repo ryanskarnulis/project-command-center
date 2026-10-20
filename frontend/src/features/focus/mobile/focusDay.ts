@@ -11,7 +11,12 @@
  * therefore come from the session log (`useFocusSessionLog`), and are passed in
  * alongside the plan's blocks.
  */
-import type { BlockedTask, DueSignal, ScheduledBlock } from '../../../types/focus'
+import type {
+  BlockedTask,
+  CommitmentBlock,
+  DueSignal,
+  ScheduledBlock,
+} from '../../../types/focus'
 import type { TaskPriority, TaskWorkflowStatus } from '../../../types/task'
 
 /** The clock's three states. `idle` is "not started", not "no block". */
@@ -27,12 +32,13 @@ export interface FinishedBlock {
   plannedMinutes: number
 }
 
-export type DayRowKind = 'done' | 'current' | 'upcoming'
+export type DayRowKind = 'done' | 'current' | 'upcoming' | 'commitment'
 
-/** One timeline row: a finished receipt, the band, or an upcoming block. */
+/** One timeline row: a finished receipt, the band, an upcoming block, or a commitment. */
 export interface DayRow {
   kind: DayRowKind
-  taskId: number
+  /** Null only on a commitment row — a fixed block that is not a task. */
+  taskId: number | null
   title: string
   /** Minutes the row was planned at. */
   planned: number
@@ -42,8 +48,14 @@ export interface DayRow {
   start: number
   /** `min-height` in px — the duration-is-height contract. */
   height: number
-  /** The plan's block, for meta and row actions. Null on finished rows. */
+  /** The plan's block, for meta and row actions. Null on finished and commitment rows. */
   block: ScheduledBlock | null
+  /** The commitment this row draws; null on task rows. */
+  commitment: CommitmentBlock | null
+  /** A fixed row (a commitment or a task pinned at a time) keeps its clock time: nothing pushes it. */
+  fixed: boolean
+  /** Open minutes between the previous row's end and this row's start (time left before a fixed row). */
+  gapBefore: number
 }
 
 export interface CapacitySegments {
@@ -70,6 +82,8 @@ export interface DayShape {
   overage: number
   /** How far the day slipped from its original shape; > 0 shows the amber notice. */
   shift: number
+  /** The fixed row the current block has run into, if any — the notice names it. */
+  collision: DayRow | null
   segments: CapacitySegments
 }
 
@@ -126,73 +140,167 @@ export function tailHeight(freeMinutes: number): number {
   return Math.max(76, Math.min(140, Math.round(48 + Math.max(0, freeMinutes) * 0.63)))
 }
 
+/** A plan block's start as minutes from the plan date's midnight. */
+function blockStart(time: string, dayOffset: number): number {
+  return dayOffset * 24 * 60 + parseClockTime(time)
+}
+
+interface Laid {
+  rows: DayRow[]
+  currentIndex: number
+  dayEnd: number
+  doneMinutes: number
+  collision: DayRow | null
+}
+
 /**
- * Fold the session's finished blocks and the server's remaining plan into one
- * ordered timeline, then run the design's derivations over it.
+ * Lay the timeline out once. Fixed rows sit at the server's time; flexible rows
+ * run end to end from the session start and jump past any fixed row they would
+ * collide with. The current block is placed at its planned length and then
+ * grown in place to `elapsed` — it is happening now, so it never jumps; an
+ * overrun runs into whatever is next, and only flexible rows get pushed.
+ */
+function layOut(
+  finished: FinishedBlock[],
+  scheduled: ScheduledBlock[],
+  commitments: CommitmentBlock[],
+  dayStart: number,
+  elapsed: number,
+  actual: boolean,
+): Laid {
+  const rows: DayRow[] = []
+  let cursor = dayStart
+  let doneMinutes = 0
+
+  for (const block of finished) {
+    const duration = actual ? block.minutes : block.plannedMinutes
+    rows.push({
+      kind: 'done',
+      taskId: block.taskId,
+      title: block.title,
+      planned: block.plannedMinutes,
+      duration,
+      start: cursor,
+      height: FINISHED_ROW_HEIGHT,
+      block: null,
+      commitment: null,
+      fixed: false,
+      gapBefore: 0,
+    })
+    cursor += duration
+    doneMinutes += duration
+  }
+
+  // Done work leaves the plan, so the first remaining task block is the current one.
+  const fixed: DayRow[] = commitments.map((commitment) => ({
+    kind: 'commitment',
+    taskId: null,
+    title: commitment.title,
+    planned: commitment.duration_minutes,
+    duration: commitment.duration_minutes,
+    start: blockStart(commitment.start_time, commitment.start_day_offset),
+    height: proportionalHeight(commitment.duration_minutes),
+    block: null,
+    commitment,
+    fixed: true,
+    gapBefore: 0,
+  }))
+  const flexible: DayRow[] = []
+  scheduled.forEach((block, index) => {
+    const planned = block.estimated_minutes
+    const isCurrent = index === 0
+    const row: DayRow = {
+      kind: isCurrent ? 'current' : 'upcoming',
+      taskId: block.task_id,
+      title: block.title,
+      planned,
+      duration: planned,
+      start: blockStart(block.start_time, block.start_day_offset),
+      height: proportionalHeight(planned),
+      block,
+      commitment: null,
+      fixed: block.fixed,
+      gapBefore: 0,
+    }
+    if (block.fixed) fixed.push(row)
+    else flexible.push(row)
+  })
+
+  // The current block grows to hold the time actually spent in it; the rest
+  // stay at their estimate. A fixed current block grows in place too.
+  const grow = (row: DayRow): void => {
+    if (row.kind !== 'current' || !actual) return
+    row.duration = Math.max(row.planned, Math.round(elapsed))
+    row.height = proportionalHeight(row.duration)
+  }
+  fixed.forEach(grow)
+
+  const collides = (start: number, duration: number): DayRow | undefined =>
+    fixed.find((other) => other.start < start + duration && other.start + other.duration > start)
+
+  for (const row of flexible) {
+    let start = cursor
+    for (let hit = collides(start, row.planned); hit; hit = collides(start, row.planned)) {
+      start = hit.start + hit.duration
+    }
+    row.start = start
+    grow(row)
+    cursor = start + row.duration
+  }
+
+  const timeline = [...rows, ...[...fixed, ...flexible].sort((a, b) => a.start - b.start)]
+  let previousEnd = dayStart
+  for (const row of timeline) {
+    row.gapBefore = Math.max(0, row.start - previousEnd)
+    previousEnd = Math.max(previousEnd, row.start + row.duration)
+  }
+  const currentIndex = timeline.findIndex((row) => row.kind === 'current')
+  const current = currentIndex >= 0 ? timeline[currentIndex] : null
+  const collision = current
+    ? (fixed.find(
+        (other) =>
+          other !== current &&
+          other.start > current.start &&
+          other.start < current.start + current.duration,
+      ) ?? null)
+    : null
+
+  return { rows: timeline, currentIndex, dayEnd: previousEnd, doneMinutes, collision }
+}
+
+/**
+ * Fold the session's finished blocks, the server's remaining plan and the
+ * day's fixed-time commitments into one ordered timeline, then run the
+ * design's derivations over it.
  *
  * `elapsed` only affects the current block: it grows past its estimate rather
- * than ending, which is what pushes every later row forward.
+ * than ending, which pushes the flexible rows after it forward. Fixed rows — a
+ * commitment, or a task pinned at a time — never move (#319).
  */
 export function buildDayShape({
   finished,
   scheduled,
+  commitments = [],
   dayStart,
   capacity,
   elapsed,
 }: {
   finished: FinishedBlock[]
   scheduled: ScheduledBlock[]
+  commitments?: CommitmentBlock[]
   dayStart: number
   capacity: number
   elapsed: number
 }): DayShape {
-  const currentIndex = scheduled.length ? finished.length : -1
-  const rows: DayRow[] = []
-  let cursor = dayStart
-  let doneMinutes = 0
-
-  for (const block of finished) {
-    rows.push({
-      kind: 'done',
-      taskId: block.taskId,
-      title: block.title,
-      planned: block.plannedMinutes,
-      duration: block.minutes,
-      start: cursor,
-      height: FINISHED_ROW_HEIGHT,
-      block: null,
-    })
-    cursor += block.minutes
-    doneMinutes += block.minutes
-  }
-
-  scheduled.forEach((block, offset) => {
-    const index = finished.length + offset
-    const planned = block.estimated_minutes
-    // The current block grows to hold the time actually spent in it; the rest
-    // stay at their estimate.
-    const duration = index === currentIndex ? Math.max(planned, Math.round(elapsed)) : planned
-    rows.push({
-      kind: index === currentIndex ? 'current' : 'upcoming',
-      taskId: block.task_id,
-      title: block.title,
-      planned,
-      duration,
-      start: cursor,
-      height: proportionalHeight(duration),
-      block,
-    })
-    cursor += duration
-  })
-
-  const dayEnd = cursor
+  const laid = layOut(finished, scheduled, commitments, dayStart, elapsed, true)
+  const { rows, currentIndex, dayEnd, doneMinutes, collision } = laid
   const spent = dayEnd - dayStart
   const free = capacity - spent
   const current = currentIndex >= 0 ? rows[currentIndex] : null
   const overage = current ? Math.max(0, Math.round(elapsed) - current.planned) : 0
   // What the day was originally shaped as, so the notice can name the slip.
-  const plannedEnd = rows.reduce((total, row) => total + row.planned, dayStart)
-  const shift = Math.round(dayEnd - plannedEnd)
+  const planned = layOut(finished, scheduled, commitments, dayStart, 0, false)
+  const shift = Math.round(dayEnd - planned.dayEnd)
 
   const barTotal = Math.max(1, Math.max(capacity, spent))
   const doneSegment = Math.min(doneMinutes, capacity)
@@ -212,6 +320,7 @@ export function buildDayShape({
     free,
     overage,
     shift,
+    collision,
     segments,
   }
 }

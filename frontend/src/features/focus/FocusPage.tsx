@@ -8,9 +8,19 @@ import {
   ChevronsRight,
   Clock3,
   Inbox,
+  Pin,
+  PinOff,
   Play,
+  Plus,
   SkipForward,
+  X,
 } from 'lucide-react'
+import {
+  addFocusCommitment,
+  pinFocusTask,
+  removeFocusEntry,
+  updateFocusEntry,
+} from '../../api/focus'
 import { markTaskDone, skipOccurrence, updateTask } from '../../api/tasks'
 import { useMobileViewport } from '../../hooks/useMobileViewport'
 import { useToast } from '../../components/ToastContext'
@@ -19,6 +29,7 @@ import type { TaskPriority, TaskWorkflowStatus } from '../../types/task'
 import { SkipOccurrenceConfirm } from '../tasks/SkipOccurrenceConfirm'
 import type {
   BlockedTask,
+  CommitmentBlock,
   DueSignal,
   OverflowTask,
   ScheduledBlock,
@@ -89,6 +100,44 @@ function parseTime(value: string): number {
   return Number(hours) * 60 + Number(minutes)
 }
 
+/** Minutes from the plan date's midnight, so blocks on either side of it sort. */
+function absoluteMinute(time: string, dayOffset: number): number {
+  return dayOffset * 24 * 60 + parseTime(time)
+}
+
+// The timeline interleaves task blocks with fixed-time commitments (#319); the
+// plan keeps them in separate lists so every scheduled block is still a task.
+type TimelineItem =
+  | { kind: 'task'; block: ScheduledBlock }
+  | { kind: 'commitment'; commitment: CommitmentBlock }
+
+function timelineItems(
+  scheduled: ScheduledBlock[],
+  commitments: CommitmentBlock[],
+): TimelineItem[] {
+  const items: TimelineItem[] = [
+    ...scheduled.map((block) => ({ kind: 'task' as const, block })),
+    ...commitments.map((commitment) => ({ kind: 'commitment' as const, commitment })),
+  ]
+  const start = (item: TimelineItem): number =>
+    item.kind === 'task'
+      ? absoluteMinute(item.block.start_time, item.block.start_day_offset)
+      : absoluteMinute(item.commitment.start_time, item.commitment.start_day_offset)
+  return items.sort((a, b) => start(a) - start(b))
+}
+
+function itemEnd(item: TimelineItem): number {
+  return item.kind === 'task'
+    ? absoluteMinute(item.block.end_time, item.block.end_day_offset)
+    : absoluteMinute(item.commitment.end_time, item.commitment.end_day_offset)
+}
+
+function itemKey(item: TimelineItem): string {
+  return item.kind === 'task'
+    ? `task-${item.block.task_id}`
+    : `commitment-${item.commitment.entry_id}`
+}
+
 function formatBlockTime(planDate: string, time: string, dayOffset: number): string {
   if (dayOffset === 0) return time
   return `${formatDueDate(addDaysISO(planDate, dayOffset))} · ${time}`
@@ -135,6 +184,10 @@ function EstimateLabel({
 // endpoint so recurrence's next-occurrence creation still fires — never a raw
 // PATCH workflow_status=done. Defer snoozes the task to the day after the
 // plan's date via `deferred_until`; the scheduler skips it until then.
+//
+// The stored day plan (#319) adds the pin verbs: an overflow row offers
+// Schedule (a floating pin — only this task enters the day), a scheduled row
+// offers Pin (optionally at a time, which makes it a fixed block) or Unpin.
 function FocusRowActions({
   taskId,
   title,
@@ -143,6 +196,7 @@ function FocusRowActions({
   planDate,
   onMutated,
   onSkip,
+  pin = null,
 }: {
   taskId: number
   title: string
@@ -153,9 +207,17 @@ function FocusRowActions({
   // Opens the page-level skip confirm; the actual skip + refetch run there so a
   // row unmounting mid-confirm doesn't strand the dialog.
   onSkip: (taskId: number, title: string) => void
+  // Which pin verb the row offers: Schedule from "Didn't fit", Pin/Unpin on the
+  // timeline. Null offers neither.
+  pin?:
+    | { kind: 'schedule' }
+    | { kind: 'timeline'; entryId: number | null; startTime: string }
+    | null
 }) {
   const { withToast } = useToast()
   const [pending, setPending] = useState(false)
+  // The inline "Pin at" time field, open while choosing a time.
+  const [pinAt, setPinAt] = useState<string | null>(null)
 
   async function run(action: () => Promise<unknown>, success: string): Promise<void> {
     if (pending) return
@@ -215,6 +277,77 @@ function FocusRowActions({
         <ChevronsRight size={15} aria-hidden="true" />
         Defer
       </button>
+      {pin?.kind === 'schedule' && (
+        <button
+          type="button"
+          className="task-action"
+          disabled={pending}
+          aria-label={`Schedule ${title} today`}
+          onClick={() =>
+            void run(() => pinFocusTask(planDate, taskId), 'Scheduled into the day')
+          }
+        >
+          <Pin size={15} aria-hidden="true" />
+          Schedule
+        </button>
+      )}
+      {pin?.kind === 'timeline' && pin.entryId !== null && (
+        <button
+          type="button"
+          className="task-action"
+          disabled={pending}
+          aria-label={`Unpin ${title}`}
+          onClick={() => {
+            const entryId = pin.entryId
+            if (entryId !== null) void run(() => removeFocusEntry(entryId), 'Unpinned')
+          }}
+        >
+          <PinOff size={15} aria-hidden="true" />
+          Unpin
+        </button>
+      )}
+      {pin?.kind === 'timeline' && pin.entryId === null && pinAt === null && (
+        <button
+          type="button"
+          className="task-action"
+          disabled={pending}
+          aria-label={`Pin ${title}`}
+          onClick={() => setPinAt(pin.startTime)}
+        >
+          <Pin size={15} aria-hidden="true" />
+          Pin
+        </button>
+      )}
+      {pin?.kind === 'timeline' && pinAt !== null && (
+        <form
+          className="focus-pin-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void run(
+              () => pinFocusTask(planDate, taskId, pinAt || undefined),
+              pinAt ? `Pinned at ${pinAt}` : 'Pinned into the day',
+            )
+          }}
+        >
+          <input
+            type="time"
+            aria-label={`Pin ${title} at`}
+            value={pinAt}
+            onChange={(event) => setPinAt(event.target.value)}
+          />
+          <button type="submit" className="task-action" disabled={pending}>
+            Pin
+          </button>
+          <button
+            type="button"
+            className="task-action"
+            aria-label="Cancel pin"
+            onClick={() => setPinAt(null)}
+          >
+            <X size={15} aria-hidden="true" />
+          </button>
+        </form>
+      )}
       {isRecurring && (
         <button
           type="button"
@@ -228,6 +361,16 @@ function FocusRowActions({
         </button>
       )}
     </div>
+  )
+}
+
+/** The pinned/fixed state as a colored meta word (never a pill). */
+function PinWord({ block }: { block: ScheduledBlock }) {
+  if (!block.pinned) return null
+  return block.fixed ? (
+    <span className="focus-pin-word">pinned at {block.start_time}</span>
+  ) : (
+    <span className="focus-pin-word">pinned</span>
   )
 }
 
@@ -271,6 +414,7 @@ function ScheduledRow({
           <DueSignalPill signal={block.due_signal} />
         </div>
         <div className="focus-block-meta">
+          <PinWord block={block} />
           <EstimateLabel minutes={block.estimated_minutes} assumed={block.estimate_assumed} />
           {block.due_date && (
             <span className="focus-due-date">Due {formatDueDate(block.due_date)}</span>
@@ -286,8 +430,216 @@ function ScheduledRow({
         planDate={planDate}
         onMutated={onMutated}
         onSkip={onSkip}
+        pin={{ kind: 'timeline', entryId: block.entry_id, startTime: block.start_time }}
       />
     </li>
+  )
+}
+
+// A fixed-time commitment that is not a task (a meeting): no task link, no
+// task verbs — only Move (to another time) and Remove.
+function CommitmentRow({
+  commitment,
+  past,
+  planDate,
+  onMutated,
+}: {
+  commitment: CommitmentBlock
+  past: boolean
+  planDate: string
+  onMutated: () => void
+}) {
+  const { withToast } = useToast()
+  const [pending, setPending] = useState(false)
+  const [moveTo, setMoveTo] = useState<string | null>(null)
+
+  async function run(action: () => Promise<unknown>, success: string): Promise<void> {
+    if (pending) return
+    setPending(true)
+    try {
+      await withToast(action(), { success })
+      setMoveTo(null)
+      onMutated()
+    } catch {
+      // The error toast already surfaced; keep the row interactive to retry.
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <li
+      className={
+        past ? 'focus-block focus-commitment focus-block-past' : 'focus-block focus-commitment'
+      }
+    >
+      <div className="focus-block-time" aria-hidden="true">
+        <strong>
+          {formatBlockTime(planDate, commitment.start_time, commitment.start_day_offset)}
+        </strong>
+        <span>{formatBlockTime(planDate, commitment.end_time, commitment.end_day_offset)}</span>
+      </div>
+      <div className="focus-block-body">
+        <div className="focus-block-head">
+          <span className="focus-block-title">{commitment.title}</span>
+        </div>
+        <div className="focus-block-meta">
+          <span className="focus-commitment-word">fixed</span>
+          <EstimateLabel minutes={commitment.duration_minutes} assumed={false} />
+        </div>
+      </div>
+      <div className="focus-row-actions">
+        {moveTo === null ? (
+          <button
+            type="button"
+            className="task-action"
+            disabled={pending}
+            aria-label={`Move ${commitment.title}`}
+            onClick={() => setMoveTo(commitment.start_time)}
+          >
+            <Clock3 size={15} aria-hidden="true" />
+            Move
+          </button>
+        ) : (
+          <form
+            className="focus-pin-form"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (!moveTo) return
+              void run(
+                () => updateFocusEntry(commitment.entry_id, { start_time: moveTo }),
+                `Moved to ${moveTo}`,
+              )
+            }}
+          >
+            <input
+              type="time"
+              required
+              aria-label={`Move ${commitment.title} to`}
+              value={moveTo}
+              onChange={(event) => setMoveTo(event.target.value)}
+            />
+            <button type="submit" className="task-action" disabled={pending}>
+              Move
+            </button>
+            <button
+              type="button"
+              className="task-action"
+              aria-label="Cancel move"
+              onClick={() => setMoveTo(null)}
+            >
+              <X size={15} aria-hidden="true" />
+            </button>
+          </form>
+        )}
+        <button
+          type="button"
+          className="task-action"
+          disabled={pending}
+          aria-label={`Remove ${commitment.title}`}
+          onClick={() =>
+            void run(() => removeFocusEntry(commitment.entry_id), 'Commitment removed')
+          }
+        >
+          <X size={15} aria-hidden="true" />
+          Remove
+        </button>
+      </div>
+    </li>
+  )
+}
+
+// Commitment lengths offered by the add form; 30 minutes is the default.
+const COMMITMENT_MINUTES = [15, 30, 45, 60, 90, 120]
+
+/**
+ * Block fixed time for something that is not a task. Lives on the Focus page,
+ * the lane it belongs to — there is no global way to create one.
+ */
+function AddCommitmentForm({
+  planDate,
+  onMutated,
+}: {
+  planDate: string
+  onMutated: () => void
+}) {
+  const { withToast } = useToast()
+  const [open, setOpen] = useState(false)
+  const [title, setTitle] = useState('')
+  const [start, setStart] = useState('')
+  const [minutes, setMinutes] = useState(30)
+  const [pending, setPending] = useState(false)
+
+  if (!open) {
+    return (
+      <button type="button" className="task-action focus-add-commitment" onClick={() => setOpen(true)}>
+        <Plus size={15} aria-hidden="true" />
+        Add commitment
+      </button>
+    )
+  }
+
+  async function submit(): Promise<void> {
+    if (pending || !title.trim() || !start) return
+    setPending(true)
+    try {
+      await withToast(addFocusCommitment(planDate, title.trim(), start, minutes), {
+        success: `Added ${title.trim()} at ${start}`,
+      })
+      setTitle('')
+      setStart('')
+      setOpen(false)
+      onMutated()
+    } catch {
+      // The error toast already surfaced; keep the form to retry.
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <form
+      className="focus-commitment-form"
+      aria-label="Add commitment"
+      onSubmit={(event) => {
+        event.preventDefault()
+        void submit()
+      }}
+    >
+      <input
+        type="text"
+        aria-label="Commitment title"
+        placeholder="Standup"
+        value={title}
+        maxLength={200}
+        required
+        onChange={(event) => setTitle(event.target.value)}
+      />
+      <input
+        type="time"
+        aria-label="Commitment start"
+        value={start}
+        required
+        onChange={(event) => setStart(event.target.value)}
+      />
+      <select
+        aria-label="Commitment length"
+        value={minutes}
+        onChange={(event) => setMinutes(Number(event.target.value))}
+      >
+        {COMMITMENT_MINUTES.map((value) => (
+          <option key={value} value={value}>
+            {formatDuration(value)}
+          </option>
+        ))}
+      </select>
+      <button type="submit" className="task-action" disabled={pending}>
+        Add
+      </button>
+      <button type="button" className="task-action" onClick={() => setOpen(false)}>
+        Cancel
+      </button>
+    </form>
   )
 }
 
@@ -325,6 +677,7 @@ function OverflowRow({
         planDate={planDate}
         onMutated={onMutated}
         onSkip={onSkip}
+        pin={{ kind: 'schedule' }}
       />
     </li>
   )
@@ -453,12 +806,11 @@ export function FocusPage() {
   // final row and every block is dimmed). `null` means "not viewing today", so
   // no marker and no dimming — distinct from the fully-elapsed case, which a
   // bare findIndex() of -1 used to conflate.
+  const timeline = plan ? timelineItems(plan.scheduled, plan.commitments) : []
   let nowIndex: number | null = null
   if (viewingToday && plan) {
-    const upcoming = plan.scheduled.findIndex(
-      (block) => block.end_day_offset * 24 * 60 + parseTime(block.end_time) > nowMinutes,
-    )
-    nowIndex = upcoming === -1 ? plan.scheduled.length : upcoming
+    const upcoming = timeline.findIndex((item) => itemEnd(item) > nowMinutes)
+    nowIndex = upcoming === -1 ? timeline.length : upcoming
   }
   const nowLabel = `${String(Math.floor(nowMinutes / 60)).padStart(2, '0')}:${String(
     nowMinutes % 60,
@@ -583,24 +935,34 @@ export function FocusPage() {
             {plan.blocked.length} blocked
           </p>
 
-          {plan.scheduled.length > 0 ? (
+          {timeline.length > 0 ? (
             <section className="panel focus-section" aria-labelledby="focus-timeline-heading">
               <h2 id="focus-timeline-heading">Timeline</h2>
               <ol className="focus-timeline">
-                {plan.scheduled.map((block, index) => (
-                  <Fragment key={block.task_id}>
+                {timeline.map((item, index) => (
+                  <Fragment key={itemKey(item)}>
                     {index === nowIndex && <NowMarker label={nowLabel} />}
-                    <ScheduledRow
-                      block={block}
-                      past={nowIndex !== null && index < nowIndex}
-                      planDate={plan.date}
-                      onMutated={refetch}
-                      onSkip={(id, title) => setSkipTarget({ id, title })}
-                    />
+                    {item.kind === 'task' ? (
+                      <ScheduledRow
+                        block={item.block}
+                        past={nowIndex !== null && index < nowIndex}
+                        planDate={plan.date}
+                        onMutated={refetch}
+                        onSkip={(id, title) => setSkipTarget({ id, title })}
+                      />
+                    ) : (
+                      <CommitmentRow
+                        commitment={item.commitment}
+                        past={nowIndex !== null && index < nowIndex}
+                        planDate={plan.date}
+                        onMutated={refetch}
+                      />
+                    )}
                   </Fragment>
                 ))}
-                {nowIndex === plan.scheduled.length && <NowMarker label={nowLabel} />}
+                {nowIndex === timeline.length && <NowMarker label={nowLabel} />}
               </ol>
+              <AddCommitmentForm planDate={plan.date} onMutated={refetch} />
             </section>
           ) : (
             <div className="empty-state focus-empty">
@@ -615,6 +977,7 @@ export function FocusPage() {
               ) : (
                 <span>No open tasks to schedule for this day.</span>
               )}
+              <AddCommitmentForm planDate={plan.date} onMutated={refetch} />
             </div>
           )}
 
@@ -623,7 +986,7 @@ export function FocusPage() {
               id="focus-overflow-heading"
               title="Didn’t fit"
               count={plan.overflow.length}
-              hint="Ranked unscheduled work — increase capacity or push these to another day."
+              hint="Ranked unscheduled work — schedule one into the day, increase capacity, or push these to another day."
             >
               <ul className="focus-overflow-list">
                 {plan.overflow.map((task) => (

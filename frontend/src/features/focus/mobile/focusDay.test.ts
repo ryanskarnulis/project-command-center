@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { BlockedTask, ScheduledBlock } from '../../../types/focus'
+import type { BlockedTask, CommitmentBlock, ScheduledBlock } from '../../../types/focus'
 import {
   blockingCounts,
   buildDayShape,
@@ -30,6 +30,9 @@ function block(overrides: Partial<ScheduledBlock> = {}): ScheduledBlock {
     reason: 'open · urgent',
     parent_task_id: null,
     parent_title: null,
+    entry_id: null,
+    pinned: false,
+    fixed: false,
     ...overrides,
   }
 }
@@ -218,5 +221,82 @@ describe('blockingCounts', () => {
     expect(blockingCounts(blocked).get(1)).toBe(2)
     expect(blockingCounts(blocked).get(2)).toBe(1)
     expect(blockingCounts(blocked).get(9)).toBeUndefined()
+  })
+})
+
+describe('buildDayShape with fixed rows (#319)', () => {
+  const standup: CommitmentBlock = {
+    entry_id: 5,
+    title: 'Standup',
+    start_time: '10:00',
+    end_time: '10:30',
+    start_day_offset: 0,
+    end_day_offset: 0,
+    duration_minutes: 30,
+  }
+
+  it('keeps a commitment at its time and jumps a flexible row that would collide', () => {
+    const shape = buildDayShape({
+      finished: [],
+      scheduled: [
+        block({ task_id: 1, estimated_minutes: 30 }),
+        block({ task_id: 2, estimated_minutes: 60 }),
+      ],
+      commitments: [standup],
+      dayStart: 540,
+      capacity: 360,
+      elapsed: 0,
+    })
+
+    expect(shape.rows.map((row) => [row.kind, row.start])).toEqual([
+      ['current', 540],
+      ['commitment', 600],
+      ['upcoming', 630],
+    ])
+    // The 30 minutes before the meeting are open, not silently swallowed.
+    expect(shape.rows[1].gapBefore).toBe(30)
+    expect(shape.dayEnd).toBe(690)
+    expect(shape.collision).toBeNull()
+  })
+
+  it('never moves a fixed row when the current block overruns into it', () => {
+    const shape = buildDayShape({
+      finished: [],
+      scheduled: [
+        block({ task_id: 1, estimated_minutes: 30 }),
+        block({ task_id: 2, estimated_minutes: 30 }),
+      ],
+      commitments: [standup],
+      dayStart: 540,
+      capacity: 360,
+      elapsed: 75,
+    })
+
+    const commitment = shape.rows.find((row) => row.kind === 'commitment')
+    expect(commitment?.start).toBe(600)
+    expect(shape.collision?.title).toBe('Standup')
+    // The flexible row after the overrun is pushed past both.
+    expect(shape.rows.find((row) => row.taskId === 2)?.start).toBe(630)
+    expect(shape.overage).toBe(45)
+  })
+
+  it('treats a task pinned at a time as fixed', () => {
+    const shape = buildDayShape({
+      finished: [],
+      scheduled: [
+        block({ task_id: 1, estimated_minutes: 60 }),
+        block({ task_id: 2, estimated_minutes: 30, start_time: '09:30', end_time: '10:00', pinned: true, fixed: true }),
+      ],
+      dayStart: 540,
+      capacity: 360,
+      elapsed: 0,
+    })
+
+    expect(shape.rows.map((row) => [row.taskId, row.start, row.fixed])).toEqual([
+      [2, 570, true],
+      [1, 600, false],
+    ])
+    // The first task the server sent is still the one being worked.
+    expect(shape.rows[shape.currentIndex].taskId).toBe(1)
   })
 })

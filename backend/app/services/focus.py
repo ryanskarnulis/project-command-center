@@ -1,20 +1,23 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Task, TaskPriority, TaskWorkflowStatus
+from app.db.models import FocusPlanEntry, Task, TaskPriority, TaskWorkflowStatus
 from app.schemas.focus import (
     BlockedTask,
     BlockingTask,
+    CommitmentBlock,
     DueSignal,
     OverflowTask,
     ScheduledBlock,
     FocusPlan,
 )
+from app.services import focus_plan as focus_plan_service
 from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
 from app.services.tasks import Rollup
@@ -158,6 +161,52 @@ def _schedulable_subtasks(
     ]
 
 
+def _free_gaps(
+    window_start: int, window_end: int, busy: Sequence[tuple[int, int]]
+) -> list[list[int]]:
+    """The window minus the fixed blocks, as ``[start, end)`` gaps in time order.
+
+    Overlapping fixed blocks are merged for this purpose (two meetings at once
+    still only take the time once). With no fixed blocks this is the whole
+    window — one gap, which is what makes the packer degrade to the old
+    back-to-back pack.
+    """
+    gaps: list[list[int]] = []
+    cursor = window_start
+    for start, end in sorted(busy):
+        if start > cursor:
+            gaps.append([cursor, min(start, window_end)])
+        cursor = max(cursor, end)
+        if cursor >= window_end:
+            break
+    if cursor < window_end:
+        gaps.append([cursor, window_end])
+    return [gap for gap in gaps if gap[1] > gap[0]]
+
+
+def _place(minutes: int, gaps: list[list[int]]) -> int | None:
+    """First fit: take ``minutes`` from the front of the first gap that holds them.
+
+    Returns the block's start minute and shrinks that gap, or ``None`` when no gap
+    is big enough. First fit is what lets a small lower-ranked task use the time
+    left before a meeting after a bigger one skipped past it.
+    """
+    for gap in gaps:
+        if gap[1] - gap[0] >= minutes:
+            start = gap[0]
+            gap[0] += minutes
+            return start
+    return None
+
+
+@dataclass(frozen=True)
+class _Pin:
+    """A live task pin the packer honours, with its task already resolved."""
+
+    task: Task
+    entry: FocusPlanEntry
+
+
 def _pack(
     db: Session,
     ranked: Sequence[Task],
@@ -166,33 +215,50 @@ def _pack(
     target_date: date,
     rollups: Rollups,
     blocked_ids: set[int],
+    *,
+    floating: Sequence[_Pin] = (),
+    timed: Sequence[_Pin] = (),
+    busy: Sequence[tuple[int, int]] = (),
 ) -> tuple[list[ScheduledBlock], list[OverflowTask], int]:
-    """Place ranked tasks into sequential blocks, backfilling smaller tasks.
+    """Place pinned and ranked tasks into the free gaps around the fixed blocks.
 
-    Greedy in rank order: each task that fits the remaining capacity is scheduled;
-    a task too large for what's left is sent to overflow and scanning continues, so
-    smaller lower-ranked tasks still fill the day instead of leaving it empty behind
-    one oversized high-rank item. Before overflowing a too-large parent, its open
-    subtasks are tried in its rank slot — each one that fits is scheduled as its own
-    block (labelled with the parent), so a big task still makes partial progress.
-    Both scheduled blocks and overflow preserve ranked order, and scheduled blocks
-    remain sequential with no gaps.
+    Timed pins sit at their own time and never move; ``busy`` carries the fixed
+    intervals that are not tasks (commitments) so both are packed around. Floating
+    pins come next, in their stored order, and never overflow: one that fits no
+    gap is placed after the end of the day — the user asked for it. Then the
+    ranked list, first fit in rank order: a task too large for every gap goes to
+    overflow and scanning continues, so smaller lower-ranked tasks still fill the
+    day. Before overflowing a too-large parent, its open subtasks are tried in its
+    rank slot — each one that fits is scheduled as its own block (labelled with
+    the parent), so a big task still makes partial progress.
+
+    With no pins and no commitments there is one gap and this is the original
+    back-to-back greedy pack. Scheduled blocks are returned in time order and
+    overflow in ranked order. ``used`` counts every block's minutes inside the
+    day from ``start_minutes`` on, fixed ones and late pins included, so it can
+    exceed ``available_minutes``.
     """
     blocks: list[ScheduledBlock] = []
     overflow: list[OverflowTask] = []
     used = 0
+    window_end = start_minutes + available_minutes
 
     def _schedule(
-        task: Task, minutes: int, assumed: bool, parent: Task | None
+        task: Task,
+        minutes: int,
+        assumed: bool,
+        parent: Task | None,
+        block_start: int,
+        entry: FocusPlanEntry | None = None,
+        fixed: bool = False,
     ) -> None:
         nonlocal used
-        block_start = start_minutes + used
-        used += minutes
+        used += max(0, block_start + minutes - max(block_start, start_minutes))
         reason = _reason(task, target_date, rollups)
         if parent is not None:
             reason = f"part of {parent.title} · {reason}"
         block_start_time, start_day_offset = _format_time(block_start)
-        block_end_time, end_day_offset = _format_time(start_minutes + used)
+        block_end_time, end_day_offset = _format_time(block_start + minutes)
         blocks.append(
             ScheduledBlock(
                 task_id=task.id,
@@ -212,21 +278,49 @@ def _pack(
                 reason=reason,
                 parent_task_id=parent.id if parent is not None else None,
                 parent_title=parent.title if parent is not None else None,
+                entry_id=entry.id if entry is not None else None,
+                pinned=entry is not None,
+                fixed=fixed,
             )
         )
 
+    fixed_intervals = list(busy)
+    for pin in timed:
+        assert pin.entry.start_minute is not None
+        minutes, assumed = _effective_estimate(pin.task, rollups)
+        _schedule(
+            pin.task, minutes, assumed, None, pin.entry.start_minute, pin.entry, fixed=True
+        )
+        fixed_intervals.append(
+            (pin.entry.start_minute, pin.entry.start_minute + minutes)
+        )
+    gaps = _free_gaps(start_minutes, window_end, fixed_intervals)
+    # Where a floating pin that fits no gap goes: after the window and every
+    # fixed block, one after another.
+    late_cursor = max([window_end, *(end for _start, end in fixed_intervals)])
+
+    for pin in floating:
+        minutes, assumed = _effective_estimate(pin.task, rollups)
+        block_start = _place(minutes, gaps)
+        if block_start is None:
+            block_start = late_cursor
+            late_cursor += minutes
+        _schedule(pin.task, minutes, assumed, None, block_start, pin.entry)
+
     for task in ranked:
         minutes, assumed = _effective_estimate(task, rollups)
-        if used + minutes <= available_minutes:
-            _schedule(task, minutes, assumed, parent=None)
+        block_start = _place(minutes, gaps)
+        if block_start is not None:
+            _schedule(task, minutes, assumed, None, block_start)
             continue
-        # Too large for what's left: try the parent's own subtasks in this rank
+        # Too large for every gap: try the parent's own subtasks in this rank
         # slot before overflowing it, so part of the work still lands today.
         scheduled_subtasks = 0
         for sub in _schedulable_subtasks(db, task, target_date, rollups, blocked_ids):
             sub_minutes, sub_assumed = _effective_estimate(sub, rollups)
-            if used + sub_minutes <= available_minutes:
-                _schedule(sub, sub_minutes, sub_assumed, parent=task)
+            sub_start = _place(sub_minutes, gaps)
+            if sub_start is not None:
+                _schedule(sub, sub_minutes, sub_assumed, task, sub_start)
                 scheduled_subtasks += 1
         overflow.append(
             OverflowTask(
@@ -243,7 +337,28 @@ def _pack(
                 scheduled_subtask_count=scheduled_subtasks,
             )
         )
+    blocks.sort(key=lambda block: _absolute_minute(block.start_time, block.start_day_offset))
     return blocks, overflow, used
+
+
+def _absolute_minute(clock: str, day_offset: int) -> int:
+    return day_offset * 24 * 60 + _parse_time(clock)
+
+
+def _commitment_block(entry: FocusPlanEntry) -> CommitmentBlock:
+    assert entry.start_minute is not None and entry.duration_minutes is not None
+    assert entry.title is not None
+    start_time, start_day_offset = _format_time(entry.start_minute)
+    end_time, end_day_offset = _format_time(entry.start_minute + entry.duration_minutes)
+    return CommitmentBlock(
+        entry_id=entry.id,
+        title=entry.title,
+        start_time=start_time,
+        end_time=end_time,
+        start_day_offset=start_day_offset,
+        end_day_offset=end_day_offset,
+        duration_minutes=entry.duration_minutes,
+    )
 
 
 def get_focus_plan(
@@ -303,18 +418,60 @@ def get_focus_plan(
         else:
             schedulable.append(task)
 
+    window_start = _parse_time(start_time)
+    # The stored overlay (#319). A pin only counts while its task is still
+    # schedulable here — done, trashed, deferred past the day, blocked or nested
+    # pins are ignored, never deleted, so deferring a pinned task still makes it
+    # leave the day. A commitment that ended before the window is past; a timed
+    # pin that did, with its task still open, floats instead — it is still
+    # pinned to today.
+    schedulable_by_id = {task.id: task for task in schedulable}
+    floating: list[_Pin] = []
+    timed: list[_Pin] = []
+    commitments: list[CommitmentBlock] = []
+    busy: list[tuple[int, int]] = []
+    for entry in focus_plan_service.list_entries(db, target_date):
+        if entry.task_id is None:
+            assert entry.start_minute is not None and entry.duration_minutes is not None
+            end = entry.start_minute + entry.duration_minutes
+            if end <= window_start:
+                continue
+            commitments.append(_commitment_block(entry))
+            busy.append((entry.start_minute, end))
+            continue
+        pinned_task = schedulable_by_id.get(entry.task_id)
+        if pinned_task is None:
+            continue
+        pin = _Pin(task=pinned_task, entry=entry)
+        minutes, _assumed = _effective_estimate(pinned_task, rollups)
+        if entry.start_minute is not None and entry.start_minute + minutes > window_start:
+            timed.append(pin)
+        else:
+            floating.append(pin)
+    pinned_ids = {pin.task.id for pin in (*floating, *timed)}
+
     ranked = sorted(
-        schedulable, key=lambda task: _rank_key(task, target_date, rollups)
+        (task for task in schedulable if task.id not in pinned_ids),
+        key=lambda task: _rank_key(task, target_date, rollups),
     )
     blocks, overflow, used = _pack(
         db,
         ranked,
-        _parse_time(start_time),
+        window_start,
         available_minutes,
         target_date,
         rollups,
         blocked_ids,
+        floating=floating,
+        timed=timed,
+        busy=busy,
     )
+    used += sum(
+        block.duration_minutes
+        - max(0, window_start - _absolute_minute(block.start_time, block.start_day_offset))
+        for block in commitments
+    )
+    commitments.sort(key=lambda block: _absolute_minute(block.start_time, block.start_day_offset))
 
     return FocusPlan(
         date=target_date,
@@ -322,6 +479,7 @@ def get_focus_plan(
         available_minutes=available_minutes,
         used_minutes=used,
         scheduled=blocks,
+        commitments=commitments,
         overflow=overflow,
         blocked=blocked,
     )

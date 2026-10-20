@@ -8,7 +8,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import ActivityEvent, Task, TaskDependency
-from app.services import activity
+from app.services import activity, focus_plan
 from app.services import projects as projects_service
 from app.schemas.trash import RescheduledDate, TaskRestoreUndo, UnskipUndo
 from app.services.common import (
@@ -844,6 +844,10 @@ def purge_task(db: Session, task: Task, *, project_scoped: bool = True) -> None:
         .where(Task.deleted_with_task_id.in_(ids), Task.id.not_in(ids))
         .values(deleted_with_task_id=None)
     )
+
+    # Stored Focus pins (#319) name the task by FK; a pin is meaningless without
+    # its task, so it goes with it rather than blocking the delete.
+    focus_plan.purge_for_tasks(db, ids)
 
     for node in subtree:
         log_task_purged(db, node)

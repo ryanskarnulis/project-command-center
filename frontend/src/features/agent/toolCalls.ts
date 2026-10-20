@@ -1,6 +1,7 @@
 // Presentation + undo mapping for the tool calls persisted on an assistant
 // message. Pure functions over ToolCallRecord so they're testable without DOM.
 
+import { removeFocusEntry, restoreFocusEntry } from '../../api/focus'
 import { deleteProject, restoreProject } from '../../api/projects'
 import {
   deleteTask,
@@ -133,6 +134,14 @@ export function describeToolCall(record: ToolCallRecord): string {
       return 'Looked at dependencies'
     case 'get_focus_plan':
       return 'Looked at the focus plan'
+    case 'pin_focus_task':
+      return 'Pinned a task into the focus plan'
+    case 'add_focus_commitment':
+      return `Added${quoted(argString(record, ['title'])) || ' a commitment'} to the focus plan`
+    case 'remove_focus_entry':
+      return 'Removed an entry from the focus plan'
+    case 'restore_focus_entry':
+      return 'Restored an entry to the focus plan'
     case 'list_trash':
       return 'Looked in the trash'
     case 'list_activity':
@@ -190,6 +199,11 @@ export function linkFor(
       return undone ? taskPath(argNumber(record, 'task_id')) : '/trash'
     case 'trash_project':
       return undone ? projectPath(argNumber(record, 'project_id')) : '/trash'
+    case 'pin_focus_task':
+    case 'add_focus_commitment':
+    case 'remove_focus_entry':
+    case 'restore_focus_entry':
+      return '/focus'
     default:
       return null
   }
@@ -275,6 +289,27 @@ export function undoFor(record: ToolCallRecord): UndoAction | null {
             label: 'Undo (restore)',
             perform: () => restoreProject(id, true),
           }
+    }
+    // A new pin or commitment comes back as the stored entry; undo removes it
+    // (a soft delete). Re-pinning an already pinned task moves it instead, and
+    // its prior time isn't in the record — so a pin's undo unpins, and says so.
+    case 'pin_focus_task': {
+      const id = resultId(record)
+      return id === null
+        ? null
+        : { label: 'Unpin', perform: () => removeFocusEntry(id) }
+    }
+    case 'add_focus_commitment': {
+      const id = resultId(record)
+      return id === null
+        ? null
+        : { label: 'Undo (remove)', perform: () => removeFocusEntry(id) }
+    }
+    case 'remove_focus_entry': {
+      const id = argNumber(record, 'entry_id')
+      return id === null
+        ? null
+        : { label: 'Undo (restore)', perform: () => restoreFocusEntry(id) }
     }
     default:
       return null

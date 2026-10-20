@@ -60,8 +60,8 @@ test.sh         full quality gate
 
 ## Database schema
 
-Tables: `projects`, `tasks`, `task_dependencies`, `activity_events`,
-`conversations`, `conversation_messages`.
+Tables: `projects`, `tasks`, `task_dependencies`, `focus_plan_entries`,
+`activity_events`, `conversations`, `conversation_messages`.
 
 Key decisions:
 
@@ -120,6 +120,30 @@ Key decisions:
   It is kept across a reopen, overwritten by the next timed completion, never
   rolled up from subtasks, and never copied onto a recurrence's successor. The
   `completed` activity event reads `… completed in n min` when it is set.
+- **Stored day plan** (#319, design in
+  [`docs/focus-day-plan.md`](docs/focus-day-plan.md)): `focus_plan_entries`
+  holds the user's decisions for one day, which the otherwise derived Focus
+  plan honours. There are three kinds:
+  - a **floating pin**: the task joins the day ahead of the ranked work and
+    never lands in "Didn't fit";
+  - a **timed pin**: a fixed block at `start_minute`;
+  - a **commitment**: a fixed block with a title and a duration that is not a
+    task, e.g. a 14:00 meeting.
+
+  Tasks are first-fit packed into the gaps around the fixed blocks. A pin
+  whose task is done, trashed, deferred or blocked is ignored, never deleted.
+  Writes go through `services/focus_plan.py` (activity `entity_type`
+  `focus_entry`). Removing an entry is a soft delete, undone by restoring it.
+  A task purge takes its pins with it.
+
+  Routes:
+  - `POST /api/focus/pins`
+  - `POST /api/focus/commitments`
+  - `PATCH` and `DELETE /api/focus/entries/{id}`
+  - `POST /api/focus/entries/{id}/restore`
+
+  Agent tools: `pin_focus_task`, `add_focus_commitment`,
+  `remove_focus_entry` and `restore_focus_entry`.
 - **Dependencies** are `A depends_on B` edges in `task_dependencies` (B must be
   done before A starts). "Blocked" is never stored — `is_blocked`,
   `is_blocking`, and `blocked_task_count` are derived in Python from the active
@@ -264,13 +288,21 @@ Three things the design assumes are stored, and how they behave here:
   to fill what is *left* of the day, not to re-plan a full one on top of the
   part already spent.
 - **Deferring** writes `deferred_until`, the same verb desktop uses, so a
-  deferred block leaves the day rather than landing in "Didn't fit". "Didn't
-  fit" is the plan's overflow — work that didn't fit the capacity you set — so
-  **Schedule** extends the session to hold that item and everything ranked
-  above it. Pinning one task into a deterministically packed day would need a
-  stored plan; that is not built.
+  deferred block leaves the day rather than landing in "Didn't fit". The
+  task's pin is ignored, not deleted.
+- **Scheduling** an item from "Didn't fit" pins it into the day (the stored
+  day plan, #319). Only that item enters, and the capacity is left alone. The
+  undo bar unpins it.
+- **Commitments** are fixed rows. The current block's overrun pushes only
+  flexible rows, and a flexible row that would collide with a commitment
+  jumps past it. The push notice names a commitment the overrun runs into.
+  Open time before a fixed row shows as a dashed `… open` spacer. A
+  commitment has no swipe: Move and Remove live behind `⋯`, and Add
+  commitment lives in the session sheet.
 
-Desktop keeps its controls, its four-column rows and its now-marker.
+Desktop keeps its controls, its four-column rows and its now-marker. Its
+timeline interleaves commitments, with Move and Remove. Scheduled rows offer
+Pin, optionally at a time, and Unpin. "Didn't fit" rows offer Schedule.
 
 ## Mobile trash
 
@@ -400,8 +432,8 @@ obvious places without a design pass of their own.
 
 ## MCP server (agent access)
 
-The service layer is exposed as ~25 agent tools (task CRUD + complete,
-project CRUD, search, focus plan, trash/restore, activity log, dependencies,
+The service layer is exposed as ~30 agent tools (task CRUD + complete,
+project CRUD, search, focus plan + pins/commitments, trash/restore, activity log, dependencies,
 recurrence skip/stop). The tools live in a transport-agnostic registry
 (`app/tools/registry.py`) consumed by two peers: the in-app agent loop
 (below) and a

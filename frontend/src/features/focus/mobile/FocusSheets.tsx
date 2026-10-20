@@ -1,8 +1,9 @@
+import { useState } from 'react'
 import { BottomSheet } from '../../../components/BottomSheet'
 import { formatClockDuration, formatClockTime } from './focusDay'
 import type { RunState } from './focusDay'
 
-/* The two M05i bottom sheets. Both use the shared `BottomSheet` primitive, so
+/* The M05i bottom sheets. Both use the shared `BottomSheet` primitive, so
    they inherit its scrim, focus containment, Escape and swipe-down dismiss. */
 
 interface Option {
@@ -45,7 +46,68 @@ interface SessionSheetProps {
   onDate: (date: string) => void
   onStartTime: (startTime: string) => void
   onCapacity: (minutes: number) => void
+  onAddCommitment: (title: string, start: string, minutes: number) => void
   onClose: () => void
+}
+
+const COMMITMENT_MINUTES = [15, 30, 45, 60, 90, 120]
+
+/**
+ * Block fixed time for something that is not a task (a meeting). Lives in the
+ * session sheet: creating is scoped to this lane, never a global button.
+ */
+function CommitmentForm({
+  onAdd,
+}: {
+  onAdd: (title: string, start: string, minutes: number) => void
+}) {
+  const [title, setTitle] = useState('')
+  const [start, setStart] = useState('')
+  const [minutes, setMinutes] = useState(30)
+  return (
+    <form
+      className="focus-sheet-group focus-sheet-commitment"
+      aria-label="Add commitment"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (title.trim() && start) onAdd(title.trim(), start, minutes)
+      }}
+    >
+      <h4>Add commitment</h4>
+      <input
+        type="text"
+        aria-label="Commitment title"
+        placeholder="Standup"
+        maxLength={200}
+        required
+        value={title}
+        onChange={(event) => setTitle(event.target.value)}
+      />
+      <div className="focus-commitment-when">
+        <input
+          type="time"
+          aria-label="Commitment start"
+          required
+          value={start}
+          onChange={(event) => setStart(event.target.value)}
+        />
+        <select
+          aria-label="Commitment length"
+          value={minutes}
+          onChange={(event) => setMinutes(Number(event.target.value))}
+        >
+          {COMMITMENT_MINUTES.map((value) => (
+            <option key={value} value={value}>
+              {formatClockDuration(value)}
+            </option>
+          ))}
+        </select>
+        <button type="submit" className="focus-sheet-chip">
+          Add
+        </button>
+      </div>
+    </form>
+  )
 }
 
 /**
@@ -66,6 +128,7 @@ export function FocusSessionSheet({
   onDate,
   onStartTime,
   onCapacity,
+  onAddCommitment,
   onClose,
 }: SessionSheetProps) {
   const startOptions = START_PRESETS.includes(startTime)
@@ -106,6 +169,7 @@ export function FocusSessionSheet({
           onPick: () => onCapacity(value),
         }))}
       />
+      <CommitmentForm onAdd={onAddCommitment} />
     </BottomSheet>
   )
 }
@@ -120,6 +184,8 @@ export interface RowSheetTarget {
   isRecurring: boolean
   /** A finished row is a receipt: the only thing left to do with it is undo it. */
   isDone: boolean
+  /** Pinned into the day (#319), so the sheet offers Unpin. */
+  isPinned: boolean
 }
 
 interface RowSheetProps {
@@ -131,6 +197,7 @@ interface RowSheetProps {
   onDone: () => void
   onDefer: () => void
   onSkip: () => void
+  onUnpin: () => void
   onClose: () => void
 }
 
@@ -140,7 +207,7 @@ interface RowSheetProps {
  * of it, and the state verb appears here because the chip that carries it on
  * the band reads as a status readout.
  */
-export function FocusRowSheet({ target, run, onStart, onPause, onDone, onDefer, onSkip, onClose }: RowSheetProps) {
+export function FocusRowSheet({ target, run, onStart, onPause, onDone, onDefer, onSkip, onUnpin, onClose }: RowSheetProps) {
   return (
     <BottomSheet className="focus-sheet focus-row-sheet" labelledBy="focus-row-sheet-title" handleLabel="Close block actions" onClose={onClose}>
       <header className="focus-sheet-head focus-row-sheet-head">
@@ -173,6 +240,11 @@ export function FocusRowSheet({ target, run, onStart, onPause, onDone, onDefer, 
         <button type="button" className="focus-sheet-action" onClick={onDefer}>
           Defer to tomorrow
         </button>
+        {target.isPinned && (
+          <button type="button" className="focus-sheet-action" onClick={onUnpin}>
+            Unpin
+          </button>
+        )}
         {target.isRecurring && (
           <button type="button" className="focus-sheet-action danger" onClick={onSkip}>
             Skip occurrence
@@ -180,6 +252,56 @@ export function FocusRowSheet({ target, run, onStart, onPause, onDone, onDefer, 
         )}
           </>
         )}
+      </div>
+      <button type="button" className="focus-sheet-cancel" onClick={onClose}>
+        Cancel
+      </button>
+    </BottomSheet>
+  )
+}
+
+interface CommitmentSheetProps {
+  title: string
+  start: number
+  duration: number
+  onMove: (start: string) => void
+  onRemove: () => void
+  onClose: () => void
+}
+
+/** A commitment's ⋯ sheet: it is not a task, so Move and Remove are all it offers. */
+export function FocusCommitmentSheet({ title, start, duration, onMove, onRemove, onClose }: CommitmentSheetProps) {
+  const [moveTo, setMoveTo] = useState(formatClockTime(start))
+  return (
+    <BottomSheet className="focus-sheet focus-row-sheet" labelledBy="focus-commitment-sheet-title" handleLabel="Close commitment actions" onClose={onClose}>
+      <header className="focus-sheet-head focus-row-sheet-head">
+        <h2 id="focus-commitment-sheet-title">{title}</h2>
+        <span>
+          {formatClockTime(start)} → {formatClockTime(start + duration)} · {formatClockDuration(duration)}
+        </span>
+      </header>
+      <form
+        className="focus-sheet-group focus-commitment-when"
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (moveTo) onMove(moveTo)
+        }}
+      >
+        <input
+          type="time"
+          aria-label={`Move ${title} to`}
+          required
+          value={moveTo}
+          onChange={(event) => setMoveTo(event.target.value)}
+        />
+        <button type="submit" className="focus-sheet-chip">
+          Move
+        </button>
+      </form>
+      <div className="focus-sheet-actions">
+        <button type="button" className="focus-sheet-action danger" onClick={onRemove}>
+          Remove
+        </button>
       </div>
       <button type="button" className="focus-sheet-cancel" onClick={onClose}>
         Cancel
