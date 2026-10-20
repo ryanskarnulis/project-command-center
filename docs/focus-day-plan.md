@@ -143,8 +143,104 @@ everything after it. With fixed rows:
 - An overrun that eats into a fixed row is named in the push notice. The
   notice does not move the commitment.
 
+## The session log and the running clock (#374)
+
+The mobile page keeps two things the plan itself can't: the blocks already
+finished today (done work leaves `get_focus_plan`, but the timeline still owes
+its receipts and the capacity its spent minutes) and the clock on the current
+block. Both used to live in each browser's `localStorage`, so a device switch
+lost them. They now live on the server.
+
+**Decision: a separate table, not columns on `focus_plan_entries`.** Entries are
+decisions about a day, and a day with none behaves exactly as it always has.
+The session is a record of what the day cost. Mixing the two would give a
+finished block a "pin" that the packer must then learn to ignore.
+
+`focus_sessions`, two kinds of row told apart by `finished_at`:
+
+| column | meaning |
+|---|---|
+| `plan_date` | the day the block belongs to |
+| `task_id` | the block's task. Never null: the clock only ever runs on a task block, and commitments aren't timed |
+| `leg_started_at` | clock only: server time the current run leg began. Null means paused |
+| `accumulated_ms` | clock only: time banked by earlier legs |
+| `finished_at` | null means this row is **the clock**; set means a **finished block** |
+| `minutes` | finished only: what the block was booked at (the clock's reading, or the estimate when untimed) |
+| `planned_minutes` | finished only: the estimate it was laid out with, so the day shape can tell ran-long from ran-short |
+| `deleted_at` | soft delete: a cleared clock, or a finish that was undone |
+
+Constraints:
+
+- **One live clock in the whole table**, not per day: a person works one block
+  at a time. A partial unique index over the expression `(finished_at IS NULL)`
+  where `finished_at IS NULL AND deleted_at IS NULL` enforces it. Autogenerate
+  can't reflect expression indexes on SQLite, so the migration writes it by
+  hand and `alembic check` warns that it skipped it.
+- One live finished block per task per day.
+- A check constraint keeps the kinds apart: a clock has no booking, and a
+  finished block has a booking and no running leg.
+
+Verbs, each idempotent, so two of them landing in either order settle the same
+way (the mobile page sends them separately and in quick succession):
+
+- `PUT /api/focus/clock` `{plan_date, task_id, state, elapsed_ms}` starts,
+  pauses, resumes or restores the clock. The client sends **elapsed time, not a
+  timestamp**. The server starts the leg at its own now, so two devices whose
+  clocks disagree still agree on the block, and `GET /api/focus/clock` reports
+  `elapsed_ms` as of the response. A clock on another block or another day is
+  cleared first: starting the next block is how a stale clock goes away.
+- `DELETE /api/focus/clock?task_id=&plan_date=` clears it, but only when it is
+  still that block's. A device still showing the last block must not clear the
+  clock another device has started on the next.
+- `PUT /api/focus/sessions/{plan_date}/tasks/{task_id}` `{minutes,
+  planned_minutes}` books a finished block. Booking again re-books it. It also
+  stops that block's own clock. A clock on any other block is left alone,
+  because completing a later row from its sheet must not cost the current block
+  its time.
+- `DELETE` on the same path takes the block back out. This is the undo of a
+  completion; the undo then puts the clock back with a `PUT`.
+- `GET /api/focus/sessions?plan_date=` lists the day's finished blocks with
+  their task titles.
+
+Writes go through `services/focus_sessions.py` on the `BEGIN IMMEDIATE` write
+session, since every one is a check-then-insert. Each lands in
+`activity_events` as `entity_type="focus_session"`. A task purge takes the
+task's rows with it.
+
+There is **no agent tool**. The clock is a hands-on, per-device control, and
+the agent has no use for "start my clock". What the agent might want, "what
+did today cost?", is a read that can join `get_focus_plan` later without
+changing this table.
+
+Client (`mobile/useFocusClock.ts`, `mobile/useFocusSessionLog.ts`):
+
+- The hooks keep their public shape. State changes optimistically, and the
+  request follows on one shared queue (`mobile/sessionSync.ts`), so writes land
+  in the order they were made and a read sees the writes before it.
+- A running clock's elapsed time is sampled when its request leaves, not when
+  it was queued.
+- **Offline / a failed write.** The screen never waits on the network, so
+  the question is only what the server ends up holding:
+  - A write that doesn't *arrive* (no signal, timeout, a 5xx) stays in an
+    in-memory outbox, in order. It is sent again ahead of the next write or
+    read, on the browser's `online` event, and on a backoff timer (5 s
+    doubling to 5 min). Writes are idempotent and a running clock samples its
+    elapsed time when it is finally sent, so a late delivery books what an
+    on-time one would have.
+  - While the outbox holds anything, reads are skipped: the server is behind
+    this device, and painting its answer would undo what the user just did.
+  - A write the server *refuses* (4xx: the task was purged, a bad body) is
+    dropped, and the hook re-reads the server, which is then the truth.
+  - The outbox is not persisted. Reloading while still offline drops the
+    unsent writes (the plan can't load offline anyway), and the server keeps
+    the last state it received. A second device sees this one's changes only
+    once they have been delivered.
+- Returning to the tab re-reads both.
+- **One-time move:** the first load after the upgrade uploads any old
+  `focus.session` / `focus.clock` keys, then removes them. An old clock is only
+  adopted when the server has none. A key stays for a retry if the server was
+  unreachable.
+
 ## Not built (follow-ups)
 
-- Moving the session log and the running clock from `localStorage` onto the
-  server (#374).
 - Recurring commitments (#376).

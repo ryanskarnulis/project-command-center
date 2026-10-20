@@ -272,6 +272,66 @@ class FocusPlanEntry(Base, TimestampMixin, SoftDeleteMixin):
     position: Mapped[int] = mapped_column(default=0, server_default="0")
 
 
+class FocusSession(Base, TimestampMixin, SoftDeleteMixin):
+    """One block worked on during one day's Focus session (issue #374).
+
+    The mobile Focus page's running clock and its log of finished blocks, kept
+    here so they survive a reload and a device switch. Deliberately not columns
+    on ``focus_plan_entries``: those rows are decisions about the day, these are
+    a record of what the day cost. Two kinds, told apart by ``finished_at``:
+
+    * the **clock** — ``finished_at`` null. At most one live row in the whole
+      table (a person works one block at a time). ``leg_started_at`` set means
+      running, null means paused; ``accumulated_ms`` is what earlier legs banked.
+    * a **finished block** — ``finished_at`` set, with the ``minutes`` it was
+      booked at and the ``planned_minutes`` estimate it was laid out with. One
+      live row per task per day.
+
+    Soft-deleted when the clock is cleared or a finish is undone. A purge of the
+    task takes its rows with it (``task_trash.purge_task``).
+    """
+
+    __tablename__ = "focus_sessions"
+    __table_args__ = (
+        # One live clock, globally: ``(finished_at IS NULL)`` is the constant 1
+        # on every row the WHERE admits, so a second live clock collides.
+        Index(
+            "uq_focus_sessions_live_clock",
+            text("(finished_at IS NULL)"),
+            unique=True,
+            sqlite_where=text("finished_at IS NULL AND deleted_at IS NULL"),
+        ),
+        # One live finished block per task per day; a re-finish updates it.
+        Index(
+            "uq_focus_sessions_finished_block",
+            "plan_date",
+            "task_id",
+            unique=True,
+            sqlite_where=text("finished_at IS NOT NULL AND deleted_at IS NULL"),
+        ),
+        CheckConstraint(
+            "(finished_at IS NULL AND minutes IS NULL AND planned_minutes IS NULL)"
+            " OR (finished_at IS NOT NULL AND leg_started_at IS NULL"
+            " AND minutes IS NOT NULL AND planned_minutes IS NOT NULL)",
+            name="ck_focus_sessions_kind",
+        ),
+        CheckConstraint(
+            "accumulated_ms >= 0 AND (minutes IS NULL OR minutes >= 0)"
+            " AND (planned_minutes IS NULL OR planned_minutes >= 0)",
+            name="ck_focus_sessions_non_negative",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    plan_date: Mapped[date] = mapped_column(index=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    leg_started_at: Mapped[datetime | None] = mapped_column(default=None)
+    accumulated_ms: Mapped[int] = mapped_column(default=0, server_default="0")
+    finished_at: Mapped[datetime | None] = mapped_column(default=None)
+    minutes: Mapped[int | None] = mapped_column(default=None)
+    planned_minutes: Mapped[int | None] = mapped_column(default=None)
+
+
 class ConversationRole(enum.StrEnum):
     user = "user"
     assistant = "assistant"

@@ -22,7 +22,7 @@ import type { TaskPriority, TaskWorkflowStatus } from '../../../types/task'
 /** The clock's three states. `idle` is "not started", not "no block". */
 export type RunState = 'idle' | 'running' | 'paused'
 
-/** A block completed during this session, kept client-side (see the note above). */
+/** A block completed during this session, from the session log (see the note above). */
 export interface FinishedBlock {
   taskId: number
   title: string

@@ -21,6 +21,7 @@ import {
 import type { CommitmentBlock, FocusEntry, ScheduledBlock, FocusPlan } from '../../types/focus'
 import type { Task } from '../../types/task'
 import { FocusPage } from './FocusPage'
+import { resetFocusSessionSyncForTests } from './mobile/sessionSync'
 
 vi.mock('../../api/focus', () => ({
   addFocusCommitment: vi.fn(),
@@ -30,6 +31,54 @@ vi.mock('../../api/focus', () => ({
   reorderFocusPins: vi.fn(),
   restoreFocusEntry: vi.fn(),
   updateFocusEntry: vi.fn(),
+}))
+
+// The session log and clock (#374) against a small in-memory server, so the
+// mobile tests exercise the real hooks end to end.
+const sessionServer = vi.hoisted(() => {
+  interface Block { plan_date: string; task_id: number; minutes: number; planned_minutes: number }
+  interface Clock { plan_date: string; task_id: number; state: 'running' | 'paused'; banked: number; at: number }
+  const server = {
+    blocks: [] as Block[],
+    clock: null as Clock | null,
+    reset(): void {
+      server.blocks = []
+      server.clock = null
+    },
+    read(): unknown {
+      const c = server.clock
+      if (!c) return null
+      const elapsed = c.banked + (c.state === 'running' ? Date.now() - c.at : 0)
+      return { id: 1, plan_date: c.plan_date, task_id: c.task_id, state: c.state, elapsed_ms: elapsed, leg_started_at: null }
+    },
+  }
+  return server
+})
+
+vi.mock('../../api/focusSessions', () => ({
+  getFocusSessionLog: vi.fn(async (planDate: string) => ({
+    plan_date: planDate,
+    finished: sessionServer.blocks
+      .filter((b) => b.plan_date === planDate)
+      .map((b, i) => ({ ...b, id: i + 1, title: `Task ${b.task_id}`, finished_at: '' })),
+  })),
+  finishFocusBlock: vi.fn(async (planDate: string, taskId: number, minutes: number, planned: number) => {
+    sessionServer.blocks = sessionServer.blocks.filter((b) => !(b.plan_date === planDate && b.task_id === taskId))
+    sessionServer.blocks.push({ plan_date: planDate, task_id: taskId, minutes, planned_minutes: planned })
+    if (sessionServer.clock?.task_id === taskId && sessionServer.clock.plan_date === planDate) sessionServer.clock = null
+    return { plan_date: planDate, task_id: taskId, minutes, planned_minutes: planned, id: 1, title: '', finished_at: '' }
+  }),
+  removeFocusBlock: vi.fn(async (planDate: string, taskId: number) => {
+    sessionServer.blocks = sessionServer.blocks.filter((b) => !(b.plan_date === planDate && b.task_id === taskId))
+  }),
+  getFocusClock: vi.fn(async () => sessionServer.read()),
+  setFocusClock: vi.fn(async (planDate: string, taskId: number, state: 'running' | 'paused', elapsedMs: number) => {
+    sessionServer.clock = { plan_date: planDate, task_id: taskId, state, banked: elapsedMs, at: Date.now() }
+    return sessionServer.read()
+  }),
+  clearFocusClock: vi.fn(async (planDate: string, taskId: number) => {
+    if (sessionServer.clock?.task_id === taskId && sessionServer.clock.plan_date === planDate) sessionServer.clock = null
+  }),
 }))
 
 vi.mock('../../api/tasks', () => ({
@@ -184,6 +233,8 @@ describe('FocusPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    sessionServer.reset()
+    resetFocusSessionSyncForTests()
   })
 
   afterEach(() => {

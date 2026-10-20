@@ -116,3 +116,33 @@ export interface FocusEntryUpdate {
   title?: string
   duration_minutes?: number
 }
+
+// --- The session log and running clock (#374) ------------------------------
+
+export type FocusClockState = 'running' | 'paused'
+
+/** The one live clock. `elapsed_ms` is as of the response, measured server-side. */
+export interface FocusClock {
+  id: number
+  plan_date: string // YYYY-MM-DD
+  task_id: number
+  state: FocusClockState
+  elapsed_ms: number
+  leg_started_at: string | null
+}
+
+/** A block booked into a day's session log. */
+export interface FocusFinishedBlock {
+  id: number
+  plan_date: string // YYYY-MM-DD
+  task_id: number
+  title: string
+  minutes: number
+  planned_minutes: number
+  finished_at: string
+}
+
+export interface FocusSessionLog {
+  plan_date: string
+  finished: FocusFinishedBlock[]
+}
