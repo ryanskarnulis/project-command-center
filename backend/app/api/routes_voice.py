@@ -27,7 +27,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.types import Message, Receive
 
-from app.ai.speech import SpeechClient, SpeechError, speech_client_from_settings
+from app.ai.speech import speech_client_from_settings
+from app.ai.speech_client import SpeechClient, SpeechError
 from app.api.rate_limit import rate_limit
 from app.schemas.common import MutationModel
 
