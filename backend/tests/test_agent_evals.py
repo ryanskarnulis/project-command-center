@@ -27,6 +27,7 @@ cold-load the model (~100 s); everything after runs warm.
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 from collections.abc import Generator, Sequence
@@ -274,6 +275,24 @@ def test_eval_delete_is_soft_and_restorable(eval_db: sessionmaker[Session]) -> N
         assert deleted_events and all(e.actor == LOOP_ACTOR for e in deleted_events)
 
 
+# Numbers a reply states, digits or spelled out (temp 1.0 may write "three").
+_NUMBER_WORDS = {
+    word: value
+    for value, word in enumerate(
+        "zero one two three four five six seven eight nine ten".split()
+    )
+}
+_NUMBER_RE = re.compile(r"\b(\d+|" + "|".join(_NUMBER_WORDS) + r")\b", re.IGNORECASE)
+
+
+def _numbers_in(reply: str) -> list[int]:
+    """Every integer the reply states, in order — "13" is 13, never 3 (#381)."""
+    return [
+        int(token) if token.isdigit() else _NUMBER_WORDS[token.lower()]
+        for token in _NUMBER_RE.findall(reply)
+    ]
+
+
 def test_eval_read_only_question_mutates_nothing(
     eval_db: sessionmaker[Session],
 ) -> None:
@@ -293,7 +312,10 @@ def test_eval_read_only_question_mutates_nothing(
     )
 
     assert result.stop_reason == "completed"
-    assert result.reply is not None and "3" in result.reply
+    assert result.reply is not None
+    # The count must be the only number stated: a substring check passed
+    # "13", "30", and "3 of 4 are done" (#381).
+    assert _numbers_in(result.reply) == [3], f"wrong count: {result.reply!r}"
     assert _mutations(result) == [], (
         f"read-only ask must not mutate: {[r.tool for r in _mutations(result)]}"
     )
