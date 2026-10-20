@@ -2,11 +2,11 @@ import { useState } from 'react'
 import { BottomSheet } from '../../../components/BottomSheet'
 import { formatClockDuration, formatClockTime } from './focusDay'
 import type { RunState } from './focusDay'
-import type { RepeatInterval } from '../../../types/task'
-import { formatRepeatInterval } from '../../../utils/recurrence'
+import type { CommitmentRepeatInterval } from '../../../types/focus'
 import {
   COMMITMENT_REPEATS,
   commitmentRepeatInterval,
+  formatCommitmentRepeat,
   type CommitmentRepeat,
 } from '../commitmentRepeat'
 
@@ -57,7 +57,7 @@ interface SessionSheetProps {
     title: string,
     start: string,
     minutes: number,
-    repeat: RepeatInterval | null,
+    repeat: CommitmentRepeatInterval | null,
   ) => void
   onClose: () => void
 }
@@ -71,7 +71,7 @@ const COMMITMENT_MINUTES = [15, 30, 45, 60, 90, 120]
 function CommitmentForm({
   onAdd,
 }: {
-  onAdd: (title: string, start: string, minutes: number, repeat: RepeatInterval | null) => void
+  onAdd: (title: string, start: string, minutes: number, repeat: CommitmentRepeatInterval | null) => void
 }) {
   const [title, setTitle] = useState('')
   const [start, setStart] = useState('')
@@ -306,7 +306,7 @@ interface CommitmentSheetProps {
   start: number
   duration: number
   /** Set when the commitment repeats (#376): Move and Remove then act on the series. */
-  repeat: RepeatInterval | null
+  repeat: CommitmentRepeatInterval | null
   onMove: (start: string) => void
   onSkip: () => void
   onRemove: () => void
@@ -328,7 +328,7 @@ export function FocusCommitmentSheet({ title, start, duration, repeat, onMove, o
           {repeat && (
             <>
               {' · '}
-              <span className="focus-repeat-word">{formatRepeatInterval(repeat)}</span>
+              <span className="focus-repeat-word">{formatCommitmentRepeat(repeat)}</span>
             </>
           )}
         </span>

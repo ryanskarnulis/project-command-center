@@ -38,10 +38,10 @@ import type {
   ScheduledBlock,
 } from '../../types/focus'
 import { formatDuration } from '../../utils/duration'
-import { formatRepeatInterval } from '../../utils/recurrence'
 import {
   COMMITMENT_REPEATS,
   commitmentRepeatInterval,
+  formatCommitmentRepeat,
   type CommitmentRepeat,
 } from './commitmentRepeat'
 import { addDaysISO, formatDueDate } from '../../utils/dates'
@@ -580,7 +580,7 @@ function CommitmentRow({
         </div>
         <div className="focus-block-meta">
           <span className="focus-commitment-word">fixed</span>
-          {repeat && <span className="focus-repeat-word">{formatRepeatInterval(repeat)}</span>}
+          {repeat && <span className="focus-repeat-word">{formatCommitmentRepeat(repeat)}</span>}
           <EstimateLabel minutes={commitment.duration_minutes} assumed={false} />
         </div>
       </div>
@@ -707,7 +707,7 @@ function AddCommitmentForm({
         addFocusCommitment(planDate, title.trim(), start, minutes, interval),
         {
           success: interval
-            ? `Added ${title.trim()} at ${start}, ${formatRepeatInterval(interval)}`
+            ? `Added ${title.trim()} at ${start}, ${formatCommitmentRepeat(interval)}`
             : `Added ${title.trim()} at ${start}`,
         },
       )

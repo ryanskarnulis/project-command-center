@@ -839,6 +839,58 @@ describe('FocusPage', () => {
     await waitFor(() => expect(mockRemoveFocusEntry).toHaveBeenCalledWith(5))
   })
 
+  it('offers a weekdays cadence and names a weekday series (#427)', async () => {
+    mockGetFocusPlan.mockResolvedValue(
+      makePlan({
+        scheduled: [scheduledBlock({ task_id: 7 })],
+        commitments: [
+          {
+            entry_id: 5,
+            title: 'Standup',
+            start_time: '10:00',
+            end_time: '10:15',
+            start_day_offset: 0,
+            end_day_offset: 0,
+            duration_minutes: 15,
+            repeat_interval: { unit: 'week', every: 1, days: [0, 1, 2, 3, 4] },
+          },
+        ],
+      }),
+    )
+    mockAddFocusCommitment.mockResolvedValue(focusEntry({ id: 6 }))
+    render(
+      <MemoryRouter>
+        <FocusPage />
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('Standup')
+    expect(document.querySelector('.focus-commitment .focus-repeat-word')?.textContent).toBe(
+      'weekdays',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add commitment' }))
+    const repeat = screen.getByLabelText('Commitment repeat')
+    expect(within(repeat).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'Once',
+      'Daily',
+      'Weekdays',
+      'Weekly',
+      'Monthly',
+    ])
+    fireEvent.change(screen.getByLabelText('Commitment title'), { target: { value: 'Sync' } })
+    fireEvent.change(screen.getByLabelText('Commitment start'), { target: { value: '09:30' } })
+    fireEvent.change(repeat, { target: { value: 'weekdays' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    await waitFor(() =>
+      expect(mockAddFocusCommitment).toHaveBeenCalledWith('2026-06-20', 'Sync', '09:30', 30, {
+        unit: 'week',
+        every: 1,
+        days: [0, 1, 2, 3, 4],
+      }),
+    )
+  })
+
   it('swallows a rejected skip and does not refetch the plan', async () => {
     mockGetFocusPlan.mockResolvedValue(
       makePlan({
@@ -1414,6 +1466,27 @@ describe('FocusPage', () => {
 
       await waitFor(() =>
         expect(mockAddFocusCommitment).toHaveBeenCalledWith('2026-06-20', 'Dentist', '15:00', 60, null),
+      )
+    })
+
+    it('adds a weekdays commitment from the session sheet (#427)', async () => {
+      mockAddFocusCommitment.mockResolvedValue(focusEntry({ id: 6, title: 'Standup' }))
+      renderMobile(makePlan({ scheduled: [dnsBlock] }))
+      fireEvent.click(await screen.findByRole('button', { name: /capacity/ }))
+      const sheet = screen.getByRole('dialog')
+      const repeat = within(sheet).getByLabelText('Commitment repeat')
+      expect(within(repeat).getByRole('option', { name: 'Weekdays' })).toBeInTheDocument()
+      fireEvent.change(within(sheet).getByLabelText('Commitment title'), { target: { value: 'Standup' } })
+      fireEvent.change(within(sheet).getByLabelText('Commitment start'), { target: { value: '09:30' } })
+      fireEvent.change(repeat, { target: { value: 'weekdays' } })
+      fireEvent.click(within(sheet).getByRole('button', { name: 'Add' }))
+
+      await waitFor(() =>
+        expect(mockAddFocusCommitment).toHaveBeenCalledWith('2026-06-20', 'Standup', '09:30', 30, {
+          unit: 'week',
+          every: 1,
+          days: [0, 1, 2, 3, 4],
+        }),
       )
     })
     /* Regression, found in Chromium: a captured pointer retargets its own

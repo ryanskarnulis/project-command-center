@@ -129,7 +129,8 @@ Key decisions:
   - a **timed pin**: a fixed block at `start_minute`;
   - a **commitment**: a fixed block with a title and a duration that is not a
     task, e.g. a 14:00 meeting. With `repeat_interval` (the task cadence
-    shape) it is a **series** that repeats from its `plan_date` on (#376):
+    shape, plus an optional weekly `days` set such as Mon-Fri, #427) it is a
+    **series** that repeats from its `plan_date` on (#376):
     one row, its occurrences worked out per day on read, never stored ahead;
   - a **skip** (`series_id` set, nothing else): that series' occurrence on
     `plan_date` doesn't happen. Removing the skip brings it back.

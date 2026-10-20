@@ -256,7 +256,7 @@ commitment from. Two nullable columns on `focus_plan_entries`:
 
 | column | meaning |
 |---|---|
-| `repeat_interval` | the cadence, the task shape `{"unit": "day"\|"week"\|"month", "every": 1-12}`. Set means this commitment is a **series** that repeats from its `plan_date` (the first occurrence) on |
+| `repeat_interval` | the cadence, the task shape `{"unit": "day"\|"week"\|"month", "every": 1-12}`, plus for `unit: "week"` an optional weekday set `"days": [0-6]` (Monday 0, #427). Set means this commitment is a **series** that repeats from its `plan_date` (the first occurrence) on |
 | `series_id` | set only on a **skip**: the series whose occurrence on `plan_date` doesn't happen |
 
 The kind check gains a fourth kind: a skip carries `series_id` and nothing
@@ -275,6 +275,22 @@ first occurrence, never chained from the previous one:
   on 28 February and on 31 March. This differs on purpose from task
   recurrence, which chains from the last due date and so drifts to the 28th
   for good.
+- `week` with `days` (#427): each listed weekday of every `every`-th
+  calendar week (Monday-based), counted from the week `plan_date` falls in,
+  and never before `plan_date`. `plan_date` need not be a listed day: a
+  Mon-Fri standup added on a Saturday starts on Monday.
+
+**Weekday sets, and why not a `weekday` unit (#427).** `days` is a set
+inside the existing weekly unit rather than a new `"unit": "weekday"`: one
+shape covers Mon-Fri, Mon/Wed/Fri and "every other Tue and Thu", where a
+`weekday` unit would have no sensible `every` and would need another unit
+for each new pattern. `days` must be non-empty, 0-6, without repeats, and
+only with `unit: "week"`; it is stored and returned sorted, and a cadence
+without it keeps the plain task shape (no `days` key). The schema is
+`CommitmentRepeatInterval`, a commitments-only subclass of the task
+`RepeatInterval`: task recurrence chains due dates through
+`next_due_date` and keeps its own shape unchanged. No migration: the column
+is JSON and its check only looks at null-ness.
 
 **How a day reads its commitments** (`focus_plan.day_commitments`): that
 day's one-off commitments, plus every live series with `plan_date <= day`
@@ -292,7 +308,8 @@ A plan's `CommitmentBlock` carries `repeat_interval`. For an occurrence,
 - **Add** (`POST /api/focus/commitments` with an optional `repeat_interval`)
   creates the series. Creation stays lane-scoped: the Focus page's
   add-commitment form (desktop) and the session sheet (mobile) gain a Repeat
-  choice of Once, Daily, Weekly or Monthly. The API takes any task cadence.
+  choice of Once, Daily, Weekdays (Mon-Fri, #427), Weekly or Monthly. The
+  API takes any task cadence, plus any weekly weekday set.
 - **Skip one day** (`POST /api/focus/entries/{series_id}/skip` with
   `{plan_date}`) stores a skip row for that day and returns it. It is
   idempotent: skipping a skipped day returns the skip already there. Skipping
@@ -330,7 +347,8 @@ A plan's `CommitmentBlock` carries `repeat_interval`. For an occurrence,
 ### UI
 
 - The cadence is a coloured word in the meta line (`daily`, `weekly`,
-  `every 2 weeks`), beside `fixed`, never a pill.
+  `every 2 weeks`, `weekdays`, `weekly on Mon, Wed`), beside `fixed`, never
+  a pill.
 - Desktop: a repeating commitment's row adds **Skip day**, and its Remove
   reads **Remove series**.
 - Mobile: the `⋯` sheet adds **Skip this day**, with the undo bar (its undo
@@ -348,7 +366,8 @@ Two things the agent does see:
 
 - Results gain the new nullable fields: `repeat_interval` on
   `get_focus_plan`'s commitments, and `repeat_interval` / `series_id` on
-  entries.
+  entries. Since #427 a `repeat_interval` in those results may carry `days`
+  (output only; no tool takes a cadence yet, see #426).
 - `remove_focus_entry` given a series' `entry_id` removes the whole series.
   It stays undoable with `restore_focus_entry`, and the activity summary names
   the cadence ("…, daily from 2026-10-20, removed from Focus").
@@ -359,4 +378,6 @@ which runs the eval gate, so it is a follow-up.
 ## Not built (follow-ups)
 
 - Editing one occurrence of a repeating commitment, an end date for a series,
-  weekday cadences, and agent tools for series and skips (#376's follow-ups).
+  and agent tools for series and skips (#376's follow-ups; the agent's repeat
+  options are #426). The forms offer only the Mon-Fri weekday set; other sets
+  are API-only.

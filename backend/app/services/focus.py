@@ -12,12 +12,12 @@ from app.schemas.focus import (
     BlockedTask,
     BlockingTask,
     CommitmentBlock,
+    CommitmentRepeatInterval,
     DueSignal,
     OverflowTask,
     ScheduledBlock,
     FocusPlan,
 )
-from app.schemas.tasks import RepeatInterval
 from app.services import focus_plan as focus_plan_service
 from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
@@ -363,7 +363,7 @@ def _commitment_block(entry: FocusPlanEntry) -> CommitmentBlock:
         start_day_offset=start_day_offset,
         end_day_offset=end_day_offset,
         duration_minutes=entry.duration_minutes,
-        repeat_interval=RepeatInterval.model_validate(entry.repeat_interval)
+        repeat_interval=CommitmentRepeatInterval.model_validate(entry.repeat_interval)
         if entry.repeat_interval is not None
         else None,
     )
