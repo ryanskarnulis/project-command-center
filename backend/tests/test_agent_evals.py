@@ -213,21 +213,28 @@ def test_eval_find_and_complete(eval_db: sessionmaker[Session]) -> None:
 
 
 def test_eval_reschedule(eval_db: sessionmaker[Session]) -> None:
-    """Targeted field update: change the due date, touch nothing else."""
+    """Targeted field update: change the due date, touch nothing else.
+
+    Dates are relative to today and the target is a full ISO date, so the ask
+    is unambiguous year-round (a bare "July 20" is year-ambiguous once past).
+    """
+    seeded_due = date.today() + timedelta(days=3)
+    target_due = date.today() + timedelta(days=10)
     with eval_db() as db:
         work = projects_service.create_project(db, name="Work")
         task = tasks_service.create_task(
             db,
             project_id=work.id,
             title="Quarterly report",
-            due_date=date(2026, 7, 15),
+            due_date=seeded_due,
         )
         task_id = task.id
         db.commit()
 
     result = _run(
         "reschedule",
-        "Change the due date of the quarterly report to July 20.",
+        "Change the due date of the quarterly report to "
+        f"{target_due.isoformat()}.",
     )
 
     assert result.stop_reason == "completed"
@@ -235,7 +242,7 @@ def test_eval_reschedule(eval_db: sessionmaker[Session]) -> None:
     with eval_db() as db:
         updated = db.get(Task, task_id)
         assert updated is not None
-        assert updated.due_date == date(2026, 7, 20)
+        assert updated.due_date == target_due
         assert updated.workflow_status == TaskWorkflowStatus.open
         assert updated.title == "Quarterly report"
 
