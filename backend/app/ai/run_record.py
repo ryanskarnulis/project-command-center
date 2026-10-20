@@ -72,7 +72,7 @@ LIMIT_REASONS: dict[str, str] = {
 
 # The summary call's own system prompt. Not the loop's: that one says "you act
 # only by calling the provided tools", and this call is offered none.
-_SUMMARY_RULES = """\
+SUMMARY_RULES = """\
 You are the assistant for Project Command Center (PCC), the user's project and \
 task manager. Your run just stopped at a limit before it finished, and you now \
 tell the user what happened. You cannot call tools now.
@@ -166,7 +166,7 @@ def summary_messages(
         {
             "role": "system",
             "content": (
-                f"{_SUMMARY_RULES}\n\n{personality}\n\n"
+                f"{SUMMARY_RULES}\n\n{personality}\n\n"
                 f"Today's date is {today.isoformat()}."
             ),
         },

@@ -53,11 +53,24 @@ class ProviderResponseError(ProviderError):
 
 
 class ToolCallArgumentsError(ProviderResponseError):
-    """The model emitted tool-call arguments that aren't a JSON object."""
+    """The model emitted tool-call arguments that aren't a JSON object.
 
-    def __init__(self, tool_name: str, detail: str) -> None:
+    The server did answer, so the call's cost is known: ``usage`` and
+    ``server`` carry it for the run trace (#400), ``None`` when not given.
+    """
+
+    def __init__(
+        self,
+        tool_name: str,
+        detail: str,
+        *,
+        usage: Usage | None = None,
+        server: ServerStamp | None = None,
+    ) -> None:
         super().__init__(f"tool call {tool_name!r}: {detail}")
         self.tool_name = tool_name
+        self.usage = usage
+        self.server = server
 
 
 class ToolSpec(BaseModel):
@@ -86,10 +99,42 @@ class ToolCall(BaseModel):
     arguments: dict[str, Any]
 
 
+class PromptTokensDetails(BaseModel):
+    cached_tokens: int | None = None
+
+
 class Usage(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    # llama-server reports the prompt tokens it reused from its KV cache here.
+    prompt_tokens_details: PromptTokensDetails | None = None
+
+    @property
+    def cached_tokens(self) -> int | None:
+        details = self.prompt_tokens_details
+        return None if details is None else details.cached_tokens
+
+
+class _WireTimings(BaseModel):
+    """llama-server's own clock for one call (a non-OpenAI extension)."""
+
+    prompt_ms: float | None = None
+    predicted_ms: float | None = None
+
+
+class ServerStamp(BaseModel):
+    """The server's own account of one call, for the run trace (#400).
+
+    ``model`` is what the server says it ran (the weights behind the alias),
+    ``fingerprint`` its build, ``server_ms`` its prompt plus generation time —
+    the call's wall clock minus this is queueing, transport and any cold load.
+    Every field is ``None`` when the server did not say.
+    """
+
+    model: str | None = None
+    fingerprint: str | None = None
+    server_ms: int | None = None
 
 
 class _WireFunction(BaseModel):
@@ -118,6 +163,19 @@ class _WireChoice(BaseModel):
 class _WireCompletion(BaseModel):
     choices: list[_WireChoice] = Field(min_length=1)
     usage: Usage | None = None
+    model: str | None = None
+    system_fingerprint: str | None = None
+    timings: _WireTimings | None = None
+
+    def stamp(self) -> ServerStamp:
+        server_ms: int | None = None
+        if self.timings is not None and (
+            self.timings.prompt_ms is not None or self.timings.predicted_ms is not None
+        ):
+            server_ms = round((self.timings.prompt_ms or 0.0) + (self.timings.predicted_ms or 0.0))
+        return ServerStamp(
+            model=self.model, fingerprint=self.system_fingerprint, server_ms=server_ms
+        )
 
 
 class ChatResult(BaseModel):
@@ -127,6 +185,8 @@ class ChatResult(BaseModel):
     tool_calls: list[ToolCall]
     finish_reason: str | None
     usage: Usage | None
+    # The server's account of the call (#400); never sent back in history.
+    server: ServerStamp | None = None
 
     def to_message(self) -> dict[str, Any]:
         """This turn as an assistant message for the next request's history.
@@ -190,6 +250,11 @@ class LlamaCppProvider:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+
+    @property
+    def model(self) -> str:
+        """The model alias every request names (what the run trace records)."""
+        return self._model
 
     def chat(
         self,
@@ -335,11 +400,17 @@ class LlamaCppProvider:
                     arguments = json.loads(raw)
                 except json.JSONDecodeError as exc:
                     raise ToolCallArgumentsError(
-                        wire_call.function.name, f"arguments are not valid JSON ({exc.msg})"
+                        wire_call.function.name,
+                        f"arguments are not valid JSON ({exc.msg})",
+                        usage=completion.usage,
+                        server=completion.stamp(),
                     ) from exc
             if not isinstance(arguments, dict):
                 raise ToolCallArgumentsError(
-                    wire_call.function.name, "arguments are not a JSON object"
+                    wire_call.function.name,
+                    "arguments are not a JSON object",
+                    usage=completion.usage,
+                    server=completion.stamp(),
                 )
             calls.append(
                 ToolCall(id=wire_call.id, name=wire_call.function.name, arguments=arguments)
@@ -349,6 +420,7 @@ class LlamaCppProvider:
             tool_calls=calls,
             finish_reason=choice.finish_reason,
             usage=completion.usage,
+            server=completion.stamp(),
         )
 
 

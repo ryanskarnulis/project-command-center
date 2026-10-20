@@ -29,6 +29,8 @@ data/backups/*
 # Litestream file replica + its shadow-WAL meta dir next to the db
 data/replica/
 data/.app.db-litestream/
+# Agent run traces (PCC_TRACE_PATH, #400)
+data/traces/
 
 # Training artifacts (large)
 training/unsloth/models/*

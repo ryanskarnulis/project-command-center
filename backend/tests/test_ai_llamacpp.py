@@ -260,3 +260,43 @@ def test_per_call_timeout_keeps_connect_cap_when_budget_is_large() -> None:
         "write": 120.0,
         "pool": 120.0,
     }
+
+
+def test_chat_reads_the_servers_own_account_of_the_call() -> None:
+    """Cached tokens, the served weights, the build and the server's clock are
+    kept for the run trace (#400), from what llama-server sends."""
+    body = _completion_body({"role": "assistant", "content": "hi"})
+    body["model"] = "unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL"
+    body["system_fingerprint"] = "b9935-f2d1c2f39"
+    body["usage"]["prompt_tokens_details"] = {"cached_tokens": 8}
+    body["timings"] = {"cache_n": 8, "prompt_ms": 142.4, "predicted_ms": 132.3}
+    provider = _provider_returning(body)
+    result = provider.chat(_USER)
+
+    assert provider.model == "gemma-4-12b"
+    assert result.usage is not None and result.usage.cached_tokens == 8
+    assert result.server is not None
+    assert result.server.model == "unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL"
+    assert result.server.fingerprint == "b9935-f2d1c2f39"
+    assert result.server.server_ms == 275
+
+
+def test_a_bad_tool_call_still_carries_the_calls_cost() -> None:
+    body = _completion_body(
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {"id": "c1", "function": {"name": "create_task", "arguments": "{nope"}}
+            ],
+        },
+        finish_reason="tool_calls",
+    )
+    with pytest.raises(ToolCallArgumentsError) as exc_info:
+        _provider_returning(body).chat(_USER, tools=[_CREATE_TASK])
+
+    assert exc_info.value.usage is not None
+    assert exc_info.value.usage.prompt_tokens == 10
+    assert exc_info.value.usage.cached_tokens is None
+    assert exc_info.value.server is not None
+    assert exc_info.value.server.server_ms is None
