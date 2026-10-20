@@ -252,6 +252,7 @@ def test_eval_delete_is_soft_and_restorable(eval_db: sessionmaker[Session]) -> N
             db, project_id=general.id, title="Old draft"
         )
         task_id = task.id
+        project_id = general.id
         db.commit()
 
     result = _run("delete_is_soft", 'Delete the task "Old draft".')
@@ -269,6 +270,32 @@ def test_eval_delete_is_soft_and_restorable(eval_db: sessionmaker[Session]) -> N
             select(ActivityEvent).where(ActivityEvent.action == "deleted")
         ).scalars().all()
         assert deleted_events and all(e.actor == LOOP_ACTOR for e in deleted_events)
+
+    # "Restorable" for real: restore through the service the restore_task tool
+    # calls, then check the task is whole again and the restore was audited.
+    with eval_db() as db:
+        trashed = task_trash.get_deleted_task(db, task_id)
+        assert trashed is not None
+        task_trash.restore_task(db, trashed)
+        db.commit()
+    with eval_db() as db:
+        active_tasks = db.execute(
+            select(Task).where(Task.deleted_at.is_(None))
+        ).scalars().all()
+        assert [t.id for t in active_tasks] == [task_id]
+        restored = active_tasks[0]
+        assert restored.deleted_at is None
+        assert restored.title == "Old draft"
+        assert restored.project_id == project_id
+        assert task_trash.get_deleted_task(db, task_id) is None
+        restored_events = db.execute(
+            select(ActivityEvent).where(
+                ActivityEvent.entity_type == "task",
+                ActivityEvent.entity_id == task_id,
+                ActivityEvent.action == "restored",
+            )
+        ).scalars().all()
+        assert len(restored_events) == 1
 
 
 # Numbers a reply states, digits or spelled out (temp 1.0 may write "three").
