@@ -488,8 +488,10 @@ no-op that says so, and can never cancel a later run.
 
 ## Voice (STT/TTS)
 
-Voice rides the same agent pipeline: `app/ai/speech.py` speaks the OpenAI
-audio wire format over `httpx` to the shared workspace `../speech/` service
+Voice rides the same agent pipeline: the vendored `app/ai/speech_client.py`
+(canonical in `../speech/client/python/`, driven by `app/ai/speech.py`'s
+vocabulary and settings) speaks the OpenAI audio wire format over `httpx` to
+the shared workspace `../speech/` service
 per the fleet contract (`../agent-standard/voice.md`), and
 `app/api/routes_voice.py` proxies it — `POST /api/voice/transcribe` (audio →
 text, biased toward PCC's task/project vocabulary) and `POST /api/voice/speak`
