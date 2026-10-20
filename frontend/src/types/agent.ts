@@ -20,6 +20,9 @@ export type AgentStopReason =
   | 'completed'
   | 'max_iterations'
   | 'correction_limit'
+  // The model's reply ran past the per-call token cap (#397): the cut-off
+  // fragment is dropped, so the message has no content. Not a failure.
+  | 'truncated'
   // The user pressed Stop (#324). Not a failure — the POST returns 200 — but
   // like the failure stops, the tool calls listed still ran and are undoable.
   | 'cancelled'

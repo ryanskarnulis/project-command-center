@@ -78,9 +78,17 @@ worst case (the provider timeout tolerates it). Containers reach it via
   `PCC_LLM_INTEGRATION=1 pytest tests/test_ai_llamacpp_integration.py`.
 - **Loop** `app/ai/loop.py`: bounded iterations (10) + separate correction
   budget (3); schema failures are corrections, domain rejections are ordinary
-  results; writes stamped `agent:loop`.
-- **Stop reasons**: `completed`, `max_iterations`, `correction_limit` and
-  `cancelled` return 200; `provider_error` (502), `timed_out` (504) and
+  results; writes stamped `agent:loop`. Every model call carries
+  `max_tokens` (`DEFAULT_MAX_TOKENS` = 2048, the context budget's completion
+  reserve; moves into the model profile with #402), since llama-server's
+  default is unbounded and a degenerate generation would otherwise run to the
+  run budget (#397). A cut-off call (`finish_reason: "length"`) never passes
+  its words on: a cut-off text turn is dropped — no reply saved, nothing
+  added to history — and the run ends `truncated`; a cut-off turn's tool
+  calls still run (each call's arguments arrived whole), only the text beside
+  them is dropped.
+- **Stop reasons**: `completed`, `max_iterations`, `correction_limit`,
+  `truncated` and `cancelled` return 200; `provider_error` (502), `timed_out` (504) and
   `internal_error` (500) are failures. Every one persists a truthful assistant
   turn. The deadline and the cancel event (`POST …/cancel`, #324,
   `app/api/run_cancel.py`) are checked at the same two boundaries — before each

@@ -22,8 +22,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai import loop as loop_module
 from app.ai.loop import LOOP_ACTOR, AgentLoop, AgentRunFailed, build_system_prompt
-from app.ai.providers.llamacpp import ProviderRequestError, ToolCallArgumentsError
-from app.db.models import ActivityEvent, Task, TaskWorkflowStatus
+from app.ai.providers.llamacpp import (
+    ChatResult,
+    ProviderRequestError,
+    ToolCall,
+    ToolCallArgumentsError,
+)
+from app.db.models import ActivityEvent, Project, Task, TaskWorkflowStatus
 from app.mcp.server import mcp
 from app.tools import registry, runtime
 from tests.scripted_provider import ScriptedProvider
@@ -198,6 +203,86 @@ def test_max_iterations_terminates_the_loop(tool_db: sessionmaker[Session]) -> N
     assert result.stop_reason == "max_iterations"
     assert result.iterations == 2
     assert len(provider.requests) == 2
+
+
+def test_every_model_call_is_capped(tool_db: sessionmaker[Session]) -> None:
+    """``max_tokens`` goes out on every provider call (#397)."""
+    provider = ScriptedProvider(
+        [_calls(("list_projects", {})), _text("No projects yet.")]
+    )
+    AgentLoop(provider).run("What projects do I have?")
+    AgentLoop(provider_capped := ScriptedProvider([_text("Hi.")]), max_tokens=64).run(
+        "Hello."
+    )
+
+    assert [request["max_tokens"] for request in provider.requests] == [
+        loop_module.DEFAULT_MAX_TOKENS,
+        loop_module.DEFAULT_MAX_TOKENS,
+    ]
+    assert loop_module.DEFAULT_MAX_TOKENS == 2048
+    assert provider_capped.requests[0]["max_tokens"] == 64
+
+
+def test_cut_off_text_turn_is_dropped_and_ends_truncated(
+    tool_db: sessionmaker[Session],
+) -> None:
+    """A text turn the cap cut off is not a reply: no reply, no fragment kept."""
+    fragment = "You have three projects: Alpha, Beta, and the the the the"
+    provider = ScriptedProvider(
+        [
+            _calls(("list_projects", {})),
+            ChatResult(
+                content=fragment, tool_calls=[], finish_reason="length", usage=None
+            ),
+        ]
+    )
+    result = AgentLoop(provider).run("What projects do I have?")
+
+    assert result.stop_reason == "truncated"
+    assert result.reply is None
+    assert result.iterations == 2
+    # The lookup that ran stays on the record.
+    assert [record.tool for record in result.tool_calls] == ["list_projects"]
+    # The fragment never reaches the transcript.
+    assert all(fragment not in str(message.get("content")) for message in result.messages)
+    assert result.messages[-1]["role"] == "tool"
+
+
+def test_cut_off_turn_with_tool_calls_still_runs_them(
+    tool_db: sessionmaker[Session],
+) -> None:
+    """Calls in a cut-off turn arrived whole, so they run; the text is dropped."""
+    fragment = "Creating the project now, and then I will also"
+    provider = ScriptedProvider(
+        [
+            ChatResult(
+                content=fragment,
+                tool_calls=[
+                    ToolCall(
+                        id="call_0",
+                        name="create_project",
+                        arguments={"data": {"name": "Cut-off epic"}},
+                    )
+                ],
+                finish_reason="length",
+                usage=None,
+            ),
+            _text("Created 'Cut-off epic'."),
+        ]
+    )
+    result = AgentLoop(provider).run("Create a project 'Cut-off epic'.")
+
+    assert result.stop_reason == "completed"
+    assert result.reply == "Created 'Cut-off epic'."
+    assert [record.tool for record in result.tool_calls] == ["create_project"]
+    assert result.tool_calls[0].error is None
+    # The second request carries the call and its result, not the fragment.
+    sent = provider.requests[1]["messages"]
+    assistant_turn = next(m for m in sent if m.get("tool_calls"))
+    assert assistant_turn["content"] is None
+    assert all(fragment not in str(message.get("content")) for message in sent)
+    with tool_db() as db:
+        assert db.execute(select(Project.name)).scalars().all() == ["Cut-off epic"]
 
 
 def test_provider_failure_mid_run_keeps_the_partial_trajectory(

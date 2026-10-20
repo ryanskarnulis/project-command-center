@@ -16,7 +16,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai.loop import LOOP_ACTOR, AgentLoop, AgentRunResult, ToolCallRecord
-from app.ai.providers.llamacpp import ProviderRequestError
+from app.ai.providers.llamacpp import ChatResult, ProviderRequestError
 from app.api import conversation_locks, routes_agent
 from app.config import get_settings
 from app.db.models import ActivityEvent, Task
@@ -290,6 +290,39 @@ def test_post_message_runs_loop_and_persists_exchange(
     assert [m["role"] for m in prior_turns] == ["system", "user", "assistant", "user"]
     assert prior_turns[1]["content"] == "Create a task called Ship slice 2"
     assert not any("tool" in (m.get("role") or "") for m in prior_turns)
+
+
+def test_cut_off_reply_is_saved_as_truncated_without_content(
+    client: TestClient, tool_db: sessionmaker[Session]
+) -> None:
+    """A reply the token cap cut off (#397): 200, no content saved, stop reason
+    ``truncated`` — and the fragment never reaches the next turn's history."""
+    fragment = "Sure, here is a long answer that goes on and on and"
+    provider = ScriptedProvider(
+        [
+            ChatResult(content=fragment, tool_calls=[], finish_reason="length", usage=None),
+            text_turn("Short answer."),
+        ]
+    )
+    _use_loop(provider)
+    conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
+
+    response = client.post(
+        f"/api/agent/conversations/{conversation_id}/messages",
+        json={"content": "Tell me everything."},
+    )
+    assert response.status_code == 200
+    assistant = response.json()["assistant_message"]
+    assert assistant["content"] is None
+    assert assistant["stop_reason"] == "truncated"
+
+    second = client.post(
+        f"/api/agent/conversations/{conversation_id}/messages",
+        json={"content": "Just the short version."},
+    )
+    assert second.status_code == 200
+    sent = provider.requests[1]["messages"]
+    assert all(fragment not in str(message.get("content")) for message in sent)
 
 
 def test_provider_failure_before_any_tool_is_502_with_a_truthful_turn(

@@ -46,7 +46,12 @@ class ScriptedProvider:
         timeout: float | None = None,
     ) -> ChatResult:
         self.requests.append(
-            {"messages": list(messages), "tools": list(tools or []), "timeout": timeout}
+            {
+                "messages": list(messages),
+                "tools": list(tools or []),
+                "max_tokens": max_tokens,
+                "timeout": timeout,
+            }
         )
         assert self._turns, "provider called more times than scripted"
         turn = self._turns.pop(0)
