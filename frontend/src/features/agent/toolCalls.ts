@@ -138,6 +138,8 @@ export function describeToolCall(record: ToolCallRecord): string {
       return 'Pinned a task into the focus plan'
     case 'add_focus_commitment':
       return `Added${quoted(argString(record, ['title'])) || ' a commitment'} to the focus plan`
+    case 'reorder_focus_pins':
+      return 'Reordered the pins in the focus plan'
     case 'remove_focus_entry':
       return 'Removed an entry from the focus plan'
     case 'restore_focus_entry':
@@ -201,6 +203,7 @@ export function linkFor(
       return undone ? projectPath(argNumber(record, 'project_id')) : '/trash'
     case 'pin_focus_task':
     case 'add_focus_commitment':
+    case 'reorder_focus_pins':
     case 'remove_focus_entry':
     case 'restore_focus_entry':
       return '/focus'
