@@ -307,17 +307,26 @@ interface CommitmentSheetProps {
   duration: number
   /** Set when the commitment repeats (#376): Move and Remove then act on the series. */
   repeat: CommitmentRepeatInterval | null
+  /** This day's occurrence was edited on its own (#428): offer Reset, not Skip. */
+  edited: boolean
+  /** The series began before this day, so it can stop from here on (#428). */
+  canStop: boolean
   onMove: (start: string) => void
+  /** Move this day's occurrence only (#428). */
+  onMoveDay: (start: string) => void
   onSkip: () => void
+  onReset: () => void
+  onStop: () => void
   onRemove: () => void
   onClose: () => void
 }
 
 /**
  * A commitment's ⋯ sheet: it is not a task, so Move and Remove are all it
- * offers, plus Skip this day when it repeats.
+ * offers, plus, when it repeats, Move this day, Skip this day (or Reset this
+ * day once it has been edited) and Stop from this day on (#376, #428).
  */
-export function FocusCommitmentSheet({ title, start, duration, repeat, onMove, onSkip, onRemove, onClose }: CommitmentSheetProps) {
+export function FocusCommitmentSheet({ title, start, duration, repeat, edited, canStop, onMove, onMoveDay, onSkip, onReset, onStop, onRemove, onClose }: CommitmentSheetProps) {
   const [moveTo, setMoveTo] = useState(formatClockTime(start))
   return (
     <BottomSheet className="focus-sheet focus-row-sheet" labelledBy="focus-commitment-sheet-title" handleLabel="Close commitment actions" onClose={onClose}>
@@ -331,13 +340,22 @@ export function FocusCommitmentSheet({ title, start, duration, repeat, onMove, o
               <span className="focus-repeat-word">{formatCommitmentRepeat(repeat)}</span>
             </>
           )}
+          {edited && (
+            <>
+              {' · '}
+              <span className="focus-edited-word">this day only</span>
+            </>
+          )}
         </span>
       </header>
       <form
         className="focus-sheet-group focus-commitment-when"
         onSubmit={(event) => {
           event.preventDefault()
-          if (moveTo) onMove(moveTo)
+          if (!moveTo) return
+          // Enter in the time field moves a series' day only, the narrower choice.
+          if (repeat) onMoveDay(moveTo)
+          else onMove(moveTo)
         }}
       >
         <input
@@ -347,14 +365,39 @@ export function FocusCommitmentSheet({ title, start, duration, repeat, onMove, o
           value={moveTo}
           onChange={(event) => setMoveTo(event.target.value)}
         />
-        <button type="submit" className="focus-sheet-chip">
-          {repeat ? 'Move every day' : 'Move'}
-        </button>
+        {repeat ? (
+          <>
+            <button type="submit" className="focus-sheet-chip">
+              Move this day
+            </button>
+            <button
+              type="button"
+              className="focus-sheet-chip"
+              onClick={() => moveTo && onMove(moveTo)}
+            >
+              Move every day
+            </button>
+          </>
+        ) : (
+          <button type="submit" className="focus-sheet-chip">
+            Move
+          </button>
+        )}
       </form>
       <div className="focus-sheet-actions">
-        {repeat && (
+        {repeat && edited && (
+          <button type="button" className="focus-sheet-action" onClick={onReset}>
+            Reset this day
+          </button>
+        )}
+        {repeat && !edited && (
           <button type="button" className="focus-sheet-action" onClick={onSkip}>
             Skip this day
+          </button>
+        )}
+        {canStop && (
+          <button type="button" className="focus-sheet-action danger" onClick={onStop}>
+            Stop from this day on
           </button>
         )}
         <button type="button" className="focus-sheet-action danger" onClick={onRemove}>

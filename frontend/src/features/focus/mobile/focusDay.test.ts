@@ -235,6 +235,9 @@ describe('buildDayShape with fixed rows (#319)', () => {
     end_day_offset: 0,
     duration_minutes: 30,
     repeat_interval: null,
+    series_start_date: null,
+    stop_date: null,
+    override_entry_id: null,
   }
 
   it('keeps a commitment at its time and jumps a flexible row that would collide', () => {

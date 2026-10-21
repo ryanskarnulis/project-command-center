@@ -14,17 +14,20 @@ import {
 import { apiErrorMessage } from '../../../api/errorMessage'
 import {
   addFocusCommitment,
+  editFocusOccurrence,
   pinFocusTask,
   removeFocusEntry,
   reorderFocusPins,
   restoreFocusEntry,
   skipFocusOccurrence,
+  stopFocusSeries,
   updateFocusEntry,
 } from '../../../api/focus'
 import { markTaskDone, reopenTask, updateTask } from '../../../api/tasks'
 import { addDaysISO } from '../../../utils/dates'
 import { formatCommitmentRepeat } from '../commitmentRepeat'
 import type {
+  CommitmentBlock,
   CommitmentRepeatInterval,
   SkippedCommitmentBlock,
 } from '../../../types/focus'
@@ -103,6 +106,15 @@ interface Props {
 interface PendingUndo {
   label: string
   run: () => Promise<void>
+}
+
+/** A series that began before `day` can stop from it on; on its first day, Remove does that (#428). */
+function canStopSeries(commitment: CommitmentBlock | null, day: string): boolean {
+  return (
+    commitment?.repeat_interval != null &&
+    commitment.series_start_date != null &&
+    commitment.series_start_date < day
+  )
 }
 
 export function MobileFocus({
@@ -319,6 +331,49 @@ export function MobileFocus({
     })
   }
 
+  // A repeating commitment (#428): move just this day's occurrence. Undo of a
+  // new edit removes it; of an edit to an edit, moves it back.
+  async function moveCommitmentDay(row: DayRow, start: string): Promise<void> {
+    const commitment = row.commitment
+    if (!commitment) return
+    const day = plan?.date ?? date
+    const previous = commitment.start_time
+    const hadEdit = commitment.override_entry_id !== null
+    await mutate(async () => {
+      const edit = await editFocusOccurrence(commitment.entry_id, day, { start_time: start })
+      armUndo(`Moved this day · ${row.title}`, async () => {
+        if (hadEdit) await editFocusOccurrence(commitment.entry_id, day, { start_time: previous })
+        else await removeFocusEntry(edit.id)
+      })
+    })
+  }
+
+  // Back to the series' usual occurrence (#428); the undo brings the edit back.
+  async function resetCommitmentDay(row: DayRow): Promise<void> {
+    const overrideId = row.commitment?.override_entry_id
+    if (overrideId == null) return
+    await mutate(async () => {
+      await removeFocusEntry(overrideId)
+      armUndo(`Reset this day · ${row.title}`, async () => {
+        await restoreFocusEntry(overrideId)
+      })
+    })
+  }
+
+  // Stop a series from this day on (#428): earlier days keep it. The undo
+  // puts back the end it had before (none, usually).
+  async function stopCommitment(row: DayRow): Promise<void> {
+    const commitment = row.commitment
+    if (!commitment) return
+    const previous = commitment.stop_date
+    await mutate(async () => {
+      await stopFocusSeries(commitment.entry_id, plan?.date ?? date)
+      armUndo(`Stopped from this day · ${row.title}`, async () => {
+        await stopFocusSeries(commitment.entry_id, previous)
+      })
+    })
+  }
+
   // A repeating commitment (#376): skip just this day's occurrence. Undo
   // removes the skip, which brings the occurrence back.
   async function skipCommitment(row: DayRow): Promise<void> {
@@ -410,6 +465,12 @@ export function MobileFocus({
                   <span className="focus-repeat-word">
                     {formatCommitmentRepeat(row.commitment.repeat_interval)}
                   </span>
+                </>
+              )}
+              {row.commitment?.override_entry_id != null && (
+                <>
+                  <span className="focus-meta-sep" aria-hidden="true">·</span>
+                  <span className="focus-edited-word">this day only</span>
                 </>
               )}
               <span className="focus-meta-sep" aria-hidden="true">·</span>
@@ -825,10 +886,27 @@ export function MobileFocus({
           start={commitmentTarget.start}
           duration={commitmentTarget.duration}
           repeat={commitmentTarget.commitment?.repeat_interval ?? null}
+          edited={commitmentTarget.commitment?.override_entry_id != null}
+          canStop={canStopSeries(commitmentTarget.commitment ?? null, plan?.date ?? date)}
           onMove={(start) => {
             const row = commitmentTarget
             setCommitmentTarget(null)
             void moveCommitment(row, start)
+          }}
+          onMoveDay={(start) => {
+            const row = commitmentTarget
+            setCommitmentTarget(null)
+            void moveCommitmentDay(row, start)
+          }}
+          onReset={() => {
+            const row = commitmentTarget
+            setCommitmentTarget(null)
+            void resetCommitmentDay(row)
+          }}
+          onStop={() => {
+            const row = commitmentTarget
+            setCommitmentTarget(null)
+            void stopCommitment(row)
           }}
           onSkip={() => {
             const row = commitmentTarget

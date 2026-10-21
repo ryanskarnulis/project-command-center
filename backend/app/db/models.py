@@ -224,7 +224,7 @@ class FocusPlanEntry(Base, TimestampMixin, SoftDeleteMixin):
     """One stored decision about one day's Focus plan (issue #319).
 
     The plan itself stays derived; these rows are an overlay the packer honours
-    (``services/focus.py``, design in ``docs/focus-day-plan.md``). Three kinds,
+    (``services/focus.py``, design in ``docs/focus-day-plan.md``). Five kinds,
     told apart by which columns are set:
 
     * floating pin — ``task_id`` set, ``start_minute`` null: the task is in the
@@ -235,8 +235,13 @@ class FocusPlanEntry(Base, TimestampMixin, SoftDeleteMixin):
       ``duration_minutes`` set: a fixed block that is not a task (a meeting).
       With ``repeat_interval`` set it is a **series** (#376): it recurs from
       ``plan_date`` on, read per day, never materialised ahead of time;
+      ``stop_date`` (#428) ends it: the series has no occurrence on or after
+      that day, and the days before it keep theirs;
     * skip — ``series_id`` set and nothing else: that series' occurrence on
-      ``plan_date`` is skipped. Removing the skip brings the occurrence back.
+      ``plan_date`` is skipped. Removing the skip brings the occurrence back;
+    * override (#428) — ``series_id`` plus a full ``title``, ``start_minute``
+      and ``duration_minutes``: that series' occurrence on ``plan_date`` happens
+      as this row says instead. Removing it restores the usual occurrence.
 
     ``start_minute`` is minutes after midnight on ``plan_date``. A purge of the
     pinned task takes its entries with it (``task_trash.purge_task``).
@@ -253,7 +258,8 @@ class FocusPlanEntry(Base, TimestampMixin, SoftDeleteMixin):
             unique=True,
             sqlite_where=text("task_id IS NOT NULL AND deleted_at IS NULL"),
         ),
-        # One live skip per occurrence (#376); a removed skip is history.
+        # One live skip or override per occurrence (#376, #428): a day is
+        # either skipped or edited, never both. A removed one is history.
         Index(
             "uq_focus_plan_entries_live_skip",
             "series_id",
@@ -268,8 +274,17 @@ class FocusPlanEntry(Base, TimestampMixin, SoftDeleteMixin):
             " AND start_minute IS NOT NULL AND duration_minutes IS NOT NULL)"
             " OR (series_id IS NOT NULL AND task_id IS NULL AND title IS NULL"
             " AND start_minute IS NULL AND duration_minutes IS NULL"
+            " AND repeat_interval IS NULL)"
+            " OR (series_id IS NOT NULL AND task_id IS NULL AND title IS NOT NULL"
+            " AND start_minute IS NOT NULL AND duration_minutes IS NOT NULL"
             " AND repeat_interval IS NULL)",
             name="ck_focus_plan_entries_kind",
+        ),
+        # Only a series ends, and only after its first occurrence: a stop on or
+        # before ``plan_date`` would leave no occurrence at all (#428).
+        CheckConstraint(
+            "stop_date IS NULL OR (repeat_interval IS NOT NULL AND stop_date > plan_date)",
+            name="ck_focus_plan_entries_stop_date",
         ),
         CheckConstraint(
             "start_minute IS NULL OR (start_minute >= 0 AND start_minute < 1440)",
@@ -293,8 +308,12 @@ class FocusPlanEntry(Base, TimestampMixin, SoftDeleteMixin):
     repeat_interval: Mapped[dict[str, Any] | None] = mapped_column(
         JSON(none_as_null=True), default=None
     )
-    # A skip's series: the commitment series whose ``plan_date`` occurrence
-    # this row skips (#376). Null on every other kind.
+    # A series' end (#428): the first day it no longer occurs. Null = it
+    # repeats for good. Set only on a series, and always after its first day.
+    stop_date: Mapped[date | None] = mapped_column(default=None)
+    # A skip's or an override's series: the commitment series whose
+    # ``plan_date`` occurrence this row skips or edits (#376, #428). Null on
+    # every other kind.
     series_id: Mapped[int | None] = mapped_column(
         ForeignKey("focus_plan_entries.id", name="fk_focus_plan_entries_series_id"),
         default=None,

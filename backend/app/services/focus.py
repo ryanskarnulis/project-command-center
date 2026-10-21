@@ -351,22 +351,27 @@ def _absolute_minute(clock: str, day_offset: int) -> int:
     return day_offset * 24 * 60 + _parse_time(clock)
 
 
-def _commitment_block(entry: FocusPlanEntry) -> CommitmentBlock:
-    assert entry.start_minute is not None and entry.duration_minutes is not None
-    assert entry.title is not None
-    start_time, start_day_offset = _format_time(entry.start_minute)
-    end_time, end_day_offset = _format_time(entry.start_minute + entry.duration_minutes)
+def _commitment_block(item: focus_plan_service.DayCommitment) -> CommitmentBlock:
+    """A day's commitment as a block: the override's title and time when the
+    day has one (#428), the series' (or one-off's) id and cadence always."""
+    entry = item.entry
+    start_time, start_day_offset = _format_time(item.start_minute)
+    end_time, end_day_offset = _format_time(item.start_minute + item.duration_minutes)
+    repeats = entry.repeat_interval is not None
     return CommitmentBlock(
         entry_id=entry.id,
-        title=entry.title,
+        title=item.title,
         start_time=start_time,
         end_time=end_time,
         start_day_offset=start_day_offset,
         end_day_offset=end_day_offset,
-        duration_minutes=entry.duration_minutes,
+        duration_minutes=item.duration_minutes,
         repeat_interval=CommitmentRepeatInterval.model_validate(entry.repeat_interval)
-        if entry.repeat_interval is not None
+        if repeats
         else None,
+        series_start_date=entry.plan_date if repeats else None,
+        stop_date=entry.stop_date,
+        override_entry_id=None if item.override is None else item.override.id,
     )
 
 
@@ -440,14 +445,14 @@ def get_focus_plan(
     commitments: list[CommitmentBlock] = []
     busy: list[tuple[int, int]] = []
     # Commitments: the day's one-offs plus the occurrences of repeating series
-    # (#376), worked out for this day on read.
-    for entry in focus_plan_service.day_commitments(db, target_date):
-        assert entry.start_minute is not None and entry.duration_minutes is not None
-        end = entry.start_minute + entry.duration_minutes
+    # (#376), worked out for this day on read, each as that day's override
+    # says when it has one (#428).
+    for item in focus_plan_service.day_commitments(db, target_date):
+        end = item.start_minute + item.duration_minutes
         if end <= window_start:
             continue
-        commitments.append(_commitment_block(entry))
-        busy.append((entry.start_minute, end))
+        commitments.append(_commitment_block(item))
+        busy.append((item.start_minute, end))
     # Skipped occurrences (#429) hold no time; they are listed so a skip can be
     # taken back later, with the same "already over" cut as live commitments.
     skipped_commitments: list[SkippedCommitmentBlock] = []
@@ -457,7 +462,8 @@ def get_focus_plan(
             continue
         skipped_commitments.append(
             SkippedCommitmentBlock(
-                **_commitment_block(series).model_dump(), skip_entry_id=skip.id
+                **_commitment_block(focus_plan_service.DayCommitment(series)).model_dump(),
+                skip_entry_id=skip.id,
             )
         )
     for entry in focus_plan_service.list_entries(db, target_date):

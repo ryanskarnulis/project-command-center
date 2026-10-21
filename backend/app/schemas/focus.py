@@ -131,6 +131,17 @@ class CommitmentBlock(BaseModel):
     # row: editing or removing it changes every occurrence, and
     # ``POST /focus/entries/{entry_id}/skip`` skips just this day's.
     repeat_interval: CommitmentRepeatInterval | None = None
+    # A series' first day and its end (#428): the series occurs from
+    # ``series_start_date`` up to the day before ``stop_date`` (null = no end).
+    # Both null on a one-off. ``PUT /focus/entries/{entry_id}/stop`` moves the
+    # end; a stop has to fall after the first day.
+    series_start_date: date | None = None
+    stop_date: date | None = None
+    # Set when this day's occurrence has been edited for that day only (#428):
+    # the block's title, time and length are the override's, ``entry_id`` is
+    # still the series, and ``DELETE /focus/entries/{override_entry_id}``
+    # resets the day to the usual occurrence.
+    override_entry_id: int | None = None
 
 
 class SkippedCommitmentBlock(CommitmentBlock):
@@ -241,6 +252,30 @@ class FocusOccurrenceSkip(MutationModel):
     plan_date: date
 
 
+class FocusSeriesStop(MutationModel):
+    """End a repeating commitment from a day on, or take the end away (#428).
+
+    ``stop_date`` is the first day the series no longer occurs; the days before
+    it keep their occurrences. ``null`` lets it repeat for good again. Required
+    (no default): an empty body is a mistake, not "no end".
+    """
+
+    stop_date: date | None
+
+
+class FocusOccurrenceEdit(MutationModel):
+    """Change one day's occurrence of a repeating commitment, that day only (#428).
+
+    The fields left out keep the series' values as they stand now. Editing a
+    day already edited changes that edit.
+    """
+
+    plan_date: date
+    start_time: TimeOfDay | None = None
+    title: CommitmentTitle | None = None
+    duration_minutes: CommitmentMinutes | None = None
+
+
 class FocusEntryUpdate(MutationModel):
     """Partial edit of a stored entry; only the fields present are touched.
 
@@ -275,7 +310,10 @@ class FocusEntryRead(BaseModel):
     position: int
     # A repeating commitment's cadence (#376); null on every other kind.
     repeat_interval: CommitmentRepeatInterval | None = None
-    # Set only on a skip: the series whose ``plan_date`` occurrence it skips.
+    # A series' end (#428): the first day it no longer occurs; null = no end.
+    stop_date: date | None = None
+    # Set only on a skip or an override: the series whose ``plan_date``
+    # occurrence it skips or edits.
     series_id: int | None = None
     created_at: UTCDateTime
     deleted_at: UTCDateTime | None
