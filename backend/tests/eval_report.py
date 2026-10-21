@@ -41,6 +41,9 @@ class RunRecord:
     duration: float | None = None
     tool_calls: int = 0
     schema_errors: int = 0
+    # The sample's replies' scored claims, and how many its runs backed (#407).
+    claims_made: int = 0
+    claims_backed: int = 0
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,8 @@ class ScenarioSummary:
     max_duration: float | None
     tool_calls: int = 0
     schema_errors: int = 0
+    claims_made: int = 0
+    claims_backed: int = 0
 
 
 def int_from_env(
@@ -96,6 +101,8 @@ def summarize(records: list[RunRecord]) -> list[ScenarioSummary]:
                 max_duration=max(durations) if durations else None,
                 tool_calls=sum(r.tool_calls for r in runs),
                 schema_errors=sum(r.schema_errors for r in runs),
+                claims_made=sum(r.claims_made for r in runs),
+                claims_backed=sum(r.claims_backed for r in runs),
             )
         )
     return summaries
@@ -177,6 +184,13 @@ def _schema(summary: ScenarioSummary | None) -> str:
     return f"{summary.schema_errors}/{summary.tool_calls} ({per_sample:.1f}/sample)"
 
 
+def _claims(summary: ScenarioSummary | None) -> str:
+    """``backed/made`` claims for the table (#407); ``-`` with none made."""
+    if summary is None or not summary.claims_made:
+        return "-"
+    return f"{summary.claims_backed}/{summary.claims_made}"
+
+
 def _range(low: float | None, high: float | None, fmt: str) -> str:
     if low is None or high is None:
         return "-"
@@ -188,8 +202,9 @@ def format_report(
     summaries: list[ScenarioSummary], results: Mapping[str, RateResult]
 ) -> str:
     """The table printed under ``-s``: count, Wilson interval, verdict, blocks,
-    infra retries, iteration and time ranges, and schema corrections (refused
-    calls over all calls, and the mean per sample) per scenario.
+    infra retries, iteration and time ranges, the replies' claims backed over
+    claims made (#407), and schema corrections (refused calls over all calls,
+    and the mean per sample) per scenario.
 
     Columns mirror the baseline table in ``docs/agent-design.md``. Durations
     include any cold model load, so the first scenario's max can be an outlier.
@@ -203,7 +218,7 @@ def format_report(
     lines = [
         "[eval-report] per-scenario results",
         f"{'scenario'.ljust(width)}  pass    ci           verdict      blocks      "
-        "infra  iterations  duration (s)  schema",
+        "infra  iterations  duration (s)  claims   schema",
     ]
     for name in names:
         result = results.get(name)
@@ -220,7 +235,7 @@ def format_report(
             f"{name.ljust(width)}  {count:<6}  {ci:<11}  {verdict:<11}  {blocks:<10}  "
             f"{infra:<5}  "
             f"{_range(*(_iters(summary)), 'd'):<10}  {_range(*(_durs(summary)), '.1f'):<12}  "
-            f"{_schema(summary)}"
+            f"{_claims(summary):<7}  {_schema(summary)}"
         )
     green = sum(r.decision is not Decision.BELOW_FLOOR for r in results.values())
     lines.append(f"{green}/{len(results)} scenarios not below their floor")

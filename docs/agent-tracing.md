@@ -32,6 +32,10 @@ python backend/scripts/read_trace.py data/traces/agent.jsonl --run 69deb231 --js
 
 Standard library only; it needs no venv and does not import the app.
 
+Whether each reply's claims are backed by its run's tool calls (#407):
+`cd backend && .venv/bin/python -m tests.claims ../data/traces/agent.jsonl`
+(`docs/agent-design.md`, "Claim accuracy").
+
 ## Where it is written
 
 `AgentLoop.run` (`app/ai/loop.py`) writes the record on every exit: a

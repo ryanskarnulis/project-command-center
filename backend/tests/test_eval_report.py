@@ -194,3 +194,25 @@ def test_format_report_shows_schema_corrections() -> None:
     assert alpha.endswith("1/7 (0.5/sample)")
     quiet = next(line for line in report.splitlines() if line.startswith("quiet"))
     assert quiet.endswith("-")
+
+
+def test_format_report_shows_claims_backed() -> None:
+    """Claims backed over claims made per scenario (#407), before the schema
+    column; ``-`` for a scenario whose replies claimed nothing."""
+    records = [
+        RunRecord("alpha", True, 3, 1.0, claims_made=2, claims_backed=2),
+        RunRecord("alpha", False, 3, 1.0, claims_made=3, claims_backed=2),
+        RunRecord("quiet", True, 1, 0.5),
+    ]
+    results = {
+        name: RateResult.from_blocks(blocks=[(1, 1)], failures=[], floor=0.8)
+        for name in ("alpha", "quiet")
+    }
+    alpha, quiet = summarize(records)
+    assert (alpha.claims_made, alpha.claims_backed) == (5, 4)
+    report = format_report([alpha, quiet], results)
+    assert "claims" in report.splitlines()[1]
+    alpha_line = next(line for line in report.splitlines() if line.startswith("alpha"))
+    assert " 4/5 " in alpha_line
+    quiet_line = next(line for line in report.splitlines() if line.startswith("quiet"))
+    assert quiet_line.rstrip().endswith("-        -")

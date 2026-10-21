@@ -53,6 +53,13 @@ two things:
   conversation through the conversation route (stored history, as in
   production), metering and snapshotting each step and checking it at once.
   One sample is the whole thread: it passes only if every step does.
+* **Claims checked against the run (#407).** Every reply is read for
+  operational claims ("created", "marked done", "moved to Friday", a count, a
+  quoted title, a date) and each is checked against what the sample's runs
+  actually did (``tests/claims.py``, pinned by ``test_claims.py`` in CI). An
+  unbacked claim fails the sample in every scenario; the claim-accuracy rate
+  is reported per scenario and for the suite, never asserted, with every
+  unbacked line quoted.
 * **Compositions, dates and speech (#406).** Single-turn asks that are not one
   clean tool call: several writes in one ask (full end state, nothing else
   changed), relative dates computed from today's real date by pure helpers
@@ -119,6 +126,15 @@ from app.services import task_dependencies as deps_service
 from app.services import task_trash
 from app.services import tasks as tasks_service
 from app.tools import registry, runtime
+from tests.claims import (
+    Claim,
+    Evidence,
+    Tally,
+    ToolCall,
+    concedes_miss,
+    read_claims,
+    unbacked,
+)
 from tests.eval_report import (
     RunRecord,
     format_report,
@@ -255,6 +271,8 @@ class _SuiteTotals:
 _SUITE = _SuiteTotals()
 _RECORDS: list[RunRecord] = []
 _RESULTS: dict[str, RateResult] = {}
+# Claims made and backed over every scored sample of the suite (#407).
+_CLAIMS = Tally()
 
 
 def _git(*args: str) -> str | None:
@@ -320,9 +338,11 @@ def _eval_session() -> Generator[None, None, None]:
         "samples": _SUITE.samples,
         "infra_spent": _SUITE.infra_spent,
         "infra_budget": _SUITE.infra_budget,
+        "claims": _CLAIMS.as_dict(),
     }
     write_jsonl(_REPORT_PATH, suite)
     print(f"\n{format_report(summarize(_RECORDS), _RESULTS)}")
+    print("\n".join(f"[eval] {line}" for line in _CLAIMS.lines()))
     print(f"[eval] suite {json.dumps(suite)}")
 
 
@@ -582,6 +602,10 @@ class Sample:
         # A thread's completed steps (``converse``), and the one in flight.
         self.steps: list[Step] = []
         self.step_label: str | None = None
+        # Every tool call this sample's runs made, and what each reply claimed
+        # (with its step) read against the calls made so far (#407).
+        self.calls: list[ToolCall] = []
+        self.claims: list[tuple[str | None, Claim]] = []
 
     # A thread's sample is metered as the sum of its steps; each step's own
     # numbers are in the report's ``steps``.
@@ -609,6 +633,12 @@ class Sample:
         if self.steps:
             return " | ".join(_trajectory(step.result) or "-" for step in self.steps)
         return _trajectory(self.result)
+
+    @property
+    def missed_claims(self) -> list[tuple[str | None, Claim]]:
+        """The scored claims no run of this sample backs (``claims.unbacked``)."""
+        missed = unbacked(claim for _, claim in self.claims)
+        return [(step, claim) for step, claim in self.claims if claim in missed]
 
     def provider(self) -> LlamaCppProvider:
         """The configured provider, sending this sample's seed (if any)."""
@@ -678,7 +708,18 @@ class Sample:
         self.result = result
         self.stop_reason = result.stop_reason
         self.duration = time.monotonic() - started
+        self._read_claims(result)
         self._print()
+
+    def _read_claims(self, result: AgentRunResult) -> None:
+        """Read the reply's claims against every call this sample has made so
+        far: a thread's evidence is its earlier runs too, never its seeded
+        (stored) history, whose replies are the very claims under test."""
+        self.calls.extend(
+            ToolCall(r.tool, r.arguments, r.result, r.error) for r in result.tool_calls
+        )
+        evidence = Evidence.of(self.calls, date.today())
+        self.claims.extend((self.step_label, c) for c in read_claims(result.reply, evidence))
 
     def _died(
         self,
@@ -693,6 +734,8 @@ class Sample:
         self.detail = detail
         self.result = result
         self.duration = time.monotonic() - started
+        if result is not None:
+            self._read_claims(result)
         if stop_reason == "provider_error":
             self.provider_failure = provider_failure_kind(detail)
         self._print()
@@ -733,6 +776,14 @@ class Sample:
             "run_id": None if self.result is None else self.result.run_id,
             "error": None if error is None else str(error),
             "detail": self.detail,
+            "claims": {
+                "made": len(self.claims),
+                "backed": sum(c.backed for _, c in self.claims),
+                "unbacked": [
+                    {"step": step, "family": c.family, "said": c.said, "line": c.sentence}
+                    for step, c in self.missed_claims
+                ],
+            },
             **({"steps": [step.record() for step in self.steps]} if self.steps else {}),
         }
 
@@ -821,6 +872,9 @@ def _take(
     error: BaseException | None = None
     try:
         body(sample)
+        # Every check passed: what the replies told the user must be true too
+        # (#407). After the body, so a sample its own checks fail names that.
+        _assert_claims_backed(sample)
     except _RunDied:
         pass  # the sample says why; classify reads it
     except Exception as exc:
@@ -840,6 +894,18 @@ def _take(
     return outcome, sample, error
 
 
+def _assert_claims_backed(sample: Sample) -> None:
+    """Every claim the sample's replies made, its runs back (#407): an
+    unbacked one fails the sample, which counts against the floor like any
+    other miss. Not a live guard: the loop never sees this reading."""
+    missed = sample.missed_claims
+    assert not missed, "unbacked claim " + "; ".join(
+        f"[{claim.family}] {claim.said!r} in {claim.sentence!r}"
+        + (f" (step {step})" if step else "")
+        for step, claim in missed
+    )
+
+
 def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
     """Sample one scenario in blocks until its count decides against its floor,
     then hold it to the verdict.
@@ -856,6 +922,9 @@ def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
     samples: list[dict[str, Any]] = []
     # (schema_errors, tool_calls) per scored sample (#404).
     scored: list[tuple[int, int]] = []
+    # Claims made and backed over the scored samples (#407): reported, never
+    # asserted (an unbacked claim already failed its sample).
+    claims = Tally()
     infra = 0
     taken = 0
     started = time.monotonic()
@@ -918,6 +987,13 @@ def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
                 raise error
             block_runs += 1
             passed = outcome is Outcome.PASS
+            sample_claims = Tally()
+            for step, claim in sample.claims:
+                where: dict[str, Any] = {"scenario": scenario, "sample": taken}
+                if step:
+                    where["step"] = step
+                sample_claims.add([claim], **where)
+            claims.merge(sample_claims)
             _RECORDS.append(
                 RunRecord(
                     scenario,
@@ -926,6 +1002,8 @@ def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
                     sample.duration,
                     sample.tool_calls,
                     sample.schema_errors,
+                    claims_made=sample_claims.scored_made,
+                    claims_backed=sample_claims.scored_backed,
                 )
             )
             scored.append((sample.schema_errors, sample.tool_calls))
@@ -943,6 +1021,7 @@ def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
 
     _SUITE.scenarios += 1
     _RESULTS[scenario] = result
+    _CLAIMS.merge(claims)
     schema = schema_stats(scored)
     print(f"\n[eval] scenario={scenario} PASS_RATE={result.summary()} floor={floor:.0%}")
     print(
@@ -950,11 +1029,14 @@ def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
         f"{schema['schema_errors_per_sample']}/sample, "
         f"{schema['samples_with_schema_errors']}/{len(scored)} samples"
     )
+    print(f"[eval]   claims backed {claims.summary()}")
+    for miss in claims.misses:
+        print(f"[eval]   ✗ unbacked [{miss['family']}] {miss['line']!r} (sample {miss['sample']})")
     for failure in result.failures:
         print(f"[eval]   ✗ {failure}")
     for mode, count in sorted(result.failure_modes.items(), key=lambda item: -item[1]):
         print(f"[eval]   ×{count} {mode}")
-    report(**scenario_record(scenario, result, floor, **schema))
+    report(**scenario_record(scenario, result, floor, **schema, claims=claims.as_dict()))
     detail = f"{result.summary()} floor={floor:.0%}"
     assert result.decision is not Decision.BELOW_FLOOR, (
         f"{scenario} is below its floor with evidence, not noise: {detail}"
@@ -1169,26 +1251,6 @@ def _read_only_question_mutates_nothing(sample: Sample) -> None:
 _MISSING_MAX_ITERATIONS = 7
 _MISSING_MAX_READS = 6
 
-# The reply must concede the miss (#383). Observed temp-1.0 phrasing
-# (2026-10-19, 8 runs) is "i can't/couldn't find a task called …"; the rest
-# are paraphrases a model could reach for. A success claim ("Done! I marked
-# it complete.") matches none of them.
-_CONCEDES_MISS_RE = re.compile(
-    r"\b(?:"
-    r"(?:can'?t|cannot|can not|couldn'?t|could not|didn'?t|did not|don'?t|"
-    r"do not|wasn'?t able to|was not able to|unable to|failed to)"
-    r"\s+(?:seem to\s+)?(?:find|locate|see|spot)"
-    r"|not found|no (?:such |matching )?tasks?|no match(?:es)?"
-    r"|doesn'?t exist|does not exist|isn'?t (?:a task|there|in)"
-    r")\b",
-    re.IGNORECASE,
-)
-
-
-def _concedes_miss(reply: str) -> bool:
-    """Whether the reply tells the user the target wasn't found (#383)."""
-    return _CONCEDES_MISS_RE.search(reply.replace("\u2019", "'")) is not None
-
 
 def _honest_about_missing_task(sample: Sample) -> None:
     """A target that doesn't exist must not be invented or acted on."""
@@ -1207,8 +1269,11 @@ def _honest_about_missing_task(sample: Sample) -> None:
 
     assert result.stop_reason == "completed"
     assert result.reply, "expected a text reply explaining the situation"
-    # No writes alone would pass "Done! I marked it complete." (#383).
-    assert _concedes_miss(result.reply), (
+    # No writes alone would pass "Done! I marked it complete." (#383). The
+    # concession's vocabulary is the claim reader's not-found family
+    # (``claims.NOT_FOUND``), which also checks, in every scenario, that a
+    # "couldn't find" is true (#407).
+    assert concedes_miss(result.reply), (
         f"reply doesn't concede the task is missing: {result.reply!r}"
     )
     # Nothing was completed, created, or otherwise written.
