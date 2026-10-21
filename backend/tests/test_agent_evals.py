@@ -22,15 +22,21 @@ are recorded there, and a regression here is what would ever justify
 revisiting the model choice or adding embeddings. ``-s`` shows the per-run
 ``[eval] …`` stats lines the baseline table is built from. The first call may
 cold-load the model (~100 s); everything after runs warm.
+
+``PCC_AGENT_EVALS_RUNS=N`` (default 1) runs every scenario N times — each run
+is its own pytest case, so a scenario passes only if all N pass — and prints a
+per-scenario table (pass rate, iteration and duration ranges) at the end. The
+aggregation lives in ``tests/eval_report.py`` (unit-tested without a GPU).
 """
 
 from __future__ import annotations
 
+import functools
 import os
 import re
 import threading
 import time
-from collections.abc import Generator, Sequence
+from collections.abc import Callable, Generator, Sequence
 from datetime import date, timedelta
 from typing import Any
 
@@ -54,11 +60,80 @@ from app.services import projects as projects_service
 from app.services import task_trash
 from app.services import tasks as tasks_service
 from app.tools import registry, runtime
+from tests.eval_report import (
+    RunRecord,
+    format_report,
+    runs_from_env,
+    summarize,
+)
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("PCC_AGENT_EVALS") != "1",
     reason="agent evals run the real model: set PCC_AGENT_EVALS=1",
 )
+
+# PCC_AGENT_EVALS_RUNS=N runs every scenario N times (default 1, unchanged
+# behavior); a scenario passes only if all N runs pass. With N > 1 a per-
+# scenario pass-rate table prints at the end of the module (-s).
+EVAL_RUNS = runs_from_env()
+
+_RECORDS: list[RunRecord] = []
+_current: dict[str, Any] = {}
+
+
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Fan each scenario out into EVAL_RUNS cases (plain parametrize, no plugin)."""
+    if EVAL_RUNS > 1 and "eval_run" in metafunc.fixturenames:
+        metafunc.parametrize(
+            "eval_run",
+            range(1, EVAL_RUNS + 1),
+            ids=[f"run{n}" for n in range(1, EVAL_RUNS + 1)],
+        )
+
+
+@pytest.fixture(autouse=True)
+def eval_run() -> int:
+    """Run number; overridden by the parametrization when EVAL_RUNS > 1."""
+    return 1
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _eval_summary() -> Generator[None, None, None]:
+    yield
+    if EVAL_RUNS > 1:
+        print(f"\n{format_report(summarize(_RECORDS))}")
+
+
+def eval_scenario(name: str) -> Callable[[Callable[..., None]], Callable[..., None]]:
+    """Record each run's outcome (pass/fail, iterations, duration) by scenario.
+
+    The test still asserts as before, so a failing run fails its own case; the
+    record is what the end-of-module report (and a future statistical gate,
+    #403) reads.
+    """
+
+    def decorate(fn: Callable[..., None]) -> Callable[..., None]:
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> None:
+            _current.clear()
+            passed = False
+            try:
+                fn(*args, **kwargs)
+                passed = True
+            finally:
+                _RECORDS.append(
+                    RunRecord(
+                        name,
+                        passed,
+                        _current.get("iterations"),
+                        _current.get("duration"),
+                    )
+                )
+
+        return wrapper
+
+    return decorate
+
 
 def _is_read(tool: str) -> bool:
     return tool in registry.read_only_tool_names()
@@ -94,6 +169,7 @@ def _report(scenario: str, result: AgentRunResult, duration: float) -> None:
         record.tool + ("!" if record.error is not None else "")
         for record in result.tool_calls
     )
+    _current.update(iterations=result.iterations, duration=duration)
     print(
         f"\n[eval] scenario={scenario} stop={result.stop_reason} "
         f"iterations={result.iterations} duration={duration:.1f}s "
@@ -148,6 +224,7 @@ def _event_count(db: Session) -> int:
 # --- Scenarios ----------------------------------------------------------------
 
 
+@eval_scenario("create_task_with_fields")
 def test_eval_create_task_with_fields(eval_db: sessionmaker[Session]) -> None:
     """Create with every field: title, project routing, priority, date math."""
     with eval_db() as db:
@@ -176,6 +253,7 @@ def test_eval_create_task_with_fields(eval_db: sessionmaker[Session]) -> None:
         assert events and all(e.actor == LOOP_ACTOR for e in events)
 
 
+@eval_scenario("find_and_complete")
 def test_eval_find_and_complete(eval_db: sessionmaker[Session]) -> None:
     """Retrieval tripwire: the task is described, not named — look it up, then act."""
     with eval_db() as db:
@@ -209,6 +287,7 @@ def test_eval_find_and_complete(eval_db: sessionmaker[Session]) -> None:
         assert tasks["Rake the leaves"] == TaskWorkflowStatus.open
 
 
+@eval_scenario("reschedule")
 def test_eval_reschedule(eval_db: sessionmaker[Session]) -> None:
     """Targeted field update: change the due date, touch nothing else.
 
@@ -244,6 +323,7 @@ def test_eval_reschedule(eval_db: sessionmaker[Session]) -> None:
         assert updated.title == "Quarterly report"
 
 
+@eval_scenario("delete_is_soft")
 def test_eval_delete_is_soft_and_restorable(eval_db: sessionmaker[Session]) -> None:
     """The only delete the agent has is the trash; the row must be restorable."""
     with eval_db() as db:
@@ -316,6 +396,7 @@ def _numbers_in(reply: str) -> list[int]:
     ]
 
 
+@eval_scenario("read_only_count")
 def test_eval_read_only_question_mutates_nothing(
     eval_db: sessionmaker[Session],
 ) -> None:
@@ -371,6 +452,7 @@ def _concedes_miss(reply: str) -> bool:
     return _CONCEDES_MISS_RE.search(reply.replace("\u2019", "'")) is not None
 
 
+@eval_scenario("honest_about_missing")
 def test_eval_honest_about_missing_task(eval_db: sessionmaker[Session]) -> None:
     """A target that doesn't exist must not be invented or acted on."""
     with eval_db() as db:
@@ -425,6 +507,7 @@ def test_eval_honest_about_missing_task(eval_db: sessionmaker[Session]) -> None:
     )
 
 
+@eval_scenario("delegate_actor")
 def test_eval_delegate_actor_attribution(
     client: TestClient, db_session: Session, eval_db: sessionmaker[Session]
 ) -> None:

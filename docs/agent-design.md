@@ -157,6 +157,13 @@ runtime. Asserts trajectory *shape* + DB end-state + audit invariants, never
 exact sequences (temp 1.0). **Gate: prompt/model/loop changes must not
 regress this baseline.**
 
+`PCC_AGENT_EVALS_RUNS=N` (default 1) repeats every scenario N times — each run
+is its own pytest case with a fresh DB, so the gate is "all N pass", matching
+the "N consecutive suites" baseline below. With N > 1 and `-s`, an end-of-run
+table gives each scenario's pass rate (k/N), min–max iterations and min–max
+duration (the first call can include a cold model load). Aggregation is in
+`tests/eval_report.py`, unit-tested in CI without a GPU.
+
 **Baseline (gemma-4-12b UD-Q4_K_XL, 2026-07-11, 4 consecutive suites, 24/24;
 re-confirmed under the layered personality 2026-07-11, the context budget
 2026-08-05, and llama-swap serving 2026-10-18 — 4 consecutive suites, 28/28
