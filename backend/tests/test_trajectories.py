@@ -35,7 +35,6 @@ from tests.trajectory import (
     CORPUS_LENGTH,
     INVARIANTS,
     KNOWN_BUGS,
-    PROVIDER_CRASH_DROPS_TRAJECTORY,
     TOOL_WEIGHTS,
     UNSKIP_PURGES_ROWS,
     ChatEvent,
@@ -110,9 +109,9 @@ NAMED: dict[str, tuple[str, tuple[Step, ...]]] = {
         ),
     ),
     # The provider raises a non-ProviderError after a call already ran: the
-    # saved turn says nothing ran.
+    # run ends internal_error, and the saved turn and the trace keep the call.
     "provider_crash_after_a_write": (
-        f"known-bug:{PROVIDER_CRASH_DROPS_TRAJECTORY}",
+        "prevents",
         (Step((calls(_create("Ran")), reply()), fault=Fault("provider_crashes", "chat", 1)),),
     ),
     # Skip a recurring occurrence, then restore it: the un-skip rewind purges
@@ -212,9 +211,11 @@ def test_every_named_case_says_what_it_is() -> None:
 
 def test_a_known_bug_passes_the_corpus_but_not_a_named_case() -> None:
     """The tolerance is the corpus's alone: the same steps, tolerant, pass."""
-    _, steps = NAMED["provider_crash_after_a_write"]
+    _, steps = NAMED["restore_a_skipped_occurrence"]
     log = run_steps(steps, tolerate_known_bugs=True)
-    assert log[0].known_bugs == [PROVIDER_CRASH_DROPS_TRAJECTORY]
+    # Noted once per purged row; the restore is the second step.
+    assert log[0].known_bugs == []
+    assert set(log[1].known_bugs) == {UNSKIP_PURGES_ROWS}
 
 
 # --- the instrument's own checks ----------------------------------------------------------

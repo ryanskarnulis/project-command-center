@@ -453,6 +453,47 @@ def test_provider_failure_mid_run_keeps_the_partial_trajectory(
     assert failed.result.tool_calls[0].error is None  # the tool itself succeeded
 
 
+def test_provider_crash_mid_run_keeps_the_partial_trajectory(
+    tool_db: sessionmaker[Session],
+) -> None:
+    """A tool runs, then the provider raises something that is not a
+    ProviderError (a bug in it): internal_error → 500, still carrying the call
+    that ran and committed, its answer in the transcript (#456)."""
+    provider = ScriptedProvider(
+        [
+            _calls(("create_task", {"data": {"title": "Ran before the crash"}})),
+            RuntimeError("provider bug"),
+        ]
+    )
+    with pytest.raises(AgentRunFailed) as exc_info:
+        AgentLoop(provider).run("Do a thing")
+
+    failed = exc_info.value
+    assert failed.http_status == 500
+    assert failed.result.stop_reason == "internal_error"
+    assert failed.result.iterations == 2
+    assert [r.tool for r in failed.result.tool_calls] == ["create_task"]
+    assert failed.result.tool_calls[0].error is None  # the tool itself succeeded
+    assert [m["role"] for m in failed.result.messages[-2:]] == ["assistant", "tool"]
+    assert "provider bug" in str(failed)
+
+
+def test_provider_crash_on_the_first_call_fails_with_nothing_run(
+    tool_db: sessionmaker[Session],
+) -> None:
+    """The same crash before any tool ran: internal_error, no calls, and the
+    transcript is just the request that was sent."""
+    provider = ScriptedProvider([RuntimeError("provider bug")])
+    with pytest.raises(AgentRunFailed) as exc_info:
+        AgentLoop(provider).run("Do a thing")
+
+    result = exc_info.value.result
+    assert result.stop_reason == "internal_error"
+    assert result.iterations == 1
+    assert result.tool_calls == []
+    assert result.messages[-1] == {"role": "user", "content": "Do a thing"}
+
+
 def test_passed_deadline_times_out_before_calling_the_provider(
     tool_db: sessionmaker[Session],
 ) -> None:

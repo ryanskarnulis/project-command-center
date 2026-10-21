@@ -1031,7 +1031,6 @@ class Harness:
 # ``test_trajectories.py`` (xfail until fixed). Delete an entry with its fix:
 # the named case then passes and its xfail turns strict-red, and the corpus
 # stops tolerating the shape.
-PROVIDER_CRASH_DROPS_TRAJECTORY = "provider_crash_drops_trajectory"
 UNSKIP_PURGES_ROWS = "unskip_purges_rows"
 KNOWN_BUGS: dict[str, str] = {
     UNSKIP_PURGES_ROWS: (
@@ -1039,11 +1038,6 @@ KNOWN_BUGS: dict[str, str] = {
         "hard-deletes the skipped row (and its trashed subtree, focus entries and "
         "dependency edges): a purge reachable from the agent, which the registry "
         "says is structurally impossible and CLAUDE.md forbids"
-    ),
-    PROVIDER_CRASH_DROPS_TRAJECTORY: (
-        "a provider raising anything but a ProviderError reaches AgentLoop.run's "
-        "backstop, which saves the assistant turn with no tool calls even when "
-        "calls already ran and committed"
     ),
 }
 
@@ -1116,15 +1110,6 @@ def check_saved_turn_is_what_ran(observed: Observed) -> None:
         )
     dispatched = [(tool.name, tool.arguments) for tool in observed.tools]
     recorded = [(r.tool, r.arguments) for r in result.tool_calls if _ran(r.error)]
-    if (
-        dispatched
-        and not recorded
-        and result.stop_reason == "internal_error"
-        and observed.step.fault is not None
-        and observed.step.fault.kind == "provider_crashes"
-        and _known(observed, PROVIDER_CRASH_DROPS_TRAJECTORY)
-    ):
-        return
     if dispatched != recorded:
         raise InvariantBreach(f"the registry ran {dispatched} but the turn says {recorded}")
     ran = [r for r in result.tool_calls if _ran(r.error)]

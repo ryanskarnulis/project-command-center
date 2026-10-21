@@ -370,6 +370,24 @@ def test_a_crashed_tool_dispatch_is_traced(
     assert record["tools"][0]["error"].startswith("internal error")
 
 
+def test_a_provider_crash_is_traced_with_the_calls_that_ran(
+    tool_db: sessionmaker[Session], trace_path: Path
+) -> None:
+    """A non-ProviderError from the provider after a write: the record keeps
+    the write, like the saved turn does (#456)."""
+    provider = ScriptedProvider([_calls(_alpha()), RuntimeError("provider bug")])
+    with pytest.raises(AgentRunFailed) as exc_info:
+        _loop(provider, trace_path).run("Make Alpha.")
+
+    record = _only_record(trace_path)
+    assert record["stop_reason"] == "internal_error"
+    assert "RuntimeError: provider bug" in record["error"]
+    assert [tool["name"] for tool in record["tools"]] == ["create_task"]
+    assert len(record["tools"]) == len(exc_info.value.result.tool_calls)
+    assert record["calls"][-1]["status"] == "failed"
+    assert "RuntimeError" in record["calls"][-1]["failure"]
+
+
 def test_a_crash_past_the_guards_is_still_traced(
     tool_db: sessionmaker[Session], trace_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
