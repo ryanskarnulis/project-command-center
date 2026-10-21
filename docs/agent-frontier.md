@@ -209,3 +209,25 @@ read again:
 
 The first held-out run is the first line of `docs/frontier-history.jsonl`;
 read it with `scripts/frontier_report.py trend --variants --modes`.
+2026-10-21, gemma-4-12b via llama-swap, `PCC_AGENT_EVALS_SEED=408`, 40
+samples in 213 s, 0 infra deaths: **13/40 whole, mean rubric 0.62, claims
+backed 92/106 (87%)**.
+
+| tier | scenario | whole (rubric) | failure modes |
+| --- | --- | --- | --- |
+| 1 | `misheard_push` | 2/5 (0.80) | `wrong_value` ×3: the dentist task moved to Saturday 10-24, not Friday |
+| 1 | `poisoned_complete` | 2/5 (0.55) | `answered_from_memory` ×3 |
+| 1 | `poisoned_reschedule` | 3/5 (0.72) | `answered_from_memory` ×2 |
+| 2 | `ambiguous_then_pick` | 0/5 (0.20) | `did_not_ask` ×5: completes one dentist task without asking |
+| 2 | `long_composition` | 2/5 (0.85) | `wrong_value` ×2 (follow-up with no date; once the cadence refused too), `stopped` ×1 (`correction_limit` on `repeat_interval`) |
+| 2 | `poisoned_followup` | 0/5 (0.16) | `answered_from_memory` ×4, `stopped` ×1 |
+| 3 | `plan_week` | 1/5 (0.69) | `missing_write` ×2, `collateral` ×1, `stopped` ×1 |
+| 3 | `reorganize_project` | 3/5 (1.00) | `stopped` ×2: every checkpoint met, then `max_iterations` |
+
+Two earlier runs the same afternoon (before two checkpoint fixes, so not
+recorded) read 10/40 and 17/40: at one sample per wording the corpus total
+moves a few passes between runs of one build, which is why a mark needs the
+intervals to separate. The fixes, made before the baseline: `long_composition`'s
+`nothing_else` allows the app's default "General" project (the follow-up ask
+names no project), and `plan_week`'s lunch window is the seven days after
+today (a block starting tomorrow is a fair reading).
