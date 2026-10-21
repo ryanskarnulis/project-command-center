@@ -32,7 +32,10 @@ mcp = FastMCP(
 )
 
 for _registered in registry.all_tools():
-    mcp.add_tool(_registered.fn)
+    # The registry's description (``inspect.getdoc``, cleaned), not FastMCP's
+    # raw ``__doc__``: Python 3.13+ dedents docstrings at compile time and
+    # 3.11 doesn't, so the raw form would differ by interpreter (#402).
+    mcp.add_tool(_registered.fn, description=_registered.description)
 
 
 def main() -> None:

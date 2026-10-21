@@ -81,3 +81,13 @@ def test_the_fixture_holds_every_registry_tool_on_both_surfaces() -> None:
     names = [tool.name for tool in registry.all_tools()]
     assert [tool["function"]["name"] for tool in pinned["agent"]] == names
     assert sorted(tool["name"] for tool in pinned["mcp"]) == sorted(names)
+
+
+def test_mcp_descriptions_are_the_registry_s_cleaned_docstrings() -> None:
+    """Both surfaces carry the ``inspect.getdoc`` form, which is the same on
+    every interpreter (3.13+ dedents ``__doc__`` at compile time, 3.11 does
+    not), so the fixture holds one set of bytes for CI and the image alike."""
+    emitted = _emitted()
+    agent = {tool["function"]["name"]: tool["function"]["description"] for tool in emitted["agent"]}
+    mcp_side = {tool["name"]: tool["description"] for tool in emitted["mcp"]}
+    assert mcp_side == agent

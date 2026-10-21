@@ -2191,7 +2191,7 @@
     },
     {
       "name": "update_task",
-      "description": "Partially update a task; only the fields present in `changes` are touched.\n\nA parent's estimated_minutes is derived from its subtasks and cannot be set. Its\nworkflow_status may be set to open or in_progress while every subtask is still\nopen; done is reached only by completing the subtasks. A blocked task cannot be\nmarked done. Recurring tasks accept edit_scope \"this\" (default) or \"future\".\n",
+      "description": "Partially update a task; only the fields present in `changes` are touched.\n\nA parent's estimated_minutes is derived from its subtasks and cannot be set. Its\nworkflow_status may be set to open or in_progress while every subtask is still\nopen; done is reached only by completing the subtasks. A blocked task cannot be\nmarked done. Recurring tasks accept edit_scope \"this\" (default) or \"future\".",
       "inputSchema": {
         "$defs": {
           "RepeatInterval": {
@@ -3191,7 +3191,7 @@
     },
     {
       "name": "trash_task",
-      "description": "Move a task to the trash, together with all of its subtasks.\n\nUndo with restore_task(task_id, restore_subtasks=True), which brings back\nthe same set. Plain restore_task(task_id) returns only this task and leaves\nits subtasks in the trash.\n",
+      "description": "Move a task to the trash, together with all of its subtasks.\n\nUndo with restore_task(task_id, restore_subtasks=True), which brings back\nthe same set. Plain restore_task(task_id) returns only this task and leaves\nits subtasks in the trash.",
       "inputSchema": {
         "properties": {
           "task_id": {
@@ -3223,7 +3223,7 @@
     },
     {
       "name": "restore_task",
-      "description": "Restore a trashed task (see list_trash for what is restorable).\n\nSet restore_subtasks=True to also restore the subtasks that were trashed\ntogether with this task — that is the exact undo of a trash_task call.\nSubtasks the user had trashed separately beforehand stay in the trash.\n",
+      "description": "Restore a trashed task (see list_trash for what is restorable).\n\nSet restore_subtasks=True to also restore the subtasks that were trashed\ntogether with this task — that is the exact undo of a trash_task call.\nSubtasks the user had trashed separately beforehand stay in the trash.",
       "inputSchema": {
         "properties": {
           "task_id": {
@@ -5964,7 +5964,7 @@
     },
     {
       "name": "pin_focus_task",
-      "description": "Pin a task into the Focus plan for `date` (default: today) so it never lands in \"Didn't fit\".\n\nWith start_time (HH:MM) it becomes a fixed block at that time; without, it\njoins the day ahead of the ranked work. Pinning an already pinned task moves\nit. Undo with remove_focus_entry(entry_id).\n",
+      "description": "Pin a task into the Focus plan for `date` (default: today) so it never lands in \"Didn't fit\".\n\nWith start_time (HH:MM) it becomes a fixed block at that time; without, it\njoins the day ahead of the ranked work. Pinning an already pinned task moves\nit. Undo with remove_focus_entry(entry_id).",
       "inputSchema": {
         "properties": {
           "task_id": {
@@ -6185,7 +6185,7 @@
     },
     {
       "name": "add_focus_commitment",
-      "description": "Block fixed time in the Focus plan for something that is not a task, e.g. a 14:00 meeting.\n\nThe plan packs tasks around it. Undo with remove_focus_entry(entry_id).\n",
+      "description": "Block fixed time in the Focus plan for something that is not a task, e.g. a 14:00 meeting.\n\nThe plan packs tasks around it. Undo with remove_focus_entry(entry_id).",
       "inputSchema": {
         "properties": {
           "title": {
@@ -6406,7 +6406,7 @@
     },
     {
       "name": "reorder_focus_pins",
-      "description": "Reorder the pinned tasks in the Focus plan for `date` (default: today), first to last.\n\nentry_ids are pin entry_ids from get_focus_plan; pins left out keep their\nplace. Commitments and pins at a fixed time keep their own times. Undo by\nreordering back.\n",
+      "description": "Reorder the pinned tasks in the Focus plan for `date` (default: today), first to last.\n\nentry_ids are pin entry_ids from get_focus_plan; pins left out keep their\nplace. Commitments and pins at a fixed time keep their own times. Undo by\nreordering back.",
       "inputSchema": {
         "properties": {
           "entry_ids": {
@@ -6635,7 +6635,7 @@
     },
     {
       "name": "remove_focus_entry",
-      "description": "Unpin a task or drop a commitment from the Focus plan (entry_id from get_focus_plan).\n\nUndo with restore_focus_entry(entry_id).\n",
+      "description": "Unpin a task or drop a commitment from the Focus plan (entry_id from get_focus_plan).\n\nUndo with restore_focus_entry(entry_id).",
       "inputSchema": {
         "properties": {
           "entry_id": {
