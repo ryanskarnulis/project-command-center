@@ -249,6 +249,8 @@ why in the PR.
 | `focus_pin_and_commitment` | "pin at 2pm, block 12 to 1 for lunch": one timed pin on the right task, one non-repeating 60-min commitment, nothing else, audit (#378) | 4 | 2.5–2.6 s |
 | `focus_remove_is_soft` | dropping a commitment soft-deletes it and the service restores it whole; the pin stays (#378) | 3 | 1.5–1.6 s |
 | `focus_skip_series` | today's standup skipped via `skip_focus_occurrence`, never `skip_occurrence` on the "standup notes" recurring task beside it; tomorrow still happens (#378) | 3 | 2.0 s |
+| `dependency_add` | "X is blocked by Y" (titles as stored): exactly one edge, X waits on Y, X blocked and Y not, audit (#385). One of five first tried `remove_dependency` (refused) and recovered | 3–7 | 1.6–3.4 s |
+| `dependency_remove` | drop one of two blockers: that edge soft-deleted, the other kept, no task trashed, audit (#385) | 4–5 | 2.0–2.4 s |
 
 Standing observations: self-correction pays for itself (the recurring gemma
 `name`/`title` miss always fixes on feedback); FTS5 retrieval is sufficient —

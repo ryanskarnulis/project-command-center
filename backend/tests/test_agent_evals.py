@@ -93,12 +93,14 @@ from app.db.models import (
     FocusPlanEntry,
     Project,
     Task,
+    TaskDependency,
     TaskWorkflowStatus,
 )
 from app.db.session import enable_sqlite_fk_enforcement, get_db, get_db_write
 from app.main import app
 from app.services import focus_plan as focus_plan_service
 from app.services import projects as projects_service
+from app.services import task_dependencies as deps_service
 from app.services import task_trash
 from app.services import tasks as tasks_service
 from app.tools import registry, runtime
@@ -147,6 +149,8 @@ _FLOORS: dict[str, float] = {
         "focus_pin_and_commitment",
         "focus_remove_is_soft",
         "focus_skip_series",
+        "dependency_add",
+        "dependency_remove",
     )
 }
 
@@ -1110,6 +1114,74 @@ def _focus_skip_series_not_task(sample: Sample) -> None:
         _assert_run_events_are_the_loops(db, last_seed_event)
 
 
+def _dependency_add(sample: Sample) -> None:
+    """"X is blocked by Y": one edge, pointing the right way (#385).
+
+    Direction is the trap: ``add_dependency(task_id, depends_on_task_id)``
+    makes ``task_id`` wait, so the blocked task is the first argument.
+    """
+    with sample.db() as db:
+        garage = projects_service.create_project(db, name="Garage")
+        paint = tasks_service.create_task(db, project_id=garage.id, title="Paint the walls")
+        primer = tasks_service.create_task(db, project_id=garage.id, title="Buy primer")
+        tasks_service.create_task(db, project_id=garage.id, title="Sweep the floor")
+        paint_id, primer_id = paint.id, primer.id
+        db.commit()
+        last_seed_event = _last_event_id(db)
+
+    # Titles are named as stored: paraphrase retrieval ("painting", "buying")
+    # is search's problem, not this scenario's (#444).
+    result = sample.run('"Paint the walls" is blocked by "Buy primer".')
+
+    assert result.stop_reason == "completed"
+    assert _successful(result, "add_dependency"), "expected a successful add_dependency"
+    with sample.db() as db:
+        edges = db.execute(
+            select(TaskDependency).where(TaskDependency.deleted_at.is_(None))
+        ).scalars().all()
+        assert [(e.task_id, e.depends_on_task_id) for e in edges] == [
+            (paint_id, primer_id)
+        ], f"edges (waiter, blocker): {[(e.task_id, e.depends_on_task_id) for e in edges]}"
+        assert deps_service.is_blocked(db, paint_id)
+        assert not deps_service.is_blocked(db, primer_id)
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+
+def _dependency_remove(sample: Sample) -> None:
+    """Drop one of two blockers; the edge is soft-deleted, the other stays (#385)."""
+    with sample.db() as db:
+        garage = projects_service.create_project(db, name="Garage")
+        paint = tasks_service.create_task(db, project_id=garage.id, title="Paint the walls")
+        primer = tasks_service.create_task(db, project_id=garage.id, title="Buy primer")
+        sweep = tasks_service.create_task(db, project_id=garage.id, title="Sweep the floor")
+        primer_edge = deps_service.add_dependency(db, paint.id, primer.id)
+        sweep_edge = deps_service.add_dependency(db, paint.id, sweep.id)
+        paint_id, primer_edge_id, sweep_edge_id = paint.id, primer_edge.id, sweep_edge.id
+        db.commit()
+        last_seed_event = _last_event_id(db)
+
+    result = sample.run(
+        '"Paint the walls" doesn\'t need to wait on "Sweep the floor" any more.'
+    )
+
+    assert result.stop_reason == "completed"
+    assert _successful(result, "remove_dependency"), (
+        "expected a successful remove_dependency"
+    )
+    with sample.db() as db:
+        assert [e.id for e in deps_service.list_dependencies(db, paint_id)] == [
+            primer_edge_id
+        ]
+        removed = db.get(TaskDependency, sweep_edge_id)
+        assert removed is not None and removed.deleted_at is not None, (
+            "the edge must be soft-deleted, not gone"
+        )
+        assert db.execute(
+            select(func.count()).select_from(Task).where(Task.deleted_at.is_(None))
+        ).scalar_one() == 3, "no task may be trashed to drop a dependency"
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+
 # --- The gate: one pytest case per scenario -------------------------------------
 
 
@@ -1151,3 +1223,11 @@ def test_eval_focus_remove_is_soft() -> None:
 
 def test_eval_focus_skip_series() -> None:
     _gate("focus_skip_series", _focus_skip_series_not_task)
+
+
+def test_eval_dependency_add() -> None:
+    _gate("dependency_add", _dependency_add)
+
+
+def test_eval_dependency_remove() -> None:
+    _gate("dependency_remove", _dependency_remove)
