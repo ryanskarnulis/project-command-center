@@ -33,7 +33,6 @@ from app.ai.loop import LOOP_ACTOR, AgentRunResult, ToolCallRecord
 from app.tools import registry
 from tests.trajectory import (
     CORPUS_LENGTH,
-    CRASH_LEAVES_BATCH_UNANSWERED,
     INVARIANTS,
     KNOWN_BUGS,
     PROVIDER_CRASH_DROPS_TRAJECTORY,
@@ -99,10 +98,10 @@ _RECURRING = (
 
 NAMED: dict[str, tuple[str, tuple[Step, ...]]] = {
     # SQLite fails inside the first call of a three-call batch: the run ends
-    # internal_error, and the two calls after it are neither run, recorded nor
-    # answered.
+    # internal_error, and the two calls after it are recorded and answered as
+    # not run.
     "db_error_mid_batch": (
-        f"known-bug:{CRASH_LEAVES_BATCH_UNANSWERED}",
+        "prevents",
         (
             Step(
                 (calls(_create("One"), _create("Two"), _create("Three")), reply()),
@@ -213,9 +212,9 @@ def test_every_named_case_says_what_it_is() -> None:
 
 def test_a_known_bug_passes_the_corpus_but_not_a_named_case() -> None:
     """The tolerance is the corpus's alone: the same steps, tolerant, pass."""
-    _, steps = NAMED["db_error_mid_batch"]
+    _, steps = NAMED["provider_crash_after_a_write"]
     log = run_steps(steps, tolerate_known_bugs=True)
-    assert log[0].known_bugs == [CRASH_LEAVES_BATCH_UNANSWERED]
+    assert log[0].known_bugs == [PROVIDER_CRASH_DROPS_TRAJECTORY]
 
 
 # --- the instrument's own checks ----------------------------------------------------------
