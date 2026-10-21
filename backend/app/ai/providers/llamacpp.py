@@ -20,13 +20,15 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Any, TypeVar
 
 import httpx
 import structlog
 from pydantic import BaseModel, Field, ValidationError
 
+from app.ai.context_capture import CallStamp, ContextCapture, context_capture_from_settings
 from app.config import get_settings
 
 logger = structlog.get_logger(__name__)
@@ -38,6 +40,10 @@ _TEMPERATURE = 1.0
 _TOP_P = 0.95
 _TOP_K = 64
 _CONNECT_TIMEOUT_SECONDS = 10.0
+# How long the context capture (#401) waits for llama-server to render a
+# call's template. Rendering is string work with no generation behind it, so
+# this is a ceiling for a server that went away, never a wait anyone meets.
+_TEMPLATE_TIMEOUT_SECONDS = 5.0
 
 
 class ProviderError(Exception):
@@ -213,6 +219,16 @@ def tool_result_message(tool_call_id: str, content: str) -> dict[str, Any]:
 
 
 TStructured = TypeVar("TStructured", bound=BaseModel)
+TParsed = TypeVar("TParsed")
+
+
+@dataclass
+class _Wire:
+    """How far one captured call got: the request once built, the response
+    once it arrived (#401)."""
+
+    request: httpx.Request | None = None
+    response: httpx.Response | None = None
 
 
 class LlamaCppProvider:
@@ -221,6 +237,11 @@ class LlamaCppProvider:
     Synchronous by design, matching the sync service layer and MCP server;
     FastAPI runs sync callers in worker threads. ``client`` is injectable for
     tests (``httpx.MockTransport``); otherwise the provider owns one.
+
+    ``capture``, when given, keeps every call's exact request and response
+    bytes and the prompt the server's chat template rendered from them
+    (:mod:`app.ai.context_capture`, #401). ``None`` — the default — sends one
+    request per call and records nothing.
     """
 
     def __init__(
@@ -230,9 +251,14 @@ class LlamaCppProvider:
         *,
         timeout_seconds: float = 300.0,
         client: httpx.Client | None = None,
+        capture: ContextCapture | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
+        self._capture = capture
+        # llama-swap's root: ``/upstream/<model>/apply-template`` hangs off it,
+        # not off the OpenAI ``/v1`` prefix.
+        self._root = self._base_url.removesuffix("/v1")
         # One generous read timeout rather than a special-cased first request:
         # a cold load through llama-swap is ~100 s before the first byte
         # (docs/agent-design.md, "Runtime"), and warm calls never get near it.
@@ -274,7 +300,7 @@ class LlamaCppProvider:
         payload = self._payload(
             messages, tools=tools, enable_thinking=enable_thinking, max_tokens=max_tokens
         )
-        return self._result(self._post(payload, timeout=timeout))
+        return self._post(payload, self._result, timeout=timeout)
 
     def chat_structured(
         self,
@@ -299,15 +325,19 @@ class LlamaCppProvider:
                 "schema": schema.model_json_schema(),
             },
         }
-        result = self._result(self._post(payload))
-        if result.content is None:
-            raise ProviderResponseError("structured completion returned no content")
-        try:
-            return schema.model_validate_json(result.content)
-        except ValidationError as exc:
-            raise ProviderResponseError(
-                f"structured output failed {schema.__name__} validation: {exc}"
-            ) from exc
+
+        def parse(completion: _WireCompletion) -> TStructured:
+            result = self._result(completion)
+            if result.content is None:
+                raise ProviderResponseError("structured completion returned no content")
+            try:
+                return schema.model_validate_json(result.content)
+            except ValidationError as exc:
+                raise ProviderResponseError(
+                    f"structured output failed {schema.__name__} validation: {exc}"
+                ) from exc
+
+        return self._post(payload, parse)
 
     def _payload(
         self,
@@ -335,8 +365,44 @@ class LlamaCppProvider:
         return payload
 
     def _post(
-        self, payload: dict[str, Any], *, timeout: float | None = None
+        self,
+        payload: dict[str, Any],
+        parse: Callable[[_WireCompletion], TParsed],
+        *,
+        timeout: float | None = None,
+    ) -> TParsed:
+        """Send one completion request and ``parse`` its validated body.
+
+        ``parse`` runs inside the call so the context capture (#401) records
+        whatever typed error the call ends in — a bad tool-call argument or a
+        failed structured schema included — beside the bytes behind it.
+        """
+        stamp = self._begin_capture()
+        if stamp is None:
+            return parse(self._exchange(payload, timeout, None))
+        started = time.monotonic()
+        wire = _Wire()
+        error: Exception | None = None
+        try:
+            return parse(self._exchange(payload, timeout, wire))
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            self._capture_call(stamp, wire, error, started)
+
+    def _exchange(
+        self,
+        payload: dict[str, Any],
+        timeout: float | None,
+        wire: _Wire | None,
     ) -> _WireCompletion:
+        """One request/response round trip, validated against the wire models.
+
+        With ``wire`` given (capture on), the request is kept on it before it
+        goes out and the response as soon as it arrives, so the capture holds
+        however far the call got, however it ended.
+        """
         log = logger.bind(llm_call_id=uuid.uuid4().hex[:8], model=self._model)
         log.info(
             "llm_request",
@@ -353,16 +419,25 @@ class LlamaCppProvider:
             if timeout is None
             else httpx.Timeout(timeout, connect=min(_CONNECT_TIMEOUT_SECONDS, timeout))
         )
+        # Built once and then sent — exactly what ``post(json=...)`` does, so
+        # the bytes on the wire are unchanged — which makes ``request.content``
+        # literally what went out: what the context capture keeps.
+        request = self._client.build_request(
+            "POST",
+            f"{self._base_url}/chat/completions",
+            json=payload,
+            timeout=request_timeout,
+        )
+        if wire is not None:
+            wire.request = request
         started = time.monotonic()
         try:
-            response = self._client.post(
-                f"{self._base_url}/chat/completions",
-                json=payload,
-                timeout=request_timeout,
-            )
+            response = self._client.send(request)
         except httpx.HTTPError as exc:
             log.error("llm_request_failed", error=str(exc))
             raise ProviderRequestError(f"llama-server request failed: {exc}") from exc
+        if wire is not None:
+            wire.response = response
         duration_ms = round((time.monotonic() - started) * 1000)
         if response.status_code != 200:
             log.error("llm_request_failed", status=response.status_code, duration_ms=duration_ms)
@@ -386,6 +461,76 @@ class LlamaCppProvider:
             completion_tokens=completion.usage.completion_tokens if completion.usage else None,
         )
         return completion
+
+    def _begin_capture(self) -> CallStamp | None:
+        if self._capture is None:
+            return None
+        try:
+            return self._capture.begin()
+        except Exception as exc:
+            logger.warning(
+                "context_capture_failed", error=str(exc), error_type=type(exc).__name__
+            )
+            return None
+
+    def _capture_call(
+        self,
+        stamp: CallStamp,
+        wire: _Wire,
+        error: Exception | None,
+        started: float,
+    ) -> None:
+        """Hand one finished call to the capture. Never raises: the call's own
+        outcome — a result or its typed error — is what the run gets."""
+        assert self._capture is not None
+        try:
+            request, response = wire.request, wire.response
+            self._capture.record(
+                stamp,
+                {
+                    "url": None if request is None else str(request.url),
+                    "ms": round((time.monotonic() - started) * 1000),
+                    "request": None if request is None else _body_text(request.content),
+                    "status_code": None if response is None else response.status_code,
+                    "response": None if response is None else _body_text(response.content),
+                    "error": "" if error is None else f"{type(error).__name__}: {error}",
+                    # A server that never answered cannot render either; asking
+                    # would only stall a run that is already failing.
+                    "template": None
+                    if request is None or response is None
+                    else self._render_template(request.content),
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                "context_capture_failed", error=str(exc), error_type=type(exc).__name__
+            )
+
+    def _render_template(self, body: bytes) -> dict[str, str]:
+        """The prompt string llama-server's chat template renders from ``body``.
+
+        Asked of the server rather than re-rendered here: the text the model
+        tokenized is whatever *its* ``--jinja`` template makes of these
+        messages and tools, and a copy of the template in this repo would be a
+        second truth that drifts. The same bytes go to ``apply-template`` as
+        went to ``/chat/completions``. llama-swap routes it only under
+        ``/upstream/<model>/`` (``/v1/apply-template`` is a 404).
+        """
+        try:
+            response = self._client.post(
+                f"{self._root}/upstream/{self._model}/apply-template",
+                content=body,
+                headers={"content-type": "application/json"},
+                timeout=_TEMPLATE_TIMEOUT_SECONDS,
+            )
+            if response.status_code != 200:
+                return {"error": f"HTTP {response.status_code}: {response.text[:500]}"}
+            prompt = response.json().get("prompt")
+            if not isinstance(prompt, str):
+                return {"error": "apply-template answered without a prompt string"}
+            return {"prompt": prompt}
+        except Exception as exc:
+            return {"error": f"{type(exc).__name__}: {exc}"}
 
     @staticmethod
     def _result(completion: _WireCompletion) -> ChatResult:
@@ -425,10 +570,21 @@ class LlamaCppProvider:
 
 
 def provider_from_settings() -> LlamaCppProvider:
-    """The provider as configured (``LLAMACPP_*`` env / ``.env``)."""
+    """The provider as configured (``LLAMACPP_*`` env / ``.env``), capturing
+    every call's bytes when ``PCC_CONTEXT_PATH`` is set (#401)."""
     settings = get_settings()
     return LlamaCppProvider(
         settings.llamacpp_base_url,
         settings.llamacpp_model,
         timeout_seconds=settings.llamacpp_timeout_seconds,
+        capture=context_capture_from_settings(),
     )
+
+
+def _body_text(body: bytes) -> str:
+    """A wire body as the text it is. llama-server speaks UTF-8 both ways; a
+    body that is not is kept with its bad bytes replaced rather than lost."""
+    try:
+        return body.decode("utf-8")
+    except UnicodeDecodeError:
+        return body.decode("utf-8", errors="replace")

@@ -43,7 +43,10 @@ still records everything it learned before it died.
 Each run has a `run_id` (uuid4 hex). It is bound on the run's structlog lines,
 returned on `AgentRunResult.run_id` (and on `AgentRunFailed.result`), and a
 `run_id` the caller already bound in structlog's context is reused — that is
-the hook for capturing more about the same run elsewhere (#401). The agent
+the hook for capturing more about the same run elsewhere. Context capture
+(`PCC_CONTEXT_PATH`, #401) uses it to key every model call's exact request,
+response and rendered prompt to the run: see
+[`agent-context-capture.md`](agent-context-capture.md). The agent
 route binds `conversation_id` the same way, and the record picks it up.
 
 ## The record (schema 1)

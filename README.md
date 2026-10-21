@@ -615,6 +615,8 @@ of the system prompt and tool schemas beside the model. A failed write is
 logged and never costs the run. Read it with
 `python backend/scripts/read_trace.py <file>` (`--run <id>` for one run in
 full); the record layout is in [`docs/agent-tracing.md`](docs/agent-tracing.md).
+`PCC_CONTEXT_PATH` (off by default; heavy) also keeps every model call's exact
+bytes and rendered prompt — see [`docs/agent-context-capture.md`](docs/agent-context-capture.md).
 
 ## Status & roadmap
 

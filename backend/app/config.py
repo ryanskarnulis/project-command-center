@@ -106,6 +106,15 @@ class Settings(BaseSettings):
     # costs the run.
     pcc_trace_path: Path | None = None
 
+    # Agent context capture (#401): when set, every model call appends one
+    # JSONL line to this file — the request and response bodies byte for byte
+    # and the prompt the server's chat template rendered from them
+    # (app/ai/context_capture.py, docs/agent-context-capture.md). Off by
+    # default and heavy (every call kept twice); turn it on to look into a
+    # session, then off. Path rules as for pcc_trace_path. A failed capture is
+    # logged and never costs the run.
+    pcc_context_path: Path | None = None
+
     # Trash retention (issue #321): a trashed project or standalone task whose
     # ``deleted_at`` is older than this many days is permanently deleted by the
     # in-process retention job (app/jobs/trash_retention.py), along with

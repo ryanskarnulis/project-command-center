@@ -81,6 +81,8 @@ the prompts and tool schemas. It is written from :meth:`AgentLoop.run`, so
 every exit — completed, a limit, a Stop, a failure, a crash — leaves one, and a
 write that fails is logged and never costs the run. Each run has a ``run_id``
 (bound on its log lines, returned on the result) that the record is keyed by.
+With ``PCC_CONTEXT_PATH`` set, the provider also captures every model call's
+exact bytes keyed by that ``run_id`` (:mod:`app.ai.context_capture`, #401).
 """
 
 from __future__ import annotations
@@ -101,6 +103,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.ai import context_budget, run_record
 from app.ai import trace as run_trace
+from app.ai.context_capture import model_phase
 from app.ai.providers.llamacpp import (
     ChatResult,
     ProviderError,
@@ -526,9 +529,12 @@ class AgentLoop:
         trace.calls.append(call)
         started = perf_counter()
         try:
-            result = self._provider.chat(
-                messages, tools=tools, max_tokens=max_tokens, timeout=timeout
-            )
+            # The phase rides a ContextVar to the provider's context capture
+            # (#401), which keys each captured call to this trace entry.
+            with model_phase(phase):
+                result = self._provider.chat(
+                    messages, tools=tools, max_tokens=max_tokens, timeout=timeout
+                )
         except ToolCallArgumentsError as exc:
             call.status = "bad_args"
             call.failure = f"{type(exc).__name__}: {exc}"
