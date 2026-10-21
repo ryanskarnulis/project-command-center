@@ -17,6 +17,7 @@
               "type": "string"
             }
           },
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "anyOf": [
@@ -79,6 +80,7 @@
         "name": "get_task",
         "description": "Fetch one task with its subtask roll-up and blocked/blocking flags.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -430,6 +432,7 @@
         "name": "complete_task",
         "description": "Mark a task done. A recurring task spawns its next occurrence.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -452,6 +455,7 @@
         "name": "reopen_task",
         "description": "Reopen a done task (workflow_status back to open).",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -474,6 +478,7 @@
         "name": "trash_task",
         "description": "Move a task to the trash, together with all of its subtasks.\n\nUndo with restore_task(task_id, restore_subtasks=True), which brings back\nthe same set. Plain restore_task(task_id) returns only this task and leaves\nits subtasks in the trash.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -496,6 +501,7 @@
         "name": "restore_task",
         "description": "Restore a trashed task (see list_trash for what is restorable).\n\nSet restore_subtasks=True to also restore the subtasks that were trashed\ntogether with this task — that is the exact undo of a trash_task call.\nSubtasks the user had trashed separately beforehand stay in the trash.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -523,6 +529,7 @@
         "name": "list_dependencies",
         "description": "Both directions of a task's dependency graph: what it waits on (depends_on) and what waits on it (dependents).",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -545,6 +552,7 @@
         "name": "add_dependency",
         "description": "Make task_id wait on depends_on_task_id: it is blocked until that task is done.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -574,6 +582,7 @@
         "name": "remove_dependency",
         "description": "Remove a dependency edge by its id (from list_dependencies); task_id must be its dependent.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -603,6 +612,7 @@
         "name": "skip_occurrence",
         "description": "Skip a recurring task's current occurrence (to trash, restorable) and return the next one.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -625,6 +635,7 @@
         "name": "stop_recurrence",
         "description": "Stop a recurring task from repeating; the current occurrence stays as a normal task.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -647,6 +658,7 @@
         "name": "list_projects",
         "description": "List active projects in display order.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "include_closed": {
               "default": false,
@@ -665,6 +677,7 @@
         "name": "get_project",
         "description": "Fetch one project.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "maximum": 9223372036854775807,
@@ -769,6 +782,7 @@
         "name": "close_project",
         "description": "Close a project: hidden from default lists, nothing deleted.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "maximum": 9223372036854775807,
@@ -791,6 +805,7 @@
         "name": "reopen_project",
         "description": "Reopen a closed project.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "maximum": 9223372036854775807,
@@ -813,6 +828,7 @@
         "name": "trash_project",
         "description": "Move a project and its tasks to the trash. Undo with restore_project.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "maximum": 9223372036854775807,
@@ -835,6 +851,7 @@
         "name": "restore_project",
         "description": "Restore a trashed project; restore_tasks also brings back the tasks trashed with it.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "maximum": 9223372036854775807,
@@ -862,6 +879,7 @@
         "name": "search",
         "description": "Full-text search over active projects and tasks (title, description).",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "query": {
               "title": "Query",
@@ -889,6 +907,7 @@
         "name": "get_focus_plan",
         "description": "Deterministic day plan: what to work on for `date` (default: today).",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "date": {
               "anyOf": [
@@ -928,6 +947,7 @@
         "name": "pin_focus_task",
         "description": "Pin a task into the Focus plan for `date` (default: today) so it never lands in \"Didn't fit\".\n\nWith start_time (HH:MM) it becomes a fixed block at that time; without, it\njoins the day ahead of the ranked work. Pinning an already pinned task moves\nit. Undo with remove_focus_entry(entry_id).",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -1024,6 +1044,7 @@
               "type": "object"
             }
           },
+          "additionalProperties": false,
           "properties": {
             "title": {
               "maxLength": 200,
@@ -1083,6 +1104,7 @@
         "name": "skip_focus_occurrence",
         "description": "Skip one day of a repeating Focus commitment; the series and its other days are untouched.\n\nseries_id is the commitment's entry_id from get_focus_plan; plan_date is the\nday to skip. Undo with remove_focus_entry(entry_id) on the returned skip.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "series_id": {
               "maximum": 9223372036854775807,
@@ -1111,6 +1133,7 @@
         "name": "stop_focus_series",
         "description": "End a repeating Focus commitment from `stop_date` on; earlier days keep it.\n\nstop_date is the first day it no longer happens. Omit stop_date to lift an\nend and make it repeat with no end again. To remove it from its first day,\nuse remove_focus_entry. Undo by calling this again with the previous\nstop_date (see stop_date on the returned entry, or omit it to lift).",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "series_id": {
               "maximum": 9223372036854775807,
@@ -1146,6 +1169,7 @@
         "name": "edit_focus_occurrence",
         "description": "Change one day of a repeating Focus commitment (time, title and/or length), that day only.\n\nseries_id is the commitment's entry_id from get_focus_plan. Fields left out\nkeep the series' values. Undo with remove_focus_entry(entry_id) on the\nreturned entry, which resets the day.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "series_id": {
               "maximum": 9223372036854775807,
@@ -1215,6 +1239,7 @@
         "name": "reorder_focus_pins",
         "description": "Reorder the pinned tasks in the Focus plan for `date` (default: today), first to last.\n\nentry_ids are pin entry_ids from get_focus_plan; pins left out keep their\nplace. Commitments and pins at a fixed time keep their own times. Undo by\nreordering back.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "entry_ids": {
               "items": {
@@ -1255,6 +1280,7 @@
         "name": "remove_focus_entry",
         "description": "Unpin a task or drop a commitment from the Focus plan (entry_id from get_focus_plan).\n\nGiven a repeating commitment's entry_id it removes the whole series, every\nday: to drop just one day use skip_focus_occurrence, and to end it from a\nday on use stop_focus_series. Given a skip_entry_id (skipped_commitments) it\nun-skips that day; given an override_entry_id it resets that edited day to\nthe usual occurrence. Undo with restore_focus_entry(entry_id).",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "entry_id": {
               "maximum": 9223372036854775807,
@@ -1277,6 +1303,7 @@
         "name": "restore_focus_entry",
         "description": "Bring back a Focus pin or commitment removed with remove_focus_entry.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "entry_id": {
               "maximum": 9223372036854775807,
@@ -1299,6 +1326,7 @@
         "name": "list_trash",
         "description": "Recently trashed projects and tasks — what restore_task/restore_project can bring back.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "limit": {
               "default": 50,
@@ -1319,6 +1347,7 @@
         "name": "list_activity",
         "description": "A project's audit trail, newest first. actor is null for the user; agents stamp theirs (e.g. \"agent:mcp\", \"agent:loop\").",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "maximum": 9223372036854775807,
@@ -1359,6 +1388,7 @@
             "type": "string"
           }
         },
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "anyOf": [
@@ -1684,6 +1714,7 @@
       "name": "get_task",
       "description": "Fetch one task with its subtask roll-up and blocked/blocking flags.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -2776,6 +2807,7 @@
       "name": "complete_task",
       "description": "Mark a task done. A recurring task spawns its next occurrence.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -3045,6 +3077,7 @@
       "name": "reopen_task",
       "description": "Reopen a done task (workflow_status back to open).",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -3314,6 +3347,7 @@
       "name": "trash_task",
       "description": "Move a task to the trash, together with all of its subtasks.\n\nUndo with restore_task(task_id, restore_subtasks=True), which brings back\nthe same set. Plain restore_task(task_id) returns only this task and leaves\nits subtasks in the trash.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -3346,6 +3380,7 @@
       "name": "restore_task",
       "description": "Restore a trashed task (see list_trash for what is restorable).\n\nSet restore_subtasks=True to also restore the subtasks that were trashed\ntogether with this task — that is the exact undo of a trash_task call.\nSubtasks the user had trashed separately beforehand stay in the trash.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -3620,6 +3655,7 @@
       "name": "list_dependencies",
       "description": "Both directions of a task's dependency graph: what it waits on (depends_on) and what waits on it (dependents).",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -3751,6 +3787,7 @@
       "name": "add_dependency",
       "description": "Make task_id wait on depends_on_task_id: it is blocked until that task is done.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -3826,6 +3863,7 @@
       "name": "remove_dependency",
       "description": "Remove a dependency edge by its id (from list_dependencies); task_id must be its dependent.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -3865,6 +3903,7 @@
       "name": "skip_occurrence",
       "description": "Skip a recurring task's current occurrence (to trash, restorable) and return the next one.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -4134,6 +4173,7 @@
       "name": "stop_recurrence",
       "description": "Stop a recurring task from repeating; the current occurrence stays as a normal task.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -4403,6 +4443,7 @@
       "name": "list_projects",
       "description": "List active projects in display order.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "include_closed": {
             "default": false,
@@ -4526,6 +4567,7 @@
       "name": "get_project",
       "description": "Fetch one project.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "maximum": 9223372036854775807,
@@ -4891,6 +4933,7 @@
       "name": "close_project",
       "description": "Close a project: hidden from default lists, nothing deleted.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "maximum": 9223372036854775807,
@@ -5000,6 +5043,7 @@
       "name": "reopen_project",
       "description": "Reopen a closed project.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "maximum": 9223372036854775807,
@@ -5109,6 +5153,7 @@
       "name": "trash_project",
       "description": "Move a project and its tasks to the trash. Undo with restore_project.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "maximum": 9223372036854775807,
@@ -5141,6 +5186,7 @@
       "name": "restore_project",
       "description": "Restore a trashed project; restore_tasks also brings back the tasks trashed with it.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "maximum": 9223372036854775807,
@@ -5275,6 +5321,7 @@
       "name": "search",
       "description": "Full-text search over active projects and tasks (title, description).",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "query": {
             "title": "Query",
@@ -5398,6 +5445,7 @@
       "name": "get_focus_plan",
       "description": "Deterministic day plan: what to work on for `date` (default: today).",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "date": {
             "anyOf": [
@@ -6061,6 +6109,7 @@
       "name": "pin_focus_task",
       "description": "Pin a task into the Focus plan for `date` (default: today) so it never lands in \"Didn't fit\".\n\nWith start_time (HH:MM) it becomes a fixed block at that time; without, it\njoins the day ahead of the ranked work. Pinning an already pinned task moves\nit. Undo with remove_focus_entry(entry_id).",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -6330,6 +6379,7 @@
             "type": "object"
           }
         },
+        "additionalProperties": false,
         "properties": {
           "title": {
             "maxLength": 200,
@@ -6562,6 +6612,7 @@
       "name": "skip_focus_occurrence",
       "description": "Skip one day of a repeating Focus commitment; the series and its other days are untouched.\n\nseries_id is the commitment's entry_id from get_focus_plan; plan_date is the\nday to skip. Undo with remove_focus_entry(entry_id) on the returned skip.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "series_id": {
             "maximum": 9223372036854775807,
@@ -6763,6 +6814,7 @@
       "name": "stop_focus_series",
       "description": "End a repeating Focus commitment from `stop_date` on; earlier days keep it.\n\nstop_date is the first day it no longer happens. Omit stop_date to lift an\nend and make it repeat with no end again. To remove it from its first day,\nuse remove_focus_entry. Undo by calling this again with the previous\nstop_date (see stop_date on the returned entry, or omit it to lift).",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "series_id": {
             "maximum": 9223372036854775807,
@@ -6971,6 +7023,7 @@
       "name": "edit_focus_occurrence",
       "description": "Change one day of a repeating Focus commitment (time, title and/or length), that day only.\n\nseries_id is the commitment's entry_id from get_focus_plan. Fields left out\nkeep the series' values. Undo with remove_focus_entry(entry_id) on the\nreturned entry, which resets the day.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "series_id": {
             "maximum": 9223372036854775807,
@@ -7213,6 +7266,7 @@
       "name": "reorder_focus_pins",
       "description": "Reorder the pinned tasks in the Focus plan for `date` (default: today), first to last.\n\nentry_ids are pin entry_ids from get_focus_plan; pins left out keep their\nplace. Commitments and pins at a fixed time keep their own times. Undo by\nreordering back.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "entry_ids": {
             "items": {
@@ -7442,6 +7496,7 @@
       "name": "remove_focus_entry",
       "description": "Unpin a task or drop a commitment from the Focus plan (entry_id from get_focus_plan).\n\nGiven a repeating commitment's entry_id it removes the whole series, every\nday: to drop just one day use skip_focus_occurrence, and to end it from a\nday on use stop_focus_series. Given a skip_entry_id (skipped_commitments) it\nun-skips that day; given an override_entry_id it resets that edited day to\nthe usual occurrence. Undo with restore_focus_entry(entry_id).",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "entry_id": {
             "maximum": 9223372036854775807,
@@ -7474,6 +7529,7 @@
       "name": "restore_focus_entry",
       "description": "Bring back a Focus pin or commitment removed with remove_focus_entry.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "entry_id": {
             "maximum": 9223372036854775807,
@@ -7669,6 +7725,7 @@
       "name": "list_trash",
       "description": "Recently trashed projects and tasks — what restore_task/restore_project can bring back.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "limit": {
             "default": 50,
@@ -8062,6 +8119,7 @@
       "name": "list_activity",
       "description": "A project's audit trail, newest first. actor is null for the user; agents stamp theirs (e.g. \"agent:mcp\", \"agent:loop\").",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "maximum": 9223372036854775807,

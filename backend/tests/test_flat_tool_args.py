@@ -186,3 +186,13 @@ async def test_mcp_advertises_and_accepts_the_flat_shape(
         assert refused.isError
         assert refused.content[0].type == "text"
         assert "prioirty" in refused.content[0].text
+
+
+@pytest.mark.usefixtures("_tool_db")
+def test_every_tool_refuses_an_argument_it_does_not_have() -> None:
+    """A filter ``list_tasks`` lacks is refused, not dropped: dropped, the call
+    answered "every task" to "what's due today" (#411)."""
+    with pytest.raises(ValidationError, match="due_date"):
+        _call("list_tasks", {"due_date": "2026-10-21"})
+    for tool in registry.all_tools():
+        assert tool.parameters.get("additionalProperties") is False, tool.name

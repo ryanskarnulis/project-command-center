@@ -28,8 +28,8 @@ from typing import Annotated, Any, TypeVar
 
 import structlog
 from mcp.server.fastmcp.exceptions import ToolError as ToolError  # re-export
-from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
-from pydantic import BaseModel, Field
+from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase, FuncMetadata, func_metadata
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.ai.providers.llamacpp import ToolSpec
@@ -103,8 +103,9 @@ def _register(fn: _F, *, read_only: bool, args: type[FlatArgs] | None = None) ->
     if not description:
         raise ValueError(f"tool {fn.__name__} must have a docstring")
     metadata = func_metadata(fn)
-    if args is not None:
-        metadata = metadata.model_copy(update={"arg_model": args})
+    metadata = metadata.model_copy(
+        update={"arg_model": args if args is not None else _strict(metadata.arg_model)}
+    )
     _REGISTRY[fn.__name__] = RegisteredTool(
         name=fn.__name__,
         description=description,
@@ -113,6 +114,23 @@ def _register(fn: _F, *, read_only: bool, args: type[FlatArgs] | None = None) ->
         read_only=read_only,
     )
     return fn
+
+
+def _strict(arg_model: type[ArgModelBase]) -> type[ArgModelBase]:
+    """``arg_model`` refusing unknown arguments, as every mutation input does (#164).
+
+    FastMCP's argument models ignore extra keys, so a filter a tool doesn't have
+    (``list_tasks(due_date=…)``) was dropped without a word and the call
+    answered a different question (#411).
+    """
+    return type(
+        arg_model.__name__,
+        (arg_model,),
+        {
+            "__module__": arg_model.__module__,
+            "model_config": ConfigDict(extra="forbid", arbitrary_types_allowed=True),
+        },
+    )
 
 
 def _tool(fn: _F) -> _F:
