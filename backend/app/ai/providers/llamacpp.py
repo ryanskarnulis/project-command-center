@@ -11,7 +11,13 @@ Gemma quirks handled here (mirroring the chess app's production experience on
 the same server): chain-of-thought arrives in a separate ``reasoning_content``
 field and is never treated as answer text nor echoed back into history, and
 thinking is toggled per request via ``chat_template_kwargs`` (default OFF —
-fast tool calls). Self-correction retries on bad tool calls belong to the
+fast tool calls).
+
+What changes with the model — sampling, the thinking kwarg's name, the
+per-call token caps — is the model's profile (:mod:`app.ai.model_profile`,
+#402), picked by the model name. The provider sets the profile's sampling on
+every request, so a drift in ``../llama-swap/config.yaml``'s server-side
+defaults never changes PCC's behavior. Self-correction retries on bad tool calls belong to the
 agent loop (next checkout), which is why the errors carry the tool name.
 """
 
@@ -29,16 +35,11 @@ import structlog
 from pydantic import BaseModel, Field, ValidationError
 
 from app.ai.context_capture import CallStamp, ContextCapture, context_capture_from_settings
+from app.ai.model_profile import ModelProfile, load_profile
 from app.config import get_settings
 
 logger = structlog.get_logger(__name__)
 
-# The negotiated gemma-4 sampling set. ../llama-swap/config.yaml carries the
-# same values as server-side defaults, but the provider always sets them per
-# request so a server-config drift never changes PCC's behavior.
-_TEMPERATURE = 1.0
-_TOP_P = 0.95
-_TOP_K = 64
 _CONNECT_TIMEOUT_SECONDS = 10.0
 # How long the context capture (#401) waits for llama-server to render a
 # call's template. Rendering is string work with no generation behind it, so
@@ -242,6 +243,9 @@ class LlamaCppProvider:
     bytes and the prompt the server's chat template rendered from them
     (:mod:`app.ai.context_capture`, #401). ``None`` — the default — sends one
     request per call and records nothing.
+
+    ``profile`` is the model's (#402); ``None`` — the default — loads the one
+    named for ``model``, or the default profile with a warning when none is.
     """
 
     def __init__(
@@ -252,9 +256,11 @@ class LlamaCppProvider:
         timeout_seconds: float = 300.0,
         client: httpx.Client | None = None,
         capture: ContextCapture | None = None,
+        profile: ModelProfile | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
+        self._profile = profile if profile is not None else load_profile(model)
         self._capture = capture
         # llama-swap's root: ``/upstream/<model>/apply-template`` hangs off it,
         # not off the OpenAI ``/v1`` prefix.
@@ -281,6 +287,11 @@ class LlamaCppProvider:
     def model(self) -> str:
         """The model alias every request names (what the run trace records)."""
         return self._model
+
+    @property
+    def profile(self) -> ModelProfile:
+        """The model's profile: its sampling, thinking kwarg and token caps."""
+        return self._profile
 
     def chat(
         self,
@@ -350,13 +361,15 @@ class LlamaCppProvider:
         payload: dict[str, Any] = {
             "model": self._model,
             "messages": list(messages),
-            "temperature": _TEMPERATURE,
-            "top_p": _TOP_P,
-            # llama-server accepts these OpenAI extensions as plain body
-            # fields (no SDK extra_body indirection needed).
-            "top_k": _TOP_K,
-            "chat_template_kwargs": {"enable_thinking": enable_thinking},
+            # The profile's sampling: only the keys it sets, so an absent one
+            # is the server's default. llama-server accepts ``top_k`` and
+            # ``chat_template_kwargs`` as plain body fields (no SDK
+            # extra_body indirection needed).
+            **self._profile.sampling.wire(),
         }
+        kwarg = self._profile.thinking_kwarg
+        if kwarg is not None:
+            payload["chat_template_kwargs"] = {kwarg: enable_thinking}
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
         if tools:

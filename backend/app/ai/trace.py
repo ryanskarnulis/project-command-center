@@ -147,6 +147,7 @@ class RunTrace:
     utterance: str
     conversation_id: int | None = None
     model: str | None = None
+    profile: str | None = None
     history_given: int = 0
     history_kept: list[dict[str, Any]] = field(default_factory=list)
     system_prompt_sha256: str | None = None
@@ -218,9 +219,10 @@ class RunTrace:
             "limits": self.limits,
             "serving": {
                 "model": self.model,
-                # Per-model profiles land in #402; until then every run is
-                # served by the one configuration and this stays null.
-                "profile": None,
+                # The model profile the requests were built from (#402):
+                # its file's name, ``default`` for a model with no file, null
+                # for a provider that carries none (a scripted one).
+                "profile": self.profile,
                 "system_prompt_sha256": self.system_prompt_sha256,
                 "summary_prompt_sha256": self.summary_prompt_sha256,
                 "tool_schemas_sha256": self.tool_schemas_sha256,

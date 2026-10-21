@@ -511,6 +511,8 @@ side is `app/ai/providers/llamacpp.py`: OpenAI wire format over `httpx`, tool
 calling plus `json_schema` structured outputs, every response
 Pydantic-validated at the boundary. Configure with `LLAMACPP_BASE_URL` /
 `LLAMACPP_MODEL` / `LLAMACPP_TIMEOUT_SECONDS` (defaults in `app/config.py`;
+the model's sampling and token caps come from its profile in
+`app/ai/profiles/<model>.toml`, see `docs/agent-design.md`;
 the docker deployment reaches the host proxy via `host.docker.internal`).
 On top of the provider sits the agent loop (`app/ai/loop.py`): a bounded
 plan → tool-call → observe cycle over the shared tool registry, with Pydantic

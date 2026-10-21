@@ -37,7 +37,7 @@ no boundary left to stop at. So Stop takes effect within one model turn, never
 mid-tool.
 
 Every model call is capped (#397): ``max_tokens`` goes out on every request
-(default :data:`DEFAULT_MAX_TOKENS`), because llama-server's own default is
+(the model profile's cap, #402), because llama-server's own default is
 unbounded and a degenerate generation would otherwise run until the run's
 time budget. A call the cap cut off (``finish_reason == "length"``) never
 passes its *words* on: a cut-off text turn is not a reply, so the fragment is
@@ -101,7 +101,7 @@ from typing import Any, Literal, Protocol
 import structlog
 from pydantic import BaseModel, ValidationError
 
-from app.ai import context_budget, run_record
+from app.ai import context_budget, model_profile, run_record
 from app.ai import trace as run_trace
 from app.ai.context_capture import model_phase
 from app.ai.providers.llamacpp import (
@@ -216,10 +216,11 @@ SUMMARY_PROMPT_SHA256 = run_trace.sha256(
     f"{run_record.SUMMARY_RULES}\n\n{_GLOBAL_PERSONALITY}"
 )
 
-# The per-call completion cap (#397). It is the completion reserve the context
-# budget already sets aside in the window, so a capped call always fits. Moves
-# into the per-model profile in phase 2 (#402).
-DEFAULT_MAX_TOKENS = context_budget.COMPLETION_RESERVE_TOKENS
+# The per-call completion cap (#397) for a provider with no model profile (a
+# scripted one). It is the completion reserve the context budget already sets
+# aside in the window, so a capped call always fits. A real provider carries
+# its model's profile (#402), whose caps the loop runs at instead.
+DEFAULT_MAX_TOKENS = model_profile.DEFAULT_TURN_MAX_TOKENS
 
 # The per-run tool-call cap (#398). The largest deployed run made 18 calls (an
 # 8-task batch, made twice after schema errors), so a real batch fits with
@@ -230,8 +231,9 @@ DEFAULT_MAX_TOOL_CALLS = 24
 
 # The summary call's completion cap (#399): a few sentences of what the run
 # did. Far under the turn cap, so a runaway summary is cut off — and dropped —
-# long before it can eat the run's time budget.
-SUMMARY_MAX_TOKENS = 512
+# long before it can eat the run's time budget. As above, the profile's own
+# summary cap wins when the provider has one.
+SUMMARY_MAX_TOKENS = model_profile.DEFAULT_SUMMARY_MAX_TOKENS
 
 # ``finish_reason`` of a call the ``max_tokens`` cap cut off.
 _FINISH_LENGTH = "length"
@@ -366,12 +368,26 @@ class AgentLoop:
         *,
         max_iterations: int = 10,
         max_corrections: int = 3,
-        max_tokens: int = DEFAULT_MAX_TOKENS,
+        max_tokens: int | None = None,
         max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
         tracer: run_trace.Tracer | None = None,
     ) -> None:
         """``tracer`` receives one record per run (#400); ``None`` (the
-        default) uses the configured one — ``PCC_TRACE_PATH``, or no tracing."""
+        default) uses the configured one — ``PCC_TRACE_PATH``, or no tracing.
+
+        The per-call caps are the provider's model profile's (#402) when it
+        carries one, else :data:`DEFAULT_MAX_TOKENS` and
+        :data:`SUMMARY_MAX_TOKENS`. ``max_tokens`` overrides the turn cap; the
+        summary's is never above it."""
+        profile = getattr(provider, "profile", None)
+        self._profile = profile if isinstance(profile, model_profile.ModelProfile) else None
+        if max_tokens is None:
+            max_tokens = (
+                self._profile.turn_max_tokens if self._profile is not None else DEFAULT_MAX_TOKENS
+            )
+        summary_cap = (
+            self._profile.summary_max_tokens if self._profile is not None else SUMMARY_MAX_TOKENS
+        )
         if max_iterations < 1:
             raise ValueError("max_iterations must be >= 1")
         if max_tokens < 1:
@@ -382,6 +398,7 @@ class AgentLoop:
         self._max_iterations = max_iterations
         self._max_corrections = max_corrections
         self._max_tokens = max_tokens
+        self._summary_max_tokens = min(max_tokens, summary_cap)
         self._max_tool_calls = max_tool_calls
         self._tracer = tracer if tracer is not None else run_trace.tracer_from_settings()
 
@@ -440,13 +457,15 @@ class AgentLoop:
             utterance=user_message,
             conversation_id=conversation_id if isinstance(conversation_id, int) else None,
             # The alias the provider sends; the weights behind it are in each
-            # call's ``served_model``. Profiles (#402) will add theirs.
+            # call's ``served_model``; the profile the request was built from
+            # (#402) beside it.
             model=getattr(self._provider, "model", None),
+            profile=None if self._profile is None else self._profile.name,
             limits={
                 "max_iterations": self._max_iterations,
                 "max_corrections": self._max_corrections,
                 "max_tokens": self._max_tokens,
-                "summary_max_tokens": min(self._max_tokens, SUMMARY_MAX_TOKENS),
+                "summary_max_tokens": self._summary_max_tokens,
                 "max_tool_calls": self._max_tool_calls,
                 # Filled from the first turn's own clock reading (``_run``).
                 "deadline_s": None,
@@ -831,7 +850,7 @@ class AgentLoop:
                 "summary",
                 request,
                 tools=None,
-                max_tokens=min(self._max_tokens, SUMMARY_MAX_TOKENS),
+                max_tokens=self._summary_max_tokens,
                 timeout=timeout,
             )
         except Exception as exc:

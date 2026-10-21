@@ -1,0 +1,26 @@
+# gemma-4-12b: the model PCC's agent shipped on (app/ai/model_profile.py, #402).
+# A new model gets its own file named for its llama-swap id, never an edit to
+# this one; LLAMACPP_MODEL picks the file.
+
+# The fleet's thinking toggle and tool-calling sampling, copied from
+# ../agent-standard/model-profile.md (re-copy on drift, never edit here;
+# tests/test_model_profile.py checks it when the sibling checkout is present).
+# Thinking stays off on every call the loop makes.
+thinking_kwarg = "enable_thinking"
+
+[sampling]
+temperature = 1.0
+top_p = 0.95
+# Not an OpenAI field: llama-server reads it as a plain body field.
+top_k = 64
+
+# Every call is capped (#397): llama-server's own default is unbounded, and a
+# runaway generation would otherwise run until the run's time budget. A turn's
+# cap is the completion reserve the context budget keeps free.
+[phases.turn]
+max_tokens = 2048
+
+# The limit summary is a few sentences (#399); a runaway one is cut off and
+# dropped long before it can eat the run's time.
+[phases.summary]
+max_tokens = 512

@@ -74,13 +74,29 @@ worst case (the provider timeout tolerates it). Containers reach it via
 - **Provider** `app/ai/providers/llamacpp.py`: OpenAI wire over httpx,
   Pydantic-validated, typed errors, gemma quirks handled
   (`reasoning_content` never round-trips; thinking off by default; sampling
-  temp 1.0 / top-p 0.95 / top-k 64 set per request). Live smoke:
+  set per request from the model profile — gemma-4-12b's is temp 1.0 /
+  top-p 0.95 / top-k 64). Live smoke:
   `PCC_LLM_INTEGRATION=1 pytest tests/test_ai_llamacpp_integration.py`.
+- **Model profiles** (#402) `app/ai/model_profile.py`, one TOML file per
+  model in `app/ai/profiles/<llama-swap id>.toml`, picked by
+  `LLAMACPP_MODEL`: `[sampling]` (`temperature`/`top_p`/`top_k`; a key left
+  out is left to the server), `thinking_kwarg` (the `chat_template_kwargs`
+  key; empty sends no kwargs), and the per-call caps `[phases.turn]
+  max_tokens` / `[phases.summary] max_tokens` (each at most the completion
+  reserve). Loading is strict — an unknown key, phase or mistyped value fails
+  — and a model with no file runs on the built-in default (no sampling
+  opinion, today's caps) with a `model_profile_missing` warning. The provider
+  builds every request from its profile, the loop takes its caps from it, the
+  run trace records its name (`serving.profile`), and the eval harness prints
+  it, so measuring another model is `LLAMACPP_MODEL=<id>` plus its file.
+  gemma-4-12b's sampling and thinking key are copied from
+  `../agent-standard/model-profile.md`; `tests/test_model_profile.py` checks
+  them for drift when that sibling is checked out (skipped in CI).
 - **Loop** `app/ai/loop.py`: bounded iterations (10) + separate correction
   budget (3); schema failures are corrections, domain rejections are ordinary
   results; writes stamped `agent:loop`. Every model call carries
-  `max_tokens` (`DEFAULT_MAX_TOKENS` = 2048, the context budget's completion
-  reserve; moves into the model profile with #402), since llama-server's
+  `max_tokens` (the profile's turn cap — 2048 for gemma-4-12b and the
+  default, the context budget's completion reserve), since llama-server's
   default is unbounded and a degenerate generation would otherwise run to the
   run budget (#397). A cut-off call (`finish_reason: "length"`) never passes
   its words on: a cut-off text turn is dropped — no reply saved, nothing
@@ -98,8 +114,8 @@ worst case (the provider timeout tolerates it). Containers reach it via
 - **Limit stops say what they did** (#399): when a run ends `max_iterations`,
   `correction_limit`, `truncated`, `no_progress` or `tool_call_limit` and at
   least one call reached the service layer (done, refused or looked up), the
-  loop makes one more model call — offered no tools, capped at
-  `SUMMARY_MAX_TOKENS` = 512, bounded by the time left on the run deadline —
+  loop makes one more model call — offered no tools, capped at the
+  profile's summary cap (512), bounded by the time left on the run deadline —
   that reads a fresh brief, not the run's transcript: the user's message, a
   code-built record of the run (`app/ai/run_record.py`, sorted from the
   `ToolCallRecord`s into Done / Refused / Looked up / Not run, one compact line
@@ -187,6 +203,34 @@ turns, per-project lists, the trash) — under llama-swap it's `search` then at
 most three `list_tasks`/`list_trash` (32 runs, 2026-10-18). The scenario now
 asserts ≤7 iterations and ≤6 read calls (#329): 2 of headroom over the
 observed maximum, and well short of the old sweep.
+
+### Pinned bytes
+
+What the model reads is pinned in CI as committed fixtures (#402), so a
+model-facing change can't slip in unnoticed:
+
+- `backend/tests/fixtures/tool_schemas.json` — the agent's tool list
+  (`registry.tool_specs()` exactly as it goes on the wire) and the MCP
+  server's `tools/list`, byte for byte, key order and all
+  (`tests/test_tool_schema_snapshot.py`).
+- `backend/tests/fixtures/canonical_run_requests.jsonl` — the exact request
+  bodies of one canonical run (a real provider over a faked llama-server:
+  two lookups, a refusal, a follow-up with history that stops at a limit and
+  makes the summary call), one body per line, with the date fixed
+  (`tests/test_request_bytes.py`). The system prompt, personality, summary
+  rules, tool schemas, sampling, caps and thinking kwarg all land here.
+
+**A diff to either fixture is a prompt or tool-schema change, so the eval
+gate applies:** run the harness above before merging, and say in the PR that
+the bytes moved on purpose. A change that leaves both fixtures untouched is
+byte-identical on the wire for gemma-4-12b — that is the proof a refactor
+needs instead of an eval run. Regenerate after a deliberate change (then read
+the diff):
+
+```bash
+cd backend
+PCC_UPDATE_FIXTURES=1 .venv/bin/pytest tests/test_request_bytes.py tests/test_tool_schema_snapshot.py
+```
 
 ## Deferred
 

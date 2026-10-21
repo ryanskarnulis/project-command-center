@@ -8,7 +8,8 @@ so CI and default local runs never touch the GPU:
 
 Each scenario seeds a fresh in-memory DB through the service layer, runs one
 user ask through the full ``AgentLoop`` + shared tool registry against the
-live runtime (``LLAMACPP_BASE_URL``, default :8200 gemma-4-12b), then asserts
+live runtime (``LLAMACPP_BASE_URL``, default :8200 gemma-4-12b) at the
+model's profile (``app/ai/profiles/<LLAMACPP_MODEL>.toml``, #402), then asserts
 two things:
 
 * **trajectory shape** — behavioral, not exact sequences (the model is
@@ -99,6 +100,11 @@ def eval_run() -> int:
 
 @pytest.fixture(scope="module", autouse=True)
 def _eval_summary() -> Generator[None, None, None]:
+    # The model's sampling, thinking kwarg and token caps come from its
+    # profile (#402) — the same one the provider builds every request from —
+    # so measuring another model is LLAMACPP_MODEL=<id> plus its profile file.
+    with provider_from_settings() as provider:
+        print(f"\n[eval] model={provider.model} profile={provider.profile.describe()}")
     yield
     if EVAL_RUNS > 1:
         print(f"\n{format_report(summarize(_RECORDS))}")
