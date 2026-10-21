@@ -46,6 +46,9 @@ two things:
   (git sha, model, profile, prompt and tool-schema hashes, knobs, floors),
   one line per scenario as it finishes (verdict plus every sample), and a
   closing suite line with the infra budget spent. The header also prints.
+* **Schema corrections (#404).** Every sample counts the calls refused for
+  their arguments or an unknown tool name (``eval_report.schema_errors``);
+  each scenario reports them per sample and per call beside its verdict.
 
 This suite is the tripwire from ``docs/agent-design.md``: baseline results
 are recorded there. ``-s`` shows the per-sample ``[eval] …`` lines and the
@@ -86,6 +89,7 @@ from app.ai.loop import (
     ToolCallRecord,
 )
 from app.ai.providers.llamacpp import LlamaCppProvider, provider_from_settings
+from app.ai.run_record import INVALID_ARGUMENTS_PREFIX
 from app.api import routes_agent
 from app.db.models import (
     ActivityEvent,
@@ -104,7 +108,16 @@ from app.services import task_dependencies as deps_service
 from app.services import task_trash
 from app.services import tasks as tasks_service
 from app.tools import registry, runtime
-from tests.eval_report import RunRecord, format_report, int_from_env, summarize, write_jsonl
+from tests.eval_report import (
+    RunRecord,
+    format_report,
+    int_from_env,
+    schema_errors,
+    schema_stats,
+    summarize,
+    unparseable_turns,
+    write_jsonl,
+)
 from tests.evalstats import (
     DEFAULT_FLOOR,
     Decision,
@@ -161,6 +174,11 @@ _FLOORS: dict[str, float] = {
         "project_close",
         "project_reopen",
         "project_trash",
+        "misfire_batch_create",
+        "misfire_create_in_named_project",
+        "misfire_subtask_under_parent",
+        "misfire_complete_parent",
+        "misfire_edit_among_similar",
     )
 }
 
@@ -281,6 +299,29 @@ def _successful(result: AgentRunResult, tool: str) -> list[ToolCallRecord]:
     ]
 
 
+_KNOWN_TOOLS = frozenset(tool.name for tool in registry.all_tools())
+
+
+def _schema_errors(result: AgentRunResult | None, prompt: str | None) -> int:
+    """The run's schema corrections (``eval_report.schema_errors``, #404)."""
+    if result is None:
+        return 0
+    return schema_errors(
+        ((record.tool, record.error) for record in result.tool_calls),
+        known_tools=_KNOWN_TOOLS,
+        invalid_prefix=INVALID_ARGUMENTS_PREFIX,
+        unparseable=0 if prompt is None else unparseable_turns(result.messages, prompt),
+    )
+
+
+def _refusals(result: AgentRunResult | None) -> list[str]:
+    """Every refused call's error text, schema or domain: the ``[eval]`` line
+    shows only ``tool!``, and a red scenario is diagnosed from these."""
+    if result is None:
+        return []
+    return [f"{r.tool}: {r.error}" for r in result.tool_calls if r.error is not None]
+
+
 def _trajectory(result: AgentRunResult | None) -> str:
     if result is None:
         return ""
@@ -352,6 +393,16 @@ class Sample:
         self.detail: str | None = None
         self.result: AgentRunResult | None = None
         self.duration: float | None = None
+        # The ask, so the schema count can find the run's turn in the transcript.
+        self.prompt: str | None = None
+
+    @property
+    def tool_calls(self) -> int:
+        return 0 if self.result is None else len(self.result.tool_calls)
+
+    @property
+    def schema_errors(self) -> int:
+        return _schema_errors(self.result, self.prompt)
 
     def provider(self) -> LlamaCppProvider:
         """The configured provider, sending this sample's seed (if any)."""
@@ -360,6 +411,7 @@ class Sample:
     def run(self, prompt: str, *, max_iterations: int = 10) -> AgentRunResult:
         """One run straight through the loop."""
         started = time.monotonic()
+        self.prompt = prompt
         with self.provider() as provider:
             try:
                 result = AgentLoop(provider, max_iterations=max_iterations).run(prompt)
@@ -398,6 +450,7 @@ class Sample:
     ) -> httpx.Response:
         """One run through the agent route; a failure status ends the sample."""
         started = time.monotonic()
+        self.prompt = content
         response = client.post(url, json={"content": content}, headers=headers)
         if response.status_code != 200:
             try:
@@ -446,6 +499,7 @@ class Sample:
             f"\n[eval] scenario={self.scenario}[{self.index}] seed={self.seed} "
             f"stop={self.stop_reason} iterations={iterations} "
             f"duration={self.duration or 0.0:.1f}s "
+            f"schema_errors={self.schema_errors} "
             f"trajectory=[{_trajectory(self.result)}]"
             + (f" status={self.status_code} detail={self.detail!r}" if self.detail else "")
         )
@@ -462,6 +516,9 @@ class Sample:
             "iterations": None if self.result is None else self.result.iterations,
             "seconds": None if self.duration is None else round(self.duration, 1),
             "trajectory": _trajectory(self.result),
+            "tool_calls": self.tool_calls,
+            "schema_errors": self.schema_errors,
+            "refusals": _refusals(self.result),
             "run_id": None if self.result is None else self.result.run_id,
             "error": None if error is None else str(error),
             "detail": self.detail,
@@ -511,6 +568,8 @@ def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
     blocks: list[tuple[int, int]] = []
     failures: list[str] = []
     samples: list[dict[str, Any]] = []
+    # (schema_errors, tool_calls) per scored sample (#404).
+    scored: list[tuple[int, int]] = []
     infra = 0
     taken = 0
     started = time.monotonic()
@@ -579,8 +638,11 @@ def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
                     passed,
                     None if sample.result is None else sample.result.iterations,
                     sample.duration,
+                    sample.tool_calls,
+                    sample.schema_errors,
                 )
             )
+            scored.append((sample.schema_errors, sample.tool_calls))
             if passed:
                 block_passed += 1
             else:
@@ -595,12 +657,18 @@ def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
 
     _SUITE.scenarios += 1
     _RESULTS[scenario] = result
+    schema = schema_stats(scored)
     print(f"\n[eval] scenario={scenario} PASS_RATE={result.summary()} floor={floor:.0%}")
+    print(
+        f"[eval]   schema corrections {schema['schema_errors']}/{schema['tool_calls']} calls, "
+        f"{schema['schema_errors_per_sample']}/sample, "
+        f"{schema['samples_with_schema_errors']}/{len(scored)} samples"
+    )
     for failure in result.failures:
         print(f"[eval]   ✗ {failure}")
     for mode, count in sorted(result.failure_modes.items(), key=lambda item: -item[1]):
         print(f"[eval]   ×{count} {mode}")
-    report(**scenario_record(scenario, result, floor))
+    report(**scenario_record(scenario, result, floor, **schema))
     detail = f"{result.summary()} floor={floor:.0%}"
     assert result.decision is not Decision.BELOW_FLOOR, (
         f"{scenario} is below its floor with evidence, not noise: {detail}"
@@ -1483,6 +1551,276 @@ def _project_trash(sample: Sample) -> None:
         _assert_run_events_are_the_loops(db, last_seed_event)
 
 
+# --- The deployed misfires (#404) ----------------------------------------------
+#
+# Each scenario below replays a failure the deployed agent's run history shows
+# (82 runs since 2026-07-11): ``name`` sent for a task's ``title``, calls
+# double-wrapped as ``data.data``, integer priorities, ``parent_id`` for
+# ``parent_task_id``, guessed ids ("Project 1 not found", "Task 291 not
+# found"), and ``complete_task`` on a parent refused four times running. They
+# are phase 4's before-numbers (#411 schemas, #412 state block, #413
+# refusals), so the schema-correction count every sample now reports matters
+# here as much as the verdict.
+
+
+def _seed_projects(db: Session, *names: str, trashed_first: bool = True) -> dict[str, int]:
+    """Projects by name → id. A trashed "Old stuff" takes id 1 first, so a
+    guessed ``project_id: 1`` gets the deployed "Project 1 not found" rather
+    than landing somewhere plausible by luck."""
+    if trashed_first:
+        old = projects_service.create_project(db, name="Old stuff")
+        projects_service.soft_delete_project(db, old)
+    ids = {name: projects_service.create_project(db, name=name).id for name in names}
+    db.flush()
+    return ids
+
+
+_GARAGE_BATCH = (
+    ("Sweep the floor", "sweep"),
+    ("Hang the pegboard", "pegboard"),
+    ("Sort the screws", "screw"),
+    ("Fix the door hinge", "hinge"),
+    ("Recycle the old paint cans", "paint can"),
+)
+
+
+def _batch_create(sample: Sample) -> None:
+    """"Add these five tasks to Garage": five creates, all in Garage (#404).
+
+    Five creates in one run is where the deployed history's ``name``-for-
+    ``title`` and ``data.data`` refusals pile up, and two runs died at
+    ``correction_limit``. Garage is not project 1, and a task already in it
+    must be left alone.
+    """
+    with sample.db() as db:
+        ids = _seed_projects(db, "Home", "Work", "Garage")
+        existing = tasks_service.create_task(
+            db, project_id=ids["Garage"], title="Paint the walls"
+        )
+        tasks_service.create_task(db, project_id=ids["Home"], title="Rake the leaves")
+        garage_id, existing_id = ids["Garage"], existing.id
+        db.commit()
+        last_seed_event = _last_event_id(db)
+
+    result = sample.run(
+        "Add these five tasks to Garage: sweep the floor, hang the pegboard, "
+        "sort the screws, fix the door hinge, recycle the old paint cans."
+    )
+
+    assert result.stop_reason == "completed", f"stopped: {result.stop_reason}"
+    with sample.db() as db:
+        new = [t for t in _live_tasks(db) if t.id > existing_id and t.title != "Rake the leaves"]
+        titles = [t.title for t in new]
+        assert len(new) == 5, f"expected five new tasks, got {titles}"
+        for _, keyword in _GARAGE_BATCH:
+            assert sum(keyword in title.lower() for title in titles) == 1, (
+                f"{keyword!r} should be in exactly one new title: {titles}"
+            )
+        assert all(t.project_id == garage_id for t in new), [
+            (t.title, t.project_id) for t in new
+        ]
+        assert all(t.parent_task_id is None for t in new), "a batch is five tasks, not subtasks"
+        assert len(_live_projects(db)) == 3, "no project invented"
+        untouched = db.get(Task, existing_id)
+        assert untouched is not None and untouched.title == "Paint the walls"
+        # Everything the run wrote is about the five (a create then a fix-up
+        # move is fine; touching another task or project is not).
+        events = _events_after(db, last_seed_event)
+        new_ids = {t.id for t in new}
+        assert all(e.entity_type == "task" and e.entity_id in new_ids for e in events), [
+            (e.entity_type, e.entity_id, e.action) for e in events
+        ]
+        assert all(e.actor == LOOP_ACTOR for e in events)
+
+
+def _create_in_named_project(sample: Sample) -> None:
+    """A create that names its project among five: routed by lookup, never by a
+    guessed id (#404). Reading is id 6; id 1 is a trashed project."""
+    with sample.db() as db:
+        ids = _seed_projects(db, "Home", "Work", "Errands", "Garage", "Reading")
+        reading_id = ids["Reading"]
+        db.commit()
+        last_seed_event = _last_event_id(db)
+
+    result = sample.run('Add a task "Renew the library card" to my Reading project.')
+
+    assert result.stop_reason == "completed", f"stopped: {result.stop_reason}"
+    assert _successful(result, "create_task"), "expected a successful create_task"
+    with sample.db() as db:
+        tasks = _live_tasks(db)
+        assert len(tasks) == 1, f"expected one task, got {[t.title for t in tasks]}"
+        assert "library card" in tasks[0].title.lower(), tasks[0].title
+        assert tasks[0].project_id == reading_id, (
+            f"filed in project {tasks[0].project_id}, not Reading ({reading_id})"
+        )
+        assert len(_live_projects(db)) == 5, "no project invented (nor a General default)"
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+
+def _subtask_under_named_parent(sample: Sample) -> None:
+    """A subtask under a parent named by title: ``parent_task_id`` right (#404).
+
+    The deployed model sent ``parent_id``. The distractor parent shares the
+    title's shape ("Clean out the gutters") in another project.
+    """
+    with sample.db() as db:
+        ids = _seed_projects(db, "Home", "Garage")
+        tasks_service.create_task(db, project_id=ids["Home"], title="Clean out the gutters")
+        parent = tasks_service.create_task(
+            db, project_id=ids["Garage"], title="Clean out the garage"
+        )
+        tasks_service.create_task(db, project_id=ids["Garage"], title="Paint the walls")
+        parent_id, garage_id = parent.id, ids["Garage"]
+        db.commit()
+        last_seed_event = _last_event_id(db)
+
+    result = sample.run('Add a subtask "Sort the recycling" under "Clean out the garage".')
+
+    assert result.stop_reason == "completed", f"stopped: {result.stop_reason}"
+    assert _successful(result, "create_task"), "expected a successful create_task"
+    with sample.db() as db:
+        new = [t for t in _live_tasks(db) if t.id > parent_id and t.title != "Paint the walls"]
+        assert len(new) == 1, f"expected one new task, got {[t.title for t in new]}"
+        subtask = new[0]
+        assert "recycling" in subtask.title.lower(), subtask.title
+        assert subtask.parent_task_id == parent_id, (
+            f"parent_task_id={subtask.parent_task_id}, want {parent_id}"
+        )
+        # Create-then-reparent (``update_task`` setting ``parent_task_id``)
+        # reaches the same end state and passes; dropping ``project_id`` on
+        # the retry files it in an invented General project and doesn't.
+        assert subtask.project_id == garage_id, (
+            f"filed in project {subtask.project_id}, not its parent's ({garage_id})"
+        )
+        assert len(_live_projects(db)) == 2, "no project invented (nor a General default)"
+        assert len(_live_tasks(db)) == 4
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+
+# The reply names what stands in the way (#404's "held" branch).
+_MENTIONS_SUBTASKS_RE = re.compile(r"\bsub-?tasks?\b", re.IGNORECASE)
+
+_GARAGE_SUBTASKS = ("Sweep the floor", "Sort the screws", "Haul boxes to the dump")
+
+
+def _complete_parent_with_open_subtasks(sample: Sample) -> None:
+    """"Mark the parent done" while its three subtasks are open (#404).
+
+    The service never lets a parent be completed directly: its ``done`` is
+    derived, and ``complete_task`` on it is refused with "This task is
+    completed by its subtasks; complete them to complete it". The deployed
+    agent hit that refusal four times in a row with no way forward.
+
+    Two end states are honest, and either passes:
+
+    * **done through the subtasks** — every subtask completed, so the parent
+      reads done (its rollup). The user said the whole job is done and the
+      refusal names this as the way, so it fulfils the ask rather than fakes it.
+    * **held and explained** — nothing written, and the reply tells the user
+      the subtasks are what stand in the way.
+
+    Anything between fails: some subtasks done but not all (the parent half
+    done, the reply free to claim otherwise), the parent's own status written
+    some other way, anything trashed, or a run that loops on the refusal until
+    a limit stops it (the stall rule ends a verbatim repeat as ``no_progress``).
+    That last one is the deployed failure, and it survives the first branch:
+    with every subtask done, a retried ``complete_task`` on the parent is
+    refused with the same words, and the limit summary then says the parent
+    is still pending when it reads done.
+    """
+    with sample.db() as db:
+        ids = _seed_projects(db, "Home", "Garage")
+        parent = tasks_service.create_task(
+            db, project_id=ids["Garage"], title="Clean out the garage"
+        )
+        subtask_ids = [
+            tasks_service.create_task(
+                db, project_id=ids["Garage"], title=title, parent_task_id=parent.id
+            ).id
+            for title in _GARAGE_SUBTASKS
+        ]
+        tasks_service.create_task(db, project_id=ids["Home"], title="Rake the leaves")
+        parent_id = parent.id
+        db.commit()
+        last_seed_event = _last_event_id(db)
+
+    result = sample.run('Mark "Clean out the garage" as done.')
+
+    assert result.stop_reason == "completed", f"stopped: {result.stop_reason}"
+    with sample.db() as db:
+        assert len(_live_tasks(db)) == 5, "nothing may be trashed"
+        subtasks = [db.get(Task, task_id) for task_id in subtask_ids]
+        done = [t.title for t in subtasks if t and t.workflow_status == TaskWorkflowStatus.done]
+        stored = db.get(Task, parent_id)
+        assert stored is not None
+        events = _events_after(db, last_seed_event)
+        if done:
+            assert len(done) == len(_GARAGE_SUBTASKS), f"only some subtasks completed: {done}"
+            assert tasks_service.get_rollup(db, stored).workflow_status == (
+                TaskWorkflowStatus.done
+            ), "every subtask is done, so the parent must read done"
+            trail = [(e.entity_type, e.entity_id, e.action) for e in events]
+            # Completions only, of the subtasks (and the parent, should a
+            # rollup ever log one); nothing else written on the way.
+            family = {*subtask_ids, parent_id}
+            assert all(
+                (e.entity_type, e.action) == ("task", "completed") and e.entity_id in family
+                for e in events
+            ), trail
+            assert {e.entity_id for e in events} >= set(subtask_ids), trail
+            assert all(e.actor == LOOP_ACTOR for e in events)
+        else:
+            assert events == [], [(e.entity_type, e.entity_id, e.action) for e in events]
+            assert stored.workflow_status == TaskWorkflowStatus.open
+            assert result.reply and _MENTIONS_SUBTASKS_RE.search(result.reply), (
+                f"held without saying the subtasks are why: {result.reply!r}"
+            )
+
+
+_Q3_REPORTS = (
+    "Draft the Q3 report",
+    "Review the Q3 report",
+    "Send the Q3 report to finance",
+)
+
+
+def _edit_among_similar(sample: Sample) -> None:
+    """Edit one task named among near-identical titles: only it changes (#404).
+
+    Priority is the field because the deployed model sent integers for it, and
+    guessed task ids ("Task 291 not found") are the targeting failure.
+    """
+    with sample.db() as db:
+        ids = _seed_projects(db, "Home", "Work")
+        tasks = {
+            title: tasks_service.create_task(db, project_id=ids["Work"], title=title).id
+            for title in _Q3_REPORTS
+        }
+        tasks["Read the Q3 report"] = tasks_service.create_task(
+            db, project_id=ids["Home"], title="Read the Q3 report"
+        ).id
+        target_id = tasks["Review the Q3 report"]
+        db.commit()
+        last_seed_event = _last_event_id(db)
+
+    result = sample.run('Set "Review the Q3 report" to high priority.')
+
+    assert result.stop_reason == "completed", f"stopped: {result.stop_reason}"
+    assert _successful(result, "update_task"), "expected a successful update_task"
+    with sample.db() as db:
+        for title, task_id in tasks.items():
+            task = db.get(Task, task_id)
+            assert task is not None and task.deleted_at is None and task.title == title
+            want = "high" if task_id == target_id else "medium"
+            assert task.priority.value == want, f"{title!r}: {task.priority.value}"
+            assert task.workflow_status == TaskWorkflowStatus.open
+        events = _events_after(db, last_seed_event)
+        assert {e.entity_id for e in events} == {target_id}, [
+            (e.entity_type, e.entity_id, e.action) for e in events
+        ]
+        assert all(e.actor == LOOP_ACTOR for e in events)
+
+
 # --- The gate: one pytest case per scenario -------------------------------------
 
 
@@ -1581,3 +1919,27 @@ def test_eval_project_reopen() -> None:
 
 def test_eval_project_trash() -> None:
     _gate("project_trash", _project_trash)
+
+
+def test_eval_misfire_batch_create() -> None:
+    _gate("misfire_batch_create", _batch_create)
+
+
+def test_eval_misfire_create_in_named_project() -> None:
+    _gate("misfire_create_in_named_project", _create_in_named_project)
+
+
+# Gated, but the closest of the five to red: 15/20 (UNDECIDED at the cap) on
+# gemma-4-12b, 2026-10-20. The first create sends ``parent_id``; a retry that
+# drops ``project_id`` files the subtask in an invented General project.
+# xfail it only if it goes BELOW_FLOOR; #411 should move it.
+def test_eval_misfire_subtask_under_parent() -> None:
+    _gate("misfire_subtask_under_parent", _subtask_under_named_parent)
+
+
+def test_eval_misfire_complete_parent() -> None:
+    _gate("misfire_complete_parent", _complete_parent_with_open_subtasks)
+
+
+def test_eval_misfire_edit_among_similar() -> None:
+    _gate("misfire_edit_among_similar", _edit_among_similar)

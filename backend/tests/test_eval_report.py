@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -13,8 +14,11 @@ from tests.eval_report import (
     format_report,
     int_from_env,
     main,
+    schema_errors,
+    schema_stats,
     scored_samples,
     summarize,
+    unparseable_turns,
     write_jsonl,
 )
 from tests.evalstats import RateResult
@@ -128,3 +132,65 @@ def test_main_compares_two_report_files(
         "find_and_complete: A 2/3 · B 1/3 · pairs 3 · A-only 1 · B-only 0 · p=1"
     )
     assert main([]) == 2
+
+
+_KNOWN = {"create_task", "update_task", "search"}
+_PREFIX = "Invalid arguments: "
+
+
+def test_schema_errors_count_argument_and_unknown_tool_refusals_only() -> None:
+    calls = [
+        ("create_task", "Invalid arguments: data.title: Field required"),
+        ("create_task", None),
+        ("update_task", "Task 291 not found"),  # domain refusal: the service answered
+        ("make_task", "Unknown tool 'make_task'"),
+        ("search", None),
+    ]
+    assert schema_errors(calls, known_tools=_KNOWN, invalid_prefix=_PREFIX) == 2
+    assert schema_errors(calls, known_tools=_KNOWN, invalid_prefix=_PREFIX, unparseable=1) == 3
+    assert schema_errors([], known_tools=_KNOWN, invalid_prefix=_PREFIX) == 0
+
+
+def test_unparseable_turns_are_the_user_messages_after_the_runs_prompt() -> None:
+    prompt = "Add a task"
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": "rules"},
+        {"role": "user", "content": prompt},  # history: an earlier, identical ask
+        {"role": "assistant", "content": "Done."},
+        {"role": "user", "content": prompt},
+        {"role": "assistant", "content": None, "tool_calls": []},
+        {"role": "user", "content": "Your tool call failed before execution: bad JSON."},
+        {"role": "assistant", "content": "Added."},
+    ]
+    assert unparseable_turns(messages, prompt) == 1
+    assert unparseable_turns(messages[:4], prompt) == 0
+    assert unparseable_turns(messages, "something else") == 0
+
+
+def test_schema_stats_rate_per_sample_and_per_call() -> None:
+    assert schema_stats([(2, 6), (0, 3), (1, 4), (0, 0)]) == {
+        "schema_errors": 3,
+        "tool_calls": 13,
+        "schema_errors_per_sample": 0.75,
+        "schema_error_rate": 0.231,
+        "samples_with_schema_errors": 2,
+    }
+    empty = schema_stats([])
+    assert empty["schema_errors_per_sample"] is None and empty["schema_error_rate"] is None
+
+
+def test_format_report_shows_schema_corrections() -> None:
+    records = [
+        RunRecord("alpha", True, 3, 1.0, tool_calls=4, schema_errors=1),
+        RunRecord("alpha", True, 3, 1.0, tool_calls=3, schema_errors=0),
+        RunRecord("quiet", True, 1, 0.5),
+    ]
+    results = {
+        name: RateResult.from_blocks(blocks=[(2, 2)], failures=[], floor=0.8)
+        for name in ("alpha", "quiet")
+    }
+    report = format_report(summarize(records), results)
+    alpha = next(line for line in report.splitlines() if line.startswith("alpha"))
+    assert alpha.endswith("1/7 (0.5/sample)")
+    quiet = next(line for line in report.splitlines() if line.startswith("quiet"))
+    assert quiet.endswith("-")
