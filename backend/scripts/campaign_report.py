@@ -18,6 +18,17 @@ p resolves what the raw counts cannot. Only scored samples (`PASS`/`FAIL`)
 pair; an infra retry or a harness error was never a sample. Unseeded reports
 print no paired column. The block number comes from the report's file name.
 
+**Frontier records (#460).** `eval_campaign.sh --frontier` writes the frontier
+test's own `frontier` records (`FrontierResult.record`) instead. They join the
+same way into a second table: per scenario, per arm, whole-task passes over
+samples with the rate, the **mean rubric** (the sample-weighted
+mean of each sample's `score`) and each block's passes, plus a paired column per
+later arm: McNemar over the whole-task verdicts of samples sharing (block, seed).
+**Blocks whose split fingerprints differ are refused**: a scenario's `fingerprint`
+(and a `frontier_header`'s `split`) must be one value across every arm and block,
+or the run exits with an error naming the scenario and the values. Arms that ran
+different corpora, or dev against heldout, were not measured on the same thing.
+
 Pure aggregation over the harness's `scenario` lines (`evalstats.scenario_record`
 plus the per-sample records `test_agent_evals.py` appends); header and suite
 lines are skipped. Tested off the GPU in `tests/test_campaign_report.py`.
@@ -41,6 +52,8 @@ from tests.evalstats import format_paired, paired_counts  # noqa: E402
 _SCORED = {"PASS": True, "FAIL": False}
 _BLOCK = re.compile(r"block-(\d+)-")
 
+# A frontier sample's whole-task verdict is `whole`; every frontier sample
+# is scored (a death is re-taken and counted as `infra`, never recorded).
 Cell = dict[str, Any]
 Table = dict[str, dict[str, Cell]]
 Outcomes = dict[str, dict[str, dict[tuple[int | None, int], bool]]]
@@ -104,10 +117,94 @@ def paired(outcomes: Outcomes, arms: Sequence[str]) -> dict[str, dict[str, str]]
     return verdicts
 
 
+class FingerprintMismatch(SystemExit):
+    """Blocks measured on different corpora or splits; nothing is joined."""
+
+
+def check_fingerprints(files: Iterable[tuple[str, int | None, Iterable[dict[str, Any]]]]) -> None:
+    """Refuse to join frontier blocks that did not measure the same thing: one
+    fingerprint per scenario and one split across every arm and block."""
+    seen: dict[str, dict[str, list[str]]] = {}  # "what" → value → where it was seen
+    for arm, block, records in files:
+        for record in records:
+            kind = record.get("kind")
+            if kind == "frontier":
+                what, value = f"scenario {record['scenario']!r} fingerprint", record.get("fingerprint")
+            elif kind == "frontier_header":
+                what, value = "split", record.get("split")
+            else:
+                continue
+            seen.setdefault(what, {}).setdefault(str(value), []).append(f"{arm} block {block}")
+    for what, values in seen.items():
+        if "None" in values or len(values) > 1:
+            raise FingerprintMismatch(
+                f"refusing to join: frontier {what} differs across blocks: "
+                + "; ".join(f"{value} in {', '.join(where)}" for value, where in values.items())
+            )
+
+
+def frontier_aggregate(reports: Iterable[tuple[str, Iterable[dict[str, Any]]]]) -> Table:
+    """Like `aggregate` for `frontier` records: {scenario: {arm: {"passed",
+    "runs", "blocks", "score"}}}, where "score" sums the samples' rubric scores
+    (mean = score / runs). A record with no samples is left out."""
+    table: Table = {}
+    for arm, records in reports:
+        for record in records:
+            if record.get("kind") != "frontier" or not record.get("runs"):
+                continue
+            cell = table.setdefault(record["scenario"], {}).setdefault(
+                arm, {"passed": 0, "runs": 0, "blocks": [], "score": 0.0}
+            )
+            cell["passed"] += int(record["passed"])
+            cell["runs"] += int(record["runs"])
+            cell["blocks"].append(int(record["passed"]))
+            samples = record.get("samples") or []
+            if samples:
+                cell["score"] += sum(float(x.get("score", 0.0)) for x in samples)
+            else:
+                cell["score"] += float(record.get("rubric") or 0.0) * int(record["runs"])
+    return table
+
+
+def frontier_outcomes(
+    reports: Iterable[tuple[str, int | None, Iterable[dict[str, Any]]]],
+) -> Outcomes:
+    """`sample_outcomes` for `frontier` records: whole-task verdicts keyed on
+    (block, seed)."""
+    outcomes: Outcomes = {}
+    for arm, block, records in reports:
+        for record in records:
+            if record.get("kind") != "frontier":
+                continue
+            for sample in record.get("samples") or []:
+                if sample.get("seed") is None or "whole" not in sample:
+                    continue
+                outcomes.setdefault(record["scenario"], {}).setdefault(arm, {})[
+                    (block, int(sample["seed"]))
+                ] = bool(sample["whole"])
+    return outcomes
+
+
+def format_frontier_table(
+    table: Table,
+    arms: Sequence[str],
+    verdicts: dict[str, dict[str, str]] | None = None,
+) -> str:
+    """`format_table` with the mean rubric beside each arm's whole-task passes."""
+    cells: Table = {}
+    for scenario, by_arm in table.items():
+        for arm, cell in by_arm.items():
+            rubric = cell["score"] / cell["runs"] if cell["runs"] else 0.0
+            cells.setdefault(scenario, {})[arm] = {**cell, "rubric": rubric}
+    return format_table(cells, arms, verdicts, with_rubric=True)
+
+
 def format_table(
     table: Table,
     arms: Sequence[str],
     verdicts: dict[str, dict[str, str]] | None = None,
+    *,
+    with_rubric: bool = False,
 ) -> str:
     """A Markdown table, one row per scenario, one column per arm, and a paired
     column per later arm (only when some scenario paired)."""
@@ -127,7 +224,10 @@ def format_table(
             else:
                 blocks = ", ".join(str(b) for b in cell["blocks"])
                 rate = cell["passed"] / cell["runs"] if cell["runs"] else 0.0
-                cells.append(f"{cell['passed']}/{cell['runs']} {rate:.0%} ({blocks})")
+                text = f"{cell['passed']}/{cell['runs']} {rate:.0%}"
+                if with_rubric:
+                    text += f" rubric {cell['rubric']:.2f}"
+                cells.append(f"{text} ({blocks})")
         cells.extend(verdicts.get(scenario, {}).get(arm, "-") for arm in against)
         lines.append(f"`{scenario}` | " + " | ".join(cells))
     return "\n".join(lines)
@@ -155,8 +255,18 @@ def parse_specs(
 def report(specs: Sequence[str]) -> str:
     """The joined table for `arm=path` specs."""
     arms, files = parse_specs(specs)
+    check_fingerprints(files)
+    parts: list[str] = []
     table = aggregate((arm, records) for arm, _, records in files)
-    return format_table(table, arms, paired(sample_outcomes(files), arms))
+    if table or not any(r.get("kind") == "frontier" for _, _, rs in files for r in rs):
+        parts.append(format_table(table, arms, paired(sample_outcomes(files), arms)))
+    frontier = frontier_aggregate((arm, records) for arm, _, records in files)
+    if frontier:
+        parts.append(
+            "frontier\n\n"
+            + format_frontier_table(frontier, arms, paired(frontier_outcomes(files), arms))
+        )
+    return "\n\n".join(parts)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
