@@ -30,7 +30,8 @@ class TrashCounts:
     project, so they don't show as their own trash rows). ``purge_total`` is the
     exact number of rows ``empty_trash`` would permanently remove, so the
     Empty-trash confirm can name a figure that matches the actual deletion (it
-    includes cascade tasks and excludes protected projects).
+    includes cascade tasks and rows an un-skip superseded, which the list
+    doesn't show, and excludes protected projects).
     """
 
     projects: int

@@ -1392,14 +1392,14 @@ def test_stop_recurrence_from_historical_row_over_http(
 # --- Un-skip with dependencies present (recurrence × dependency seam) --------
 
 
-def test_unskip_cleans_dependency_edges_on_the_skipped_row(
+def test_unskip_leaves_dependency_edges_on_the_superseded_row(
     db_session: Session,
 ) -> None:
     # R depends on blocker B. Skipping R soft-deletes it and spawns the next
-    # occurrence; the edge stays on the skipped row. Un-skipping purges that row,
-    # which must clean its dependency edges — nothing may reference the
-    # hard-deleted id (FK enforcement would raise), and the retargeted live
-    # occurrence must not inherit a phantom block.
+    # occurrence; the edge stays on the skipped row. Un-skipping retires that row
+    # as superseded — still soft-deleted, never purged (#457) — so its edge stays
+    # with it, as every trashed task's does, and the retargeted live occurrence
+    # must not inherit a phantom block.
     blocker = _make_task(db_session, due=None)
     task = _make_task(db_session, due=date(2026, 6, 1))
     tasks_service.update_task(
@@ -1418,19 +1418,24 @@ def test_unskip_cleans_dependency_edges_on_the_skipped_row(
     restored = task_trash.restore_task(db_session, task)
     db_session.commit()
 
-    # Un-skip retargeted the live occurrence (the skipped row was purged)...
+    # Un-skip retargeted the live occurrence (the skipped row was superseded)...
     assert restored.id == live.id
     assert restored.due_date == date(2026, 6, 1)
-    # ...and no dependency edge references the purged id on either side.
+    skipped = db_session.get(Task, skipped_id)
+    assert skipped is not None
+    assert skipped.deleted_at is not None and skipped.superseded_at is not None
+    # ...its edge is untouched on the trashed row, and blocks nothing live.
     edges = db_session.execute(select(TaskDependency)).scalars().all()
-    assert all(skipped_id not in (e.task_id, e.depends_on_task_id) for e in edges)
+    assert [(e.task_id, e.depends_on_task_id) for e in edges] == [
+        (skipped_id, blocker.id)
+    ]
     assert not deps_service.is_blocked(db_session, restored.id)
 
 
 def test_unskip_with_dependent_task_present(db_session: Session) -> None:
     # T depends on recurring R. Skipping R sends T's blocker to trash (a trashed
-    # blocker no longer blocks); un-skipping purges the skipped row and its edge.
-    # T must never point at a hard-deleted row or stay phantom-blocked.
+    # blocker no longer blocks); un-skipping supersedes the skipped row, which
+    # stays trashed with its edge (#457). T must not stay phantom-blocked.
     task = _make_task(db_session, due=date(2026, 6, 1))
     tasks_service.update_task(
         db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
@@ -1452,7 +1457,9 @@ def test_unskip_with_dependent_task_present(db_session: Session) -> None:
     db_session.commit()
 
     edges = db_session.execute(select(TaskDependency)).scalars().all()
-    assert all(skipped_id not in (e.task_id, e.depends_on_task_id) for e in edges)
+    assert [(e.task_id, e.depends_on_task_id) for e in edges] == [
+        (dependent.id, skipped_id)
+    ]
     assert not deps_service.is_blocked(db_session, dependent.id)
     assert restored.due_date == date(2026, 6, 1)
 

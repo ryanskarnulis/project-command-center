@@ -35,6 +35,8 @@ export interface RescheduledDate {
 
 export interface UnskipUndo {
   skipped_due_date: string
+  /** The original skipped row, superseded by the un-skip and made skipped again by undo (#457). */
+  superseded_task_id: number
   previous_due_dates: RescheduledDate[]
 }
 

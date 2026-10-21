@@ -195,6 +195,12 @@ Key decisions:
   holds at most one **live** occurrence per due date, enforced by the partial
   unique index `uq_tasks_active_occurrence`; restoring a trashed occurrence whose
   date a replacement has taken returns 409 rather than duplicating the series.
+  Restoring a *skipped* occurrence (`skipped_at`) whose series already has a
+  live successor un-skips instead: the successor is rewound onto the skipped
+  date, and the original row and the checklist its skip took along (the rows
+  the successor holds clones of, in whatever project) stay soft-deleted, marked
+  `superseded_at` — out of the Tasks trash, and a restore of one returns 409.
+  Nothing is hard-deleted (#457); only that un-skip's Undo clears the marker.
 - **Project deletion cascade**: deleting a project soft-deletes exactly its own
   tasks (by `project_id`, not by walking the subtree across projects), each
   stamped with `deleted_with_project_id` so restore can offer to bring them back
@@ -382,7 +388,8 @@ recurring occurrence hands back its rewound successor under a different id
 project restore route) returns an `undo` receipt of exactly what it changed,
 and `POST /api/trash/{tasks,projects}/undo-restore` replays it backwards: only
 the restored rows go back to trash (with their cascade markers), an un-skip
-moves the series back to its later date and re-files the skipped occurrence,
+moves the series back to its later date and makes the original row the skipped
+occurrence again,
 and a project re-archives its tasks under it. The server answers 409, writing
 nothing, if those rows moved on inside the five seconds. A task receipt is
 bound to its own restore by that restore's `restored` activity event

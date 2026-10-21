@@ -75,12 +75,14 @@ class RescheduledDate(MutationModel):
 class UnskipUndo(MutationModel):
     """What an un-skip rewind changed: the date it rewound onto and the old dates.
 
-    The restored skipped row itself was purged by the rewind, so undoing it
-    re-files a skipped occurrence on ``skipped_due_date`` and moves each rewound
-    row back to its ``previous_due_dates`` entry.
+    The restored skipped row itself stays in the database, soft-deleted and
+    marked superseded (#457), so undoing the rewind moves each rewound row back
+    to its ``previous_due_dates`` entry and turns ``superseded_task_id`` — that
+    original row — back into the skipped occurrence on ``skipped_due_date``.
     """
 
     skipped_due_date: date
+    superseded_task_id: EntityId
     previous_due_dates: Annotated[
         list[RescheduledDate], Field(max_length=MAX_PURGE_IDS)
     ]

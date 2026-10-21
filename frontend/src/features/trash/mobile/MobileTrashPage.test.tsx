@@ -201,7 +201,7 @@ describe('TrashPage — mobile handoff (M08f)', () => {
 
   it('undoes an un-skip that handed back a different task id (#306)', async () => {
     // Restoring skipped occurrence 6 rewinds its live successor 42 onto its
-    // date and purges row 6: the response names 42, and 6 no longer exists.
+    // date and retires row 6 as superseded (#457): the response names 42.
     const unskipUndo: TaskRestoreUndo = {
       task_id: 42,
       restore_event_id: 900,
@@ -210,6 +210,7 @@ describe('TrashPage — mobile handoff (M08f)', () => {
       deleted_with_task_id: null,
       unskip: {
         skipped_due_date: '2026-09-23',
+        superseded_task_id: 6,
         previous_due_dates: [{ task_id: 42, due_date: '2026-09-24' }],
       },
     }
@@ -222,7 +223,7 @@ describe('TrashPage — mobile handoff (M08f)', () => {
     await user.click(await screen.findByRole('button', { name: 'Restore task Trial the second UPS unit' }))
     await user.click(within(await screen.findByRole('status')).getByRole('button', { name: 'Undo' }))
     await waitFor(() => expect(mockUndoTaskRestore).toHaveBeenCalledWith(unskipUndo))
-    // Neither the stale id (a 404) nor the live successor (the series' only
+    // Neither the superseded id nor the live successor (the series' only
     // actionable occurrence) is deleted.
     expect(mockDeleteTask).not.toHaveBeenCalled()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()

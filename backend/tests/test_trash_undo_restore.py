@@ -8,7 +8,7 @@ inverse of a restore:
   cascades through every active descendant, so a child the user had restored
   individually beforehand was re-trashed by the Undo.
 * **#306** — restoring a *skipped* recurring occurrence rewinds the live
-  successor onto the skipped date and purges the original row, returning the
+  successor onto the skipped date and supersedes the original row, returning the
   successor under a different id. ``DELETE`` of the original id 404'd and the
   series stayed rewound (and deleting the successor would trash the series'
   live occurrence instead of reversing the rewind).
@@ -309,6 +309,9 @@ def test_undo_unskip_returns_the_series_to_its_pre_restore_state(
     # The un-skip rewinds the successor and hands it back under its own id.
     assert result["task"]["id"] == successor["id"]
     assert result["task"]["due_date"] == "2026-09-23"
+    # The original row is superseded, not purged (#457), and the receipt names it.
+    assert result["undo"]["unskip"]["superseded_task_id"] == root["id"]
+    assert root["id"] not in _trashed_task_ids(client)
 
     undo = client.post("/api/trash/tasks/undo-restore", json=result["undo"])
     assert undo.status_code == 204, undo.text
@@ -334,7 +337,10 @@ def test_undo_unskip_returns_the_series_to_its_pre_restore_state(
     ).scalars().all()
     assert [t.due_date.isoformat() for t in skipped if t.due_date] == ["2026-09-23"]
     tombstone = skipped[0]
+    # The very row the user restored is the skipped occurrence again (#457).
+    assert tombstone.id == root["id"]
     assert tombstone.deleted_at is not None
+    assert tombstone.superseded_at is None
     assert tombstone.id in _trashed_task_ids(client)
     # The skipped occurrence carries its checklist into the trash as one unit.
     tombstone_steps = db_session.execute(
