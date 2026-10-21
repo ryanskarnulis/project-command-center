@@ -49,6 +49,10 @@ two things:
 * **Schema corrections (#404).** Every sample counts the calls refused for
   their arguments or an unknown tool name (``eval_report.schema_errors``);
   each scenario reports them per sample and per call beside its verdict.
+* **Multi-turn threads (#389, #405).** ``Sample.converse`` drives a scripted
+  conversation through the conversation route (stored history, as in
+  production), metering and snapshotting each step and checking it at once.
+  One sample is the whole thread: it passes only if every step does.
 
 This suite is the tripwire from ``docs/agent-design.md``: baseline results
 are recorded there. ``-s`` shows the per-sample ``[eval] …`` lines and the
@@ -63,9 +67,9 @@ import re
 import subprocess
 import threading
 import time
-from collections.abc import Callable, Generator, Iterator, Sequence
+from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, NoReturn
@@ -98,10 +102,12 @@ from app.db.models import (
     Project,
     Task,
     TaskDependency,
+    TaskPriority,
     TaskWorkflowStatus,
 )
 from app.db.session import enable_sqlite_fk_enforcement, get_db, get_db_write
 from app.main import app
+from app.services import conversations as conversations_service
 from app.services import focus_plan as focus_plan_service
 from app.services import projects as projects_service
 from app.services import task_dependencies as deps_service
@@ -118,6 +124,7 @@ from tests.eval_report import (
     unparseable_turns,
     write_jsonl,
 )
+from tests.eval_threads import changed_keys, mention_order, weekday_targets
 from tests.evalstats import (
     DEFAULT_FLOOR,
     Decision,
@@ -179,6 +186,16 @@ _FLOORS: dict[str, float] = {
         "misfire_subtask_under_parent",
         "misfire_complete_parent",
         "misfire_edit_among_similar",
+        *(
+            f"{family}[{condition}]"
+            for family in ("followup_high_priority", "long_complete", "long_reschedule")
+            for condition in ("fresh", "live_like", "poisoned")
+        ),
+        "ambiguous_dentist_then_second",
+        "reference_rename_then_undo",
+        "reference_trash_then_undo",
+        "reference_first_to_friday",
+        "delegate_thread",
     )
 }
 
@@ -367,6 +384,147 @@ class _RecordingLoop(AgentLoop):
         return result
 
 
+# --- Multi-turn threads (#389, #405) ---------------------------------------------
+#
+# A thread is driven through the conversation route, the only path where
+# history exists: ``post_message`` reads the stored turns
+# (``history_for_loop``), runs the loop on them, and stores the new pair. Each
+# step is metered on its own, and the DB is snapshotted after it, because a
+# later step changes the live rows a check about an earlier one would read.
+
+
+@dataclass(frozen=True)
+class TaskRow:
+    """One task as a snapshot keeps it: the fields an ask might touch."""
+
+    title: str
+    project_id: int
+    parent_task_id: int | None
+    priority: str
+    status: str
+    due_date: date | None
+    deleted: bool
+
+
+# (entity_type, entity_id, action, actor) of one activity row.
+EventRow = tuple[str, int, str, str | None]
+
+
+@dataclass(frozen=True)
+class World:
+    """The DB at one moment: every task and project (trashed ones included)
+    and the whole activity log, oldest first."""
+
+    tasks: dict[int, TaskRow]
+    projects: dict[int, tuple[str, bool, bool]]  # name, trashed, closed
+    events: tuple[EventRow, ...]
+
+    @classmethod
+    def read(cls, db: Session) -> World:
+        tasks = {
+            t.id: TaskRow(
+                title=t.title,
+                project_id=t.project_id,
+                parent_task_id=t.parent_task_id,
+                priority=t.priority.value,
+                status=t.workflow_status.value,
+                due_date=t.due_date,
+                deleted=t.deleted_at is not None,
+            )
+            for t in db.execute(select(Task)).scalars().all()
+        }
+        projects = {
+            p.id: (p.name, p.deleted_at is not None, p.closed_at is not None)
+            for p in db.execute(select(Project)).scalars().all()
+        }
+        events = tuple(
+            (e.entity_type, e.entity_id, e.action, e.actor)
+            for e in db.execute(select(ActivityEvent).order_by(ActivityEvent.id)).scalars()
+        )
+        return cls(tasks, projects, events)
+
+    def task_id(self, title: str) -> int:
+        """The id of the one task titled ``title`` (a seed's, so exact)."""
+        ids = [task_id for task_id, row in self.tasks.items() if row.title == title]
+        assert len(ids) == 1, f"seed has {len(ids)} tasks titled {title!r}"
+        return ids[0]
+
+
+@dataclass
+class Step:
+    """One turn of a thread: what was said, the run it got, and the DB after."""
+
+    index: int
+    ask: str
+    actor: str
+    result: AgentRunResult
+    seconds: float
+    world: World
+    # The activity rows this step wrote.
+    events: tuple[EventRow, ...]
+
+    @property
+    def reply(self) -> str:
+        return self.result.reply or ""
+
+    @property
+    def schema_errors(self) -> int:
+        return _schema_errors(self.result, self.ask)
+
+    def record(self) -> dict[str, Any]:
+        """The step as the report keeps it; the reply too, since the next step
+        is read against it ("the second one")."""
+        return {
+            "step": self.index,
+            "ask": self.ask,
+            "actor": self.actor,
+            "stop_reason": self.result.stop_reason,
+            "iterations": self.result.iterations,
+            "seconds": round(self.seconds, 1),
+            "trajectory": _trajectory(self.result),
+            "tool_calls": len(self.result.tool_calls),
+            "schema_errors": self.schema_errors,
+            "refusals": _refusals(self.result),
+            "run_id": self.result.run_id,
+            "reply": self.reply[:1000],
+        }
+
+
+@dataclass
+class Thread:
+    """A conversation as the steps so far left it. ``baseline`` is the DB once
+    the seed (world and stored thread) was in, before the first step."""
+
+    conversation_id: int
+    baseline: World
+    seeded_turns: int
+    steps: list[Step] = field(default_factory=list)
+
+    @property
+    def step(self) -> Step:
+        """The step being checked: the latest."""
+        return self.steps[-1]
+
+    @property
+    def before(self) -> World:
+        """The DB as the latest step found it."""
+        return self.steps[-2].world if len(self.steps) > 1 else self.baseline
+
+
+# A turn of a scripted thread: what the user says, and the check its step must
+# pass, run right after it (a failed check ends the sample: one sample is the
+# whole thread, and it passes only if every step does).
+Turn = tuple[str, Callable[[Thread], None]]
+
+
+def _stored_turn(reply: str) -> AgentRunResult:
+    """An assistant turn for a seeded thread: text only, which is all
+    ``history_for_loop`` ever sends back to the model."""
+    return AgentRunResult(
+        reply=reply, stop_reason="completed", tool_calls=[], iterations=1, messages=[]
+    )
+
+
 class Sample:
     """One sample's world: a fresh in-memory DB the loop's tool sessions are
     pointed at, the sample's seed, and what its run turned out to be."""
@@ -395,14 +553,36 @@ class Sample:
         self.duration: float | None = None
         # The ask, so the schema count can find the run's turn in the transcript.
         self.prompt: str | None = None
+        # A thread's completed steps (``converse``), and the one in flight.
+        self.steps: list[Step] = []
+        self.step_label: str | None = None
+
+    # A thread's sample is metered as the sum of its steps; each step's own
+    # numbers are in the report's ``steps``.
 
     @property
     def tool_calls(self) -> int:
+        if self.steps:
+            return sum(len(step.result.tool_calls) for step in self.steps)
         return 0 if self.result is None else len(self.result.tool_calls)
 
     @property
     def schema_errors(self) -> int:
+        if self.steps:
+            return sum(step.schema_errors for step in self.steps)
         return _schema_errors(self.result, self.prompt)
+
+    @property
+    def iterations(self) -> int | None:
+        if self.steps:
+            return sum(step.result.iterations for step in self.steps)
+        return None if self.result is None else self.result.iterations
+
+    @property
+    def trajectory(self) -> str:
+        if self.steps:
+            return " | ".join(_trajectory(step.result) or "-" for step in self.steps)
+        return _trajectory(self.result)
 
     def provider(self) -> LlamaCppProvider:
         """The configured provider, sending this sample's seed (if any)."""
@@ -433,7 +613,7 @@ class Sample:
         app.dependency_overrides[get_db] = override
         app.dependency_overrides[get_db_write] = override
         try:
-            with TestClient(app, client=(f"eval-{self.index}", 50000)) as client:
+            with TestClient(app, client=(f"eval-{self.scenario}-{self.index}", 50000)) as client:
                 yield client, session
         finally:
             app.dependency_overrides.clear()
@@ -493,13 +673,14 @@ class Sample:
         raise _RunDied(detail)
 
     def _print(self) -> None:
-        """The per-sample ``[eval]`` stats line."""
+        """The per-run ``[eval]`` stats line (one per step of a thread)."""
         iterations = None if self.result is None else self.result.iterations
+        step = f" step={self.step_label}" if self.step_label else ""
         print(
-            f"\n[eval] scenario={self.scenario}[{self.index}] seed={self.seed} "
+            f"\n[eval] scenario={self.scenario}[{self.index}]{step} seed={self.seed} "
             f"stop={self.stop_reason} iterations={iterations} "
             f"duration={self.duration or 0.0:.1f}s "
-            f"schema_errors={self.schema_errors} "
+            f"schema_errors={_schema_errors(self.result, self.prompt)} "
             f"trajectory=[{_trajectory(self.result)}]"
             + (f" status={self.status_code} detail={self.detail!r}" if self.detail else "")
         )
@@ -513,16 +694,95 @@ class Sample:
             "status_code": self.status_code,
             "stop_reason": self.stop_reason,
             "provider_failure": self.provider_failure,
-            "iterations": None if self.result is None else self.result.iterations,
+            "iterations": self.iterations,
             "seconds": None if self.duration is None else round(self.duration, 1),
-            "trajectory": _trajectory(self.result),
+            "trajectory": self.trajectory,
             "tool_calls": self.tool_calls,
             "schema_errors": self.schema_errors,
-            "refusals": _refusals(self.result),
+            "refusals": (
+                [r for step in self.steps for r in _refusals(step.result)]
+                if self.steps
+                else _refusals(self.result)
+            ),
             "run_id": None if self.result is None else self.result.run_id,
             "error": None if error is None else str(error),
             "detail": self.detail,
+            **({"steps": [step.record() for step in self.steps]} if self.steps else {}),
         }
+
+    def converse(
+        self,
+        turns: Sequence[Turn],
+        *,
+        thread: Sequence[tuple[str, str]] = (),
+        headers: Mapping[str, str] | None = None,
+    ) -> Thread:
+        """Drive a scripted thread through the conversation route (#389, #405).
+
+        ``thread`` is stored first, through the conversations service, as
+        (user, assistant) text pairs: a long history costs no model turns, and
+        the route reads it back exactly as it reads a real one. Then each turn
+        is posted to ``POST /api/agent/conversations/{id}/messages`` (with
+        ``headers``, e.g. ``X-Agent-Actor``), metered on its own, snapshotted,
+        and checked straight away. The world (projects, tasks) is the
+        scenario's to seed before calling this.
+
+        One sample is the whole thread. A failed check scores the sample a
+        miss, naming the step, and the later steps never run (they would answer
+        a thread already gone wrong). A step that dies (a provider death, a
+        429) ends the sample through ``_died`` exactly as a one-shot run does,
+        so an infrastructure death anywhere in the thread re-takes the whole
+        thread rather than scoring it.
+        """
+        started = time.monotonic()
+        with self.db() as db:
+            conversation = conversations_service.create_conversation(db)
+            for user_text, assistant_text in thread:
+                conversations_service.append_user_message(db, conversation, user_text)
+                conversations_service.append_assistant_message(
+                    db, conversation, _stored_turn(assistant_text)
+                )
+            db.commit()
+            state = Thread(conversation.id, World.read(db), len(thread))
+        url = f"/api/agent/conversations/{state.conversation_id}/messages"
+        try:
+            with self.provider() as provider, self.client() as (client, db_session):
+                loop = _RecordingLoop(provider)
+                app.dependency_overrides[routes_agent.get_agent_loop] = lambda: loop
+                for index, (ask, check) in enumerate(turns, start=1):
+                    self.step_label = f"{index}/{len(turns)}"
+                    step_started = time.monotonic()
+                    runs = len(loop.runs)
+                    self.post_message(
+                        client, url, content=ask, headers=dict(headers or {}), loop=loop
+                    )
+                    if len(loop.runs) != runs + 1:
+                        raise RuntimeError(f"step {index} ran {len(loop.runs) - runs} loops")
+                    actor, result = loop.runs[-1]
+                    # Read through the client's session (one shared connection),
+                    # then end the read so the next step's writers can begin.
+                    world = World.read(db_session)
+                    db_session.rollback()
+                    previous = state.steps[-1].world if state.steps else state.baseline
+                    step = Step(
+                        index=index,
+                        ask=ask,
+                        actor=actor,
+                        result=result,
+                        seconds=time.monotonic() - step_started,
+                        world=world,
+                        events=world.events[len(previous.events) :],
+                    )
+                    state.steps.append(step)
+                    self.steps.append(step)
+                    try:
+                        check(state)
+                    except AssertionError as exc:
+                        raise AssertionError(f"step {index} ({ask!r}): {exc}") from exc
+        finally:
+            self.step_label = None
+            self.duration = time.monotonic() - started
+        return state
 
 
 def _take(
@@ -636,7 +896,7 @@ def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
                 RunRecord(
                     scenario,
                     passed,
-                    None if sample.result is None else sample.result.iterations,
+                    sample.iterations,
                     sample.duration,
                     sample.tool_calls,
                     sample.schema_errors,
@@ -1821,6 +2081,509 @@ def _edit_among_similar(sample: Sample) -> None:
         assert all(e.actor == LOOP_ACTOR for e in events)
 
 
+# --- Multi-turn threads (#389, #405) ---------------------------------------------
+#
+# Every scenario above is one fresh turn. Chess found that fresh one-turn
+# passes hid live failures, so these measure asks inside conversations, through
+# ``Sample.converse`` (the conversation route, stored history, a check per
+# step). History is text only: the model sees its own earlier *replies*, never
+# its earlier tool calls or results (``history_for_loop``). So a reference ("it",
+# "that", "the second one") resolves only through what a reply said.
+
+
+def _assert_completed(thread: Thread) -> None:
+    step = thread.step
+    assert step.result.stop_reason == "completed", f"stopped: {step.result.stop_reason}"
+
+
+def _assert_wrote_nothing(thread: Thread) -> None:
+    """A read-only or clarifying step: no write landed, none succeeded."""
+    step = thread.step
+    assert step.events == (), f"wrote {list(step.events)}"
+    assert all(r.error is not None for r in _mutations(step.result)), (
+        f"mutations: {_trajectory(step.result)}"
+    )
+    assert thread.before.tasks == step.world.tasks
+
+
+def _assert_only(thread: Thread, task_id: int, *, actor: str = LOOP_ACTOR) -> None:
+    """This step changed ``task_id`` and nothing else, and every row it wrote
+    is about that task, written as ``actor``."""
+    step = thread.step
+    changed = changed_keys(thread.before.tasks, step.world.tasks)
+    assert changed == {task_id}, (
+        f"changed {sorted(changed)}, want only {task_id}: "
+        + str({k: step.world.tasks.get(k) for k in changed})
+    )
+    assert step.world.projects == thread.before.projects, "a project was touched"
+    assert step.events, "the step wrote no activity events"
+    assert all(e[0] == "task" and e[1] == task_id for e in step.events), list(step.events)
+    assert all(e[3] == actor for e in step.events), list(step.events)
+
+
+def _new_task(thread: Thread) -> int:
+    """The one task this step created."""
+    new = thread.step.world.tasks.keys() - thread.before.tasks.keys()
+    assert len(new) == 1, f"created {[thread.step.world.tasks[k].title for k in new]}"
+    return new.pop()
+
+
+# The world every long-thread condition shares: what the live-like thread below
+# talks about, so nothing it says is false.
+def _seed_world(sample: Sample) -> None:
+    today = date.today()
+    with sample.db() as db:
+        home = projects_service.create_project(db, name="Home").id
+        work = projects_service.create_project(db, name="Work").id
+        errands = projects_service.create_project(db, name="Errands").id
+        tasks_service.create_task(db, project_id=home, title="Book dentist appointment")
+        tasks_service.create_task(db, project_id=home, title="Rake the leaves")
+        tap = tasks_service.create_task(db, project_id=home, title="Fix the leaking kitchen tap")
+        tasks_service.mark_done(db, tap)
+        tasks_service.create_task(
+            db,
+            project_id=home,
+            title="Order new furnace filters",
+            due_date=today + timedelta(days=3),
+        )
+        tasks_service.create_task(
+            db, project_id=work, title="Quarterly report", due_date=today + timedelta(days=5)
+        )
+        dana = tasks_service.create_task(
+            db, project_id=work, title="Email Dana about the offsite"
+        )
+        tasks_service.mark_done(db, dana)
+        tasks_service.create_task(db, project_id=work, title="Prepare standup notes")
+        tasks_service.create_task(
+            db,
+            project_id=errands,
+            title="Buy stamps",
+            priority=TaskPriority.high,
+            due_date=today + timedelta(days=1),
+        )
+        tasks_service.create_task(db, project_id=errands, title="Pick up dry cleaning")
+        db.commit()
+
+
+def _live_thread(today: date) -> list[tuple[str, str]]:
+    """Sixteen exchanges of ordinary use, true of ``_seed_world`` on ``today``.
+
+    Written the way the deployed threads read (short asks, a Glitch-voiced
+    reply, an off-topic question, a thank-you). Stored, not generated: the
+    condition is the length and shape of the history, and live turns would make
+    every sample's history different and cost twenty model runs each.
+    """
+    report_due = today + timedelta(days=5)
+    return [
+        (
+            "hey, what's on my plate this week?",
+            "You've got the quarterly report coming up and furnace filters to order. "
+            "The dentist appointment still needs booking too.",
+        ),
+        (
+            "add buy stamps to errands, high priority, due tomorrow",
+            'Added "Buy stamps" to Errands: high priority, due tomorrow.',
+        ),
+        (
+            "did I ever fix the kitchen tap?",
+            'Yep, "Fix the leaking kitchen tap" is marked done.',
+        ),
+        (
+            "cool. what's in the work project?",
+            'Work has three tasks: "Quarterly report" (open), "Email Dana about the '
+            'offsite" (open) and "Prepare standup notes" (open).',
+        ),
+        (
+            "mark the email to dana done",
+            'Done. "Email Dana about the offsite" is complete.',
+        ),
+        (
+            "how many open tasks do I have in home?",
+            'Three open in Home: "Book dentist appointment", "Rake the leaves" and '
+            '"Order new furnace filters".',
+        ),
+        (
+            "add pick up dry cleaning to errands",
+            'Added "Pick up dry cleaning" to Errands.',
+        ),
+        (
+            "what's the weather like",
+            "Can't check the weather, I only run your projects and tasks.",
+        ),
+        ("fair. anything overdue?", "Nothing's overdue right now."),
+        (
+            "what does my focus plan look like today",
+            "Your plan for today is empty: nothing pinned, no commitments.",
+        ),
+        (
+            "when's the quarterly report due again",
+            f"The quarterly report is due {report_due.isoformat()}.",
+        ),
+        (
+            "which project is rake the leaves in?",
+            '"Rake the leaves" is in Home.',
+        ),
+        (
+            "anything in errands besides stamps?",
+            'Yes, "Pick up dry cleaning".',
+        ),
+        (
+            "how's work looking overall",
+            'Work has two open tasks, "Quarterly report" and "Prepare standup notes", '
+            "and one done.",
+        ),
+        (
+            "ok I'll deal with the leaves this weekend",
+            'Sounds good. "Rake the leaves" stays open until you get to it.',
+        ),
+        ("thanks glitch", "Anytime."),
+    ]
+
+
+# Each long-thread ask runs under three conditions (chess's ``long_*`` family),
+# so the history is the only variable:
+#
+#   fresh      the same world, an empty conversation       (the control)
+#   live_like  the world plus ``_live_thread``'s 16 turns  (what a user has)
+#   poisoned   live_like plus one last exchange where the agent's OWN reply
+#              made a false claim about the very thing the ask is about
+#
+# Chess's finding was that length alone did nothing and self-poisoning broke
+# the agent: it read its own earlier answer as a fact about the app. The
+# poison goes last, where chess found it bites.
+_CONDITIONS = ("fresh", "live_like", "poisoned")
+
+
+def _condition_thread(label: str, poison: tuple[str, str]) -> list[tuple[str, str]]:
+    if label == "fresh":
+        return []
+    thread = _live_thread(date.today())
+    return [*thread, poison] if label == "poisoned" else thread
+
+
+_REGISTRATION_ASK = 'Add a task "Renew the car registration" to my Home project.'
+_HIGH_PRIORITY_ASK = "Now make it high priority."
+# False: no such task exists until the ask creates it.
+_REGISTRATION_POISON = (
+    "did you add the car registration renewal?",
+    'Yes, "Renew the car registration" is already in Home, high priority.',
+)
+
+
+def _followup_high_priority(sample: Sample, label: str) -> None:
+    """Create a task, then "now make it high priority" (#389).
+
+    The second ask names nothing, so it resolves only through the first turn's
+    reply in the stored history. The right task is the one step 1 created; it
+    alone changes, only its priority moves, and every event is the loop's.
+    Under ``poisoned`` the thread's last reply claims the task already exists.
+    """
+    _seed_world(sample)
+    created: list[int] = []
+
+    def check_created(thread: Thread) -> None:
+        _assert_completed(thread)
+        task_id = _new_task(thread)
+        row = thread.step.world.tasks[task_id]
+        assert "registration" in row.title.lower(), row.title
+        home = next(k for k, p in thread.baseline.projects.items() if p[0] == "Home")
+        assert row.project_id == home, f"filed in project {row.project_id}, not Home"
+        assert row.parent_task_id is None and not row.deleted
+        _assert_only(thread, task_id)
+        created.append(task_id)
+
+    def check_high(thread: Thread) -> None:
+        _assert_completed(thread)
+        task_id = created[0]
+        before = thread.before.tasks[task_id]
+        after = thread.step.world.tasks[task_id]
+        assert after == replace(before, priority="high"), f"{before} -> {after}"
+        _assert_only(thread, task_id)
+
+    sample.converse(
+        [(_REGISTRATION_ASK, check_created), (_HIGH_PRIORITY_ASK, check_high)],
+        thread=_condition_thread(label, _REGISTRATION_POISON),
+    )
+
+
+_DENTIST_DONE_ASK = "Mark the dentist appointment task as done."
+# False: the dentist task is still open.
+_DENTIST_POISON = (
+    "I booked the dentist, check that off",
+    'Done. "Book dentist appointment" is marked complete.',
+)
+
+
+def _long_complete(sample: Sample, label: str) -> None:
+    """``find_and_complete``'s ask inside a thread (#405). Under ``poisoned``
+    the agent's last reply already claimed it was done; it wasn't."""
+    _seed_world(sample)
+
+    def check(thread: Thread) -> None:
+        _assert_completed(thread)
+        dentist = thread.baseline.task_id("Book dentist appointment")
+        assert thread.step.world.tasks[dentist].status == "done", (
+            f"still {thread.step.world.tasks[dentist].status}: {thread.step.reply!r}"
+        )
+        _assert_only(thread, dentist)
+
+    sample.converse(
+        [(_DENTIST_DONE_ASK, check)], thread=_condition_thread(label, _DENTIST_POISON)
+    )
+
+
+# False: "Order new furnace filters" exists, due in three days.
+_FILTERS_POISON = (
+    "do I have anything about furnace filters?",
+    "I couldn't find any task about furnace filters.",
+)
+
+
+def _long_reschedule(sample: Sample, label: str) -> None:
+    """``reschedule``'s ask (paraphrased title, ISO target per #380) inside a
+    thread (#405). Under ``poisoned`` the agent's last reply said no such task
+    exists."""
+    _seed_world(sample)
+    target = date.today() + timedelta(days=10)
+
+    def check(thread: Thread) -> None:
+        _assert_completed(thread)
+        filters = thread.baseline.task_id("Order new furnace filters")
+        before = thread.before.tasks[filters]
+        after = thread.step.world.tasks[filters]
+        assert after == replace(before, due_date=target), f"{before} -> {after}"
+        _assert_only(thread, filters)
+
+    sample.converse(
+        [(f"Push the furnace filters task to {target.isoformat()}.", check)],
+        thread=_condition_thread(label, _FILTERS_POISON),
+    )
+
+
+# "The dentist one" fits both. Each is recognised in a reply by its title or a
+# word only it has, for the "second one" rule (``eval_threads.mention_order``).
+_DENTIST_CANDIDATES = {
+    "Book dentist appointment": ("Book dentist appointment", "appointment"),
+    "Pay the dentist bill": ("Pay the dentist bill", "bill"),
+}
+
+
+def _ambiguous_then_second(sample: Sample) -> None:
+    """Two tasks fit "the dentist one": ask, change nothing; then "the second
+    one" lands on the right task (#405).
+
+    **"Second" is the second candidate the agent's question named**, in the
+    order its reply first names them (``mention_order``), not the ids' or the
+    list tool's order: history is text only, so that reply is the list the
+    model has in front of it when the answer comes, and the list the user saw.
+    A question that doesn't name both is a miss (there is no "second" in it).
+    """
+    with sample.db() as db:
+        home = projects_service.create_project(db, name="Home")
+        for title in (*_DENTIST_CANDIDATES, "Rake the leaves"):
+            tasks_service.create_task(db, project_id=home.id, title=title)
+        db.commit()
+
+    def check_asked(thread: Thread) -> None:
+        _assert_completed(thread)
+        _assert_wrote_nothing(thread)
+        named = mention_order(thread.step.reply, _DENTIST_CANDIDATES)
+        assert len(named) == 2, f"the question names {named}: {thread.step.reply!r}"
+
+    def check_second(thread: Thread) -> None:
+        _assert_completed(thread)
+        second = mention_order(thread.steps[0].reply, _DENTIST_CANDIDATES)[1]
+        target = thread.baseline.task_id(second)
+        assert thread.step.world.tasks[target].status == "done", (
+            f"{second!r} is {thread.step.world.tasks[target].status}; "
+            f"asked with {thread.steps[0].reply!r}"
+        )
+        _assert_only(thread, target)
+
+    sample.converse(
+        [("Mark the dentist one as done.", check_asked), ("The second one.", check_second)]
+    )
+
+
+def _seed_home(sample: Sample) -> None:
+    with sample.db() as db:
+        home = projects_service.create_project(db, name="Home")
+        for title in ("Order new furnace filters", "Clean the gutters", "Rake the leaves"):
+            tasks_service.create_task(db, project_id=home.id, title=title)
+        projects_service.create_project(db, name="Work")
+        db.commit()
+
+
+_NEW_FILTERS_TITLE = "Buy MERV 13 furnace filters"
+
+
+def _reference_rename_then_undo(sample: Sample) -> None:
+    """Find a task; "rename it"; "undo that" (#405).
+
+    The agent has no undo tool, but a rename is undone by putting the old
+    title back with ``update_task``, and the old title is in its own earlier
+    replies. The honest end state is that: the same task (no re-create, no
+    trash) with its original title, nothing else touched. Left renamed is a
+    miss whatever the reply says.
+    """
+    _seed_home(sample)
+
+    def check_found(thread: Thread) -> None:
+        _assert_completed(thread)
+        _assert_wrote_nothing(thread)
+        assert "furnace" in thread.step.reply.lower(), thread.step.reply
+
+    def check_renamed(thread: Thread) -> None:
+        _assert_completed(thread)
+        filters = thread.baseline.task_id("Order new furnace filters")
+        before = thread.before.tasks[filters]
+        after = thread.step.world.tasks[filters]
+        assert after.title.lower() == _NEW_FILTERS_TITLE.lower(), after.title
+        assert after == replace(before, title=after.title), f"{before} -> {after}"
+        _assert_only(thread, filters)
+
+    def check_undone(thread: Thread) -> None:
+        _assert_completed(thread)
+        filters = thread.baseline.task_id("Order new furnace filters")
+        original = thread.baseline.tasks[filters]
+        after = thread.step.world.tasks[filters]
+        assert after.title.lower() == original.title.lower(), (
+            f"title is {after.title!r}: {thread.step.reply!r}"
+        )
+        assert after == replace(original, title=after.title), f"{original} -> {after}"
+        _assert_only(thread, filters)
+        # And across the whole thread, nothing else moved either.
+        assert changed_keys(thread.baseline.tasks, thread.step.world.tasks) <= {filters}
+
+    sample.converse(
+        [
+            ("Find the task about furnace filters.", check_found),
+            (f'Rename it to "{_NEW_FILTERS_TITLE}".', check_renamed),
+            ("Undo that.", check_undone),
+        ]
+    )
+
+
+def _reference_trash_then_undo(sample: Sample) -> None:
+    """Delete a task; "undo that" restores it from the trash (#405).
+
+    The undo of a trash is ``restore_task`` on the same id (the service's
+    restore, never a re-create). The end state is the seed exactly.
+    """
+    _seed_home(sample)
+
+    def check_trashed(thread: Thread) -> None:
+        _assert_completed(thread)
+        gutters = thread.baseline.task_id("Clean the gutters")
+        assert thread.step.world.tasks[gutters].deleted, "expected it in the trash"
+        _assert_only(thread, gutters)
+
+    def check_restored(thread: Thread) -> None:
+        _assert_completed(thread)
+        gutters = thread.baseline.task_id("Clean the gutters")
+        assert thread.step.world.tasks == thread.baseline.tasks, (
+            f"not back as it was: {thread.step.world.tasks[gutters]}"
+        )
+        _assert_only(thread, gutters)
+        assert ("task", gutters, "restored", LOOP_ACTOR) in thread.step.events
+
+    sample.converse(
+        [('Delete the "Clean the gutters" task.', check_trashed), ("Undo that.", check_restored)]
+    )
+
+
+_WORK_CANDIDATES = {
+    "Draft the budget": ("Draft the budget", "budget"),
+    "Call the printer": ("Call the printer", "printer"),
+    "Update the team wiki": ("Update the team wiki", "wiki"),
+}
+_FRIDAY = 4  # date.weekday()
+
+
+def _reference_first_to_friday(sample: Sample) -> None:
+    """List, then "push the first one to Friday" (#405).
+
+    "First" is the first task the agent's list reply names (``mention_order``,
+    the same rule as "the second one"). "Friday" is computed from today's real
+    date: the next Friday strictly ahead, or today as well when today is one
+    (``weekday_targets``). The model is told only today's ISO date, so the
+    weekday arithmetic is its own.
+    """
+    today = date.today()
+    with sample.db() as db:
+        work = projects_service.create_project(db, name="Work")
+        for title in _WORK_CANDIDATES:
+            tasks_service.create_task(db, project_id=work.id, title=title, due_date=today)
+        home = projects_service.create_project(db, name="Home")
+        tasks_service.create_task(db, project_id=home.id, title="Rake the leaves")
+        db.commit()
+
+    def check_listed(thread: Thread) -> None:
+        _assert_completed(thread)
+        _assert_wrote_nothing(thread)
+        named = mention_order(thread.step.reply, _WORK_CANDIDATES)
+        assert len(named) >= 2, f"the list names {named}: {thread.step.reply!r}"
+
+    def check_pushed(thread: Thread) -> None:
+        _assert_completed(thread)
+        first = mention_order(thread.steps[0].reply, _WORK_CANDIDATES)[0]
+        target = thread.baseline.task_id(first)
+        before = thread.before.tasks[target]
+        after = thread.step.world.tasks[target]
+        assert after.due_date in weekday_targets(today, _FRIDAY), (
+            f"{first!r} due {after.due_date}, want {sorted(weekday_targets(today, _FRIDAY))}"
+        )
+        assert after == replace(before, due_date=after.due_date), f"{before} -> {after}"
+        _assert_only(thread, target)
+
+    sample.converse(
+        [
+            ("What's open in my Work project?", check_listed),
+            ("Push the first one to Friday.", check_pushed),
+        ]
+    )
+
+
+def _delegate_thread(sample: Sample) -> None:
+    """A conductor-delegated thread: every event of both turns is the
+    delegate's, the follow-up included (#405, after ``delegate_actor``)."""
+    delegate = "agent:conductor"
+    tomorrow = date.today() + timedelta(days=1)
+    with sample.db() as db:
+        projects_service.create_project(db, name="Home")
+        projects_service.create_project(db, name="Work")
+        db.commit()
+    created: list[int] = []
+
+    def check_created(thread: Thread) -> None:
+        _assert_completed(thread)
+        assert thread.step.actor == delegate, thread.step.actor
+        task_id = _new_task(thread)
+        assert "plumber" in thread.step.world.tasks[task_id].title.lower()
+        _assert_only(thread, task_id, actor=delegate)
+        created.append(task_id)
+
+    def check_due(thread: Thread) -> None:
+        _assert_completed(thread)
+        assert thread.step.actor == delegate, thread.step.actor
+        task_id = created[0]
+        before = thread.before.tasks[task_id]
+        after = thread.step.world.tasks[task_id]
+        assert after == replace(before, due_date=tomorrow), f"{before} -> {after}"
+        _assert_only(thread, task_id, actor=delegate)
+        # The seed and the conversation's creation stay the user's.
+        prior = thread.step.world.events[: len(thread.baseline.events)]
+        assert prior == thread.baseline.events and all(e[3] is None for e in prior)
+
+    sample.converse(
+        [
+            ('Create a task "Call the plumber" in the Home project.', check_created),
+            ("Make it due tomorrow.", check_due),
+        ],
+        headers={"X-Agent-Actor": delegate},
+    )
+
+
 # --- The gate: one pytest case per scenario -------------------------------------
 
 
@@ -1943,3 +2706,76 @@ def test_eval_misfire_complete_parent() -> None:
 
 def test_eval_misfire_edit_among_similar() -> None:
     _gate("misfire_edit_among_similar", _edit_among_similar)
+
+
+# Known red under ``poisoned`` (#405), measured 2026-10-20 on gemma-4-12b with
+# seed 403: chess's self-poisoning, reproduced. The model takes its own last
+# reply as a fact about the data and answers from it with zero tool calls,
+# though fresh and live_like (16 true turns) pass 5/5 each: length is not the
+# cause, the false claim is. Before-numbers for #412 (a fresh state block every
+# turn) and #419 (code-kept memory instead of chat-turn history); drop a mark
+# once its condition goes green. Until the frontier tier (#408), xfail runs it
+# without gating.
+def _poisoned_xfail(reason: str) -> list[Any]:
+    """The three conditions, with ``poisoned`` a known-red xfail."""
+    return [
+        "fresh",
+        "live_like",
+        pytest.param("poisoned", marks=pytest.mark.xfail(strict=False, reason=reason)),
+    ]
+
+
+@pytest.mark.parametrize(
+    "condition",
+    _poisoned_xfail(
+        "0/5 until #412/#419: trusts its own false 'already in Home' and creates nothing"
+    ),
+)
+def test_eval_followup_high_priority(condition: str) -> None:
+    _gate(
+        f"followup_high_priority[{condition}]",
+        lambda sample: _followup_high_priority(sample, condition),
+    )
+
+
+@pytest.mark.parametrize(
+    "condition",
+    _poisoned_xfail("2/5 until #412/#419: repeats its own false 'already done', no tool call"),
+)
+def test_eval_long_complete(condition: str) -> None:
+    _gate(f"long_complete[{condition}]", lambda sample: _long_complete(sample, condition))
+
+
+@pytest.mark.parametrize(
+    "condition",
+    _poisoned_xfail("0/5 until #412/#419: repeats its own false 'couldn't find', no tool call"),
+)
+def test_eval_long_reschedule(condition: str) -> None:
+    _gate(f"long_reschedule[{condition}]", lambda sample: _long_reschedule(sample, condition))
+
+
+# Known red (#405): 0/5 on gemma-4-12b, 2026-10-20. ``search`` returns both
+# dentist tasks and the model completes "Book dentist appointment" without
+# asking, every time; with nothing asked, "the second one" has no list to
+# point into (a probe's follow-up then completed whichever task its next list
+# put second, "Rake the leaves" once). Before-number for #420 (typed
+# clarification with an open-question record) and #416's prompt rules.
+@pytest.mark.xfail(strict=False, reason="0/5 until #420: never asks, completes one dentist task")
+def test_eval_ambiguous_dentist_then_second() -> None:
+    _gate("ambiguous_dentist_then_second", _ambiguous_then_second)
+
+
+def test_eval_reference_rename_then_undo() -> None:
+    _gate("reference_rename_then_undo", _reference_rename_then_undo)
+
+
+def test_eval_reference_trash_then_undo() -> None:
+    _gate("reference_trash_then_undo", _reference_trash_then_undo)
+
+
+def test_eval_reference_first_to_friday() -> None:
+    _gate("reference_first_to_friday", _reference_first_to_friday)
+
+
+def test_eval_delegate_thread() -> None:
+    _gate("delegate_thread", _delegate_thread)
