@@ -1031,7 +1031,6 @@ class Harness:
 # ``test_trajectories.py`` (xfail until fixed). Delete an entry with its fix:
 # the named case then passes and its xfail turns strict-red, and the corpus
 # stops tolerating the shape.
-CRASH_LEAVES_BATCH_UNANSWERED = "crash_leaves_batch_unanswered"
 PROVIDER_CRASH_DROPS_TRAJECTORY = "provider_crash_drops_trajectory"
 UNSKIP_PURGES_ROWS = "unskip_purges_rows"
 KNOWN_BUGS: dict[str, str] = {
@@ -1040,11 +1039,6 @@ KNOWN_BUGS: dict[str, str] = {
         "hard-deletes the skipped row (and its trashed subtree, focus entries and "
         "dependency edges): a purge reachable from the agent, which the registry "
         "says is structurally impossible and CLAUDE.md forbids"
-    ),
-    CRASH_LEAVES_BATCH_UNANSWERED: (
-        "a tool call that crashes (internal_error) mid-batch leaves the batch's later "
-        "calls with no role:tool answer and no record, unlike a Stop, the deadline "
-        "or the tool-call cap, which answer and record them as not run"
     ),
     PROVIDER_CRASH_DROPS_TRAJECTORY: (
         "a provider raising anything but a ProviderError reaches AgentLoop.run's "
@@ -1087,30 +1081,8 @@ def check_every_call_has_one_answer(observed: Observed) -> None:
             answers = messages[index : index + len(ids)]
             answered = [m.get("tool_call_id") for m in answers if m.get("role") == "tool"]
             if answered != ids:
-                last_batch = index - 1 == max(
-                    i for i, m in enumerate(messages) if m.get("role") == "assistant"
-                )
-                if (
-                    where == "the run's transcript"
-                    and last_batch
-                    and _crashed_mid_batch(observed)
-                    and answered == ids[: len(answered)]
-                    and _known(observed, CRASH_LEAVES_BATCH_UNANSWERED)
-                ):
-                    return
                 raise InvariantBreach(f"{where}: calls {ids} answered by {answered}")
             index += len(ids)
-
-
-def _crashed_mid_batch(observed: Observed) -> bool:
-    """The run ended ``internal_error`` on a tool call that crashed."""
-    result = observed.result
-    return (
-        result is not None
-        and result.stop_reason == "internal_error"
-        and bool(result.tool_calls)
-        and result.tool_calls[-1].error == loop_module._INTERNAL_ERROR
-    )
 
 
 def _ran(record_error: str | None) -> bool:

@@ -285,6 +285,12 @@ _STOP_LIMITS: dict[str, str] = {
 # neither success nor a clean rejection (#103).
 _INTERNAL_ERROR = "internal error: the tool call failed unexpectedly"
 
+# Recorded (and fed back) for the calls after one that crashed — the run ends
+# there, so they never reached the registry or the service layer (#455).
+_CRASHED_BATCH_ERROR = (
+    f"{run_record.NOT_RUN_PREFIX}an earlier tool call in this turn failed unexpectedly"
+)
+
 
 class ChatProvider(Protocol):
     """What the loop needs from a provider — matched by ``LlamaCppProvider``."""
@@ -761,6 +767,15 @@ class AgentLoop:
                     # End the run with a truthful partial trajectory — including
                     # this call — so the caller can persist it (#103).
                     self._record_internal_error(call, records, messages, exc)
+                    # The rest of the batch never starts; answer it as not run
+                    # so every call in the saved turn has exactly one answer.
+                    self._skip_remaining(
+                        result.tool_calls[index + 1 :],
+                        records,
+                        messages,
+                        error=_CRASHED_BATCH_ERROR,
+                        reason="internal_error",
+                    )
                     raise self._internal_failed(
                         exc, records, iteration, messages
                     ) from exc
