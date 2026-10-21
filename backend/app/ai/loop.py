@@ -486,10 +486,12 @@ class AgentLoop:
                 self._write_trace(trace, exc.result, started, error=str(exc))
                 raise
             except Exception as exc:
-                # Backstop: anything unexpected that escaped the per-call guard
-                # still leaves the boundary as a typed failure, so the caller
-                # never sees a raw exception (#103). No trajectory survives this
-                # path — the per-call guard is what carries the records.
+                # Backstop for a bug in the loop itself: anything that escaped
+                # the guards around each provider call and tool dispatch still
+                # leaves the boundary as a typed failure, so the caller never
+                # sees a raw exception (#103). Those guards carry the partial
+                # trajectory; a loop bug can strike with the transcript half
+                # built, so none is trusted here.
                 logger.exception(
                     "agent_run_crashed",
                     error=str(exc),
@@ -692,6 +694,18 @@ class AgentLoop:
                 if deadline is not None and time.monotonic() >= deadline:
                     raise self._out_of_time(records, iteration, messages) from exc
                 raise self._provider_failed(exc, records, iteration, messages) from exc
+            except Exception as exc:
+                # The provider raised something it does not promise (a bug in
+                # it, not a fault it reports). Between turns the transcript is
+                # whole, so end the run as an internal error with the calls
+                # that already ran and committed (#456) — the same guard the
+                # tool dispatch has, not the backstop in ``run``.
+                logger.exception(
+                    "agent_provider_crashed",
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+                raise self._internal_failed(exc, records, iteration, messages) from exc
             truncated = result.finish_reason == _FINISH_LENGTH
             if truncated:
                 logger.warning(
