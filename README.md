@@ -158,7 +158,9 @@ Key decisions:
   - `PUT /api/focus/entries/{id}/stop` (end a series from a day on, #428)
 
   Agent tools: `pin_focus_task`, `reorder_focus_pins`,
-  `add_focus_commitment`, `remove_focus_entry` and `restore_focus_entry`.
+  `add_focus_commitment` (optionally repeating), `skip_focus_occurrence`,
+  `edit_focus_occurrence`, `stop_focus_series`, `remove_focus_entry` and
+  `restore_focus_entry`.
 - **Focus session** (#374, same doc): `focus_sessions` holds what the mobile
   Focus day has cost, so a reload or a second device sees the same day. One
   table, two kinds of row:

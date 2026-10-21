@@ -140,6 +140,12 @@ export function describeToolCall(record: ToolCallRecord): string {
       return `Added${quoted(argString(record, ['title'])) || ' a commitment'} to the focus plan`
     case 'reorder_focus_pins':
       return 'Reordered the pins in the focus plan'
+    case 'skip_focus_occurrence':
+      return 'Skipped one day of a repeating commitment'
+    case 'stop_focus_series':
+      return 'Ended a repeating commitment from a day on'
+    case 'edit_focus_occurrence':
+      return 'Changed one day of a repeating commitment'
     case 'remove_focus_entry':
       return 'Removed an entry from the focus plan'
     case 'restore_focus_entry':
@@ -204,6 +210,9 @@ export function linkFor(
     case 'pin_focus_task':
     case 'add_focus_commitment':
     case 'reorder_focus_pins':
+    case 'skip_focus_occurrence':
+    case 'stop_focus_series':
+    case 'edit_focus_occurrence':
     case 'remove_focus_entry':
     case 'restore_focus_entry':
       return '/focus'
@@ -302,6 +311,10 @@ export function undoFor(record: ToolCallRecord): UndoAction | null {
         ? null
         : { label: 'Unpin', perform: () => removeFocusEntry(id) }
     }
+    // A skip and a one-day edit come back as their own row; removing it un-skips
+    // or resets the day. A series stop has no row to remove, so no undo here.
+    case 'skip_focus_occurrence':
+    case 'edit_focus_occurrence':
     case 'add_focus_commitment': {
       const id = resultId(record)
       return id === null

@@ -38,7 +38,13 @@ from app.api.task_reads import read_with_blocked, reads_with_blocked
 from app.db.models import Project, Task, TaskWorkflowStatus
 from app.schemas.activity import ActivityEventRead
 from app.schemas.common import EntityId, PaginationOffset
-from app.schemas.focus import CommitmentMinutes, CommitmentTitle, FocusEntryRead, FocusPlan
+from app.schemas.focus import (
+    CommitmentMinutes,
+    CommitmentRepeatInterval,
+    CommitmentTitle,
+    FocusEntryRead,
+    FocusPlan,
+)
 from app.schemas.projects import ProjectCreate, ProjectRead, ProjectUpdate
 from app.schemas.search import SearchResults
 from app.schemas.task_dependencies import TaskDependenciesRead, TaskDependencyRead
@@ -622,10 +628,15 @@ def add_focus_commitment(
     start_time: _StartTime,
     duration_minutes: CommitmentMinutes,
     date: date_type | None = None,
+    repeat_interval: CommitmentRepeatInterval | None = None,
 ) -> FocusEntryRead:
     """Block fixed time in the Focus plan for something that is not a task, e.g. a 14:00 meeting.
 
-    The plan packs tasks around it. Undo with remove_focus_entry(entry_id).
+    The plan packs tasks around it. With repeat_interval it recurs from `date`
+    on (a series): {"unit": "day", "every": 1} is daily; {"unit": "week",
+    "every": 1, "days": [0, 1, 2, 3, 4]} is Mon-Fri (days: Monday 0 to Sunday 6,
+    weeks only). Undo with remove_focus_entry(entry_id), which removes the whole
+    series.
     """
     with tool_session("add_focus_commitment") as db:
         entry = focus_plan_service.add_commitment(
@@ -634,9 +645,91 @@ def add_focus_commitment(
             title=title,
             start_minute=focus_plan_service.parse_time(start_time),
             duration_minutes=duration_minutes,
+            repeat_interval=None if repeat_interval is None else repeat_interval.model_dump(),
         )
-        logger.info("tool_focus_commitment_added", entry_id=entry.id)
+        logger.info(
+            "tool_focus_commitment_added",
+            entry_id=entry.id,
+            repeats=entry.repeat_interval is not None,
+        )
         return focus_plan_service.entry_read(entry)
+
+
+@_tool
+def skip_focus_occurrence(series_id: EntityId, plan_date: date_type) -> FocusEntryRead:
+    """Skip one day of a repeating Focus commitment; the series and its other days are untouched.
+
+    series_id is the commitment's entry_id from get_focus_plan; plan_date is the
+    day to skip. Undo with remove_focus_entry(entry_id) on the returned skip.
+    """
+    with tool_session("skip_focus_occurrence") as db:
+        series = focus_plan_service.get_entry(db, series_id)
+        if series is None:
+            raise ToolError(f"Focus entry {series_id} not found")
+        try:
+            skip = focus_plan_service.skip_occurrence(db, series, plan_date)
+        except focus_plan_service.FocusEntryError as exc:
+            raise ToolError(str(exc)) from exc
+        logger.info("tool_focus_occurrence_skipped", entry_id=skip.id, series_id=series_id)
+        return focus_plan_service.entry_read(skip)
+
+
+@_tool
+def stop_focus_series(
+    series_id: EntityId, stop_date: date_type | None = None
+) -> FocusEntryRead:
+    """End a repeating Focus commitment from `stop_date` on; earlier days keep it.
+
+    stop_date is the first day it no longer happens. Omit stop_date to lift an
+    end and make it repeat with no end again. To remove it from its first day,
+    use remove_focus_entry. Undo by calling this again with the previous
+    stop_date (see stop_date on the returned entry, or omit it to lift).
+    """
+    with tool_session("stop_focus_series") as db:
+        series = focus_plan_service.get_entry(db, series_id)
+        if series is None:
+            raise ToolError(f"Focus entry {series_id} not found")
+        try:
+            focus_plan_service.stop_series(db, series, stop_date)
+        except focus_plan_service.FocusEntryError as exc:
+            raise ToolError(str(exc)) from exc
+        logger.info("tool_focus_series_stopped", entry_id=series_id)
+        return focus_plan_service.entry_read(series)
+
+
+@_tool
+def edit_focus_occurrence(
+    series_id: EntityId,
+    plan_date: date_type,
+    start_time: _StartTime | None = None,
+    title: CommitmentTitle | None = None,
+    duration_minutes: CommitmentMinutes | None = None,
+) -> FocusEntryRead:
+    """Change one day of a repeating Focus commitment (time, title and/or length), that day only.
+
+    series_id is the commitment's entry_id from get_focus_plan. Fields left out
+    keep the series' values. Undo with remove_focus_entry(entry_id) on the
+    returned entry, which resets the day.
+    """
+    fields: dict[str, Any] = {
+        key: value
+        for key, value in (
+            ("start_time", start_time),
+            ("title", title),
+            ("duration_minutes", duration_minutes),
+        )
+        if value is not None
+    }
+    with tool_session("edit_focus_occurrence") as db:
+        series = focus_plan_service.get_entry(db, series_id)
+        if series is None:
+            raise ToolError(f"Focus entry {series_id} not found")
+        try:
+            override = focus_plan_service.edit_occurrence(db, series, plan_date, fields)
+        except focus_plan_service.FocusEntryError as exc:
+            raise ToolError(str(exc)) from exc
+        logger.info("tool_focus_occurrence_edited", entry_id=override.id, series_id=series_id)
+        return focus_plan_service.entry_read(override)
 
 
 @_tool
@@ -665,7 +758,11 @@ def reorder_focus_pins(
 def remove_focus_entry(entry_id: EntityId) -> str:
     """Unpin a task or drop a commitment from the Focus plan (entry_id from get_focus_plan).
 
-    Undo with restore_focus_entry(entry_id).
+    Given a repeating commitment's entry_id it removes the whole series, every
+    day: to drop just one day use skip_focus_occurrence, and to end it from a
+    day on use stop_focus_series. Given a skip_entry_id (skipped_commitments) it
+    un-skips that day; given an override_entry_id it resets that edited day to
+    the usual occurrence. Undo with restore_focus_entry(entry_id).
     """
     with tool_session("remove_focus_entry") as db:
         entry = focus_plan_service.get_entry(db, entry_id)

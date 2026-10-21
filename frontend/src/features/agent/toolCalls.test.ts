@@ -298,3 +298,30 @@ describe('reorder_focus_pins (#394)', () => {
     expect(linkFor(record({ tool: 'reorder_focus_pins', error: 'boom' }))).toBeNull()
   })
 })
+
+describe('recurring Focus commitment tools (#426)', () => {
+  it('label, link to /focus, and undo a skip or one-day edit by removing its row', () => {
+    for (const tool of ['skip_focus_occurrence', 'edit_focus_occurrence']) {
+      const call = record({
+        tool,
+        arguments: { series_id: 4, plan_date: '2026-10-21' },
+        result: JSON.stringify({ id: 9 }),
+      })
+      expect(describeToolCall(call)).not.toBe(tool.replaceAll('_', ' '))
+      expect(isMutation(call)).toBe(true)
+      expect(linkFor(call)).toBe('/focus')
+      expect(undoFor(call)?.label).toBe('Undo (remove)')
+    }
+  })
+
+  it('links a series stop to /focus with no undo', () => {
+    const call = record({
+      tool: 'stop_focus_series',
+      arguments: { series_id: 4, stop_date: '2026-11-01' },
+      result: JSON.stringify({ id: 4 }),
+    })
+    expect(describeToolCall(call)).toBe('Ended a repeating commitment from a day on')
+    expect(linkFor(call)).toBe('/focus')
+    expect(undoFor(call)).toBeNull()
+  })
+})
