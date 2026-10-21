@@ -3012,18 +3012,11 @@ def test_eval_dependency_remove() -> None:
     _gate("dependency_remove", _dependency_remove)
 
 
-# Known red, kept as a before-number (#386): the model can't find
-# ``repeat_interval`` inside ``changes`` (it guesses ``recurrence``,
-# ``recur_interval``), the refusal doesn't name the field, and it falls back to
-# creating a duplicate task. 1/5 on gemma-4-12b, 2026-10-20. #411 flattens the
-# arguments and #413 makes refusals say how to recover; drop the mark when it
-# goes green. It stays here rather than in the frontier tier (#408): it is one
-# plain ask the agent must do, so once #411 lands it is a tripwire, and the
-# frontier never graduates a scenario back. ``long_composition`` there carries
-# it inside a harder whole.
-@pytest.mark.xfail(
-    strict=False, reason="below floor until #411/#413: repeat_interval is hard to find"
-)
+# A tripwire (#386, #408): 1/20 while ``repeat_interval`` sat inside
+# ``changes`` (the model guessed ``recurrence``/``recur_interval`` and then
+# created a duplicate task); 20/20 once #411 made it a top-level argument
+# (A/B, 2026-10-21). ``long_composition`` in the frontier tier carries it inside
+# a harder whole.
 def test_eval_recurrence_make_repeating() -> None:
     _gate("recurrence_make_repeating", _recurrence_make_repeating)
 
@@ -3072,10 +3065,10 @@ def test_eval_misfire_create_in_named_project() -> None:
     _gate("misfire_create_in_named_project", _create_in_named_project)
 
 
-# Gated, but the closest of the five to red: 15/20 (UNDECIDED at the cap) on
-# gemma-4-12b, 2026-10-20. The first create sends ``parent_id``; a retry that
-# drops ``project_id`` files the subtask in an invented General project.
-# xfail it only if it goes BELOW_FLOOR; #411 should move it.
+# Was the closest of the five to red: 15/20 on gemma-4-12b, 2026-10-20 (13/20
+# on main in #411's A/B). The first create sent ``parent_id``; a retry that
+# dropped ``project_id`` filed the subtask in an invented General project.
+# 20/20 since #411 accepts ``parent_id`` for ``parent_task_id``.
 def test_eval_misfire_subtask_under_parent() -> None:
     _gate("misfire_subtask_under_parent", _subtask_under_named_parent)
 
@@ -3140,17 +3133,10 @@ def test_eval_compose_move_due_today() -> None:
     _gate("compose_move_due_today", _compose_move_due_today)
 
 
-# Known red (#406): 0/5 on gemma-4-12b, 2026-10-20. Every sample searches,
-# completes the dentist task and creates "Dentist follow-up", but never sets
-# ``due_date``: "next month" lands in the description ("Follow-up on last
-# month's visit"), and the reply says the follow-up is "set". The completion
-# half of the composition is fine. Before-number for #411 (create_task's
-# flattened schema) and #416's prompt rules; drop the mark once it goes green.
-# Kept here, like ``recurrence_make_repeating``, as a tripwire-to-be (#408);
-# the frontier's ``long_composition`` carries it inside a harder whole.
-@pytest.mark.xfail(
-    strict=False, reason="0/5 until #411/#416: follow-up created with no due date"
-)
+# A tripwire (#406, #408): 0/20 while the arguments were nested, every sample
+# leaving ``due_date`` unset and "next month" in the description; 19/20 once
+# #411 made them top-level (A/B, 2026-10-21). ``long_composition`` in the
+# frontier tier carries it inside a harder whole.
 def test_eval_compose_finish_and_follow_up() -> None:
     _gate("compose_finish_and_follow_up", _compose_finish_and_follow_up)
 

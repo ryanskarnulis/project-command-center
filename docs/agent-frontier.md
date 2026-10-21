@@ -198,10 +198,10 @@ read again:
   clarification, #416's prompt rules), now `ambiguous_then_pick` and
   `misheard_push`. Each scenario's `notes` keep the gate's numbers and issues.
   `fresh` and `live_like` stay in the gate.
-- **Stayed, still `xfail`:** `recurrence_make_repeating` and
+- **Stayed, now tripwires:** `recurrence_make_repeating` and
   `compose_finish_and_follow_up`. Both are one plain ask the agent must be
-  able to do, broken by a schema trap #411 fixes; once it lands they are
-  tripwires, and the frontier never graduates a scenario back.
+  able to do, broken by a schema trap #411 fixed (20/20 and 19/20 after it);
+  their `xfail` is gone, and the frontier never graduates a scenario back.
   `long_composition` carries both inside a harder whole.
 - **Stayed, gated:** `misfire_subtask_under_parent` (15/20, `UNDECIDED`) was
   never marked; its comment still says to mark it only if it goes
