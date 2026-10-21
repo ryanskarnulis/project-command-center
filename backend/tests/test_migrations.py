@@ -4,8 +4,12 @@ import sys
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app.services import search as search_service
+from app.services import tasks as tasks_service
 
 # backend/ — where alembic.ini lives and the alembic CLI must run from.
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -512,6 +516,88 @@ def test_focus_sessions_migration_upgrades_enforces_and_downgrades(
     engine = create_engine(f"sqlite:///{db_path}")
     try:
         assert "focus_sessions" not in set(inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
+    assert _alembic(db_path, "upgrade", "head").returncode == 0
+
+
+_SEARCH_FTS_TRIGGERS = {
+    f"{table}_fts_{suffix}"
+    for table in ("tasks", "projects")
+    for suffix in ("ai", "ad", "au")
+}
+
+
+def _sqlite_triggers(engine: Engine) -> set[str]:
+    with engine.connect() as conn:
+        return set(
+            conn.execute(text("SELECT name FROM sqlite_master WHERE type = 'trigger'"))
+            .scalars()
+            .all()
+        )
+
+
+def test_search_fts_migration_backfills_syncs_and_downgrades(tmp_path: Path) -> None:
+    """The #444 word-search index backfills existing rows, stays in sync, and reverses.
+
+    Rows written before the migration must be findable by their words straight
+    away (backfill), rows written after must be picked up by the triggers, and
+    the triggers must still exist at head: a later batch-mode rebuild of
+    ``tasks``/``projects`` drops a table's triggers with it, so this is also the
+    tripwire for a future migration that forgets to recreate them.
+    """
+    db_path = tmp_path / "search_fts.db"
+    assert _alembic(db_path, "upgrade", "ada47a0f96cb").returncode == 0
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO projects (name, created_at, updated_at) "
+                    "VALUES ('Garage renovation', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+            project_id = conn.execute(
+                text("SELECT id FROM projects WHERE name = 'Garage renovation'")
+            ).scalar_one()
+            conn.execute(
+                text(
+                    "INSERT INTO tasks (project_id, title, workflow_status, priority, "
+                    "created_at, updated_at) VALUES (:p, 'Paint the walls', 'open', "
+                    "'medium', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                ),
+                {"p": project_id},
+            )
+
+        result = _alembic(db_path, "upgrade", "head")
+        assert result.returncode == 0, result.stderr
+        assert _SEARCH_FTS_TRIGGERS <= _sqlite_triggers(engine)
+
+        # Backfilled: pre-existing rows match by their words.
+        with Session(engine) as db:
+            assert [t.title for t in search_service.search(db, "painting walls").tasks] == [
+                "Paint the walls"
+            ]
+            assert [p.title for p in search_service.search(db, "renovating").projects] == [
+                "Garage renovation"
+            ]
+            # Synced: a row written after the migration is found too.
+            tasks_service.create_task(db, project_id=project_id, title="Buy primer")
+            db.commit()
+            assert [t.title for t in search_service.search(db, "buying primer").tasks] == [
+                "Buy primer"
+            ]
+    finally:
+        engine.dispose()
+
+    result = _alembic(db_path, "downgrade", "ada47a0f96cb")
+    assert result.returncode == 0, result.stderr
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        tables = set(inspect(engine).get_table_names())
+        assert not {name for name in tables if "_fts" in name}
+        assert not _SEARCH_FTS_TRIGGERS & _sqlite_triggers(engine)
     finally:
         engine.dispose()
     assert _alembic(db_path, "upgrade", "head").returncode == 0

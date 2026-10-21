@@ -1,14 +1,29 @@
 """Global search across projects and tasks.
 
-Read-only, deterministic SQL ``LIKE`` over active (non-soft-deleted) rows. No model
-call — this is plain navigation. Results are grouped by kind and each group is
+Read-only and deterministic over active (non-soft-deleted) rows. No model call —
+this is plain navigation. Results are grouped by kind and each group is
 independently capped so one noisy kind can't crowd out the other.
+
+A row matches when the query's text appears in it (SQL ``LIKE``, so a fragment
+such as "fire" still finds "firewall") **or** any of the query's words do: the
+SQLite FTS5 indexes in ``app.db.fts`` (porter stemmer) match words in any order
+and fold simple inflections, and stop-words are dropped from the query first
+(#444). Relevance tiers, best first:
+
+0. the primary text (task title / project name) equals the query;
+1. it starts with the query;
+2. it contains the query;
+3. it contains every query word;
+4. the description contains the query, or title + description hold every word;
+5. some of the query words match (more matched words rank first).
 """
 
 from __future__ import annotations
 
+import re
+from functools import reduce
 
-from sqlalchemy import ColumnElement, case, func, or_, select
+from sqlalchemy import ColumnElement, Select, case, column, false, func, or_, select, table
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.db.models import Project, Task, TaskWorkflowStatus
@@ -18,6 +33,30 @@ from app.services.common import active
 # Backslash-escape the LIKE metacharacters so a user typing "50%" or "a_b" searches
 # for those literals instead of matching wildcards.
 _LIKE_ESCAPE = "\\"
+
+# Words are runs of word characters; everything else (quotes, ``*``, ``-``,
+# ``:``, parentheses, ``^``, emoji, NUL) is a separator. Each word then reaches
+# FTS5 only as a double-quoted string, so a user's ``OR`` / ``NEAR`` /
+# ``title:`` is a plain word to look for, never query syntax.
+_WORD_RE = re.compile(r"\w+")
+
+# Grammatical filler a spoken or paraphrased ask adds or drops ("sweep floor" vs
+# "Sweep the floor"). Dropped from the query unless it's all the query has.
+# Deliberately small and domain-free: words like "task" or "done" stay searchable.
+_STOP_WORDS = frozenset(
+    """
+    a an and are as at be been but by do does for from had has have i in into is
+    it its me my no nor not of off on or our so than that the their them then
+    there these they this those to too up us was we were what when where which
+    who will with you your
+    """.split()
+)
+
+# Bounds the per-word subqueries a single search builds.
+_MAX_QUERY_WORDS = 12
+
+# The tier a row lands in when only some of the query's words match it.
+_SOME_WORDS_TIER = 5
 
 # Task matches are fetched whole (not pre-cut to ``per_kind``) so the effective-
 # status tiebreak can influence *inclusion*, not just ordering within an
@@ -37,24 +76,105 @@ def _escape_like(term: str) -> str:
     )
 
 
-def _text_tier(
-    primary: InstrumentedAttribute[str | None],
-    secondary: InstrumentedAttribute[str | None],
-    q: str,
-    prefix: str,
-    contains: str,
-) -> ColumnElement[int]:
-    """0=exact, 1=prefix, 2=substring on ``primary``; 3=``secondary`` only.
+def _query_words(q: str) -> list[str]:
+    """The words the query is matched by: lowercased, deduplicated, stop-words
+    dropped (unless nothing else is left), capped at ``_MAX_QUERY_WORDS``."""
+    words = list(dict.fromkeys(word.lower() for word in _WORD_RE.findall(q)))
+    significant = [word for word in words if word not in _STOP_WORDS]
+    return (significant or words)[:_MAX_QUERY_WORDS]
 
-    Lower is better. Mirrors the existing ``ilike(..., escape=_LIKE_ESCAPE)`` matching
-    so ordering stays consistent with the ``WHERE`` clause.
+
+def _fts_phrase(word: str) -> str:
+    # ``word`` is ``\w+`` so it holds no double quote; doubling any anyway keeps
+    # this safe if the word pattern ever widens.
+    return '"' + word.replace('"', '""') + '"'
+
+
+class _Matcher:
+    """The match and rank expressions for one searchable kind and one query.
+
+    ``primary``/``secondary`` are the base columns (title or name, then
+    description); ``fts`` names that kind's FTS5 index from ``app.db.fts``,
+    whose first column mirrors ``primary``.
     """
-    return case(
-        (func.lower(primary) == func.lower(q), 0),
-        (primary.ilike(prefix, escape=_LIKE_ESCAPE), 1),
-        (primary.ilike(contains, escape=_LIKE_ESCAPE), 2),
-        else_=3,
-    )
+
+    def __init__(
+        self,
+        row_id: InstrumentedAttribute[int],
+        primary: InstrumentedAttribute[str] | InstrumentedAttribute[str | None],
+        secondary: InstrumentedAttribute[str | None],
+        fts: str,
+        q: str,
+        words: list[str],
+    ) -> None:
+        self._row_id = row_id
+        self._primary = primary
+        self._secondary = secondary
+        self._index = table(fts, column("rowid"), column(fts))
+        self._match_column = self._index.c[fts]
+        self._q = q
+        self._words = words
+        # Three escaped LIKE patterns share one escaped term: prefix and
+        # substring use wildcards; the exact tier compares lowercased equality.
+        escaped = _escape_like(q)
+        self._prefix = f"{escaped}%"
+        self._contains = f"%{escaped}%"
+        self._primary_name = primary.key
+
+    def _ids_matching(self, fts_query: str) -> Select[tuple[int]]:
+        """Base-row ids whose index entry matches ``fts_query`` (a bound value)."""
+        return select(self._index.c.rowid).where(self._match_column.op("MATCH")(fts_query))
+
+    def _has(self, fts_query: str | None) -> ColumnElement[bool]:
+        if fts_query is None:
+            return false()
+        return self._row_id.in_(self._ids_matching(fts_query))
+
+    def _all_words(self, *, primary_only: bool) -> str | None:
+        if not self._words:
+            return None
+        every = " AND ".join(_fts_phrase(word) for word in self._words)
+        return f"{{{self._primary_name}}} : ({every})" if primary_only else every
+
+    def _any_word(self) -> str | None:
+        if not self._words:
+            return None
+        return " OR ".join(_fts_phrase(word) for word in self._words)
+
+    def where(self) -> ColumnElement[bool]:
+        """Text or any of the query's words, in either column."""
+        return or_(
+            self._primary.ilike(self._contains, escape=_LIKE_ESCAPE),
+            self._secondary.ilike(self._contains, escape=_LIKE_ESCAPE),
+            self._has(self._any_word()),
+        )
+
+    def tier(self) -> ColumnElement[int]:
+        """The relevance tier in the module docstring (lower is better)."""
+        return case(
+            (func.lower(self._primary) == func.lower(self._q), 0),
+            (self._primary.ilike(self._prefix, escape=_LIKE_ESCAPE), 1),
+            (self._primary.ilike(self._contains, escape=_LIKE_ESCAPE), 2),
+            (self._has(self._all_words(primary_only=True)), 3),
+            (
+                or_(
+                    self._secondary.ilike(self._contains, escape=_LIKE_ESCAPE),
+                    self._has(self._all_words(primary_only=False)),
+                ),
+                4,
+            ),
+            else_=_SOME_WORDS_TIER,
+        )
+
+    def word_hits(self) -> ColumnElement[int]:
+        """How many distinct query words the row matches (orders the some-words
+        tier; every other tier already holds the whole query)."""
+        hits: list[ColumnElement[int]] = [
+            case((self._has(_fts_phrase(word)), 1), else_=0) for word in self._words
+        ]
+        if not hits:
+            return case((false(), 1), else_=0)
+        return reduce(lambda total, hit: total + hit, hits)
 
 
 def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
@@ -66,24 +186,23 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
     if not q:
         return SearchResults(projects=[], tasks=[])
 
-    # Three escaped LIKE patterns share one escaped term: prefix and substring use
-    # wildcards; the exact tier compares lowercased equality (no LIKE needed).
-    escaped = _escape_like(q)
-    prefix = f"{escaped}%"
-    contains = f"%{escaped}%"
+    words = _query_words(q)
 
-    # Relevance ordering: best text tier first, recency (id desc) as the tiebreak.
-    project_score = _text_tier(Project.name, Project.description, q, prefix, contains)
+    # Relevance ordering: best text tier first (within the some-words tier, more
+    # matched words first), recency (id desc) as the tiebreak.
+    projects = _Matcher(Project.id, Project.name, Project.description, "projects_fts", q, words)
+    project_tier = projects.tier()
     project_rows = (
         db.execute(
             active(Project)
-            .where(
-                or_(
-                    Project.name.ilike(contains, escape=_LIKE_ESCAPE),
-                    Project.description.ilike(contains, escape=_LIKE_ESCAPE),
-                )
+            .where(projects.where())
+            .order_by(
+                project_tier.asc(),
+                case(
+                    (project_tier == _SOME_WORDS_TIER, -projects.word_hits()), else_=0
+                ).asc(),
+                Project.id.desc(),
             )
-            .order_by(project_score.asc(), Project.id.desc())
             .limit(per_kind)
         )
         .scalars()
@@ -113,16 +232,12 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
     # not-done can still be cut by _TASK_SCAN_CAP newer stored-done rows of the
     # same tier. Closing that would require resolving effective status for the
     # unbounded matching set, which is exactly what the cap exists to prevent.)
-    task_text_score = _text_tier(Task.title, Task.description, q, prefix, contains)
+    tasks = _Matcher(Task.id, Task.title, Task.description, "tasks_fts", q, words)
+    task_text_score = tasks.tier()
     matching = (
         active(Task)
-        .add_columns(task_text_score.label("text_tier"))
-        .where(
-            or_(
-                Task.title.ilike(contains, escape=_LIKE_ESCAPE),
-                Task.description.ilike(contains, escape=_LIKE_ESCAPE),
-            )
-        )
+        .add_columns(task_text_score.label("text_tier"), tasks.word_hits().label("word_hits"))
+        .where(tasks.where())
         .order_by(task_text_score.asc(), Task.id.desc())
     )
     task_result = [
@@ -138,6 +253,7 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
     ]
     task_rows = [row[0] for row in task_result]
     text_tiers = {row[0].id: row[1] for row in task_result}
+    word_hits = {row[0].id: row[2] for row in task_result}
 
     # Resolve blocked-aware, rolled-up status for the matched rows (≤ 2 *
     # _TASK_SCAN_CAP) through the one shared source of truth every other read
@@ -151,12 +267,14 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
         return effective.get(task.id, task.workflow_status)
 
     # Apply the state tiebreak on effective status, still within text tier:
-    # (tier, not-done-before-done, recency). Now that the full matching set is in
-    # hand, this decides inclusion too — slice to ``per_kind`` only after sorting,
-    # so a not-done match is never crowded out by newer done matches of equal tier.
+    # (tier, more-words-first in the some-words tier, not-done-before-done,
+    # recency). Now that the full matching set is in hand, this decides inclusion
+    # too — slice to ``per_kind`` only after sorting, so a not-done match is never
+    # crowded out by newer done matches of equal relevance.
     task_rows.sort(
         key=lambda t: (
             text_tiers[t.id],
+            -word_hits[t.id] if text_tiers[t.id] == _SOME_WORDS_TIER else 0,
             1 if _effective(t) == TaskWorkflowStatus.done else 0,
             -t.id,
         )
