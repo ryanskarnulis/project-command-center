@@ -184,6 +184,15 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     # rolling the series back to this date, an ordinary delete restores in place.
     # Cleared on restore. Null = ordinary soft delete (or active).
     skipped_at: Mapped[datetime | None] = mapped_column(default=None)
+    # Set when un-skipping this row's occurrence made it obsolete (issue #457).
+    # Restoring a skipped occurrence whose series already has a live successor
+    # rewinds that successor onto the skipped date instead of reviving this row,
+    # whose checklist the skip had already cloned forward. The original
+    # occurrence and its trashed subtree stay soft-deleted (no hard deletes),
+    # stamped with this so they leave the Tasks trash and refuse a restore that
+    # would duplicate the series. Only the un-skip's own Undo clears it. Null =
+    # an ordinary row.
+    superseded_at: Mapped[datetime | None] = mapped_column(default=None)
 
     project: Mapped[Project | None] = relationship(
         back_populates="tasks", foreign_keys=[project_id]

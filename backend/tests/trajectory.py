@@ -1031,15 +1031,7 @@ class Harness:
 # ``test_trajectories.py`` (xfail until fixed). Delete an entry with its fix:
 # the named case then passes and its xfail turns strict-red, and the corpus
 # stops tolerating the shape.
-UNSKIP_PURGES_ROWS = "unskip_purges_rows"
-KNOWN_BUGS: dict[str, str] = {
-    UNSKIP_PURGES_ROWS: (
-        "restore_task on a skipped occurrence whose series has a live successor "
-        "hard-deletes the skipped row (and its trashed subtree, focus entries and "
-        "dependency edges): a purge reachable from the agent, which the registry "
-        "says is structurally impossible and CLAUDE.md forbids"
-    ),
-}
+KNOWN_BUGS: dict[str, str] = {}
 
 
 def _known(observed: Observed, bug: str) -> bool:
@@ -1259,42 +1251,12 @@ def check_nothing_is_hard_deleted(observed: Observed) -> None:
     ``before``, so across a walk this covers every row ever written."""
     for table, rows in observed.before.items():
         missing = sorted(rows.keys() - observed.after[table].keys())
-        missing = [row_id for row_id in missing if not _unskip_purge(observed, table, row_id)]
         if missing:
             raise InvariantBreach(f"{table} rows {missing} were hard-deleted")
     for table in ("activity_events", "conversation_messages"):
         for row_id, row in observed.before[table].items():
             if observed.after[table].get(row_id) != row:
                 raise InvariantBreach(f"{table} row {row_id} was rewritten")
-
-
-def _unskip_purge(observed: Observed, table: str, row_id: int) -> bool:
-    """Whether ``row_id`` went in ``restore_task``'s un-skip rewind (a known bug).
-
-    Restoring a *skipped* occurrence whose series has a live successor pulls the
-    successor back to the skipped date and purges the skipped row with its
-    trashed subtree — and the focus entries and dependency edges naming them
-    (``task_trash.restore_task_with_undo``). Only that shape passes.
-    """
-    for tool in observed.tools:
-        gone = tool.before[table].keys() - tool.after[table].keys()
-        if row_id not in gone:
-            continue
-        target = tool.before["tasks"].get(int(tool.arguments.get("task_id", 0)))
-        if tool.name != "restore_task" or tool.raised is not None or target is None:
-            return False
-        if target["skipped_at"] is None:
-            return False
-        purged = tool.before["tasks"].keys() - tool.after["tasks"].keys()
-        if any(tool.before["tasks"][t]["deleted_at"] is None for t in purged):
-            return False  # a live row went too: not the rewind
-        if table == "tasks":
-            ok = row_id in purged
-        else:
-            row = tool.before[table][row_id]
-            ok = any(row.get(key) in purged for key in ("task_id", "depends_on_task_id"))
-        return ok and _known(observed, UNSKIP_PURGES_ROWS)
-    return False
 
 
 def check_trashed_is_restorable(observed: Observed) -> None:

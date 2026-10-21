@@ -176,8 +176,8 @@ def test_restore_subtree_reports_the_rows_the_skip_removed(
 
 def test_unskip_still_rewinds_a_live_successor(db_session: Session) -> None:
     """Guard on #212's path: with a live successor the rewind is unchanged."""
-    root, child, _grandchild, _retired = _build_checklist(db_session)
-    root_id, child_id = root.id, child.id
+    root, child, _grandchild, retired = _build_checklist(db_session)
+    root_id, child_id, retired_id = root.id, child.id, retired.id
     recurrence_id = root.recurrence_id
     assert recurrence_id is not None
 
@@ -190,7 +190,7 @@ def test_unskip_still_rewinds_a_live_successor(db_session: Session) -> None:
     db_session.commit()
 
     # The successor is rewound onto the un-skipped date and the original tree is
-    # purged — the restored root is the clone, not the row the user clicked.
+    # superseded — the restored root is the clone, not the row the user clicked.
     assert live.id != root_id
     assert live.due_date == date(2026, 8, 5)
     live_series = [
@@ -199,8 +199,18 @@ def test_unskip_still_rewinds_a_live_successor(db_session: Session) -> None:
         if t.deleted_at is None
     ]
     assert [t.id for t in live_series] == [live.id]
-    assert db_session.get(Task, child_id) is None
+    original_child = db_session.get(Task, child_id)
+    assert original_child is not None
+    assert original_child.deleted_at is not None
+    assert original_child.superseded_at is not None
     assert [t.title for t in _active_titled(db_session, "Step")] == ["Step"]
+    # The step trashed on its own before the skip was never cloned forward, so
+    # it is no duplicate: still ordinary, listed trash, not superseded.
+    retired_row = db_session.get(Task, retired_id)
+    assert retired_row is not None and retired_row.superseded_at is None
+    trashed = {t.id for t in task_trash.list_deleted_tasks(db_session)}
+    assert retired_id in trashed
+    assert child_id not in trashed and root_id not in trashed
 
 
 def test_route_restore_of_a_skipped_checklist_returns_its_subtasks(

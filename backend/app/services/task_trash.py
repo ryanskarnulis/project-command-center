@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy import delete as sql_delete
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import ColumnElement, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import ActivityEvent, Task, TaskDependency
@@ -20,7 +21,6 @@ from app.services.common import (
     soft_delete,
 )
 from app.services.task_recurrence import (
-    file_skipped_occurrence,
     find_live_occurrence_on,
     find_skipped_occurrence_on,
     reconcile,
@@ -35,16 +35,37 @@ from app.services.tasks import (
 )
 
 
+class SupersededTaskError(OccurrenceConflictError):
+    """The trashed row was made obsolete by an un-skip and cannot come back (#457).
+
+    Un-skipping a recurring occurrence whose series already had a live successor
+    rewinds that successor onto the skipped date: the successor *is* the
+    restored occurrence, carrying the checklist the skip cloned forward. The
+    original rows stay soft-deleted but superseded, and reviving one would put a
+    second copy of the occurrence (or of a checklist item) next to the live one.
+    An ``OccurrenceConflictError`` so every restore caller already answers it as
+    the state conflict it is (409 / a tool error) without a new branch.
+    """
+
+
+def _not_superseded() -> ColumnElement[bool]:
+    return Task.superseded_at.is_(None)
+
+
 def list_deleted_tasks(db: Session, *, limit: int = 50) -> Sequence[Task]:
     """Soft-deleted tasks, most-recently-deleted first.
 
     Excludes tasks cascade-deleted with their project — those belong to the
-    project's trash entry and are restored with it, not as standalone rows.
+    project's trash entry and are restored with it, not as standalone rows — and
+    rows an un-skip superseded (#457): they are an obsolete duplicate of the live
+    occurrence, refuse a restore, and would only read as one more thing to
+    restore (BUG #212). They stay in the database until a purge or the retention
+    window takes them, like any trashed row.
     """
     return (
         db.execute(
             deleted(Task)
-            .where(Task.deleted_with_project_id.is_(None))
+            .where(Task.deleted_with_project_id.is_(None), _not_superseded())
             .order_by(Task.deleted_at.desc())
             .limit(limit)
         )
@@ -62,6 +83,7 @@ def count_standalone_deleted_tasks(db: Session) -> int:
             .where(
                 Task.deleted_at.is_not(None),
                 Task.deleted_with_project_id.is_(None),
+                _not_superseded(),
             )
         )
         or 0
@@ -69,6 +91,11 @@ def count_standalone_deleted_tasks(db: Session) -> int:
 
 
 def get_deleted_task(db: Session, task_id: int) -> Task | None:
+    """The soft-deleted task ``task_id``, superseded rows included.
+
+    Included so a restore by id gets ``SupersededTaskError``'s explanation
+    rather than a bare "not in trash", and a purge by id still finds the row.
+    """
     return db.execute(
         deleted(Task).where(Task.id == task_id)
     ).scalar_one_or_none()
@@ -94,21 +121,30 @@ def restore_task_with_undo(
     ``defer_reconcile`` suppresses the recurrence reconciliation this restore
     would normally run, leaving it to the caller (see ``restore_task_subtree``).
     It only applies to the plain-restore path: the un-skip rewind below rewrites
-    and destroys rows as one atomic correction and must settle immediately.
+    rows as one atomic correction and must settle immediately.
 
     Restoring a *skipped* occurrence is a subtree operation either way. With a
     live successor the rewind below brings the checklist back as that successor's
     (already cloned) subtree; without one, the plain restore takes the rows the
     skip cascaded away with it (issue #241). An ordinary trashed task is
     unchanged — root-only, with ``restore_task_subtree`` as the opt-in.
+
+    Raises ``SupersededTaskError`` for a row an earlier un-skip made obsolete.
     """
+    if task.superseded_at is not None:
+        raise SupersededTaskError(
+            f'"{task.title}" belongs to a skipped occurrence that was already '
+            "restored: the series' live occurrence took its place, so restoring "
+            "this would duplicate it."
+        )
     # Un-skip: if this occurrence's series still has a live occurrence, restoring
     # must NOT add a second one (that's the duplicate-series bug). Pull the live
-    # occurrence's date (and its subtasks') back to the restored occurrence's date,
-    # then hard-delete the restored row — the series resumes at the un-skipped date
-    # with exactly one live occurrence.
+    # occurrence's date (and its subtasks') back to the restored occurrence's date
+    # and retire the restored row as superseded — still soft-deleted, never
+    # destroyed (#457) — so the series resumes at the un-skipped date with exactly
+    # one live occurrence.
     #
-    # Gated on ``skipped_at``: this rewinds the series and destroys the restored
+    # Gated on ``skipped_at``: this rewinds the series and retires the restored
     # row, which is only what the user meant if they SKIPPED it. A normally-trashed
     # occurrence falls through to the plain restore below and comes back in place.
     if (
@@ -137,12 +173,7 @@ def restore_task_with_undo(
             # The receipt needs the dates the rewind overwrites; read them first.
             before = {row.id: row.due_date for row in _active_subtree(db, live)}
             rewound = reschedule_occurrence(db, live, task.due_date)
-            # Unscoped: this destroys the *original* skipped occurrence, which
-            # the skip already replaced with fresh clones — including children
-            # filed in other projects. The project-scoped walk would leave those
-            # merely detached, stranding an obsolete duplicate in standalone
-            # trash (BUG #212).
-            purge_task(db, task, project_scoped=False)
+            _supersede(db, task)
             db.flush()
             reconcile(db, [live.id])
             db.flush()
@@ -154,6 +185,7 @@ def restore_task_with_undo(
                 restore_event_id=_latest_restored_event_id(db, live.id),
                 unskip=UnskipUndo(
                     skipped_due_date=skipped_due,
+                    superseded_task_id=task.id,
                     previous_due_dates=[
                         RescheduledDate(task_id=row.id, due_date=before[row.id])
                         for row in rewound
@@ -233,6 +265,62 @@ def restore_task_with_undo(
         skipped=was_skipped,
         deleted_with_task_id=prior_cascade_root,
     )
+
+
+def _supersede(db: Session, task: Task) -> None:
+    """Retire an un-skipped occurrence's original rows as superseded (#457).
+
+    The skip already replaced ``task`` and its checklist with fresh clones, and
+    the rewind just made one of those clones the restored occurrence, so the
+    originals are obsolete. They stay exactly as trashed — soft-deleted, with
+    their focus entries and dependency edges untouched, which is how every
+    trashed task keeps them (a trashed blocker never blocks) — and gain
+    ``superseded_at``, which takes them out of the Tasks trash and makes a
+    restore refuse them. Only this un-skip's Undo (``_undo_unskip``) clears it.
+
+    The set is exactly what the skip cloned forward: ``task`` and the rows its
+    skip cascade stamped (``_skip_cascade``), whatever project they are filed
+    in. The clones keep each child's own ``project_id``, so the obsolete
+    originals include children filed in other projects, and leaving those
+    restorable strands a duplicate of their live clone in standalone trash
+    (BUG #212). A checklist item the user had trashed on its own *before* the
+    skip was never cloned, so it is no duplicate: it carries no marker and stays
+    ordinary, restorable trash.
+
+    ``skipped_at`` is cleared: the date is no longer skipped (the live
+    occurrence is on it), so the row must stop blocking re-spawns and stop
+    reading as "Skipped" on the series timeline. Every row gets an ``updated``
+    event — the field-edit action, as for the purge's detach step, so the feed
+    needs no new action string.
+    """
+    now = datetime.now(UTC)
+    for row in _skip_cascade(db, task):
+        row.superseded_at = now
+        activity.record_event(
+            db,
+            project_id=row.project_id,
+            entity_type="task",
+            entity_id=row.id,
+            action="updated",
+            summary=f'Task "{row.title}" superseded by its restored occurrence',
+        )
+    task.skipped_at = None
+
+
+def _skip_cascade(db: Session, root: Task) -> list[Task]:
+    """``root`` plus the trashed rows its own cascade delete stamped, root first.
+
+    For a skipped occurrence that is the checklist ``skip_occurrence`` took to
+    the trash with it — the rows its successor holds clones of. Not
+    project-scoped, for the reason ``restore_task_subtree`` gives: the marker
+    already names exactly those rows, whatever project they live in.
+    """
+    rows = db.execute(
+        deleted(Task)
+        .where(Task.deleted_with_task_id == root.id)
+        .order_by(Task.id.asc())
+    ).scalars()
+    return [root, *rows]
 
 
 def _latest_restored_event_id(db: Session, task_id: int) -> int:
@@ -382,19 +470,32 @@ def _retrash_restored(db: Session, rows: Sequence[Task], undo: TaskRestoreUndo) 
 
 
 def _undo_unskip(db: Session, task_id: int, unskip: UnskipUndo) -> None:
-    """Move a rewound series back and re-file the skipped date (#306).
+    """Move a rewound series back and make the original skipped again (#306, #457).
 
     The un-skip rewound the live occurrence (and its checklist) onto the skipped
-    date and purged the skipped row. Undo puts every rewound row back on the
-    date it had, keeping its id, progress and checklist, then files a skipped
-    occurrence on the vacated date (``file_skipped_occurrence``). Deleting the
-    live occurrence instead would trash the series' only actionable row.
+    date and retired the skipped row as superseded (``_supersede``). Undo puts
+    every rewound row back on the date it had, keeping its id, progress and
+    checklist, then turns the very row the user restored back into the skipped
+    occurrence on the vacated date: ``skipped_at`` again, and its subtree no
+    longer superseded. Deleting the live occurrence instead would trash the
+    series' only actionable row.
     """
     skipped_due = unskip.skipped_due_date
     live = get_task(db, task_id)
     if live is None or live.recurrence_id is None or live.due_date != skipped_due:
         raise RestoreUndoConflictError(
             "This occurrence has changed since it was restored; "
+            "skip it again instead."
+        )
+    original = get_deleted_task(db, unskip.superseded_task_id)
+    if (
+        original is None
+        or original.superseded_at is None
+        or original.recurrence_id != live.recurrence_id
+        or original.due_date != skipped_due
+    ):
+        raise RestoreUndoConflictError(
+            "The skipped occurrence this restore replaced is gone; "
             "skip it again instead."
         )
     previous = {entry.task_id: entry.due_date for entry in unskip.previous_due_dates}
@@ -418,13 +519,27 @@ def _undo_unskip(db: Session, task_id: int, unskip: UnskipUndo) -> None:
         )
     for row_id, due in previous.items():
         subtree[row_id].due_date = due
-    # Off the skipped date before a row is filed there: the unique occurrence
-    # index would reject two live rows on it, even for an instant.
     db.flush()
     for row_id in previous:
         log_task_event(db, subtree[row_id], "updated")
-    file_skipped_occurrence(db, live, skipped_due)
+    # Reverse ``_supersede`` over the rows it marked; the root is skipped again
+    # with the timestamp the skip gave it (``_mark_skipped`` mirrors deleted_at).
+    for row in _skip_cascade(db, original)[1:]:
+        if row.superseded_at is None:
+            continue
+        row.superseded_at = None
+        activity.record_event(
+            db,
+            project_id=row.project_id,
+            entity_type="task",
+            entity_id=row.id,
+            action="updated",
+            summary=f'Task "{row.title}" back with its skipped occurrence',
+        )
+    original.superseded_at = None
+    original.skipped_at = original.deleted_at
     db.flush()
+    log_task_event(db, original, "skipped")
 
 
 def log_rewound_by_unskip(
@@ -461,6 +576,10 @@ def _marked_descendant_ids(db: Session, root_id: int) -> list[int]:
     The marker is the whole point: it names exactly the rows that one delete took
     with it, so descendants the user had already trashed independently — no
     marker — are never swept back in.
+
+    Superseded rows are left out: an un-skip that rewound a live successor
+    retired the original checklist (``_supersede``) rather than bringing it
+    back, and its clones are already live under the successor.
     """
     return list(
         db.execute(
@@ -468,6 +587,7 @@ def _marked_descendant_ids(db: Session, root_id: int) -> list[int]:
             .where(
                 Task.deleted_at.is_not(None),
                 Task.deleted_with_task_id == root_id,
+                _not_superseded(),
             )
             .order_by(Task.id.asc())
         )
@@ -488,10 +608,11 @@ def _restore_marked_descendants(db: Session, root_id: int) -> list[int]:
     """
     restored_ids: list[int] = []
     for descendant_id in _marked_descendant_ids(db, root_id):
-        # Re-read: an un-skip that rewinds a live successor purges the original
-        # tree, so a marked descendant may legitimately be gone by now.
+        # Re-read: an un-skip that rewinds a live successor supersedes the
+        # original tree, so a marked descendant may legitimately be retired by
+        # now.
         descendant = get_deleted_task(db, descendant_id)
-        if descendant is None:
+        if descendant is None or descendant.superseded_at is not None:
             continue
         restore_task(db, descendant, defer_reconcile=True)
         restored_ids.append(descendant_id)
@@ -526,9 +647,9 @@ def restore_task_subtree(db: Session, task: Task) -> tuple[Task, int]:
     back open behind an already-spawned successor. Deferring to the final state
     keeps the invariant that a successor follows *effective* completion.
     """
-    # Captured up front: an un-skip rewind hard-deletes ``task`` and hands back
-    # the live successor instead, so neither the row nor its id survives the
-    # restore below — and the marker set belongs to the row the user picked.
+    # Captured up front: an un-skip rewind retires ``task`` as superseded and
+    # hands back the live successor instead — and the marker set belongs to the
+    # row the user picked, not to the row the restore returns.
     task_id = task.id
     marked_ids = _marked_descendant_ids(db, task_id)
     root = restore_task(db, task, defer_reconcile=True)
@@ -554,9 +675,7 @@ def restore_task_subtree(db: Session, task: Task) -> tuple[Task, int]:
     return root, len(restored_ids)
 
 
-def _deleted_subtree_depth_first(
-    db: Session, task: Task, *, project_scoped: bool = True
-) -> list[Task]:
+def _deleted_subtree_depth_first(db: Session, task: Task) -> list[Task]:
     """The soft-deleted subtree rooted at ``task``, children before parents.
 
     Soft-deleting a parent cascade-soft-deletes its subtree, so the whole subtree
@@ -573,27 +692,16 @@ def _deleted_subtree_depth_first(
     that project's trash. A descendant in another project is left alone (and cut
     loose by ``purge_task``'s detach step, so no FK dangles); the walk stops
     there, since anything below it hangs off a row that survives.
-
-    ``project_scoped=False`` drops that guard, and is **only** for internal
-    corrections that undo a write this service made itself (BUG #212): the
-    un-skip rewind must destroy the entire original skipped occurrence, whose
-    descendants ``task_recurrence._clone_subtask_tree`` may have filed in other
-    projects. Those rows have already been replaced by fresh clones, so leaving
-    them detached in another project's trash strands an obsolete duplicate.
-    Never pass it for a user-requested purge.
     """
     scope = task.project_id
-    conditions = [Task.parent_task_id == task.id]
-    if project_scoped:
-        conditions.append(
-            Task.project_id.is_(None) if scope is None else Task.project_id == scope
-        )
+    conditions = [
+        Task.parent_task_id == task.id,
+        Task.project_id.is_(None) if scope is None else Task.project_id == scope,
+    ]
     children = db.execute(deleted(Task).where(*conditions)).scalars().all()
     ordered: list[Task] = []
     for child in children:
-        ordered.extend(
-            _deleted_subtree_depth_first(db, child, project_scoped=project_scoped)
-        )
+        ordered.extend(_deleted_subtree_depth_first(db, child))
     ordered.append(task)
     return ordered
 
@@ -748,7 +856,7 @@ def log_dependency_severed_by_purge(
     )
 
 
-def purge_task(db: Session, task: Task, *, project_scoped: bool = True) -> None:
+def purge_task(db: Session, task: Task) -> None:
     """Permanently delete a trashed task and its soft-deleted subtree.
 
     Cleans the real FK edges first: dependency rows on either side of any subtree
@@ -769,10 +877,11 @@ def purge_task(db: Session, task: Task, *, project_scoped: bool = True) -> None:
     (issue #254): both are structural changes to tasks that live on, and the
     destroyed endpoint's title exists nowhere else afterwards.
 
-    ``project_scoped=False`` is reserved for internal corrections; see
-    ``_deleted_subtree_depth_first``.
+    Only a user-requested purge and the scheduled retention purge reach this: no
+    restore path calls it (an un-skip retires its obsolete rows instead, #457),
+    and it is never registered as an agent or MCP tool.
     """
-    subtree = _deleted_subtree_depth_first(db, task, project_scoped=project_scoped)
+    subtree = _deleted_subtree_depth_first(db, task)
     ids = [t.id for t in subtree]
     titles = {node.id: node.title for node in subtree}
 

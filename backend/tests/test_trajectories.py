@@ -36,7 +36,6 @@ from tests.trajectory import (
     INVARIANTS,
     KNOWN_BUGS,
     TOOL_WEIGHTS,
-    UNSKIP_PURGES_ROWS,
     ChatEvent,
     Fault,
     InvariantBreach,
@@ -114,10 +113,11 @@ NAMED: dict[str, tuple[str, tuple[Step, ...]]] = {
         "prevents",
         (Step((calls(_create("Ran")), reply()), fault=Fault("provider_crashes", "chat", 1)),),
     ),
-    # Skip a recurring occurrence, then restore it: the un-skip rewind purges
-    # the skipped row.
+    # Skip a recurring occurrence, then restore it: the un-skip rewinds the live
+    # successor and leaves the skipped row soft-deleted (superseded), never
+    # hard-deleted (#457).
     "restore_a_skipped_occurrence": (
-        f"known-bug:{UNSKIP_PURGES_ROWS}",
+        "prevents",
         (
             Step((calls(_RECURRING), calls(("skip_occurrence", {"task_id": 3})), reply())),
             Step((calls(("restore_task", {"task_id": 3})), reply())),
@@ -209,13 +209,17 @@ def test_every_named_case_says_what_it_is() -> None:
     )
 
 
-def test_a_known_bug_passes_the_corpus_but_not_a_named_case() -> None:
-    """The tolerance is the corpus's alone: the same steps, tolerant, pass."""
-    _, steps = NAMED["restore_a_skipped_occurrence"]
-    log = run_steps(steps, tolerate_known_bugs=True)
-    # Noted once per purged row; the restore is the second step.
-    assert log[0].known_bugs == []
-    assert set(log[1].known_bugs) == {UNSKIP_PURGES_ROWS}
+def test_tolerance_excuses_only_known_bugs() -> None:
+    """The corpus's tolerance is for ``KNOWN_BUGS`` alone (empty since #457).
+
+    A case tagged ``prevents`` run tolerantly notes no known bug: tolerance
+    lets a listed shape through, it never hides a fixed one coming back.
+    """
+    for name, (tag, steps) in NAMED.items():
+        if tag != "prevents":
+            continue
+        log = run_steps(steps, tolerate_known_bugs=True)
+        assert [o.known_bugs for o in log] == [[] for _ in log], name
 
 
 # --- the instrument's own checks ----------------------------------------------------------
