@@ -123,7 +123,7 @@ Key decisions:
 - **Stored day plan** (#319, design in
   [`docs/focus-day-plan.md`](docs/focus-day-plan.md)): `focus_plan_entries`
   holds the user's decisions for one day, which the otherwise derived Focus
-  plan honours. There are four kinds:
+  plan honours. There are five kinds:
   - a **floating pin**: the task joins the day ahead of the ranked work and
     never lands in "Didn't fit";
   - a **timed pin**: a fixed block at `start_minute`;
@@ -131,11 +131,15 @@ Key decisions:
     task, e.g. a 14:00 meeting. With `repeat_interval` (the task cadence
     shape, plus an optional weekly `days` set such as Mon-Fri, #427) it is a
     **series** that repeats from its `plan_date` on (#376):
-    one row, its occurrences worked out per day on read, never stored ahead;
+    one row, its occurrences worked out per day on read, never stored ahead.
+    A `stop_date` (#428) ends it from that day on; earlier days keep it;
   - a **skip** (`series_id` set, nothing else): that series' occurrence on
     `plan_date` doesn't happen. Removing the skip brings it back. The plan
     lists a day's skipped occurrences in `skipped_commitments` (#429), apart
-    from the live ones, so the Focus page can show them and un-skip one.
+    from the live ones, so the Focus page can show them and un-skip one;
+  - an **override** (#428, `series_id` plus a full title, start and length):
+    that series' occurrence on `plan_date` happens as the override says.
+    Removing it restores the usual occurrence.
 
   Tasks are first-fit packed into the gaps around the fixed blocks. A pin
   whose task is done, trashed, deferred or blocked is ignored, never deleted.
@@ -150,6 +154,8 @@ Key decisions:
   - `PATCH` and `DELETE /api/focus/entries/{id}` (on a series: every day)
   - `POST /api/focus/entries/{id}/restore`
   - `POST /api/focus/entries/{id}/skip` (one day of a series, #376)
+  - `POST /api/focus/entries/{id}/occurrence` (edit one day of a series, #428)
+  - `PUT /api/focus/entries/{id}/stop` (end a series from a day on, #428)
 
   Agent tools: `pin_focus_task`, `reorder_focus_pins`,
   `add_focus_commitment`, `remove_focus_entry` and `restore_focus_entry`.
@@ -332,11 +338,12 @@ Three things the design assumes are stored, and how they behave here:
   Open time before a fixed row shows as a dashed `… open` spacer. A
   commitment has no swipe: Move and Remove live behind `⋯`, and Add
   commitment lives in the session sheet. A repeating commitment's `⋯` adds
-  Skip this day; its Move and Remove act on the whole series.
+  Skip this day, Move this day, Stop from this day on and (on an edited day)
+  Reset this day; Move every day and Remove act on the whole series.
 
 Desktop keeps its controls, its four-column rows and its now-marker. Its
-timeline interleaves commitments, with Move and Remove (and Skip day on a
-repeating one). Scheduled rows offer
+timeline interleaves commitments, with Move and Remove (and, on a repeating
+one, Move this day or every day, Skip day, Stop from here and Reset day). Scheduled rows offer
 Pin, optionally at a time, and Unpin. "Didn't fit" rows offer Schedule.
 
 ## Mobile trash

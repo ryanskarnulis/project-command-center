@@ -18,10 +18,12 @@ from app.schemas.focus import (
     FocusEntryRead,
     FocusEntryUpdate,
     FocusFinishedBlockRead,
+    FocusOccurrenceEdit,
     FocusOccurrenceSkip,
     FocusPinCreate,
     FocusPinOrder,
     FocusPlan,
+    FocusSeriesStop,
     FocusSessionLogRead,
 )
 from app.services import focus as focus_service
@@ -195,6 +197,55 @@ def skip_occurrence(
     return focus_plan_service.entry_read(skip)
 
 
+@router.post("/focus/entries/{entry_id}/occurrence", response_model=FocusEntryRead)
+def edit_occurrence(
+    entry_id: EntityId, data: FocusOccurrenceEdit, db: Session = Depends(get_db_write)
+) -> FocusEntryRead:
+    """Change one day's occurrence of a repeating commitment, that day only (#428).
+
+    Returns the override; removing it (``DELETE /focus/entries/{id}``) resets
+    the day to the usual occurrence. A day already edited has its edit changed.
+    """
+    series = _entry_or_404(db, entry_id)
+    fields = data.model_dump(exclude_unset=True)
+    fields.pop("plan_date")
+    try:
+        override = focus_plan_service.edit_occurrence(db, series, data.plan_date, fields)
+    except focus_plan_service.FocusEntryError as exc:
+        raise _conflict(exc) from exc
+    db.commit()
+    logger.info(
+        "focus_occurrence_edited",
+        entry_id=override.id,
+        series_id=series.id,
+        date=data.plan_date.isoformat(),
+    )
+    return focus_plan_service.entry_read(override)
+
+
+@router.put("/focus/entries/{entry_id}/stop", response_model=FocusEntryRead)
+def stop_series(
+    entry_id: EntityId, data: FocusSeriesStop, db: Session = Depends(get_db_write)
+) -> FocusEntryRead:
+    """End a repeating commitment from a day on; ``stop_date: null`` lifts the end (#428).
+
+    The days before ``stop_date`` keep their occurrences. The undo is putting
+    back the stop date the series had before (null when it had none).
+    """
+    series = _entry_or_404(db, entry_id)
+    try:
+        focus_plan_service.stop_series(db, series, data.stop_date)
+    except focus_plan_service.FocusEntryError as exc:
+        raise _conflict(exc) from exc
+    db.commit()
+    logger.info(
+        "focus_series_stopped",
+        entry_id=series.id,
+        stop_date=None if data.stop_date is None else data.stop_date.isoformat(),
+    )
+    return focus_plan_service.entry_read(series)
+
+
 @router.patch("/focus/entries/{entry_id}", response_model=FocusEntryRead)
 def update_entry(
     entry_id: EntityId, data: FocusEntryUpdate, db: Session = Depends(get_db_write)
@@ -214,7 +265,8 @@ def remove_entry(entry_id: EntityId, db: Session = Depends(get_db_write)) -> Foc
     """Soft-delete an entry; undo with restore.
 
     Unpins a task, drops a commitment, stops a repeating series (every day it
-    covers), or removes a skip so that day's occurrence happens again (#376).
+    covers), removes a skip so that day's occurrence happens again (#376), or
+    removes a one-day edit so the usual occurrence comes back (#428).
     """
     entry = _entry_or_404(db, entry_id)
     focus_plan_service.remove_entry(db, entry)

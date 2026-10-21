@@ -3,6 +3,7 @@ import type {
   CommitmentRepeatInterval,
   FocusEntry,
   FocusEntryUpdate,
+  FocusOccurrenceEdit,
   FocusPlan,
 } from '../types/focus'
 
@@ -105,6 +106,38 @@ export async function skipFocusOccurrence(
     method: 'POST',
     headers: JSON_HEADERS,
     body: JSON.stringify({ plan_date: planDate }),
+  })
+}
+
+/**
+ * Change one day's occurrence of a repeating commitment, that day only (#428).
+ * Returns the override; `removeFocusEntry(override.id)` resets the day. A day
+ * already edited has its edit changed (same override id).
+ */
+export async function editFocusOccurrence(
+  seriesEntryId: number,
+  planDate: string,
+  data: FocusOccurrenceEdit,
+): Promise<FocusEntry> {
+  return apiClient<FocusEntry>(`/api/focus/entries/${seriesEntryId}/occurrence`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ plan_date: planDate, ...data }),
+  })
+}
+
+/**
+ * End a repeating commitment from `stopDate` on, keeping the days before it
+ * (#428); `null` lifts the end. The undo is putting the previous value back.
+ */
+export async function stopFocusSeries(
+  seriesEntryId: number,
+  stopDate: string | null,
+): Promise<FocusEntry> {
+  return apiClient<FocusEntry>(`/api/focus/entries/${seriesEntryId}/stop`, {
+    method: 'PUT',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ stop_date: stopDate }),
   })
 }
 

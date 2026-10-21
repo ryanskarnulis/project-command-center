@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
+  CalendarX,
   Check,
   ChevronDown,
   ChevronRight,
@@ -19,11 +20,13 @@ import {
 } from 'lucide-react'
 import {
   addFocusCommitment,
+  editFocusOccurrence,
   pinFocusTask,
   removeFocusEntry,
   reorderFocusPins,
   restoreFocusEntry,
   skipFocusOccurrence,
+  stopFocusSeries,
   updateFocusEntry,
 } from '../../api/focus'
 import { markTaskDone, skipOccurrence, updateTask } from '../../api/tasks'
@@ -539,7 +542,10 @@ function ScheduledRow({
 
 // A fixed-time commitment that is not a task (a meeting): no task link, no
 // task verbs — only Move (to another time) and Remove. A repeating one (#376)
-// also offers Skip day; its Move and Remove act on the whole series.
+// also offers Skip day; its Remove acts on the whole series. Since #428 a
+// repeating one's Move asks "this day" or "every day", it can be stopped from
+// this day on (the days before keep it), and a day edited on its own says so
+// and offers Reset day.
 function CommitmentRow({
   commitment,
   past,
@@ -555,6 +561,12 @@ function CommitmentRow({
   const [pending, setPending] = useState(false)
   const [moveTo, setMoveTo] = useState<string | null>(null)
   const repeat = commitment.repeat_interval
+  const overrideId = commitment.override_entry_id
+  // Stopping on the first day would leave nothing: that is Remove series.
+  const canStop =
+    repeat !== null &&
+    commitment.series_start_date !== null &&
+    commitment.series_start_date < planDate
   const undoAction = useUndoAction(onMutated)
 
   async function run<T>(
@@ -578,6 +590,26 @@ function CommitmentRow({
     }
   }
 
+  function moveThisDay(start: string): void {
+    const previous = commitment.start_time
+    void run(
+      () => editFocusOccurrence(commitment.entry_id, planDate, { start_time: start }),
+      `Moved to ${start} on this day only`,
+      // A new edit is undone by removing it; an edit of an edit, by moving back.
+      (edit) =>
+        overrideId === null
+          ? removeFocusEntry(edit.id)
+          : editFocusOccurrence(commitment.entry_id, planDate, { start_time: previous }),
+    )
+  }
+
+  function moveEveryDay(start: string): void {
+    void run(
+      () => updateFocusEntry(commitment.entry_id, { start_time: start }),
+      repeat ? `Moved to ${start} every time` : `Moved to ${start}`,
+    )
+  }
+
   return (
     <li
       className={
@@ -597,6 +629,7 @@ function CommitmentRow({
         <div className="focus-block-meta">
           <span className="focus-commitment-word">fixed</span>
           {repeat && <span className="focus-repeat-word">{formatCommitmentRepeat(repeat)}</span>}
+          {overrideId !== null && <span className="focus-edited-word">this day only</span>}
           <EstimateLabel minutes={commitment.duration_minutes} assumed={false} />
         </div>
       </div>
@@ -618,10 +651,10 @@ function CommitmentRow({
             onSubmit={(event) => {
               event.preventDefault()
               if (!moveTo) return
-              void run(
-                () => updateFocusEntry(commitment.entry_id, { start_time: moveTo }),
-                repeat ? `Moved to ${moveTo} every time` : `Moved to ${moveTo}`,
-              )
+              // Enter in the time field: a series moves this day only, the
+              // narrower of its two choices.
+              if (repeat) moveThisDay(moveTo)
+              else moveEveryDay(moveTo)
             }}
           >
             <input
@@ -631,9 +664,25 @@ function CommitmentRow({
               value={moveTo}
               onChange={(event) => setMoveTo(event.target.value)}
             />
-            <button type="submit" className="task-action" disabled={pending}>
-              Move
-            </button>
+            {repeat ? (
+              <>
+                <button type="submit" className="task-action" disabled={pending}>
+                  This day
+                </button>
+                <button
+                  type="button"
+                  className="task-action"
+                  disabled={pending}
+                  onClick={() => moveTo && moveEveryDay(moveTo)}
+                >
+                  Every day
+                </button>
+              </>
+            ) : (
+              <button type="submit" className="task-action" disabled={pending}>
+                Move
+              </button>
+            )}
             <button
               type="button"
               className="task-action"
@@ -644,7 +693,25 @@ function CommitmentRow({
             </button>
           </form>
         )}
-        {repeat && (
+        {overrideId !== null && (
+          <button
+            type="button"
+            className="task-action"
+            disabled={pending}
+            aria-label={`Reset ${commitment.title} on this day`}
+            onClick={() =>
+              void run(
+                () => removeFocusEntry(overrideId),
+                `${commitment.title} is back to its usual time on this day`,
+                () => restoreFocusEntry(overrideId),
+              )
+            }
+          >
+            <Undo2 size={15} aria-hidden="true" />
+            Reset day
+          </button>
+        )}
+        {repeat && overrideId === null && (
           <button
             type="button"
             className="task-action"
@@ -661,6 +728,26 @@ function CommitmentRow({
           >
             <SkipForward size={15} aria-hidden="true" />
             Skip day
+          </button>
+        )}
+        {canStop && (
+          <button
+            type="button"
+            className="task-action"
+            disabled={pending}
+            aria-label={`Stop ${commitment.title} from this day on`}
+            onClick={() => {
+              const previous = commitment.stop_date
+              void run(
+                () => stopFocusSeries(commitment.entry_id, planDate),
+                `${commitment.title} stops from this day; earlier days keep it`,
+                // Undo puts back the end the series had (none, usually).
+                () => stopFocusSeries(commitment.entry_id, previous),
+              )
+            }}
+          >
+            <CalendarX size={15} aria-hidden="true" />
+            Stop from here
           </button>
         )}
         <button

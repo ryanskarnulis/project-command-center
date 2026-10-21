@@ -4,7 +4,8 @@ The only write path for ``focus_plan_entries``. Each write lands in
 ``activity_events`` as ``entity_type="focus_entry"``; removal is a soft delete
 and ``restore_entry`` is its undo. A repeating commitment is one series row
 whose occurrences are worked out per day on read (``day_commitments``, #376);
-skipping one day stores a skip row for that day. The packer that reads these
+skipping one day stores a skip row for that day, editing one day stores an
+override row for it, and a series ends with its ``stop_date`` (#428). The packer that reads these
 rows lives in ``services/focus.py``; the design is ``docs/focus-day-plan.md``.
 """
 
@@ -12,6 +13,7 @@ from __future__ import annotations
 
 from calendar import monthrange
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
@@ -55,6 +57,7 @@ def entry_read(entry: FocusPlanEntry) -> FocusEntryRead:
         repeat_interval=CommitmentRepeatInterval.model_validate(entry.repeat_interval)
         if entry.repeat_interval is not None
         else None,
+        stop_date=entry.stop_date,
         series_id=entry.series_id,
         created_at=entry.created_at,
         deleted_at=entry.deleted_at,
@@ -95,13 +98,17 @@ def occurs_on(series: FocusPlanEntry, day: date) -> bool:
     after it. A weekly series with ``days`` (#427) lands on each of those
     weekdays in every ``every``-th calendar week (Monday-based) counted from the
     week ``plan_date`` falls in; ``plan_date`` itself need not be one of them.
-    Skips are not consulted here; ``day_commitments`` applies them.
+    A series with a ``stop_date`` (#428) has no occurrence from that day on, so
+    the days before it keep theirs. Skips and overrides are not consulted here;
+    ``day_commitments`` applies them.
     """
     interval = series.repeat_interval
     if interval is None:
         return series.plan_date == day
     anchor = series.plan_date
     if day < anchor:
+        return False
+    if series.stop_date is not None and day >= series.stop_date:
         return False
     unit, every = interval["unit"], int(interval["every"])
     if unit == "day":
@@ -122,10 +129,54 @@ def occurs_on(series: FocusPlanEntry, day: date) -> bool:
     raise ValueError(f"Unknown recurrence unit: {unit!r}")
 
 
+def is_skip(entry: FocusPlanEntry) -> bool:
+    return entry.series_id is not None and entry.title is None
+
+
+def is_override(entry: FocusPlanEntry) -> bool:
+    return entry.series_id is not None and entry.title is not None
+
+
+def is_series(entry: FocusPlanEntry) -> bool:
+    return entry.task_id is None and entry.repeat_interval is not None
+
+
+@dataclass(frozen=True)
+class DayCommitment:
+    """One commitment as it happens on one day.
+
+    ``entry`` is the one-off commitment or the series row; ``override`` is the
+    series' one-day edit for that day (#428), whose title, time and length win.
+    """
+
+    entry: FocusPlanEntry
+    override: FocusPlanEntry | None = None
+
+    @property
+    def shown(self) -> FocusPlanEntry:
+        return self.override if self.override is not None else self.entry
+
+    @property
+    def title(self) -> str:
+        assert self.shown.title is not None
+        return self.shown.title
+
+    @property
+    def start_minute(self) -> int:
+        assert self.shown.start_minute is not None
+        return self.shown.start_minute
+
+    @property
+    def duration_minutes(self) -> int:
+        assert self.shown.duration_minutes is not None
+        return self.shown.duration_minutes
+
+
 def _day_series(
     db: Session, plan_date: date
 ) -> tuple[list[FocusPlanEntry], dict[int, FocusPlanEntry]]:
-    """The live series with an occurrence on ``plan_date``, and that day's live skips by series."""
+    """The live series with an occurrence on ``plan_date``, and that day's live
+    skips and overrides by series (at most one per series, by the unique index)."""
     series = [
         entry
         for entry in db.execute(
@@ -136,24 +187,25 @@ def _day_series(
         ).scalars()
         if occurs_on(entry, plan_date)
     ]
-    skips: dict[int, FocusPlanEntry] = {}
+    exceptions: dict[int, FocusPlanEntry] = {}
     if series:
-        for skip in db.execute(
+        for row in db.execute(
             active(FocusPlanEntry).where(
                 FocusPlanEntry.series_id.in_([entry.id for entry in series]),
                 FocusPlanEntry.plan_date == plan_date,
             )
         ).scalars():
-            assert skip.series_id is not None
-            skips[skip.series_id] = skip
-    return series, skips
+            assert row.series_id is not None
+            exceptions[row.series_id] = row
+    return series, exceptions
 
 
-def day_commitments(db: Session, plan_date: date) -> list[FocusPlanEntry]:
+def day_commitments(db: Session, plan_date: date) -> list[DayCommitment]:
     """The commitments that happen on ``plan_date``, in start order.
 
     That day's one-off commitments, plus every live series with an occurrence
-    that day which no live skip removes. A series is one row however many days
+    that day which no live skip removes; an occurrence with a live override
+    (#428) happens as the override says. A series is one row however many days
     it covers: its occurrences are worked out here, on read, and nothing is
     stored for a day until somebody makes a decision about it.
     """
@@ -167,9 +219,15 @@ def day_commitments(db: Session, plan_date: date) -> list[FocusPlanEntry]:
             )
         ).scalars()
     )
-    series, skips = _day_series(db, plan_date)
-    happening = [*one_offs, *(entry for entry in series if entry.id not in skips)]
-    return sorted(happening, key=lambda entry: (entry.start_minute or 0, entry.id))
+    series, exceptions = _day_series(db, plan_date)
+    happening = [DayCommitment(entry) for entry in one_offs]
+    for entry in series:
+        row = exceptions.get(entry.id)
+        if row is None:
+            happening.append(DayCommitment(entry))
+        elif is_override(row):
+            happening.append(DayCommitment(entry, row))
+    return sorted(happening, key=lambda item: (item.start_minute, item.entry.id))
 
 
 def day_skipped_commitments(
@@ -180,8 +238,12 @@ def day_skipped_commitments(
     The other half of ``day_commitments``: a live skip of a live series that
     does occur that day. Removing the skip (``remove_entry``) un-skips it.
     """
-    series, skips = _day_series(db, plan_date)
-    skipped = [(entry, skips[entry.id]) for entry in series if entry.id in skips]
+    series, exceptions = _day_series(db, plan_date)
+    skipped = [
+        (entry, exceptions[entry.id])
+        for entry in series
+        if entry.id in exceptions and is_skip(exceptions[entry.id])
+    ]
     return sorted(skipped, key=lambda pair: (pair[0].start_minute or 0, pair[0].id))
 
 
@@ -257,6 +319,11 @@ def _label(db: Session, entry: FocusPlanEntry, task_title: str | None) -> str:
     if entry.series_id is not None:
         series = db.get(FocusPlanEntry, entry.series_id)
         title = series.title if series is not None else "?"
+        if is_override(entry):
+            return (
+                f'Commitment "{title}" on {day}, as "{entry.title}"{when}'
+                f" for {entry.duration_minutes} min,"
+            )
         return f'Commitment "{title}" on {day}'
     if entry.task_id is None:
         if entry.repeat_interval is not None:
@@ -340,7 +407,8 @@ def add_commitment(
     return entry
 
 
-def _live_skip(db: Session, series_id: int, plan_date: date) -> FocusPlanEntry | None:
+def _live_exception(db: Session, series_id: int, plan_date: date) -> FocusPlanEntry | None:
+    """The day's live skip or override of a series; there is at most one."""
     return db.execute(
         active(FocusPlanEntry).where(
             FocusPlanEntry.series_id == series_id, FocusPlanEntry.plan_date == plan_date
@@ -356,16 +424,18 @@ def skip_occurrence(
     Stores a skip row for that day; the series and its other days are
     untouched. Idempotent: skipping a skipped day returns the skip already
     there. Undo is ``remove_entry`` on the returned skip. Stopping the whole
-    series is ``remove_entry`` on the series itself.
+    series is ``remove_entry`` on the series itself, or ``stop_series`` from a
+    day on. A day edited with ``edit_occurrence`` is refused: reset it first,
+    so a skip never silently throws an edit away.
     """
-    if series.task_id is not None or series.repeat_interval is None:
-        raise FocusEntryError("Only a repeating commitment has occurrences to skip")
-    if not occurs_on(series, plan_date):
-        raise FocusEntryError(
-            f'Commitment "{series.title}" doesn\'t happen on {plan_date.isoformat()}'
-        )
-    existing = _live_skip(db, series.id, plan_date)
+    _ensure_occurrence(series, plan_date, "skip")
+    existing = _live_exception(db, series.id, plan_date)
     if existing is not None:
+        if is_override(existing):
+            raise FocusEntryError(
+                f'Commitment "{series.title}" on {plan_date.isoformat()} has been edited'
+                " for that day; reset it before skipping it"
+            )
         return existing
     skip = FocusPlanEntry(plan_date=plan_date, series_id=series.id)
     db.add(skip)
@@ -374,15 +444,99 @@ def skip_occurrence(
     return skip
 
 
+def _ensure_occurrence(series: FocusPlanEntry, plan_date: date, verb: str) -> None:
+    if series.series_id is not None or not is_series(series):
+        raise FocusEntryError(f"Only a repeating commitment has occurrences to {verb}")
+    if not occurs_on(series, plan_date):
+        raise FocusEntryError(
+            f'Commitment "{series.title}" doesn\'t happen on {plan_date.isoformat()}'
+        )
+
+
+def edit_occurrence(
+    db: Session, series: FocusPlanEntry, plan_date: date, fields: dict[str, Any]
+) -> FocusPlanEntry:
+    """Change one day's occurrence of a repeating commitment, that day only (#428).
+
+    ``fields`` are ``start_time`` (HH:MM), ``title`` and ``duration_minutes``,
+    the same three a series edit takes. Stores an override row for the day
+    carrying all three: the ones left out are copied from the series as it
+    stands, so a later edit of the series doesn't reach a day edited by hand.
+    Editing a day already edited updates its override (``update_entry``). A
+    skipped day is refused: un-skip it first. Undo of a new override is
+    ``remove_entry`` on it, which restores the usual occurrence. Caller commits.
+    """
+    _ensure_occurrence(series, plan_date, "edit")
+    if not fields:
+        raise FocusEntryError("Name what changes on that day: a time, a title or a length")
+    if any(value is None for value in fields.values()):
+        raise FocusEntryError("A commitment needs a start time, a title and a length")
+    existing = _live_exception(db, series.id, plan_date)
+    if existing is not None:
+        if is_skip(existing):
+            raise FocusEntryError(
+                f'Commitment "{series.title}" is skipped on {plan_date.isoformat()};'
+                " un-skip it before editing that day"
+            )
+        return update_entry(db, existing, fields)
+    override = FocusPlanEntry(
+        plan_date=plan_date,
+        series_id=series.id,
+        title=fields.get("title", series.title),
+        start_minute=parse_time(fields["start_time"])
+        if "start_time" in fields
+        else series.start_minute,
+        duration_minutes=fields.get("duration_minutes", series.duration_minutes),
+    )
+    db.add(override)
+    db.flush()
+    _record(db, override, "overridden", None, "changed for that day only")
+    return override
+
+
+def stop_series(
+    db: Session, series: FocusPlanEntry, stop_date: date | None
+) -> FocusPlanEntry:
+    """End a repeating commitment from ``stop_date`` on, or (``None``) lift the end (#428).
+
+    The days before ``stop_date`` keep their occurrences, so a past day's plan
+    still shows the series; ``stop_date`` and every day after have none. Skips
+    and overrides on those days are left in place, inert, so lifting the end
+    again (the undo) brings the days back exactly as they were. A stop on or
+    before the first day would leave nothing: that is removing the series.
+    Idempotent. Caller commits.
+    """
+    if series.series_id is not None or not is_series(series):
+        raise FocusEntryError("Only a repeating commitment can be stopped")
+    if stop_date is not None and stop_date <= series.plan_date:
+        raise FocusEntryError(
+            f'Commitment "{series.title}" starts on {series.plan_date.isoformat()};'
+            " to stop it from its first day, remove the series"
+        )
+    previous = series.stop_date
+    if previous == stop_date:
+        return series
+    series.stop_date = stop_date
+    db.flush()
+    was = "" if previous is None else f" (was stopped from {previous.isoformat()})"
+    if stop_date is None:
+        _record(db, series, "resumed", None, f"repeats again with no end{was}")
+    else:
+        _record(db, series, "stopped", None, f"stopped from {stop_date.isoformat()}{was}")
+    return series
+
+
 def update_entry(
     db: Session, entry: FocusPlanEntry, fields: dict[str, Any]
 ) -> FocusPlanEntry:
     """Apply a partial edit (``start_time`` as HH:MM or null, ``title``, ``duration_minutes``).
 
     A commitment always keeps a time, title and duration; a pin carries only a
-    time. Caller commits.
+    time. A one-day override (#428) edits like a commitment, for its day only;
+    on a series the edit reaches every day except those with an override.
+    Caller commits.
     """
-    if entry.series_id is not None:
+    if is_skip(entry):
         raise FocusEntryError(
             "A skipped occurrence has nothing to edit; remove the skip to bring it back"
         )
@@ -404,7 +558,8 @@ def update_entry(
     if not fields:
         return entry
     db.flush()
-    _record(db, entry, "updated", _task_of(db, entry), "changed")
+    verb = "changed for that day only" if is_override(entry) else "changed"
+    _record(db, entry, "updated", _task_of(db, entry), verb)
     return entry
 
 
@@ -436,7 +591,9 @@ def reorder_pins(
                 f"Focus entry {entry_id} is not a live entry of {plan_date.isoformat()}"
             )
         if entry.series_id is not None:
-            raise FocusEntryError(f"Focus entry {entry_id} is a skip and has no order")
+            raise FocusEntryError(
+                f"Focus entry {entry_id} is a skip or a one-day edit and has no order"
+            )
         if entry.task_id is None:
             raise FocusEntryError(
                 f'Commitment "{entry.title}" sits at its own time and has no order'
@@ -478,22 +635,29 @@ def remove_entry(db: Session, entry: FocusPlanEntry) -> None:
     """Soft-delete an entry. Undo with restore_entry.
 
     Unpins a task, drops a commitment, stops a whole repeating series (every
-    day it covers, #376), or removes a skip so that occurrence happens again.
+    day it covers, past ones too, #376; ``stop_series`` keeps the past), removes
+    a skip so that occurrence happens again, or removes a one-day edit so the
+    usual occurrence comes back (#428).
     """
     soft_delete(entry)
     db.flush()
-    verb = "un-skipped" if entry.series_id is not None else "removed from Focus"
+    if is_skip(entry):
+        verb = "un-skipped"
+    elif is_override(entry):
+        verb = "reset to the series"
+    else:
+        verb = "removed from Focus"
     _record(db, entry, "deleted", _task_of(db, entry), verb)
 
 
 def restore_entry(db: Session, entry: FocusPlanEntry) -> FocusPlanEntry:
     """Bring back a removed entry; refused if the task has been pinned again since.
 
-    Restoring a removed skip skips that occurrence again, unless it has been
-    skipped again since.
+    Restoring a removed skip skips that occurrence again, and a removed
+    override edits it again, unless that day has been skipped or edited since.
     """
-    if entry.series_id is not None and _live_skip(db, entry.series_id, entry.plan_date):
-        raise FocusEntryError("That occurrence is already skipped")
+    if entry.series_id is not None and _live_exception(db, entry.series_id, entry.plan_date):
+        raise FocusEntryError("That occurrence is already skipped or edited")
     if entry.task_id is not None:
         if _live_pin(db, entry.plan_date, entry.task_id) is not None:
             raise FocusEntryError("That task is already pinned to this day")
@@ -502,7 +666,12 @@ def restore_entry(db: Session, entry: FocusPlanEntry) -> FocusPlanEntry:
             raise FocusEntryError("The pinned task is in the trash")
     restore(entry)
     db.flush()
-    verb = "skipped again" if entry.series_id is not None else "restored to Focus"
+    if is_skip(entry):
+        verb = "skipped again"
+    elif is_override(entry):
+        verb = "changed for that day again"
+    else:
+        verb = "restored to Focus"
     _record(db, entry, "restored", _task_of(db, entry), verb)
     return entry
 

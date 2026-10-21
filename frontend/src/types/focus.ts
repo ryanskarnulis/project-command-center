@@ -62,6 +62,15 @@ export interface CommitmentBlock {
   // Set when the commitment repeats (#376). `entry_id` is then the series:
   // editing or removing it changes every day; skipping takes out one day.
   repeat_interval: CommitmentRepeatInterval | null
+  // A series' first day and its end (#428): it occurs from `series_start_date`
+  // up to the day before `stop_date` (null = no end). Both null on a one-off.
+  // `stopFocusSeries` moves the end, and only after the first day.
+  series_start_date: string | null
+  stop_date: string | null
+  // Set when this day's occurrence was edited for that day only (#428): the
+  // block shows the edit, `entry_id` is still the series, and
+  // `removeFocusEntry(override_entry_id)` resets the day.
+  override_entry_id: number | null
 }
 
 /**
@@ -133,10 +142,20 @@ export interface FocusEntry {
   position: number
   // A repeating commitment's cadence (#376); null on every other kind.
   repeat_interval: CommitmentRepeatInterval | null
-  // Set only on a skip: the series whose `plan_date` occurrence it skips.
+  // A series' end (#428): the first day it no longer occurs; null = no end.
+  stop_date: string | null
+  // Set only on a skip or a one-day edit: the series whose `plan_date`
+  // occurrence it skips or edits.
   series_id: number | null
   created_at: string
   deleted_at: string | null
+}
+
+/** A one-day edit of a repeating commitment (#428); fields left out follow the series. */
+export interface FocusOccurrenceEdit {
+  start_time?: string
+  title?: string
+  duration_minutes?: number
 }
 
 export interface FocusEntryUpdate {

@@ -45,7 +45,7 @@ With an overlay:
 | `deleted_at` | soft delete. Removing an entry is undoable via restore |
 
 There are three kinds of entry (a fourth, the skip, came with repeating
-commitments; see below):
+commitments, and a fifth, the one-day override, with #428; see below):
 
 1. **Floating pin**: "this task is in today's plan". It sits ahead of the ranked
    list in `position` order and never lands in "Didn't fit".
@@ -257,7 +257,8 @@ commitment from. Two nullable columns on `focus_plan_entries`:
 | column | meaning |
 |---|---|
 | `repeat_interval` | the cadence, the task shape `{"unit": "day"\|"week"\|"month", "every": 1-12}`, plus for `unit: "week"` an optional weekday set `"days": [0-6]` (Monday 0, #427). Set means this commitment is a **series** that repeats from its `plan_date` (the first occurrence) on |
-| `series_id` | set only on a **skip**: the series whose occurrence on `plan_date` doesn't happen |
+| `series_id` | set only on a **skip**: the series whose occurrence on `plan_date` doesn't happen (and, since #428, on an **override**, which edits it) |
+| `stop_date` | #428: a series' first day without an occurrence. Null means it repeats for good |
 
 The kind check gains a fourth kind: a skip carries `series_id` and nothing
 else (no task, title, time, length or cadence). The other kinds carry no
@@ -327,25 +328,80 @@ same "already over before the window" cut applies as for a live one.
     lists: no new endpoint. Activity names it `un-skipped` / `skipped again`.
   - Activity: `skipped` when stored, then `deleted` / `restored` as for any
     entry, with summaries that name the series and the day.
-- **Stop the series**: remove the series row (`DELETE` on its id). This takes
-  out every occurrence, past days included, and restore brings them all back.
-  A past day's plan isn't a record of what happened (`focus_sessions` is), so
-  losing a past occurrence from it costs nothing. "Stop from today on, keep
-  the earlier days" would need an end date, and is out of scope (below).
+- **Remove the series**: remove the series row (`DELETE` on its id). This
+  takes out every occurrence, past days included, and restore brings them all
+  back. To keep the earlier days, stop it from a day on instead (#428, below).
 - **Edit the series**: `PATCH` on the series row changes the time, title or
-  length of every occurrence, past and future. On both Focus pages, Move on a
-  repeating commitment says so ("Move every day" on mobile; the desktop toast
-  says "every time"). A skip has nothing to edit (409).
+  length of every occurrence, past and future, except the days edited on their
+  own (#428). On both Focus pages, Move on a repeating commitment offers "this
+  day" or "every day". A skip has nothing to edit (409).
 
 **Out of scope, deliberately:**
 
-- **Editing one occurrence** ("just today, standup is at 10:30"). The shape
-  leaves room for it: a skip-like row for that day carrying its own time. For
-  now, skip the day and add a one-off commitment instead.
-- An **end date** ("stop from today on") and a **count** ("ten times").
+- A **count** ("ten times").
 - **Changing the cadence** of an existing commitment. `PATCH` takes no
   `repeat_interval`, so a one-off can't be turned into a series or back.
   Remove the series and add a new one.
+
+### Ending a series, and editing one day (#428)
+
+Two gaps #376 left: removing a series took its past days with it, and an edit
+moved every day.
+
+**Stop from a day on.** A nullable `stop_date` on the series row, the first
+day it no longer occurs. `occurs_on` answers false from that day on, so every
+earlier day keeps its occurrence (a past day's plan still shows the standup)
+and nothing is deleted. A check constraint keeps `stop_date` to series rows
+and after `plan_date`: a stop on the first day would leave no occurrence at
+all, which is what removing the series is, so the service refuses it (409)
+and the UI only offers Stop on a later day. `PUT /api/focus/entries/{id}/stop`
+with `{stop_date}` sets it; `{stop_date: null}` lifts it.
+
+- **Undo** is putting back the value the series had before (null, usually),
+  through the same `PUT`, so it never needs a trash row: the series was never
+  removed. The plan's `CommitmentBlock` carries `stop_date` and
+  `series_start_date`, so a client knows both the previous end and whether
+  Stop applies. The write is idempotent.
+- Activity: `stopped` ("…, daily from 2026-10-01, stopped from 2026-10-20")
+  and `resumed` ("… repeats again with no end"), each naming the end it
+  replaced ("(was stopped from …)"), so the log alone can rebuild the history.
+- Skips and overrides on or after the stop are **left in place, inert**: no
+  day they name occurs any more, so the plan ignores them, and they can't be
+  added there (409, "doesn't happen"). Lifting the end brings those days back
+  exactly as they were, which is what an undo should do.
+
+**Edit one day.** A fifth row kind, the **override**: `series_id` plus a full
+`title`, `start_minute` and `duration_minutes`, for that series' occurrence
+on `plan_date`. `day_commitments` shows the override in the series' place;
+the block keeps the series' `entry_id` and cadence (so Skip, Stop and Remove
+series still act on the series) and adds `override_entry_id`.
+
+- **Which fields.** The same three a series edit (`PATCH`) takes: time,
+  length and title. "Standup at 11:00 today", "runs 45 minutes today" and
+  "today it's Standup + demo" are all one-day changes people make; the
+  cadence is not (it isn't a property of a day). Keeping the set equal to the
+  series edit makes "this day" and "every day" the same edit at two scopes.
+- **Full copy, not a diff.** The override stores all three, copied from the
+  series for any field the request leaves out. So a later series edit doesn't
+  reach a day edited by hand (calendar apps behave the same), the row kind is
+  told apart from a skip by null-ness alone (title set = override), and the
+  packer reads it like any commitment.
+- `POST /api/focus/entries/{series_id}/occurrence` with `{plan_date,
+  start_time?, title?, duration_minutes?}` creates it, or edits the day's
+  override when there is one already. `PATCH` on the override also works.
+  Refused (409): a one-off or a pin, a day the series doesn't cover (including
+  past its stop), a skipped day (un-skip first), an empty edit.
+- **A day is skipped or edited, never both.** The existing unique index on
+  live `(series_id, plan_date)` rows covers both kinds, so no new index.
+  Skipping an edited day is refused (reset it first) rather than silently
+  dropping the edit; restoring a removed skip or override over a day that has
+  since been skipped or edited is refused too.
+- **Reset** is `DELETE` on the override (a soft delete); its undo is
+  `restore`. Activity: `overridden` ("… on 2026-10-20, as "Standup" at 11:00
+  for 15 min, changed for that day only"), then `updated` / `deleted`
+  ("reset to the series") / `restored` ("changed for that day again").
+- Removing the series hides its overrides with it (they name a series that is
+  no longer live); restoring it brings them back.
 
 ### UI
 
@@ -353,13 +409,19 @@ same "already over before the window" cut applies as for a live one.
   `every 2 weeks`, `weekdays`, `weekly on Mon, Wed`), beside `fixed`, never
   a pill.
 - Desktop: a repeating commitment's row adds **Skip day**, and its Remove
-  reads **Remove series**. Skip day and Remove (series or one-off) toast with
+  reads **Remove series**. Since #428 its Move form submits **This day**
+  (Enter) or **Every day**, a series that began on an earlier day adds **Stop
+  from here**, and an edited day shows a `this day only` word (orange) and
+  **Reset day** in place of Skip day; each toasts with an Undo. Skip day and Remove (series or one-off) toast with
   an **Undo** (#429), standing 5 s like the mobile undo bar: the toast system
   takes an optional action built from the write's result. A skipped occurrence
   stays on the timeline at its time, muted and struck through, with a
   `skipped` word and one verb, **Un-skip** (its toast's Undo skips it again).
 - Mobile: the `⋯` sheet adds **Skip this day**, with the undo bar (its undo
-  removes the skip), and its Remove reads **Remove series**. A skipped
+  removes the skip), and its Remove reads **Remove series**. Since #428 it
+  moves with **Move this day** or **Move every day**, adds **Stop from this
+  day on** when the series began earlier, and on an edited day shows `this
+  day only` and **Reset this day** in place of Skip; all with the undo bar. A skipped
   occurrence leaves the timeline, and `buildDayShape` needs no change: an
   occurrence arrives as an ordinary fixed row. Since the timeline's height is
   its duration, a skipped one (holding none) is listed in the foot instead,
@@ -384,13 +446,15 @@ Two things the agent does see:
 - `remove_focus_entry` given a series' `entry_id` removes the whole series.
   It stays undoable with `restore_focus_entry`, and the activity summary names
   the cadence ("…, daily from 2026-10-20, removed from Focus").
+- #428 adds no tool. `get_focus_plan`'s commitments gain `series_start_date`,
+  `stop_date` and `override_entry_id`, and entries gain `stop_date`.
+  `remove_focus_entry` on an `override_entry_id` resets that day. Tools to
+  stop a series or edit one day are #426's.
 
 Letting the agent create a series or skip one day means a tool-schema change,
 which runs the eval gate, so it is a follow-up.
 
 ## Not built (follow-ups)
 
-- Editing one occurrence of a repeating commitment, an end date for a series,
-  and agent tools for series and skips (#376's follow-ups; the agent's repeat
-  options are #426). The forms offer only the Mon-Fri weekday set; other sets
+- Agent tools for series, skips, stops and one-day edits (#426). The forms offer only the Mon-Fri weekday set; other sets
   are API-only.
