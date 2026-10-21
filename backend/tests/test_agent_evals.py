@@ -53,6 +53,11 @@ two things:
   conversation through the conversation route (stored history, as in
   production), metering and snapshotting each step and checking it at once.
   One sample is the whole thread: it passes only if every step does.
+* **Compositions, dates and speech (#406).** Single-turn asks that are not one
+  clean tool call: several writes in one ask (full end state, nothing else
+  changed), relative dates computed from today's real date by pure helpers
+  (``tests/eval_threads.py``), and speech-to-text misspellings the model has
+  to read through itself (the app carries no normaliser, by design).
 
 This suite is the tripwire from ``docs/agent-design.md``: baseline results
 are recorded there. ``-s`` shows the per-sample ``[eval] …`` lines and the
@@ -124,7 +129,16 @@ from tests.eval_report import (
     unparseable_turns,
     write_jsonl,
 )
-from tests.eval_threads import changed_keys, mention_order, weekday_targets
+from tests.eval_threads import (
+    FRIDAY,
+    changed_keys,
+    end_of_month,
+    mention_order,
+    next_friday_targets,
+    next_month_bounds,
+    weekday_targets,
+    weekend_targets,
+)
 from tests.evalstats import (
     DEFAULT_FLOOR,
     Decision,
@@ -196,6 +210,18 @@ _FLOORS: dict[str, float] = {
         "reference_trash_then_undo",
         "reference_first_to_friday",
         "delegate_thread",
+        "compose_create_and_pin",
+        "compose_move_due_today",
+        "compose_finish_and_follow_up",
+        "compose_wait_and_bump",
+        "date_next_friday",
+        "date_in_two_weeks",
+        "date_end_of_month",
+        "date_this_weekend",
+        "speech_add_task",
+        "speech_mark_done",
+        "speech_push_appointment",
+        "dependency_paraphrase",
     )
 }
 
@@ -1453,6 +1479,12 @@ def _focus_skip_series_not_task(sample: Sample) -> None:
 
 
 def _dependency_add(sample: Sample) -> None:
+    # Titles are named as stored: paraphrase retrieval ("painting", "buying")
+    # is covered by dependency_paraphrase (#444).
+    _dependency_edge(sample, '"Paint the walls" is blocked by "Buy primer".')
+
+
+def _dependency_edge(sample: Sample, ask: str) -> None:
     """"X is blocked by Y": one edge, pointing the right way (#385).
 
     Direction is the trap: ``add_dependency(task_id, depends_on_task_id)``
@@ -1467,9 +1499,7 @@ def _dependency_add(sample: Sample) -> None:
         db.commit()
         last_seed_event = _last_event_id(db)
 
-    # Titles are named as stored: paraphrase retrieval ("painting", "buying")
-    # is search's problem, not this scenario's (#444).
-    result = sample.run('"Paint the walls" is blocked by "Buy primer".')
+    result = sample.run(ask)
 
     assert result.stop_reason == "completed"
     assert _successful(result, "add_dependency"), "expected a successful add_dependency"
@@ -2584,6 +2614,382 @@ def _delegate_thread(sample: Sample) -> None:
     )
 
 
+# --- Compositions, date math and misheard speech (#406) -----------------------
+#
+# Every scenario above asks for one thing, in clean text. These three families
+# don't: several writes in one ask (the end state is the whole assertion, with
+# "nothing else changed" checked against a snapshot), a date said in words
+# (computed from today's real date, never a constant, by the pure helpers in
+# ``tests/eval_threads.py``), and a voice transcript with the words mangled
+# (the model has to read through it; the app carries no normaliser, by design).
+
+
+def _world(sample: Sample) -> World:
+    with sample.db() as db:
+        return World.read(db)
+
+
+def _assert_task_changes(
+    before: World,
+    after: World,
+    want: Mapping[int, TaskRow],
+    *,
+    default_project_ok: bool = False,
+) -> None:
+    """Exactly the tasks in ``want`` changed, each to the row given (a new id
+    must be in ``want`` too), and no project was touched. With
+    ``default_project_ok`` the service's own "General" may appear: an ask that
+    names no project and gets a create with none lands there (the app's
+    behavior, not an invention)."""
+    changed = changed_keys(before.tasks, after.tasks)
+    assert changed == set(want), (
+        f"changed {sorted(changed)}, want {sorted(want)}: "
+        + str({k: after.tasks.get(k) for k in changed})
+    )
+    for task_id, row in want.items():
+        assert after.tasks[task_id] == row, f"task {task_id}: {after.tasks[task_id]} != {row}"
+    projects = {
+        pid: row
+        for pid, row in after.projects.items()
+        if not (default_project_ok and pid not in before.projects and row[0] == "General")
+    }
+    assert projects == before.projects, "a project was touched"
+
+
+def _assert_events_only_about(after: World, before: World, task_ids: set[int]) -> None:
+    """The run wrote, every row it wrote is the loop's, and none is about a
+    task outside ``task_ids`` (a dependency or focus row is not a task row)."""
+    events = after.events[len(before.events) :]
+    assert events, "the run wrote no activity events"
+    assert all(e[3] == LOOP_ACTOR for e in events), list(events)
+    stray = {e[1] for e in events if e[0] == "task" and e[1] not in task_ids}
+    assert not stray, f"events on other tasks {sorted(stray)}: {list(events)}"
+
+
+def _new_task_in(before: World, after: World) -> int:
+    new = after.tasks.keys() - before.tasks.keys()
+    assert len(new) == 1, f"created {[after.tasks[k].title for k in new]}"
+    return next(iter(new))
+
+
+def _compose_create_and_pin(sample: Sample) -> None:
+    """"Create X in Garage and pin it to today at 3pm": a create, then a pin on
+    the id it returned. End state: one new top-level task in Garage, one Focus
+    pin on it at 15:00 today, nothing else."""
+    today = date.today()
+    with sample.db() as db:
+        ids = _seed_projects(db, "Garage", "Home")
+        tasks_service.create_task(db, project_id=ids["Garage"], title="Sweep the floor")
+        tasks_service.create_task(db, project_id=ids["Home"], title="Rake the leaves")
+        garage_id = ids["Garage"]
+        db.commit()
+    before = _world(sample)
+
+    result = sample.run('Create a task "Sort the screws" in Garage and pin it to today at 3pm.')
+
+    assert result.stop_reason == "completed", f"stopped: {result.stop_reason}"
+    assert _successful(result, "create_task"), "expected a successful create_task"
+    assert _successful(result, "pin_focus_task"), "expected a successful pin_focus_task"
+    after = _world(sample)
+    task_id = _new_task_in(before, after)
+    created = after.tasks[task_id]
+    assert "screw" in created.title.lower(), created.title
+    _assert_task_changes(
+        before,
+        after,
+        {task_id: replace(created, project_id=garage_id, parent_task_id=None, status="open")},
+    )
+    with sample.db() as db:
+        live = db.execute(
+            select(FocusPlanEntry).where(FocusPlanEntry.deleted_at.is_(None))
+        ).scalars().all()
+        assert [(e.task_id, e.plan_date, e.start_minute) for e in live] == [
+            (task_id, today, 15 * 60)
+        ], f"focus entries: {[(e.task_id, e.plan_date, e.start_minute) for e in live]}"
+    _assert_events_only_about(after, before, {task_id})
+
+
+def _compose_move_due_today(sample: Sample) -> None:
+    """"Move everything due today to tomorrow": every open task due today moves
+    to tomorrow, and nothing else does. The judgement calls: *overdue* tasks
+    (due earlier) are not "due today" and stay; a task already done stays too,
+    still due today (finished work is not rescheduled)."""
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
+    with sample.db() as db:
+        ids = _seed_projects(db, "Work", "Home")
+        work, home = ids["Work"], ids["Home"]
+        due_today = {
+            tasks_service.create_task(db, project_id=work, title=title, due_date=today).id
+            for title in ("Draft the budget", "Call the printer")
+        }
+        due_today.add(
+            tasks_service.create_task(
+                db, project_id=home, title="Water the plants", due_date=today
+            ).id
+        )
+        tasks_service.create_task(
+            db, project_id=work, title="Update the team wiki", due_date=tomorrow
+        )
+        tasks_service.create_task(
+            db, project_id=home, title="Rake the leaves", due_date=today + timedelta(days=3)
+        )
+        tasks_service.create_task(
+            db, project_id=work, title="Send the invoice", due_date=today - timedelta(days=2)
+        )
+        tasks_service.create_task(db, project_id=home, title="Fix the leaking tap")
+        finished = tasks_service.create_task(
+            db, project_id=work, title="Reply to the recruiter", due_date=today
+        )
+        tasks_service.mark_done(db, finished)
+        db.commit()
+    before = _world(sample)
+
+    result = sample.run("Move everything due today to tomorrow.")
+
+    assert result.stop_reason == "completed", f"stopped: {result.stop_reason}"
+    assert _successful(result, "update_task"), "expected a successful update_task"
+    after = _world(sample)
+    _assert_task_changes(
+        before,
+        after,
+        {task_id: replace(before.tasks[task_id], due_date=tomorrow) for task_id in due_today},
+    )
+    _assert_events_only_about(after, before, due_today)
+
+
+def _compose_finish_and_follow_up(sample: Sample) -> None:
+    """"Finish the dentist task and add a follow-up for next month": one
+    completion, one new open top-level task due in the next calendar month.
+    Tolerant rule for "next month": *any* date in that month (first to last
+    day), which holds "the same day one month on" and "the 1st" alike. The
+    follow-up's title must mention the dentist or say follow-up, and its
+    project is not asserted (the ask names none)."""
+    first, last = next_month_bounds(date.today())
+    with sample.db() as db:
+        ids = _seed_projects(db, "Home", "Work")
+        dentist = tasks_service.create_task(
+            db, project_id=ids["Home"], title="Book dentist appointment"
+        )
+        tasks_service.create_task(db, project_id=ids["Home"], title="Rake the leaves")
+        tasks_service.create_task(db, project_id=ids["Work"], title="Draft the budget")
+        dentist_id = dentist.id
+        db.commit()
+    before = _world(sample)
+
+    result = sample.run("Finish the dentist task and add a follow-up for next month.")
+
+    assert result.stop_reason == "completed", f"stopped: {result.stop_reason}"
+    assert _successful(result, "complete_task"), "expected a successful complete_task"
+    assert _successful(result, "create_task"), "expected a successful create_task"
+    after = _world(sample)
+    follow_up_id = _new_task_in(before, after)
+    follow_up = after.tasks[follow_up_id]
+    assert follow_up.status == "open" and not follow_up.deleted, follow_up
+    assert follow_up.parent_task_id is None, "the follow-up is its own task, not a subtask"
+    assert follow_up.due_date is not None and first <= follow_up.due_date <= last, (
+        f"follow-up due {follow_up.due_date}, want {first}..{last}"
+    )
+    assert any(word in follow_up.title.lower() for word in ("dentist", "follow")), follow_up.title
+    _assert_task_changes(
+        before,
+        after,
+        {
+            dentist_id: replace(before.tasks[dentist_id], status="done"),
+            follow_up_id: follow_up,
+        },
+    )
+    _assert_events_only_about(after, before, {dentist_id, follow_up_id})
+
+
+def _compose_wait_and_bump(sample: Sample) -> None:
+    """"Make the report wait on the data pull and bump it to high": one
+    dependency edge (the report waits on the data pull) and the report's
+    priority high. The data pull stays medium, nothing else changes."""
+    with sample.db() as db:
+        ids = _seed_projects(db, "Work")
+        report = tasks_service.create_task(
+            db, project_id=ids["Work"], title="Write the quarterly report"
+        )
+        data = tasks_service.create_task(db, project_id=ids["Work"], title="Pull the sales data")
+        tasks_service.create_task(db, project_id=ids["Work"], title="Water the plants")
+        report_id, data_id = report.id, data.id
+        db.commit()
+    before = _world(sample)
+
+    result = sample.run("Make the report wait on the data pull and bump it to high.")
+
+    assert result.stop_reason == "completed", f"stopped: {result.stop_reason}"
+    assert _successful(result, "add_dependency"), "expected a successful add_dependency"
+    assert _successful(result, "update_task"), "expected a successful update_task"
+    after = _world(sample)
+    _assert_task_changes(
+        before, after, {report_id: replace(before.tasks[report_id], priority="high")}
+    )
+    with sample.db() as db:
+        edges = db.execute(
+            select(TaskDependency).where(TaskDependency.deleted_at.is_(None))
+        ).scalars().all()
+        assert [(e.task_id, e.depends_on_task_id) for e in edges] == [(report_id, data_id)], (
+            f"edges (waiter, blocker): {[(e.task_id, e.depends_on_task_id) for e in edges]}"
+        )
+    _assert_events_only_about(after, before, {report_id})
+
+
+def _date_ask(sample: Sample, ask: str, accepted: frozenset[date]) -> None:
+    """Give the quarterly report (no due date; a bystander has one) a due date
+    said in words. The model is told only today's ISO date, so the calendar
+    arithmetic is its own; ``accepted`` is every reading of the words we allow."""
+    today = date.today()
+    with sample.db() as db:
+        ids = _seed_projects(db, "Work")
+        report = tasks_service.create_task(db, project_id=ids["Work"], title="Quarterly report")
+        tasks_service.create_task(
+            db,
+            project_id=ids["Work"],
+            title="Update the team wiki",
+            due_date=today + timedelta(days=2),
+        )
+        report_id = report.id
+        db.commit()
+    before = _world(sample)
+
+    result = sample.run(ask)
+
+    assert result.stop_reason == "completed", f"stopped: {result.stop_reason}"
+    assert _successful(result, "update_task"), "expected a successful update_task"
+    after = _world(sample)
+    due = after.tasks[report_id].due_date
+    assert due in accepted, f"due {due}, want one of {sorted(accepted)} (today {today})"
+    _assert_task_changes(before, after, {report_id: replace(before.tasks[report_id], due_date=due)})
+    _assert_events_only_about(after, before, {report_id})
+
+
+def _date_next_friday(sample: Sample) -> None:
+    """"Next Friday" is ambiguous in English: the coming Friday, or the Friday
+    of next week. Both pass (``next_friday_targets``)."""
+    _date_ask(
+        sample,
+        "Make the quarterly report due next Friday.",
+        next_friday_targets(date.today()),
+    )
+
+
+def _date_in_two_weeks(sample: Sample) -> None:
+    """"In two weeks" is exactly 14 days from today."""
+    _date_ask(
+        sample,
+        "Make the quarterly report due in two weeks.",
+        frozenset({date.today() + timedelta(days=14)}),
+    )
+
+
+def _date_end_of_month(sample: Sample) -> None:
+    """"The end of the month" is the last day of this month."""
+    _date_ask(
+        sample,
+        "Make the quarterly report due at the end of the month.",
+        frozenset({end_of_month(date.today())}),
+    )
+
+
+def _date_this_weekend(sample: Sample) -> None:
+    """"This weekend" is a Saturday or Sunday of the current or upcoming
+    weekend (``weekend_targets``)."""
+    _date_ask(
+        sample,
+        "Make the quarterly report due this weekend.",
+        weekend_targets(date.today()),
+    )
+
+
+def _seed_errands(sample: Sample) -> None:
+    """The world the misheard-speech asks refer to: groceries and the dentist
+    beside look-alikes ("appointment", "Buy ..."), in two projects."""
+    today = date.today()
+    with sample.db() as db:
+        ids = _seed_projects(db, "Home", "Errands")
+        home, errands = ids["Home"], ids["Errands"]
+        tasks_service.create_task(db, project_id=errands, title="Buy groceries")
+        tasks_service.create_task(db, project_id=errands, title="Buy a birthday card")
+        tasks_service.create_task(db, project_id=home, title="Dentist appointment", due_date=today)
+        tasks_service.create_task(
+            db, project_id=home, title="Car service appointment", due_date=today
+        )
+        tasks_service.create_task(db, project_id=home, title="Rake the leaves")
+        db.commit()
+
+
+def _speech_add_task(sample: Sample) -> None:
+    """"ad a task to by stamps": one new open task about stamps, the verb read
+    as "buy" (a title still saying "by stamps" is a transcription, not an
+    understanding), nothing else changed."""
+    _seed_errands(sample)
+    before = _world(sample)
+
+    result = sample.run("ad a task to by stamps")
+
+    assert result.stop_reason == "completed", f"stopped: {result.stop_reason}"
+    assert _successful(result, "create_task"), "expected a successful create_task"
+    after = _world(sample)
+    task_id = _new_task_in(before, after)
+    created = after.tasks[task_id]
+    title = created.title.lower()
+    assert "stamp" in title, created.title
+    assert "by stamps" not in title and "to by" not in title, f"transcribed, not read: {title!r}"
+    assert created.status == "open" and created.parent_task_id is None, created
+    _assert_task_changes(before, after, {task_id: created}, default_project_ok=True)
+    _assert_events_only_about(after, before, {task_id})
+
+
+def _speech_mark_done(sample: Sample) -> None:
+    """"mark the groserys done": "Buy groceries" completed, and not "Buy a
+    birthday card" or anything else."""
+    _seed_errands(sample)
+    before = _world(sample)
+    groceries = before.task_id("Buy groceries")
+
+    result = sample.run("mark the groserys done")
+
+    assert result.stop_reason == "completed", f"stopped: {result.stop_reason}"
+    assert _successful(result, "complete_task"), "expected a successful complete_task"
+    after = _world(sample)
+    _assert_task_changes(
+        before, after, {groceries: replace(before.tasks[groceries], status="done")}
+    )
+    _assert_events_only_about(after, before, {groceries})
+
+
+def _speech_push_appointment(sample: Sample) -> None:
+    """"push the dennis appointment to friday": "Dentist appointment" (not the
+    car service one) moves to the next Friday (``weekday_targets``)."""
+    today = date.today()
+    _seed_errands(sample)
+    before = _world(sample)
+    dentist = before.task_id("Dentist appointment")
+
+    result = sample.run("push the dennis appointment to friday")
+
+    assert result.stop_reason == "completed", f"stopped: {result.stop_reason}"
+    assert _successful(result, "update_task"), "expected a successful update_task"
+    after = _world(sample)
+    due = after.tasks[dentist].due_date
+    assert due in weekday_targets(today, FRIDAY), (
+        f"due {due}, want one of {sorted(weekday_targets(today, FRIDAY))}"
+    )
+    _assert_task_changes(before, after, {dentist: replace(before.tasks[dentist], due_date=due)})
+    _assert_events_only_about(after, before, {dentist})
+
+
+def _dependency_paraphrase(sample: Sample) -> None:
+    """The user describes stored tasks in their own words ("Painting the
+    walls" for "Paint the walls", "buying primer" for "Buy primer"): exactly
+    one edge, pointing the right way. A tripwire for ``search`` (#444: word
+    matching with FTS5 took a direct probe from 5/10 to 10/10; a regression
+    to substring matching would find neither title)."""
+    _dependency_edge(sample, "Painting the walls is blocked by buying primer.")
+
+
 # --- The gate: one pytest case per scenario -------------------------------------
 
 
@@ -2779,3 +3185,76 @@ def test_eval_reference_first_to_friday() -> None:
 
 def test_eval_delegate_thread() -> None:
     _gate("delegate_thread", _delegate_thread)
+
+
+# Compositions, dates and speech (#406).
+
+
+def test_eval_compose_create_and_pin() -> None:
+    _gate("compose_create_and_pin", _compose_create_and_pin)
+
+
+def test_eval_compose_move_due_today() -> None:
+    _gate("compose_move_due_today", _compose_move_due_today)
+
+
+# Known red (#406): 0/5 on gemma-4-12b, 2026-10-20. Every sample searches,
+# completes the dentist task and creates "Dentist follow-up", but never sets
+# ``due_date``: "next month" lands in the description ("Follow-up on last
+# month's visit"), and the reply says the follow-up is "set". The completion
+# half of the composition is fine. Before-number for #411 (create_task's
+# flattened schema) and #416's prompt rules; drop the mark once it goes green.
+@pytest.mark.xfail(
+    strict=False, reason="0/5 until #411/#416: follow-up created with no due date"
+)
+def test_eval_compose_finish_and_follow_up() -> None:
+    _gate("compose_finish_and_follow_up", _compose_finish_and_follow_up)
+
+
+def test_eval_compose_wait_and_bump() -> None:
+    _gate("compose_wait_and_bump", _compose_wait_and_bump)
+
+
+def test_eval_date_next_friday() -> None:
+    _gate("date_next_friday", _date_next_friday)
+
+
+def test_eval_date_in_two_weeks() -> None:
+    _gate("date_in_two_weeks", _date_in_two_weeks)
+
+
+def test_eval_date_end_of_month() -> None:
+    _gate("date_end_of_month", _date_end_of_month)
+
+
+def test_eval_date_this_weekend() -> None:
+    _gate("date_this_weekend", _date_this_weekend)
+
+
+def test_eval_speech_add_task() -> None:
+    _gate("speech_add_task", _speech_add_task)
+
+
+def test_eval_speech_mark_done() -> None:
+    _gate("speech_mark_done", _speech_mark_done)
+
+
+# Known red (#406): 6/20 (30%) on gemma-4-12b, 2026-10-20, seed 403 (the first
+# block of the full suite read 1/5, an isolated one 4/5: read the 20). "Dennis"
+# matches nothing, so ``search`` returns only the two "... appointment" tasks
+# and the model cannot pick one: 7/20 loop on search/list_tasks until
+# ``no_progress``; 4 stop and ask "did you mean the Dentist appointment?" with
+# nothing written; 3 move the wrong date (today, or Saturday); once it replies
+# "Moved the dentist appointment to Friday" having written nothing. The same
+# tasks pass when the mangled word is "groserys" (one fuzzy match). Before-
+# number for #416's prompt rules / #420's clarification; drop the mark once it
+# goes green.
+@pytest.mark.xfail(
+    strict=False, reason="6/20 until #416/#420: cannot resolve 'dennis' to the dentist task"
+)
+def test_eval_speech_push_appointment() -> None:
+    _gate("speech_push_appointment", _speech_push_appointment)
+
+
+def test_eval_dependency_paraphrase() -> None:
+    _gate("dependency_paraphrase", _dependency_paraphrase)

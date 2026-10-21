@@ -11,12 +11,19 @@ is in play) so CI unit-tests them: ``tests/test_eval_threads.py``.
   by where each candidate is first named.
 * :func:`weekday_targets` is what "Friday" means on a given day.
 * :func:`changed_keys` is the "nothing else changed" diff over snapshots.
+* The date readings of #406 (:func:`next_friday_targets`,
+  :func:`end_of_month`, :func:`weekend_targets`, :func:`next_month_bounds`)
+  are what "next Friday", "end of the month", "this weekend" and "next
+  month" may mean on a given day. Each accepts every reasonable English
+  reading, so a miss is the model's arithmetic and never the scenario's
+  opinion; ``today`` is always the real date, never a constant.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Hashable, Mapping, Sequence
+import calendar
 from datetime import date, timedelta
 from typing import TypeVar
 
@@ -78,3 +85,52 @@ def changed_keys(before: Mapping[K, object], after: Mapping[K, object]) -> set[K
         for key in before.keys() | after.keys()
         if key not in before or key not in after or before[key] != after[key]
     }
+
+
+FRIDAY = 4  # date.weekday()
+
+
+def next_friday_targets(today: date) -> frozenset[date]:
+    """The dates "next Friday" may mean, said on ``today`` (#406).
+
+    English is genuinely split: some speakers mean the coming Friday, others
+    the Friday of *next week*. Both are accepted: the next Friday strictly
+    after today, and the Friday of the following Monday-to-Sunday week. On a
+    Tuesday those are 3 and 10 days ahead; on a Saturday or Sunday they
+    coincide (the coming Friday *is* next week's), as they do on a Friday
+    (today + 7). Today itself is never accepted, unlike
+    :func:`weekday_targets`: nobody says "next Friday" on a Friday to mean
+    today.
+    """
+    coming = today + timedelta(days=(FRIDAY - today.weekday()) % 7 or 7)
+    monday_next_week = today + timedelta(days=7 - today.weekday())
+    return frozenset({coming, monday_next_week + timedelta(days=FRIDAY)})
+
+
+def end_of_month(today: date) -> date:
+    """The last day of ``today``'s month ("by the end of the month")."""
+    return today.replace(day=calendar.monthrange(today.year, today.month)[1])
+
+
+def weekend_targets(today: date) -> frozenset[date]:
+    """The dates "this weekend" may mean, said on ``today`` (#406).
+
+    Saturday or Sunday of the current weekend or the upcoming one, minus
+    anything already past. Monday to Friday that is the coming Saturday and
+    Sunday. On a Saturday: today, tomorrow and the next weekend's two days;
+    on a Sunday: today and the next weekend's two days (yesterday is gone).
+    """
+    reach = 6 if today.weekday() < 5 else 8
+    days = (today + timedelta(days=ahead) for ahead in range(reach + 1))
+    return frozenset(day for day in days if day.weekday() >= 5)
+
+
+def next_month_bounds(today: date) -> tuple[date, date]:
+    """First and last day of the calendar month after ``today``'s.
+
+    "Next month" (a follow-up due then) is accepted as *any* date in that
+    month, which also holds "the same day one month on" and "the 1st", the
+    two readings people use (#406).
+    """
+    first = (today.replace(day=1) + timedelta(days=32)).replace(day=1)
+    return first, end_of_month(first)

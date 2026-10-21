@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from tests.eval_threads import changed_keys, mention_order, weekday_targets
+from tests.eval_threads import (
+    changed_keys,
+    end_of_month,
+    mention_order,
+    next_friday_targets,
+    next_month_bounds,
+    weekday_targets,
+    weekend_targets,
+)
 
 _DENTIST = {
     1: ("Book dentist appointment", "appointment"),
@@ -67,3 +75,63 @@ def test_changed_keys_sees_edits_additions_and_removals() -> None:
     after = {1: ("a", "high"), 2: ("b", "medium"), 4: ("d", "medium")}
     assert changed_keys(before, after) == {1, 3, 4}
     assert changed_keys(before, dict(before)) == set()
+
+
+def test_next_friday_accepts_the_coming_friday_and_next_weeks() -> None:
+    tuesday = date(2026, 10, 20)
+    assert next_friday_targets(tuesday) == {date(2026, 10, 23), date(2026, 10, 30)}
+    monday = date(2026, 10, 19)
+    assert next_friday_targets(monday) == {date(2026, 10, 23), date(2026, 10, 30)}
+    thursday = date(2026, 10, 22)
+    assert next_friday_targets(thursday) == {date(2026, 10, 23), date(2026, 10, 30)}
+
+
+def test_next_friday_from_the_weekend_and_a_friday_is_one_reading() -> None:
+    assert next_friday_targets(date(2026, 10, 24)) == {date(2026, 10, 30)}  # Sat
+    assert next_friday_targets(date(2026, 10, 25)) == {date(2026, 10, 30)}  # Sun
+    friday = date(2026, 10, 23)
+    assert next_friday_targets(friday) == {friday + timedelta(days=7)}  # never today
+
+
+def test_next_friday_crosses_month_and_year_ends() -> None:
+    assert next_friday_targets(date(2026, 12, 29)) == {date(2027, 1, 1), date(2027, 1, 8)}
+
+
+def test_end_of_month_handles_lengths_and_leap_years() -> None:
+    assert end_of_month(date(2026, 10, 20)) == date(2026, 10, 31)
+    assert end_of_month(date(2026, 11, 3)) == date(2026, 11, 30)
+    assert end_of_month(date(2028, 2, 10)) == date(2028, 2, 29)
+    assert end_of_month(date(2026, 2, 10)) == date(2026, 2, 28)
+    assert end_of_month(date(2026, 12, 31)) == date(2026, 12, 31)
+
+
+def test_weekend_targets_midweek_is_the_coming_weekend() -> None:
+    for today in (date(2026, 10, 19), date(2026, 10, 20), date(2026, 10, 23)):
+        assert weekend_targets(today) == {date(2026, 10, 24), date(2026, 10, 25)}
+
+
+def test_weekend_targets_on_the_weekend_keeps_today_and_the_next_one() -> None:
+    saturday = date(2026, 10, 24)
+    assert weekend_targets(saturday) == {
+        saturday,
+        date(2026, 10, 25),
+        date(2026, 10, 31),
+        date(2026, 11, 1),
+    }
+    sunday = date(2026, 10, 25)
+    assert weekend_targets(sunday) == {sunday, date(2026, 10, 31), date(2026, 11, 1)}
+
+
+def test_weekend_targets_are_only_ever_weekend_days_not_in_the_past() -> None:
+    start = date(2026, 1, 1)
+    for offset in range(400):
+        today = start + timedelta(days=offset)
+        targets = weekend_targets(today)
+        assert targets and all(d >= today and d.weekday() >= 5 for d in targets)
+
+
+def test_next_month_bounds_is_the_whole_next_calendar_month() -> None:
+    assert next_month_bounds(date(2026, 10, 20)) == (date(2026, 11, 1), date(2026, 11, 30))
+    assert next_month_bounds(date(2026, 12, 31)) == (date(2027, 1, 1), date(2027, 1, 31))
+    assert next_month_bounds(date(2026, 1, 31)) == (date(2026, 2, 1), date(2026, 2, 28))
+    assert next_month_bounds(date(2027, 1, 31)) == (date(2027, 2, 1), date(2027, 2, 28))

@@ -257,6 +257,19 @@ n=5 and *less* often (63%) at n=20. `tests/evalstats.py` is a copy of chess's
   (`weekday_targets`). Both helpers are unit-tested in CI
   (`test_eval_threads.py`).
 
+- **Compositions, dates and speech (#406).** Single-turn, checked against a
+  `World` snapshot taken before the run: exactly the expected tasks changed
+  (each to the expected row), no project touched, every activity row the
+  loop's and none about a stray task. Date words are computed from today's
+  real date by pure, CI-tested helpers in `tests/eval_threads.py`, accepting
+  every reasonable reading: "next Friday" is the coming Friday *or* the
+  Friday of next week (`next_friday_targets`), "this weekend" a Saturday or
+  Sunday of the current or upcoming weekend that is not already past
+  (`weekend_targets`), "the end of the month" the last day of this month
+  (`end_of_month`), "in two weeks" exactly +14 days, and "next month" any day
+  of the next calendar month (`next_month_bounds`). A misheard-speech miss is
+  fixed in the model's understanding, never with a normaliser in the app.
+
 `PCC_AGENT_EVALS_RUNS` keeps its #384 name with a new meaning: the block
 size, not a fixed repeat count. `PCC_AGENT_EVALS_RUNS=1` takes one sample per
 scenario (a miss is red, as before #403); setting it at or above
@@ -280,7 +293,15 @@ thing asked: already done, not found, already created). Fresh and live_like
 pass 30/30 between them; poisoned is red in all three (2/15), the misses
 answering from the false claim with zero tool calls. Length is not the cause;
 a false claim in the agent's own history is, exactly chess's self-poisoning
-finding. A change regresses this baseline when a scenario
+finding. The compositions, date-math and misheard-speech scenarios (#406)
+were added the same day at the same seed: the whole 53-case suite ran 46
+passed + 6 xfailed + 1 red (`speech_push_appointment`, since marked xfail
+after a 20-sample re-read), 270 samples in 608 s, 0 infra retries; every
+pre-existing scenario stayed inside its verdict (the known-red ones read
+`recurrence_make_repeating` 0/5, `followup_high_priority[poisoned]` 1/5,
+`long_complete[poisoned]` 5/10, `long_reschedule[poisoned]` 0/5,
+`ambiguous_dentist_then_second` 0/5; `honest_about_missing` and
+`misfire_complete_parent` 4/5, still above the floor). A change regresses this baseline when a scenario
 goes `BELOW_FLOOR` (a scenario marked `xfail` is a known-red before-number,
 not gated; drop the mark once it goes green); re-record the table when it legitimately moves, and say
 why in the PR.
@@ -326,6 +347,18 @@ why in the PR.
 | `reference_trash_then_undo` | 'Delete the "Clean the gutters" task', then "Undo that": `list_trash → restore_task` on the same id, the world back to the seed exactly, a `restored` event | 6 | 2.6–2.7 s |
 | `reference_first_to_friday` | "What's open in my Work project?" (no write, names ≥2 of 3), then "Push the first one to Friday": the first task the list *reply* named moves to the next Friday (`weekday_targets`, from today's real date; the model gets only the ISO date), nothing else changes | 7 | 4.7–4.8 s |
 | `delegate_thread` | two turns with `X-Agent-Actor: agent:conductor`: create "Call the plumber", then "Make it due tomorrow". Both runs resolve to the delegate, every event of both steps is the delegate's, the seed and the conversation's creation stay the user's | 7 | 3.6–3.8 s |
+| `compose_create_and_pin` | **#406.** 'Create a task "Sort the screws" in Garage and pin it to today at 3pm': one new top-level task in Garage, exactly one live Focus entry (that task, today, 15:00), nothing else changed, every event the loop's. 5/5; 0/15 schema corrections; `list_projects → create_task → pin_focus_task` | 4 | 2.4–2.6 s |
+| `compose_move_due_today` | "Move everything due today to tomorrow" over 3 open tasks due today in two projects, plus decoys: due tomorrow, due in 3 days, *overdue*, no date, and one *done* due today. Exactly the 3 open ones move to tomorrow (rows otherwise identical); overdue and done are not "due today" and stay (judgement call). 5/5; 0/20 | 3 | 4.3–4.6 s |
+| `compose_finish_and_follow_up` | **xfail, known red (0/5, `BELOW_FLOOR`).** "Finish the dentist task and add a follow-up for next month": dentist done, exactly one new open top-level task whose `due_date` is in the next calendar month (any day from the 1st to the last; covers "same day one month on"). Every sample searches, completes and creates "Dentist follow-up" but never sets `due_date`: "next month" ends up in the description ("Follow-up on last month's visit") and the reply says the follow-up is set. Before-number for #411/#416 | 4 | 2.4–2.6 s |
+| `compose_wait_and_bump` | "Make the report wait on the data pull and bump it to high": one edge (report waits on data pull), report `high`, data pull untouched, no other task touched. 5/5; 5/25 schema corrections, one in every sample: `update_task` sent a priority outside `low/medium/high/urgent` (`changes.priority` refused), then recovered. A #411 signal | 4–5 | 2.6–2.9 s |
+| `date_next_friday` | "Make the quarterly report due next Friday" (report has no date; a bystander is dated). Accepts both readings, the coming Friday and the Friday of next week (`next_friday_targets`; they coincide from Friday to Sunday, and today is never accepted). Only the report's due date changes. 5/5; 0/10 | 3 | 1.8–1.9 s |
+| `date_in_two_weeks` | "...due in two weeks": exactly today + 14 days. 5/5; 0/10 | 3 | 1.7–1.8 s |
+| `date_end_of_month` | "...due at the end of the month": the last day of this month (`end_of_month`). 5/5; 0/10 | 3 | 1.7 s |
+| `date_this_weekend` | "...due this weekend": a Saturday or Sunday of the current or upcoming weekend, none already past (`weekend_targets`). 5/5; 0/10 | 3 | 1.7–1.9 s |
+| `speech_add_task` | "ad a task to by stamps": one new open top-level task naming stamps, the verb read as "buy" (a title still saying "by stamps"/"to by" is a transcription, not an understanding); nothing else changed. The ask names no project, so the app's own default "General" is allowed. 5/5, all in 2 iterations (`create_task` straight away); 0/5 | 2 | 0.9–1.0 s |
+| `speech_mark_done` | "mark the groserys done" beside "Buy a birthday card": only "Buy groceries" done. 5/5; 0/11 | 3–4 | 1.2–1.6 s |
+| `speech_push_appointment` | **xfail, known red (6/20, 30%, `BELOW_FLOOR`).** "push the dennis appointment to friday" beside "Car service appointment": the dentist task, and only it, moves to the next Friday (`weekday_targets`). "Dennis" matches nothing, so `search` returns just the two appointments and the model cannot choose: 7/20 loop on search/list_tasks to `no_progress`; 4 stop and ask "did you mean the Dentist appointment?" having written nothing; 3 set the wrong date (today, or Saturday); once it replied "Moved the dentist appointment to Friday" having only added a focus commitment. The suite's first block read 1/5 and an isolated one 4/5, hence the 20. Before-number for #416/#420 | 4–5 | 3.1–5.0 s |
+| `dependency_paraphrase` | **#444 tripwire.** "Painting the walls is blocked by buying primer" against "Paint the walls" and "Buy primer": exactly one edge, Paint waits on Primer (`dependency_add`'s assertions). 5/5; 0/15. A regression to substring `search` finds neither title | 4 | 1.7–1.9 s |
 
 Standing observations: self-correction pays for itself (the recurring gemma
 `name`/`title` miss always fixes on feedback); FTS5 retrieval (word-matched
