@@ -264,7 +264,8 @@ why in the PR.
 | `project_trash` | trashed with both its tasks, restorable, the other project untouched (#388) | 3 | 1.3–1.4 s |
 
 Standing observations: self-correction pays for itself (the recurring gemma
-`name`/`title` miss always fixes on feedback); FTS5 retrieval is sufficient —
+`name`/`title` miss always fixes on feedback); FTS5 retrieval (word-matched
+and porter-stemmed since #444; before that `search` was one `LIKE` substring) is sufficient —
 this table is the tripwire for ever adding embeddings; `honest_about_missing`
 no longer sweeps exhaustively before conceding (pre-llama-swap: up to 10
 turns, per-project lists, the trash) — under llama-swap it's `search` then at

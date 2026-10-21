@@ -224,6 +224,15 @@ Key decisions:
   `uq_tasks_active_occurrence` on `(recurrence_id, due_date)` where the row is
   live. `workflow_status` is deliberately not indexed (effective status rolls up
   in Python; it is never a SQL filter).
+- **Word search** (#444): FTS5 virtual tables `tasks_fts(title, description)`
+  and `projects_fts(name, description)` index their base tables as external
+  content (porter stemmer), kept in sync by insert/update/delete triggers and
+  built by `app/db/fts.py` for `create_all` and by migration for real
+  databases. Search matches a query's text (`LIKE`) or its words (any order,
+  stop-words dropped, inflections folded), ranked exact > prefix > substring
+  > all words > some words; soft-deleted rows stay indexed and are filtered by
+  the service. A migration that rebuilds `tasks`/`projects` in batch mode
+  drops their triggers and must recreate them (`fts.CREATE_STATEMENTS`).
 
 ## Dashboard workflow
 

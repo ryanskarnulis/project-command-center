@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import enum
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
 
-from sqlalchemy import JSON, CheckConstraint, ForeignKey, Index, String, func, text
+from sqlalchemy import JSON, CheckConstraint, Connection, ForeignKey, Index, String, event, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from app.db import fts
 
 
 class Base(DeclarativeBase):
@@ -460,3 +463,19 @@ class ActivityEvent(Base, TimestampMixin):
     # Who caused the event: NULL = the user (all pre-agent rows stay correct
     # without a backfill); agents stamp an identifier, e.g. "agent:mcp".
     actor: Mapped[str | None] = mapped_column(default=None)
+
+
+# Word-search indexes (#444): the FTS5 virtual tables and their sync triggers
+# aren't ORM tables, so ``create_all`` (tests, evals) builds them through these
+# hooks; the Alembic migration builds them for real databases. See app.db.fts.
+def _run_on_sqlite(statements: tuple[str, ...]) -> Callable[..., None]:
+    def listener(_target: object, connection: Connection, **_kw: Any) -> None:
+        if connection.dialect.name == "sqlite":
+            for statement in statements:
+                connection.exec_driver_sql(statement)
+
+    return listener
+
+
+event.listen(Base.metadata, "after_create", _run_on_sqlite(fts.CREATE_STATEMENTS))
+event.listen(Base.metadata, "before_drop", _run_on_sqlite(fts.DROP_STATEMENTS))
