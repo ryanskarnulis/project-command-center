@@ -156,6 +156,11 @@ _FLOORS: dict[str, float] = {
         "recurrence_stop",
         "restore_task",
         "restore_project",
+        "project_create",
+        "project_rename",
+        "project_close",
+        "project_reopen",
+        "project_trash",
     )
 }
 
@@ -1363,6 +1368,121 @@ def _restore_project_from_trash(sample: Sample) -> None:
         _assert_run_events_are_the_loops(db, last_seed_event)
 
 
+def _live_projects(db: Session) -> list[Project]:
+    return list(
+        db.execute(select(Project).where(Project.deleted_at.is_(None)).order_by(Project.id))
+        .scalars()
+        .all()
+    )
+
+
+def _seed_garage(sample: Sample, *, closed: bool = False) -> tuple[int, int | None]:
+    """Garage (two open tasks) beside Home; returns Garage's id and the last
+    seed event."""
+    with sample.db() as db:
+        garage = projects_service.create_project(db, name="Garage")
+        for title in ("Paint the walls", "Buy primer"):
+            tasks_service.create_task(db, project_id=garage.id, title=title)
+        projects_service.create_project(db, name="Home")
+        if closed:
+            projects_service.close_project(db, garage)
+        garage_id = garage.id
+        db.commit()
+        return garage_id, _last_event_id(db)
+
+
+def _project_create(sample: Sample) -> None:
+    """Create one project, no tasks with it (#388)."""
+    with sample.db() as db:
+        projects_service.create_project(db, name="Home")
+        db.commit()
+        last_seed_event = _last_event_id(db)
+
+    result = sample.run(
+        'Start a new project called "Kitchen remodel" for redoing the cabinets and counters.'
+    )
+
+    assert result.stop_reason == "completed"
+    assert _successful(result, "create_project"), "expected a successful create_project"
+    with sample.db() as db:
+        names = [p.name for p in _live_projects(db)]
+        assert len(names) == 2 and names[0] == "Home", names
+        assert names[1].lower() == "kitchen remodel", names
+        assert db.execute(select(func.count()).select_from(Task)).scalar_one() == 0, (
+            "the ask made a project, not tasks"
+        )
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+
+def _project_rename(sample: Sample) -> None:
+    """Rename in place: same id, new name, tasks still in it (#388)."""
+    garage_id, last_seed_event = _seed_garage(sample)
+
+    result = sample.run('Rename the Garage project to "Workshop".')
+
+    assert result.stop_reason == "completed"
+    assert _successful(result, "update_project"), "expected a successful update_project"
+    with sample.db() as db:
+        projects = {p.id: p.name for p in _live_projects(db)}
+        assert projects[garage_id] == "Workshop", projects
+        assert sorted(projects.values()) == ["Home", "Workshop"]
+        assert all(t.project_id == garage_id for t in _live_tasks(db))
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+
+def _project_close(sample: Sample) -> None:
+    """"We're done with it" closes, never trashes, and leaves the tasks alone (#388)."""
+    garage_id, last_seed_event = _seed_garage(sample)
+
+    result = sample.run("We're done with the Garage project for now, close it.")
+
+    assert result.stop_reason == "completed"
+    assert _successful(result, "close_project"), "expected a successful close_project"
+    with sample.db() as db:
+        garage = db.get(Project, garage_id)
+        assert garage is not None
+        assert garage.closed_at is not None
+        assert garage.deleted_at is None, "closing is not trashing"
+        tasks = _live_tasks(db)
+        assert len(tasks) == 2 and all(
+            t.workflow_status == TaskWorkflowStatus.open for t in tasks
+        ), "closing a project leaves its tasks as they were"
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+
+def _project_reopen(sample: Sample) -> None:
+    """Reopen a closed project; list_projects hides it by default (#388)."""
+    garage_id, last_seed_event = _seed_garage(sample, closed=True)
+
+    result = sample.run("Reopen the Garage project.")
+
+    assert result.stop_reason == "completed"
+    assert _successful(result, "reopen_project"), "expected a successful reopen_project"
+    with sample.db() as db:
+        garage = db.get(Project, garage_id)
+        assert garage is not None and garage.closed_at is None
+        assert [p.name for p in _live_projects(db)] == ["Garage", "Home"], (
+            "reopened, not re-created"
+        )
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+
+def _project_trash(sample: Sample) -> None:
+    """Deleting a project trashes it with its tasks, restorable; Home untouched (#388)."""
+    garage_id, last_seed_event = _seed_garage(sample)
+
+    result = sample.run("Delete the Garage project.")
+
+    assert result.stop_reason == "completed"
+    assert _successful(result, "trash_project"), "expected a successful trash_project"
+    with sample.db() as db:
+        assert [p.name for p in _live_projects(db)] == ["Home"]
+        assert projects_service.get_deleted_project(db, garage_id) is not None
+        assert _live_tasks(db) == [], "the project's tasks go to the trash with it"
+        assert projects_service.count_tasks_deleted_with_project(db, garage_id) == 2
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+
 # --- The gate: one pytest case per scenario -------------------------------------
 
 
@@ -1441,3 +1561,23 @@ def test_eval_restore_task_from_trash() -> None:
 
 def test_eval_restore_project_from_trash() -> None:
     _gate("restore_project", _restore_project_from_trash)
+
+
+def test_eval_project_create() -> None:
+    _gate("project_create", _project_create)
+
+
+def test_eval_project_rename() -> None:
+    _gate("project_rename", _project_rename)
+
+
+def test_eval_project_close() -> None:
+    _gate("project_close", _project_close)
+
+
+def test_eval_project_reopen() -> None:
+    _gate("project_reopen", _project_reopen)
+
+
+def test_eval_project_trash() -> None:
+    _gate("project_trash", _project_trash)
