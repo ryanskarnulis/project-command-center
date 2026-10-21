@@ -214,12 +214,22 @@ n=5 and *less* often (63%) at n=20. `tests/evalstats.py` is a copy of chess's
 - **The report.** `PCC_AGENT_EVALS_REPORT=<path>` appends JSONL: a header
   (git sha and dirty flag, model, profile, system/summary prompt and
   tool-schema sha256 — the run trace's hashes, #400 — knobs, floors), one line
-  per scenario as it finishes (verdict, interval, blocks, failure modes, and
-  every sample with its seed, outcome, stop reason, trajectory and `run_id`),
-  and a closing suite line with the infra budget spent. The header also
-  prints, and `-s` ends with a per-scenario table (count, interval, verdict,
-  blocks, infra retries, iteration and duration ranges). Formatting and the
-  paired comparison live in `tests/eval_report.py`.
+  per scenario as it finishes (verdict, interval, blocks, failure modes,
+  schema corrections, and every sample with its seed, outcome, stop reason,
+  trajectory, every refused call's error text and `run_id`), and a closing
+  suite line with the infra budget spent. The header also prints, and `-s`
+  ends with a per-scenario table (count, interval, verdict, blocks, infra
+  retries, iteration and duration ranges, schema corrections). Formatting and
+  the paired comparison live in `tests/eval_report.py`.
+- **Schema corrections per sample (#404).** Each sample counts the calls
+  refused for their arguments (`Invalid arguments: …`) or an unknown tool
+  name, plus turns whose arguments weren't JSON; a domain refusal ("not
+  found", "blocked") is not one. A scenario reports the total over its tool
+  calls, the mean per sample and how many samples needed any
+  (`schema_errors`, `tool_calls`, `schema_errors_per_sample`,
+  `schema_error_rate`, `samples_with_schema_errors`). A run that recovers
+  still passes, so this is the number #411's schema work moves, not the
+  verdict.
 
 `PCC_AGENT_EVALS_RUNS` keeps its #384 name with a new meaning: the block
 size, not a fixed repeat count. `PCC_AGENT_EVALS_RUNS=1` takes one sample per
@@ -262,6 +272,11 @@ why in the PR.
 | `project_close` | "done with it, close it" closes (`closed_at`), never trashes, tasks untouched (#388) | 3 | 1.4–1.5 s |
 | `project_reopen` | a closed project (hidden from default `list_projects`) reopened, not re-created (#388) | 3–4 | 1.3–1.8 s |
 | `project_trash` | trashed with both its tasks, restorable, the other project untouched (#388) | 3 | 1.3–1.4 s |
+| `misfire_batch_create` | "add these five tasks to Garage: …" (id 1 a trashed project): exactly five new top-level tasks, one per item, all in Garage, no project invented, the run writes only about the five (#404). 20/20 at a fixed 20 (seed 403); schema corrections 2/122 calls, 0.1/sample — one sample sent `name` for `title` twice, then recovered | 3–7 | 4.9–14.7 s |
+| `misfire_create_in_named_project` | a create naming Reading among five projects (Reading is id 6, id 1 trashed): filed in Reading by lookup, no General default (#404). 20/20; 0/40 schema corrections; always `list_projects → create_task` | 3 | 3.8–7.0 s |
+| `misfire_subtask_under_parent` | a subtask under a parent named by title, beside a look-alike in another project: `parent_task_id` right, in the parent's project, no General invented (#404). **15/20 (75%), `UNDECIDED` at the cap** — gated, but closest to red. Schema corrections 11/67 calls, 0.55/sample, 9/20 samples: the first `create_task` sends `parent_id` (the deployed misfire). Most runs never find `parent_task_id` on create and recover by create-then-`update_task` (passes); 4 of the 5 misses dropped `project_id` on the retry, so the subtask landed in an invented General project under a Garage parent. A #411 before-number | 3–7 | 3.5–10.7 s |
+| `misfire_complete_parent` | "mark the parent done" with three open subtasks; the service refuses (a parent's done is derived). Passes either honest end state: every subtask completed (the parent reads done) and nothing else written, *or* nothing written and the reply names the open subtasks. Fails a partial completion, any other write, or a run a limit stopped (#404). 19/20; 0/84 schema corrections. Held-and-explained every time but once: that run completed the three subtasks, then retried `complete_task` on the now-done parent, got the same refusal and stopped `no_progress`, with a summary saying the parent was still pending — the deployed loop, and a #413 before-number | 5–8 | 6.1–14.6 s |
+| `misfire_edit_among_similar` | "set Review the Q3 report to high priority" among Draft/Send/Read look-alikes: only that task changes (to `high`, not an integer), every event on it (#404). 20/20; 0/40 schema corrections | 3 | 1.5–2.3 s |
 
 Standing observations: self-correction pays for itself (the recurring gemma
 `name`/`title` miss always fixes on feedback); FTS5 retrieval is sufficient —

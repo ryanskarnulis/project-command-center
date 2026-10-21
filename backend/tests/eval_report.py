@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Container, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -31,12 +31,16 @@ from tests.evalstats import Decision, RateResult, format_paired, paired_counts
 @dataclass(frozen=True)
 class RunRecord:
     """One scored sample of one scenario. Iterations/duration are ``None`` if
-    the run died before the loop reported them."""
+    the run died before the loop reported them. ``tool_calls`` is every call
+    the run recorded; ``schema_errors`` the schema corrections it made
+    (:func:`schema_errors`)."""
 
     scenario: str
     passed: bool
     iterations: int | None = None
     duration: float | None = None
+    tool_calls: int = 0
+    schema_errors: int = 0
 
 
 @dataclass(frozen=True)
@@ -48,6 +52,8 @@ class ScenarioSummary:
     max_iterations: int | None
     min_duration: float | None
     max_duration: float | None
+    tool_calls: int = 0
+    schema_errors: int = 0
 
 
 def int_from_env(
@@ -88,9 +94,87 @@ def summarize(records: list[RunRecord]) -> list[ScenarioSummary]:
                 max_iterations=max(iterations) if iterations else None,
                 min_duration=min(durations) if durations else None,
                 max_duration=max(durations) if durations else None,
+                tool_calls=sum(r.tool_calls for r in runs),
+                schema_errors=sum(r.schema_errors for r in runs),
             )
         )
     return summaries
+
+
+# --- schema corrections (#404) ------------------------------------------------
+#
+# The deployed history's commonest misfire is a call its tool's argument model
+# refuses: ``name`` for a task's ``title``, a ``data.data`` double wrap, an
+# integer priority, ``parent_id`` for ``parent_task_id``. Each costs a turn of
+# the loop's correction budget even when the run recovers, so every scenario
+# reports how many it spent per sample beside its pass rate: phase 4's schema
+# work (#411) is judged on this number as much as on the verdicts.
+
+
+def schema_errors(
+    calls: Iterable[tuple[str, str | None]],
+    *,
+    known_tools: Container[str],
+    invalid_prefix: str,
+    unparseable: int = 0,
+) -> int:
+    """How many schema corrections a run made: the recorded calls refused for
+    their arguments (errors starting with the loop's ``invalid_prefix``) or for
+    a tool name the registry doesn't know, plus the ``unparseable`` turns whose
+    arguments weren't JSON at all (those never become a call record). A domain
+    refusal ("not found", "blocked") is the service answering, not a schema
+    miss, and isn't counted.
+
+    ``calls`` is ``(tool, error)`` per recorded call, ``error`` ``None`` on success.
+    """
+    refused = sum(
+        1
+        for tool, error in calls
+        if error is not None and (error.startswith(invalid_prefix) or tool not in known_tools)
+    )
+    return refused + unparseable
+
+
+def unparseable_turns(messages: Sequence[Mapping[str, Any]], prompt: str) -> int:
+    """The turns a run spent on tool calls whose arguments weren't JSON.
+
+    The loop answers such a turn with a user-role correction (there is no call
+    record to carry it), so they are the user messages after the run's own
+    prompt. The prompt's *last* occurrence is the run's: an earlier one can
+    only be history, and no correction repeats the prompt.
+    """
+    starts = [
+        index
+        for index, message in enumerate(messages)
+        if message.get("role") == "user" and message.get("content") == prompt
+    ]
+    if not starts:
+        return 0
+    return sum(1 for message in messages[starts[-1] + 1 :] if message.get("role") == "user")
+
+
+def schema_stats(samples: Sequence[tuple[int, int]]) -> dict[str, Any]:
+    """A scenario's schema corrections over its scored samples, each given as
+    ``(schema_errors, tool_calls)``: the totals, the mean per sample, the share
+    of calls refused, and how many samples needed any correction at all."""
+    runs = len(samples)
+    errors = sum(e for e, _ in samples)
+    calls = sum(c for _, c in samples)
+    return {
+        "schema_errors": errors,
+        "tool_calls": calls,
+        "schema_errors_per_sample": round(errors / runs, 2) if runs else None,
+        "schema_error_rate": round(errors / calls, 3) if calls else None,
+        "samples_with_schema_errors": sum(1 for e, _ in samples if e),
+    }
+
+
+def _schema(summary: ScenarioSummary | None) -> str:
+    """``errors/calls (mean per sample)`` for the table; ``-`` with no calls."""
+    if summary is None or not summary.runs or not summary.tool_calls:
+        return "-"
+    per_sample = summary.schema_errors / summary.runs
+    return f"{summary.schema_errors}/{summary.tool_calls} ({per_sample:.1f}/sample)"
 
 
 def _range(low: float | None, high: float | None, fmt: str) -> str:
@@ -104,7 +188,8 @@ def format_report(
     summaries: list[ScenarioSummary], results: Mapping[str, RateResult]
 ) -> str:
     """The table printed under ``-s``: count, Wilson interval, verdict, blocks,
-    infra retries, iteration and time ranges per scenario.
+    infra retries, iteration and time ranges, and schema corrections (refused
+    calls over all calls, and the mean per sample) per scenario.
 
     Columns mirror the baseline table in ``docs/agent-design.md``. Durations
     include any cold model load, so the first scenario's max can be an outlier.
@@ -118,7 +203,7 @@ def format_report(
     lines = [
         "[eval-report] per-scenario results",
         f"{'scenario'.ljust(width)}  pass    ci           verdict      blocks      "
-        "infra  iterations  duration (s)",
+        "infra  iterations  duration (s)  schema",
     ]
     for name in names:
         result = results.get(name)
@@ -134,7 +219,8 @@ def format_report(
         lines.append(
             f"{name.ljust(width)}  {count:<6}  {ci:<11}  {verdict:<11}  {blocks:<10}  "
             f"{infra:<5}  "
-            f"{_range(*(_iters(summary)), 'd'):<10}  {_range(*(_durs(summary)), '.1f')}"
+            f"{_range(*(_iters(summary)), 'd'):<10}  {_range(*(_durs(summary)), '.1f'):<12}  "
+            f"{_schema(summary)}"
         )
     green = sum(r.decision is not Decision.BELOW_FLOOR for r in results.values())
     lines.append(f"{green}/{len(results)} scenarios not below their floor")
