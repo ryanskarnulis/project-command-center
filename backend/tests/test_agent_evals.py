@@ -87,9 +87,17 @@ from app.ai.loop import (
 )
 from app.ai.providers.llamacpp import LlamaCppProvider, provider_from_settings
 from app.api import routes_agent
-from app.db.models import ActivityEvent, Base, Project, Task, TaskWorkflowStatus
+from app.db.models import (
+    ActivityEvent,
+    Base,
+    FocusPlanEntry,
+    Project,
+    Task,
+    TaskWorkflowStatus,
+)
 from app.db.session import enable_sqlite_fk_enforcement, get_db, get_db_write
 from app.main import app
+from app.services import focus_plan as focus_plan_service
 from app.services import projects as projects_service
 from app.services import task_trash
 from app.services import tasks as tasks_service
@@ -136,6 +144,9 @@ _FLOORS: dict[str, float] = {
         "read_only_count",
         "honest_about_missing",
         "delegate_actor",
+        "focus_pin_and_commitment",
+        "focus_remove_is_soft",
+        "focus_skip_series",
     )
 }
 
@@ -942,6 +953,163 @@ def _delegate_actor_attribution(sample: Sample) -> None:
         assert prior and all(e.actor is None for e in prior)
 
 
+def _events_after(db: Session, last_id: int | None) -> list[ActivityEvent]:
+    """The activity rows written after ``last_id`` (the seed's last), oldest first."""
+    query = select(ActivityEvent).order_by(ActivityEvent.id)
+    if last_id is not None:
+        query = query.where(ActivityEvent.id > last_id)
+    return list(db.execute(query).scalars().all())
+
+
+def _last_event_id(db: Session) -> int | None:
+    return db.execute(select(func.max(ActivityEvent.id))).scalar_one()
+
+
+def _assert_run_events_are_the_loops(db: Session, last_id: int | None) -> None:
+    """The run wrote something, and every row of it is the loop's."""
+    events = _events_after(db, last_id)
+    assert events, "the run wrote no activity events"
+    assert all(e.actor == LOOP_ACTOR for e in events), [
+        (e.entity_type, e.action, e.actor) for e in events
+    ]
+
+
+def _focus_pin_and_commitment(sample: Sample) -> None:
+    """A timed pin and a one-off commitment in one ask, both on today (#378)."""
+    today = date.today()
+    with sample.db() as db:
+        home = projects_service.create_project(db, name="Home")
+        dentist = tasks_service.create_task(
+            db, project_id=home.id, title="Book dentist appointment"
+        )
+        tasks_service.create_task(db, project_id=home.id, title="Rake the leaves")
+        dentist_id = dentist.id
+        db.commit()
+        last_seed_event = _last_event_id(db)
+
+    result = sample.run(
+        "Pin the dentist task to my day at 2pm, and block 12 to 1 for lunch."
+    )
+
+    assert result.stop_reason == "completed"
+    assert _successful(result, "pin_focus_task"), "expected a successful pin_focus_task"
+    assert _successful(result, "add_focus_commitment"), (
+        "expected a successful add_focus_commitment"
+    )
+    with sample.db() as db:
+        entries = focus_plan_service.list_entries(db, today)
+        pins = [e for e in entries if e.task_id is not None]
+        commitments = [e for e in entries if e.task_id is None]
+        assert [(p.task_id, p.start_minute) for p in pins] == [(dentist_id, 14 * 60)], (
+            f"pins: {[(p.task_id, p.start_minute) for p in pins]}"
+        )
+        assert len(commitments) == 1, f"commitments: {[c.title for c in commitments]}"
+        lunch = commitments[0]
+        assert lunch.title is not None and "lunch" in lunch.title.lower()
+        assert (lunch.start_minute, lunch.duration_minutes) == (12 * 60, 60)
+        assert lunch.repeat_interval is None, "a one-off lunch block must not repeat"
+        # Nothing landed on another day either.
+        all_live = db.execute(
+            select(FocusPlanEntry).where(FocusPlanEntry.deleted_at.is_(None))
+        ).scalars().all()
+        assert len(all_live) == 2, [(e.plan_date, e.title, e.task_id) for e in all_live]
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+
+def _focus_remove_is_soft(sample: Sample) -> None:
+    """Dropping a commitment soft-deletes it, and it comes back whole (#378)."""
+    today = date.today()
+    with sample.db() as db:
+        home = projects_service.create_project(db, name="Home")
+        dentist = tasks_service.create_task(
+            db, project_id=home.id, title="Book dentist appointment"
+        )
+        pin = focus_plan_service.pin_task(
+            db, plan_date=today, task=dentist, start_minute=14 * 60
+        )
+        lunch = focus_plan_service.add_commitment(
+            db, plan_date=today, title="Lunch", start_minute=12 * 60, duration_minutes=60
+        )
+        pin_id, lunch_id = pin.id, lunch.id
+        db.commit()
+        last_seed_event = _last_event_id(db)
+
+    result = sample.run("Take lunch off my plan for today.")
+
+    assert result.stop_reason == "completed"
+    assert _successful(result, "remove_focus_entry"), (
+        "expected a successful remove_focus_entry"
+    )
+    with sample.db() as db:
+        assert [e.id for e in focus_plan_service.list_entries(db, today)] == [pin_id]
+        removed = focus_plan_service.get_deleted_entry(db, lunch_id)
+        assert removed is not None, "lunch should be soft-deleted, not gone"
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+    # Restorable for real, through the service restore_focus_entry calls.
+    with sample.db() as db:
+        removed = focus_plan_service.get_deleted_entry(db, lunch_id)
+        assert removed is not None
+        focus_plan_service.restore_entry(db, removed)
+        db.commit()
+    with sample.db() as db:
+        restored = focus_plan_service.get_entry(db, lunch_id)
+        assert restored is not None
+        assert (restored.title, restored.start_minute, restored.duration_minutes) == (
+            "Lunch",
+            12 * 60,
+            60,
+        )
+
+
+def _focus_skip_series_not_task(sample: Sample) -> None:
+    """Skip today's standup commitment, not the recurring task beside it (#378).
+
+    ``skip_focus_occurrence`` (a Focus series) and ``skip_occurrence`` (a
+    recurring task) sit side by side in the tool list since #426; the
+    distractor is a weekly task whose title also says "standup".
+    """
+    today = date.today()
+    with sample.db() as db:
+        work = projects_service.create_project(db, name="Work")
+        notes = tasks_service.create_task(
+            db, project_id=work.id, title="Prepare standup notes", due_date=today
+        )
+        tasks_service.update_task(db, notes, {"repeat_interval": {"unit": "week", "every": 1}})
+        standup = focus_plan_service.add_commitment(
+            db,
+            plan_date=today - timedelta(days=7),
+            title="Team standup",
+            start_minute=9 * 60 + 30,
+            duration_minutes=15,
+            repeat_interval={"unit": "day", "every": 1},
+        )
+        notes_id, standup_id = notes.id, standup.id
+        db.commit()
+        last_seed_event = _last_event_id(db)
+
+    result = sample.run("Skip today's team standup, it's cancelled.")
+
+    assert result.stop_reason == "completed"
+    skips = _successful(result, "skip_focus_occurrence")
+    assert skips, "expected a successful skip_focus_occurrence"
+    assert not [r for r in result.tool_calls if r.tool == "skip_occurrence"], (
+        "reached for the recurring-task skip"
+    )
+    with sample.db() as db:
+        skipped = focus_plan_service.day_skipped_commitments(db, today)
+        assert [series.id for series, _ in skipped] == [standup_id]
+        series = focus_plan_service.get_entry(db, standup_id)
+        assert series is not None and series.stop_date is None, "the series must go on"
+        # Only today: tomorrow's standup still happens.
+        tomorrow = focus_plan_service.day_commitments(db, today + timedelta(days=1))
+        assert len(tomorrow) == 1
+        task = db.get(Task, notes_id)
+        assert task is not None and task.deleted_at is None
+        assert task.due_date == today and task.repeat_interval is not None
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+
 # --- The gate: one pytest case per scenario -------------------------------------
 
 
@@ -971,3 +1139,15 @@ def test_eval_honest_about_missing_task() -> None:
 
 def test_eval_delegate_actor_attribution() -> None:
     _gate("delegate_actor", _delegate_actor_attribution)
+
+
+def test_eval_focus_pin_and_commitment() -> None:
+    _gate("focus_pin_and_commitment", _focus_pin_and_commitment)
+
+
+def test_eval_focus_remove_is_soft() -> None:
+    _gate("focus_remove_is_soft", _focus_remove_is_soft)
+
+
+def test_eval_focus_skip_series() -> None:
+    _gate("focus_skip_series", _focus_skip_series_not_task)
