@@ -142,7 +142,7 @@ describe('AgentPage desktop — Stop', () => {
       tool_calls: [
         {
           tool: 'create_task',
-          arguments: { data: { title: 'Second' } },
+          arguments: { title: 'Second' },
           result: null,
           error: 'not run: the user stopped the agent run before this call',
         },

@@ -4,9 +4,8 @@ Run with ``python -m app.mcp.server`` from ``backend/`` (the repo's
 ``.mcp.json`` does exactly that). The tools themselves live in
 ``app/tools/registry.py``, shared with the in-app agent loop; this module is
 only transport wiring — a FastMCP instance with every registry tool
-registered. FastMCP re-derives each tool's schema from the same signatures
-and docstrings the registry uses, so what an MCP client sees is exactly what
-the loop's provider sees.
+registered with the registry's own argument model and description, so what
+an MCP client sees is exactly what the loop's provider sees.
 """
 
 from __future__ import annotations
@@ -35,7 +34,13 @@ for _registered in registry.all_tools():
     # The registry's description (``inspect.getdoc``, cleaned), not FastMCP's
     # raw ``__doc__``: Python 3.13+ dedents docstrings at compile time and
     # 3.11 doesn't, so the raw form would differ by interpreter (#402).
-    mcp.add_tool(_registered.fn, description=_registered.description)
+    _tool = mcp._tool_manager.add_tool(_registered.fn, description=_registered.description)
+    # And the registry's argument model, not one re-derived from the signature:
+    # the payload tools advertise top-level arguments their signature doesn't
+    # have (``app/tools/flat_args.py``, #411). FastMCP has no public hook for
+    # this; the schema snapshot test pins MCP and the loop to the same schema.
+    _tool.fn_metadata = _registered.metadata
+    _tool.parameters = _registered.parameters
 
 
 def main() -> None:

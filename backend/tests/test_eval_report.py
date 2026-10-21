@@ -140,7 +140,7 @@ _PREFIX = "Invalid arguments: "
 
 def test_schema_errors_count_argument_and_unknown_tool_refusals_only() -> None:
     calls = [
-        ("create_task", "Invalid arguments: data.title: Field required"),
+        ("create_task", "Invalid arguments: title: Field required"),
         ("create_task", None),
         ("update_task", "Task 291 not found"),  # domain refusal: the service answered
         ("make_task", "Unknown tool 'make_task'"),

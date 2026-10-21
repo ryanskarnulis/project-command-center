@@ -241,7 +241,7 @@ def test_post_message_runs_loop_and_persists_exchange(
 ) -> None:
     provider = ScriptedProvider(
         [
-            tool_calls_turn(("create_task", {"data": {"title": "Ship slice 2"}})),
+            tool_calls_turn(("create_task", {"title": "Ship slice 2"})),
             text_turn("Created 'Ship slice 2' in General."),
             text_turn("You asked me to create the task 'Ship slice 2'."),
         ]
@@ -389,7 +389,7 @@ def test_provider_failure_mid_run_records_the_tools_that_already_ran(
     _use_loop(
         ScriptedProvider(
             [
-                tool_calls_turn(("create_task", {"data": {"title": "Half-done"}})),
+                tool_calls_turn(("create_task", {"title": "Half-done"})),
                 ProviderRequestError("llama-server went away"),
             ]
         )
@@ -436,7 +436,7 @@ def test_unexpected_tool_exception_is_500_with_the_partial_trajectory(
     _use_loop(
         ScriptedProvider(
             [
-                tool_calls_turn(("create_task", {"data": {"title": "Committed"}})),
+                tool_calls_turn(("create_task", {"title": "Committed"})),
                 tool_calls_turn(("complete_task", {"task_id": 1})),
                 text_turn("never reached"),
             ]
@@ -499,7 +499,7 @@ def test_x_agent_actor_attributes_mutations_to_the_delegate(
     """A recognized ``X-Agent-Actor`` binds the run's audit actor (conductor)."""
     provider = ScriptedProvider(
         [
-            tool_calls_turn(("create_task", {"data": {"title": "From conductor"}})),
+            tool_calls_turn(("create_task", {"title": "From conductor"})),
             text_turn("Done."),
         ]
     )
@@ -536,7 +536,7 @@ def test_actor_falls_back_to_loop_when_header_absent_or_unrecognized(
     identity rather than erroring (contract: apps ignore unknown actors)."""
     provider = ScriptedProvider(
         [
-            tool_calls_turn(("create_task", {"data": {"title": "Default actor"}})),
+            tool_calls_turn(("create_task", {"title": "Default actor"})),
             text_turn("Done."),
         ]
     )

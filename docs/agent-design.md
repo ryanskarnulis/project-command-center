@@ -30,6 +30,22 @@ Tools map 1:1 onto service functions — (validate args) → (open session) →
   `remove_dependency`, `skip_occurrence`, `stop_recurrence`. Recurrence
   creation/editing rides on `create_task`/`update_task`.
 
+**Argument shape (#411).** `create_task`, `update_task`, `create_project` and
+`update_project` take their payload's fields as top-level arguments
+(`update_task(task_id, title, due_date, repeat_interval, …)`), not nested in
+`data`/`changes`: the nesting hid `repeat_interval` behind a `$ref` the 12B
+kept missing. `app/tools/flat_args.py` builds each flat model from the REST
+payload model, so the schema keys are pydantic's own. The model stays strict
+(an unknown key is refused), keeps omit-versus-null (omitted leaves a field,
+`null` clears it), and the tool body still receives the payload model. Before
+validation it forgives what the deployed history shows the model sending: a
+`data`/`changes` wrapper at any depth is lifted, and `name` for a task's
+`title`, `title` for a project's `name` and `parent_id` for `parent_task_id`
+are renamed (the canonical key wins when both come; the schema names only
+it). Each forgiveness logs `tool_args_forgiven`. On the tools, a
+`repeat_interval` without `every` means every 1, for tasks and Focus
+commitments; REST still requires `every`.
+
 **Deliberately not exposed:** `purge_task`, `purge_project`, `empty_trash`,
 `reorder_projects`, the dashboard overview. Trash retention (#321) — the
 scheduled purge of trash older than `TRASH_RETENTION_DAYS` — is a lifespan job

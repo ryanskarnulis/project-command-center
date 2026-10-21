@@ -74,13 +74,13 @@ async def test_task_lifecycle_with_agent_attribution(
 ) -> None:
     """create → list → complete → trash → restore, all audited as agent:mcp."""
     async with mcp_client() as client:
-        project = await _call(client, "create_project", {"data": {"name": "MCP e2e"}})
+        project = await _call(client, "create_project", {"name": "MCP e2e"})
         project_id = project["id"]
 
         task = await _call(
             client,
             "create_task",
-            {"data": {"title": "Wire the MCP server", "project_id": project_id}},
+            {"title": "Wire the MCP server", "project_id": project_id},
         )
         task_id = task["id"]
         assert task["workflow_status"] == "open"
@@ -111,20 +111,18 @@ async def test_restore_task_can_undo_a_whole_trash_cascade(
 ) -> None:
     """BUG #192: restore_task(restore_subtasks=True) is the real inverse of trash_task."""
     async with mcp_client() as client:
-        project = await _call(client, "create_project", {"data": {"name": "Undo"}})
+        project = await _call(client, "create_project", {"name": "Undo"})
         project_id = project["id"]
         parent = await _call(
-            client, "create_task", {"data": {"title": "P", "project_id": project_id}}
+            client, "create_task", {"title": "P", "project_id": project_id}
         )
         child = await _call(
             client,
             "create_task",
             {
-                "data": {
-                    "title": "C",
-                    "project_id": project_id,
-                    "parent_task_id": parent["id"],
-                }
+                "title": "C",
+                "project_id": project_id,
+                "parent_task_id": parent["id"],
             },
         )
 
@@ -147,13 +145,13 @@ async def test_dependency_tools_block_and_audit(
 ) -> None:
     """add → blocked → remove, both directions listed, audited as agent:mcp."""
     async with mcp_client() as client:
-        project = await _call(client, "create_project", {"data": {"name": "Deps"}})
+        project = await _call(client, "create_project", {"name": "Deps"})
         project_id = project["id"]
         first = await _call(
-            client, "create_task", {"data": {"title": "Ship it", "project_id": project_id}}
+            client, "create_task", {"title": "Ship it", "project_id": project_id}
         )
         second = await _call(
-            client, "create_task", {"data": {"title": "Test it", "project_id": project_id}}
+            client, "create_task", {"title": "Test it", "project_id": project_id}
         )
 
         edge = await _call(
@@ -201,11 +199,11 @@ async def test_subtask_depending_on_its_parent_is_a_tool_error(
 ) -> None:
     """The #354 deadlock guard reaches the agent as a readable tool error."""
     async with mcp_client() as client:
-        parent = await _call(client, "create_task", {"data": {"title": "Parent"}})
+        parent = await _call(client, "create_task", {"title": "Parent"})
         child = await _call(
             client,
             "create_task",
-            {"data": {"title": "Child", "parent_task_id": parent["id"]}},
+            {"title": "Child", "parent_task_id": parent["id"]},
         )
         rejected = await client.call_tool(
             "add_dependency",
@@ -224,16 +222,14 @@ async def test_recurrence_tools_skip_and_stop(
 ) -> None:
     """skip rolls the series forward; stop ends it; non-recurring is rejected."""
     async with mcp_client() as client:
-        project = await _call(client, "create_project", {"data": {"name": "Chores"}})
+        project = await _call(client, "create_project", {"name": "Chores"})
         task = await _call(
             client,
             "create_task",
             {
-                "data": {
-                    "title": "Water plants",
-                    "project_id": project["id"],
-                    "due_date": "2026-07-10",
-                }
+                "title": "Water plants",
+                "project_id": project["id"],
+                "due_date": "2026-07-10",
             },
         )
         recurring = await _call(
@@ -241,7 +237,7 @@ async def test_recurrence_tools_skip_and_stop(
             "update_task",
             {
                 "task_id": task["id"],
-                "changes": {"repeat_interval": {"unit": "week", "every": 1}},
+                "repeat_interval": {"unit": "week", "every": 1},
             },
         )
         assert recurring["next_occurrence_date"] == "2026-07-17"
@@ -269,7 +265,7 @@ async def test_invalid_arguments_are_rejected_as_tool_errors(
 ) -> None:
     """Boundary validation: a blank title never reaches the service layer."""
     async with mcp_client() as client:
-        result = await client.call_tool("create_task", {"data": {"title": "   "}})
+        result = await client.call_tool("create_task", {"title": "   "})
         assert result.isError
 
         missing = await client.call_tool("complete_task", {"task_id": 99999})

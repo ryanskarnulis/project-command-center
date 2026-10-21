@@ -102,102 +102,6 @@
         "description": "Create a task. Omit project_id to file it in the General project.",
         "parameters": {
           "$defs": {
-            "TaskCreate": {
-              "additionalProperties": false,
-              "properties": {
-                "title": {
-                  "minLength": 1,
-                  "title": "Title",
-                  "type": "string"
-                },
-                "description": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Description"
-                },
-                "workflow_status": {
-                  "$ref": "#/$defs/TaskWorkflowStatus",
-                  "default": "open"
-                },
-                "priority": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/TaskPriority"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null
-                },
-                "due_date": {
-                  "anyOf": [
-                    {
-                      "format": "date",
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Due Date"
-                },
-                "project_id": {
-                  "anyOf": [
-                    {
-                      "maximum": 9223372036854775807,
-                      "minimum": 1,
-                      "type": "integer"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Project Id"
-                },
-                "parent_task_id": {
-                  "anyOf": [
-                    {
-                      "maximum": 9223372036854775807,
-                      "minimum": 1,
-                      "type": "integer"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Parent Task Id"
-                },
-                "estimated_minutes": {
-                  "anyOf": [
-                    {
-                      "exclusiveMinimum": 0,
-                      "type": "integer"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Estimated Minutes"
-                }
-              },
-              "required": [
-                "title"
-              ],
-              "title": "TaskCreate",
-              "type": "object"
-            },
             "TaskPriority": {
               "enum": [
                 "low",
@@ -218,13 +122,97 @@
               "type": "string"
             }
           },
+          "additionalProperties": false,
           "properties": {
-            "data": {
-              "$ref": "#/$defs/TaskCreate"
+            "title": {
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Description"
+            },
+            "workflow_status": {
+              "$ref": "#/$defs/TaskWorkflowStatus",
+              "default": "open"
+            },
+            "priority": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/TaskPriority"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "due_date": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Due Date"
+            },
+            "project_id": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Project Id"
+            },
+            "parent_task_id": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Parent Task Id"
+            },
+            "estimated_minutes": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Estimated Minutes"
             }
           },
           "required": [
-            "data"
+            "title"
           ],
           "title": "create_taskArguments",
           "type": "object"
@@ -235,12 +223,12 @@
       "type": "function",
       "function": {
         "name": "update_task",
-        "description": "Partially update a task; only the fields present in `changes` are touched.\n\nA parent's estimated_minutes is derived from its subtasks and cannot be set. Its\nworkflow_status may be set to open or in_progress while every subtask is still\nopen; done is reached only by completing the subtasks. A blocked task cannot be\nmarked done. Recurring tasks accept edit_scope \"this\" (default) or \"future\".",
+        "description": "Partially update a task; only the fields you pass are touched.\n\nA parent's estimated_minutes is derived from its subtasks and cannot be set. Its\nworkflow_status may be set to open or in_progress while every subtask is still\nopen; done is reached only by completing the subtasks. A blocked task cannot be\nmarked done. Recurring tasks accept edit_scope \"this\" (default) or \"future\".",
         "parameters": {
           "$defs": {
             "RepeatInterval": {
               "additionalProperties": false,
-              "description": "A task recurrence cadence, e.g. ``{\"unit\": \"week\", \"every\": 2}``.\n\nBoth fields are always required (no defaults), so a partial payload is a 422\nrather than a silently ``None`` cadence. ``every`` is bounded 1-12 to match\nthe natural-text UI (``daily`` … ``every 12 months``).",
+              "description": "A task recurrence cadence, e.g. ``{\"unit\": \"week\", \"every\": 2}``; ``every`` defaults to 1.",
               "properties": {
                 "unit": {
                   "enum": [
@@ -252,6 +240,7 @@
                   "type": "string"
                 },
                 "every": {
+                  "default": 1,
                   "maximum": 12,
                   "minimum": 1,
                   "title": "Every",
@@ -259,8 +248,7 @@
                 }
               },
               "required": [
-                "unit",
-                "every"
+                "unit"
               ],
               "title": "RepeatInterval",
               "type": "object"
@@ -275,147 +263,6 @@
               "title": "TaskPriority",
               "type": "string"
             },
-            "TaskUpdate": {
-              "additionalProperties": false,
-              "properties": {
-                "title": {
-                  "anyOf": [
-                    {
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Title"
-                },
-                "description": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Description"
-                },
-                "workflow_status": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/TaskWorkflowStatus"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null
-                },
-                "priority": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/TaskPriority"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null
-                },
-                "due_date": {
-                  "anyOf": [
-                    {
-                      "format": "date",
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Due Date"
-                },
-                "deferred_until": {
-                  "anyOf": [
-                    {
-                      "format": "date",
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Deferred Until"
-                },
-                "project_id": {
-                  "anyOf": [
-                    {
-                      "maximum": 9223372036854775807,
-                      "minimum": 1,
-                      "type": "integer"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Project Id"
-                },
-                "parent_task_id": {
-                  "anyOf": [
-                    {
-                      "maximum": 9223372036854775807,
-                      "minimum": 1,
-                      "type": "integer"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Parent Task Id"
-                },
-                "estimated_minutes": {
-                  "anyOf": [
-                    {
-                      "exclusiveMinimum": 0,
-                      "type": "integer"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Estimated Minutes"
-                },
-                "repeat_interval": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/RepeatInterval"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null
-                },
-                "edit_scope": {
-                  "default": "this",
-                  "enum": [
-                    "this",
-                    "future"
-                  ],
-                  "title": "Edit Scope",
-                  "type": "string"
-                }
-              },
-              "title": "TaskUpdate",
-              "type": "object"
-            },
             "TaskWorkflowStatus": {
               "enum": [
                 "open",
@@ -426,6 +273,7 @@
               "type": "string"
             }
           },
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -433,13 +281,143 @@
               "title": "Task Id",
               "type": "integer"
             },
-            "changes": {
-              "$ref": "#/$defs/TaskUpdate"
+            "title": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Description"
+            },
+            "workflow_status": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/TaskWorkflowStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "priority": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/TaskPriority"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "due_date": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Due Date"
+            },
+            "deferred_until": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Deferred Until"
+            },
+            "project_id": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Project Id"
+            },
+            "parent_task_id": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Parent Task Id"
+            },
+            "estimated_minutes": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Estimated Minutes"
+            },
+            "repeat_interval": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RepeatInterval"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "edit_scope": {
+              "default": "this",
+              "enum": [
+                "this",
+                "future"
+              ],
+              "title": "Edit Scope",
+              "type": "string"
             }
           },
           "required": [
-            "task_id",
-            "changes"
+            "task_id"
           ],
           "title": "update_taskArguments",
           "type": "object"
@@ -709,42 +687,28 @@
         "name": "create_project",
         "description": "Create a project.",
         "parameters": {
-          "$defs": {
-            "ProjectCreate": {
-              "additionalProperties": false,
-              "properties": {
-                "name": {
-                  "minLength": 1,
-                  "title": "Name",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "minLength": 1,
+              "title": "Name",
+              "type": "string"
+            },
+            "description": {
+              "anyOf": [
+                {
                   "type": "string"
                 },
-                "description": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Description"
+                {
+                  "type": "null"
                 }
-              },
-              "required": [
-                "name"
               ],
-              "title": "ProjectCreate",
-              "type": "object"
-            }
-          },
-          "properties": {
-            "data": {
-              "$ref": "#/$defs/ProjectCreate"
+              "default": null,
+              "title": "Description"
             }
           },
           "required": [
-            "data"
+            "name"
           ],
           "title": "create_projectArguments",
           "type": "object"
@@ -757,40 +721,7 @@
         "name": "update_project",
         "description": "Rename a project or edit its description; only fields present are touched.",
         "parameters": {
-          "$defs": {
-            "ProjectUpdate": {
-              "additionalProperties": false,
-              "properties": {
-                "name": {
-                  "anyOf": [
-                    {
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Name"
-                },
-                "description": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Description"
-                }
-              },
-              "title": "ProjectUpdate",
-              "type": "object"
-            }
-          },
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "maximum": 9223372036854775807,
@@ -798,13 +729,34 @@
               "title": "Project Id",
               "type": "integer"
             },
-            "changes": {
-              "$ref": "#/$defs/ProjectUpdate"
+            "name": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Name"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Description"
             }
           },
           "required": [
-            "project_id",
-            "changes"
+            "project_id"
           ],
           "title": "update_projectArguments",
           "type": "object"
@@ -1027,7 +979,7 @@
           "$defs": {
             "CommitmentRepeatInterval": {
               "additionalProperties": false,
-              "description": "A commitment series' cadence: the task shape plus an optional weekday set (#427).\n\n``{\"unit\": \"week\", \"every\": 1, \"days\": [0, 1, 2, 3, 4]}`` is a Mon-Fri\nstandup; ``every: 2`` with ``days`` is \"every other week on those days\".\n``days`` is only meaningful with ``unit: \"week\"``; without it a weekly series\nlands on its first day's weekday, as before. Task recurrence keeps the plain\n``RepeatInterval``: this subclass is commitments-only.",
+              "description": "A commitment series' cadence; ``every`` defaults to 1.\n\n``{\"unit\": \"week\", \"every\": 1, \"days\": [0, 1, 2, 3, 4]}`` is Mon-Fri (days:\nMonday 0 to Sunday 6, weeks only).",
               "properties": {
                 "unit": {
                   "enum": [
@@ -1039,6 +991,7 @@
                   "type": "string"
                 },
                 "every": {
+                  "default": 1,
                   "maximum": 12,
                   "minimum": 1,
                   "title": "Every",
@@ -1065,8 +1018,7 @@
                 }
               },
               "required": [
-                "unit",
-                "every"
+                "unit"
               ],
               "title": "CommitmentRepeatInterval",
               "type": "object"
@@ -2002,102 +1954,6 @@
       "description": "Create a task. Omit project_id to file it in the General project.",
       "inputSchema": {
         "$defs": {
-          "TaskCreate": {
-            "additionalProperties": false,
-            "properties": {
-              "title": {
-                "minLength": 1,
-                "title": "Title",
-                "type": "string"
-              },
-              "description": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Description"
-              },
-              "workflow_status": {
-                "$ref": "#/$defs/TaskWorkflowStatus",
-                "default": "open"
-              },
-              "priority": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/TaskPriority"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null
-              },
-              "due_date": {
-                "anyOf": [
-                  {
-                    "format": "date",
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Due Date"
-              },
-              "project_id": {
-                "anyOf": [
-                  {
-                    "maximum": 9223372036854775807,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Project Id"
-              },
-              "parent_task_id": {
-                "anyOf": [
-                  {
-                    "maximum": 9223372036854775807,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Parent Task Id"
-              },
-              "estimated_minutes": {
-                "anyOf": [
-                  {
-                    "exclusiveMinimum": 0,
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Estimated Minutes"
-              }
-            },
-            "required": [
-              "title"
-            ],
-            "title": "TaskCreate",
-            "type": "object"
-          },
           "TaskPriority": {
             "enum": [
               "low",
@@ -2118,13 +1974,97 @@
             "type": "string"
           }
         },
+        "additionalProperties": false,
         "properties": {
-          "data": {
-            "$ref": "#/$defs/TaskCreate"
+          "title": {
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "workflow_status": {
+            "$ref": "#/$defs/TaskWorkflowStatus",
+            "default": "open"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TaskPriority"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Due Date"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Project Id"
+          },
+          "parent_task_id": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parent Task Id"
+          },
+          "estimated_minutes": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Estimated Minutes"
           }
         },
         "required": [
-          "data"
+          "title"
         ],
         "title": "create_taskArguments",
         "type": "object"
@@ -2382,12 +2322,12 @@
     },
     {
       "name": "update_task",
-      "description": "Partially update a task; only the fields present in `changes` are touched.\n\nA parent's estimated_minutes is derived from its subtasks and cannot be set. Its\nworkflow_status may be set to open or in_progress while every subtask is still\nopen; done is reached only by completing the subtasks. A blocked task cannot be\nmarked done. Recurring tasks accept edit_scope \"this\" (default) or \"future\".",
+      "description": "Partially update a task; only the fields you pass are touched.\n\nA parent's estimated_minutes is derived from its subtasks and cannot be set. Its\nworkflow_status may be set to open or in_progress while every subtask is still\nopen; done is reached only by completing the subtasks. A blocked task cannot be\nmarked done. Recurring tasks accept edit_scope \"this\" (default) or \"future\".",
       "inputSchema": {
         "$defs": {
           "RepeatInterval": {
             "additionalProperties": false,
-            "description": "A task recurrence cadence, e.g. ``{\"unit\": \"week\", \"every\": 2}``.\n\nBoth fields are always required (no defaults), so a partial payload is a 422\nrather than a silently ``None`` cadence. ``every`` is bounded 1-12 to match\nthe natural-text UI (``daily`` … ``every 12 months``).",
+            "description": "A task recurrence cadence, e.g. ``{\"unit\": \"week\", \"every\": 2}``; ``every`` defaults to 1.",
             "properties": {
               "unit": {
                 "enum": [
@@ -2399,6 +2339,7 @@
                 "type": "string"
               },
               "every": {
+                "default": 1,
                 "maximum": 12,
                 "minimum": 1,
                 "title": "Every",
@@ -2406,8 +2347,7 @@
               }
             },
             "required": [
-              "unit",
-              "every"
+              "unit"
             ],
             "title": "RepeatInterval",
             "type": "object"
@@ -2422,147 +2362,6 @@
             "title": "TaskPriority",
             "type": "string"
           },
-          "TaskUpdate": {
-            "additionalProperties": false,
-            "properties": {
-              "title": {
-                "anyOf": [
-                  {
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Title"
-              },
-              "description": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Description"
-              },
-              "workflow_status": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/TaskWorkflowStatus"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null
-              },
-              "priority": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/TaskPriority"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null
-              },
-              "due_date": {
-                "anyOf": [
-                  {
-                    "format": "date",
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Due Date"
-              },
-              "deferred_until": {
-                "anyOf": [
-                  {
-                    "format": "date",
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Deferred Until"
-              },
-              "project_id": {
-                "anyOf": [
-                  {
-                    "maximum": 9223372036854775807,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Project Id"
-              },
-              "parent_task_id": {
-                "anyOf": [
-                  {
-                    "maximum": 9223372036854775807,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Parent Task Id"
-              },
-              "estimated_minutes": {
-                "anyOf": [
-                  {
-                    "exclusiveMinimum": 0,
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Estimated Minutes"
-              },
-              "repeat_interval": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/RepeatInterval"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null
-              },
-              "edit_scope": {
-                "default": "this",
-                "enum": [
-                  "this",
-                  "future"
-                ],
-                "title": "Edit Scope",
-                "type": "string"
-              }
-            },
-            "title": "TaskUpdate",
-            "type": "object"
-          },
           "TaskWorkflowStatus": {
             "enum": [
               "open",
@@ -2573,6 +2372,7 @@
             "type": "string"
           }
         },
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -2580,13 +2380,143 @@
             "title": "Task Id",
             "type": "integer"
           },
-          "changes": {
-            "$ref": "#/$defs/TaskUpdate"
+          "title": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "workflow_status": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TaskWorkflowStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TaskPriority"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Due Date"
+          },
+          "deferred_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Deferred Until"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Project Id"
+          },
+          "parent_task_id": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parent Task Id"
+          },
+          "estimated_minutes": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Estimated Minutes"
+          },
+          "repeat_interval": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RepeatInterval"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "edit_scope": {
+            "default": "this",
+            "enum": [
+              "this",
+              "future"
+            ],
+            "title": "Edit Scope",
+            "type": "string"
           }
         },
         "required": [
-          "task_id",
-          "changes"
+          "task_id"
         ],
         "title": "update_taskArguments",
         "type": "object"
@@ -4705,42 +4635,28 @@
       "name": "create_project",
       "description": "Create a project.",
       "inputSchema": {
-        "$defs": {
-          "ProjectCreate": {
-            "additionalProperties": false,
-            "properties": {
-              "name": {
-                "minLength": 1,
-                "title": "Name",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
                 "type": "string"
               },
-              "description": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Description"
+              {
+                "type": "null"
               }
-            },
-            "required": [
-              "name"
             ],
-            "title": "ProjectCreate",
-            "type": "object"
-          }
-        },
-        "properties": {
-          "data": {
-            "$ref": "#/$defs/ProjectCreate"
+            "default": null,
+            "title": "Description"
           }
         },
         "required": [
-          "data"
+          "name"
         ],
         "title": "create_projectArguments",
         "type": "object"
@@ -4840,40 +4756,7 @@
       "name": "update_project",
       "description": "Rename a project or edit its description; only fields present are touched.",
       "inputSchema": {
-        "$defs": {
-          "ProjectUpdate": {
-            "additionalProperties": false,
-            "properties": {
-              "name": {
-                "anyOf": [
-                  {
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Name"
-              },
-              "description": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Description"
-              }
-            },
-            "title": "ProjectUpdate",
-            "type": "object"
-          }
-        },
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "maximum": 9223372036854775807,
@@ -4881,13 +4764,34 @@
             "title": "Project Id",
             "type": "integer"
           },
-          "changes": {
-            "$ref": "#/$defs/ProjectUpdate"
+          "name": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
           }
         },
         "required": [
-          "project_id",
-          "changes"
+          "project_id"
         ],
         "title": "update_projectArguments",
         "type": "object"
@@ -6381,7 +6285,7 @@
         "$defs": {
           "CommitmentRepeatInterval": {
             "additionalProperties": false,
-            "description": "A commitment series' cadence: the task shape plus an optional weekday set (#427).\n\n``{\"unit\": \"week\", \"every\": 1, \"days\": [0, 1, 2, 3, 4]}`` is a Mon-Fri\nstandup; ``every: 2`` with ``days`` is \"every other week on those days\".\n``days`` is only meaningful with ``unit: \"week\"``; without it a weekly series\nlands on its first day's weekday, as before. Task recurrence keeps the plain\n``RepeatInterval``: this subclass is commitments-only.",
+            "description": "A commitment series' cadence; ``every`` defaults to 1.\n\n``{\"unit\": \"week\", \"every\": 1, \"days\": [0, 1, 2, 3, 4]}`` is Mon-Fri (days:\nMonday 0 to Sunday 6, weeks only).",
             "properties": {
               "unit": {
                 "enum": [
@@ -6393,6 +6297,7 @@
                 "type": "string"
               },
               "every": {
+                "default": 1,
                 "maximum": 12,
                 "minimum": 1,
                 "title": "Every",
@@ -6419,8 +6324,7 @@
               }
             },
             "required": [
-              "unit",
-              "every"
+              "unit"
             ],
             "title": "CommitmentRepeatInterval",
             "type": "object"

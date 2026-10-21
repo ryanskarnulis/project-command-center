@@ -377,20 +377,18 @@ def _valid_call(rng: random.Random, world: World, name: str) -> Call:
         ),
         "get_task": lambda: {"task_id": task},
         "create_task": lambda: {
-            "data": {
-                "title": rng.choice(_TITLES),
-                **rng.choice(
-                    [
-                        {},
-                        {"project_id": project},
-                        {"parent_task_id": _one(rng, world.tasks)},
-                        {"due_date": _day(rng), "priority": "high"},
-                        {"estimated_minutes": 30},
-                    ]
-                ),
-            }
+            "title": rng.choice(_TITLES),
+            **rng.choice(
+                [
+                    {},
+                    {"project_id": project},
+                    {"parent_task_id": _one(rng, world.tasks)},
+                    {"due_date": _day(rng), "priority": "high"},
+                    {"estimated_minutes": 30},
+                ]
+            ),
         },
-        "update_task": lambda: {"task_id": task, "changes": _task_changes(rng, world)},
+        "update_task": lambda: {"task_id": task, **_task_changes(rng, world)},
         "complete_task": lambda: {
             "task_id": _one(rng, world.recurring or world.tasks, world.tasks)
         },
@@ -414,10 +412,10 @@ def _valid_call(rng: random.Random, world: World, name: str) -> Call:
         "stop_recurrence": lambda: {"task_id": _one(rng, world.recurring, world.tasks)},
         "list_projects": lambda: rng.choice([{}, {"include_closed": True}]),
         "get_project": lambda: {"project_id": project},
-        "create_project": lambda: {"data": {"name": rng.choice(_NAMES)}},
+        "create_project": lambda: {"name": rng.choice(_NAMES)},
         "update_project": lambda: {
             "project_id": project,
-            "changes": rng.choice([{"name": rng.choice(_NAMES)}, {"description": "Notes"}]),
+            **rng.choice([{"name": rng.choice(_NAMES)}, {"description": "Notes"}]),
         },
         "close_project": lambda: {"project_id": project},
         "reopen_project": lambda: {"project_id": project},
@@ -512,12 +510,12 @@ def _malformed_call(rng: random.Random, world: World) -> Call:
     task = _one(rng, world.tasks)
     shapes: list[Call] = [
         ("summon_intern", {}),
-        ("create_task", {"data": {"name": "Swapped key"}}),
-        ("create_project", {"data": {"title": "Swapped key"}}),
-        ("create_task", {"data": {"data": {"title": "Wrapped twice"}}}),
+        ("create_task", {"titel": "Misspelled key"}),
+        ("create_project", {"name": "Extra key", "priority": "high"}),
+        ("create_task", {"title": "Bad priority", "priority": 3}),
         ("complete_task", {"task_id": "seven"}),
-        ("update_task", {"task_id": task, "changes": {"title": "   "}}),
-        ("create_task", {"data": {"title": "Bad id", "project_id": -3}}),
+        ("update_task", {"task_id": task, "title": "   "}),
+        ("create_task", {"title": "Bad id", "project_id": -3}),
         ("get_task", {}),
         ("pin_focus_task", {"task_id": task, "start_time": "25:99"}),
     ]

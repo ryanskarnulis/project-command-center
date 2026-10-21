@@ -897,13 +897,13 @@ def test_agent_tool_rejects_derived_field_writes(
     with pytest.raises(registry.ToolError):
         registry.call_tool(
             "update_task",
-            {"task_id": parent_id, "changes": {"estimated_minutes": 90}},
+            {"task_id": parent_id, "estimated_minutes": 90},
             actor="agent",
         )
     with pytest.raises(registry.ToolError):
         registry.call_tool(
             "update_task",
-            {"task_id": parent_id, "changes": {"workflow_status": "open"}},
+            {"task_id": parent_id, "workflow_status": "open"},
             actor="agent",
         )
 
@@ -1160,7 +1160,7 @@ def test_agent_tool_can_start_a_parent(
 
     registry.call_tool(
         "update_task",
-        {"task_id": parent_id, "changes": {"workflow_status": "in_progress"}},
+        {"task_id": parent_id, "workflow_status": "in_progress"},
         actor="agent",
     )
     with factory() as db:

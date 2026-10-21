@@ -53,11 +53,11 @@ def tool_db(
 
 
 def _alpha() -> tuple[str, dict[str, Any]]:
-    return ("create_task", {"data": {"title": "Alpha"}})
+    return ("create_task", {"title": "Alpha"})
 
 
 def _invalid() -> tuple[str, dict[str, Any]]:
-    return ("create_task", {"data": {"title": ""}})
+    return ("create_task", {"title": ""})
 
 
 def _cut_off(content: str = "and then I will also") -> ChatResult:
@@ -74,7 +74,7 @@ _LIMIT_RUNS: dict[str, tuple[list[ChatResult], dict[str, Any]]] = {
         {},
     ),
     "tool_call_limit": (
-        [_calls(_alpha(), ("create_task", {"data": {"title": "Beta"}}))],
+        [_calls(_alpha(), ("create_task", {"title": "Beta"}))],
         {"max_tool_calls": 1},
     ),
 }
@@ -100,7 +100,7 @@ def test_limit_stop_saves_a_summary_of_what_ran(
     assert [m["role"] for m in summary["messages"]] == ["system", "user"]
     brief = summary["messages"][1]["content"]
     assert "Make tasks Alpha and Beta." in brief
-    assert 'Done:\n- #1 create_task {"data":{"title":"Alpha"}} -> id 1 "Alpha"' in brief
+    assert 'Done:\n- #1 create_task {"title":"Alpha"} -> id 1 "Alpha"' in brief
     assert run_record.LIMIT_NOTE in brief
     assert run_record.LIMIT_REASONS[stop_reason] in brief
     # The write the summary describes is real.
@@ -174,7 +174,7 @@ def test_cancelled_run_keeps_no_reply_even_after_writes(
     """The user asked it to stop: no summary call, as before."""
     cancel = threading.Event()
     provider = _StopOnCall(
-        [_calls(_alpha()), _calls(("create_task", {"data": {"title": "Beta"}}))],
+        [_calls(_alpha()), _calls(("create_task", {"title": "Beta"}))],
         cancel,
         on_call=2,
     )
@@ -277,19 +277,19 @@ def test_record_sorts_calls_by_what_happened() -> None:
         ToolCallRecord(tool="list_projects", arguments={}, result="[]"),
         ToolCallRecord(
             tool="create_task",
-            arguments={"data": {"title": "Alpha"}},
+            arguments={"title": "Alpha"},
             result='{"id": 3, "title": "Alpha", "description": null}',
         ),
         ToolCallRecord(tool="complete_task", arguments={"task_id": 7}, error="Task 7 is blocked"),
         ToolCallRecord(
             tool="create_task",
-            arguments={"data": {"title": ""}},
-            error=f"{run_record.INVALID_ARGUMENTS_PREFIX}data.title: too short",
+            arguments={"title": ""},
+            error=f"{run_record.INVALID_ARGUMENTS_PREFIX}title: too short",
         ),
         ToolCallRecord(tool="make_coffee", arguments={}, error="Unknown tool 'make_coffee'"),
         ToolCallRecord(
             tool="create_task",
-            arguments={"data": {"title": "Beta"}},
+            arguments={"title": "Beta"},
             error=loop_module._TOOL_CALL_LIMIT_ERROR,
         ),
         ToolCallRecord(
@@ -309,16 +309,16 @@ def test_record_sorts_calls_by_what_happened() -> None:
     ]
     assert run_record.render(records) == (
         "Done:\n"
-        '- #2 create_task {"data":{"title":"Alpha"}} -> id 3 "Alpha"\n'
+        '- #2 create_task {"title":"Alpha"} -> id 3 "Alpha"\n'
         '- #7 trash_task {"task_id":4} -> Task 4 "Old" and its subtasks moved to trash\n'
         "Refused:\n"
         '- #3 complete_task {"task_id":7} -> Task 7 is blocked\n'
         "Looked up:\n"
         "- #1 list_projects {}\n"
         "Not run:\n"
-        '- #4 create_task {"data":{"title":""}} -> Invalid arguments: data.title: too short\n'
+        '- #4 create_task {"title":""} -> Invalid arguments: title: too short\n'
         "- #5 make_coffee {} -> Unknown tool 'make_coffee'\n"
-        '- #6 create_task {"data":{"title":"Beta"}} -> '
+        '- #6 create_task {"title":"Beta"} -> '
         "not run: the agent run reached its limit of tool calls before this call"
     )
 
@@ -335,7 +335,7 @@ def test_record_says_nothing_was_done_outright() -> None:
 def test_record_lines_stay_compact() -> None:
     record = ToolCallRecord(
         tool="create_task",
-        arguments={"data": {"title": "x" * 500}},
+        arguments={"title": "x" * 500},
         result='{"id": 1, "title": "' + "y" * 500 + '"}',
     )
     line = run_record.render([record]).splitlines()[1]

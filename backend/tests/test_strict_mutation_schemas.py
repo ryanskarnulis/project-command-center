@@ -246,14 +246,14 @@ async def test_agent_tool_rejects_unknown_nested_mutation_field(
     session is opened."""
     async with _mcp_client() as client:
         created = await client.call_tool(
-            "create_task", {"data": {"title": "Ship", "prioirty": "urgent"}}
+            "create_task", {"title": "Ship", "prioirty": "urgent"}
         )
         assert created.isError
         assert created.content[0].type == "text"
         assert "prioirty" in created.content[0].text
 
         updated = await client.call_tool(
-            "update_task", {"task_id": 1, "changes": {"workflow_stats": "done"}}
+            "update_task", {"task_id": 1, "workflow_stats": "done"}
         )
         # Must fail on the *schema*, not on "task 1 not found" — otherwise this
         # would still pass with extra="ignore".
@@ -278,6 +278,6 @@ def test_agent_tool_registry_call_raises_validation_error(
     with pytest.raises(ValidationError):
         registry.call_tool(
             "create_project",
-            {"data": {"name": "Roadmap", "descripton": "lost"}},
+            {"name": "Roadmap", "descripton": "lost"},
             actor="agent:test",
         )
