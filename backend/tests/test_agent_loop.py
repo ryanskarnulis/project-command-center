@@ -52,8 +52,8 @@ def test_create_complete_flow_end_to_end(tool_db: sessionmaker[Session]) -> None
     """create project → create task → complete, all audited as agent:loop."""
     provider = ScriptedProvider(
         [
-            _calls(("create_project", {"data": {"name": "Agent epic"}})),
-            _calls(("create_task", {"data": {"title": "Ship slice 1", "project_id": 1}})),
+            _calls(("create_project", {"name": "Agent epic"})),
+            _calls(("create_task", {"title": "Ship slice 1", "project_id": 1})),
             _calls(("complete_task", {"task_id": 1})),
             _text("Created and completed 'Ship slice 1'."),
         ]
@@ -98,9 +98,9 @@ def test_invalid_arguments_are_fed_back_and_corrected(
     """A validation failure never reaches the service layer; the model retries."""
     provider = ScriptedProvider(
         [
-            _calls(("create_project", {"data": {"name": "Fixups"}})),
-            _calls(("create_task", {"data": {"title": "   ", "project_id": 1}})),
-            _calls(("create_task", {"data": {"title": "Corrected", "project_id": 1}})),
+            _calls(("create_project", {"name": "Fixups"})),
+            _calls(("create_task", {"title": "   ", "project_id": 1})),
+            _calls(("create_task", {"title": "Corrected", "project_id": 1})),
             _text("Done."),
         ]
     )
@@ -178,8 +178,8 @@ def test_unknown_tool_is_a_schema_error(tool_db: sessionmaker[Session]) -> None:
 def test_correction_limit_terminates_the_loop(tool_db: sessionmaker[Session]) -> None:
     provider = ScriptedProvider(
         [
-            _calls(("create_task", {"data": {"title": ""}})),
-            _calls(("create_task", {"data": {"title": ""}})),
+            _calls(("create_task", {"title": ""})),
+            _calls(("create_task", {"title": ""})),
         ]
     )
     result = AgentLoop(provider, max_corrections=1).run("Add a task.")
@@ -260,7 +260,7 @@ def test_a_repeated_call_that_answers_differently_is_progress(
     provider = ScriptedProvider(
         [
             _calls(("list_projects", {})),
-            _calls(("create_project", {"data": {"name": "Garage"}})),
+            _calls(("create_project", {"name": "Garage"})),
             _calls(("list_projects", {})),  # same call, new answer
             _text("Created 'Garage'; it's your only project."),
         ]
@@ -301,11 +301,11 @@ def test_tool_call_cap_answers_excess_calls_not_run_and_never_dispatches_them(
     ``tool_call_limit`` after that turn."""
     provider = ScriptedProvider(
         [
-            _calls(("create_project", {"data": {"name": "P1"}})),
+            _calls(("create_project", {"name": "P1"})),
             _calls(
-                ("create_project", {"data": {"name": "P2"}}),
-                ("create_project", {"data": {"name": "P3"}}),
-                ("create_project", {"data": {"name": "P4"}}),
+                ("create_project", {"name": "P2"}),
+                ("create_project", {"name": "P3"}),
+                ("create_project", {"name": "P4"}),
             ),
             _text("Made P1 and P2; P3 and P4 weren't made."),  # the summary
         ]
@@ -407,7 +407,7 @@ def test_cut_off_turn_with_tool_calls_still_runs_them(
                     ToolCall(
                         id="call_0",
                         name="create_project",
-                        arguments={"data": {"name": "Cut-off epic"}},
+                        arguments={"name": "Cut-off epic"},
                     )
                 ],
                 finish_reason="length",
@@ -438,7 +438,7 @@ def test_provider_failure_mid_run_keeps_the_partial_trajectory(
     that already ran, tagged provider_error → 502."""
     provider = ScriptedProvider(
         [
-            _calls(("create_task", {"data": {"title": "Ran before the fall"}})),
+            _calls(("create_task", {"title": "Ran before the fall"})),
             ProviderRequestError("boom"),
         ]
     )
@@ -461,7 +461,7 @@ def test_provider_crash_mid_run_keeps_the_partial_trajectory(
     that ran and committed, its answer in the transcript (#456)."""
     provider = ScriptedProvider(
         [
-            _calls(("create_task", {"data": {"title": "Ran before the crash"}})),
+            _calls(("create_task", {"title": "Ran before the crash"})),
             RuntimeError("provider bug"),
         ]
     )
@@ -537,7 +537,7 @@ def test_deadline_expiring_before_dispatch_skips_the_tool_call(
 ) -> None:
     """The provider answers in time but the deadline passes before dispatch:
     the tool never runs, and the run ends timed_out → 504 (#108)."""
-    provider = ScriptedProvider([_calls(("create_task", {"data": {"title": "Too late"}}))])
+    provider = ScriptedProvider([_calls(("create_task", {"title": "Too late"}))])
     # Readings: iteration check, provider-timeout, then past the deadline.
     _fake_clock(monkeypatch, [0.0, 0.0, 100.0])
 
@@ -565,9 +565,9 @@ def test_batch_stops_at_the_call_that_would_cross_the_deadline(
     provider = ScriptedProvider(
         [
             _calls(
-                ("create_task", {"data": {"title": "First"}}),
-                ("create_task", {"data": {"title": "Second"}}),
-                ("create_task", {"data": {"title": "Third"}}),
+                ("create_task", {"title": "First"}),
+                ("create_task", {"title": "Second"}),
+                ("create_task", {"title": "Third"}),
             )
         ]
     )
@@ -608,7 +608,7 @@ def test_unexpected_tool_exception_fails_the_run_with_the_partial_trajectory(
     ends as AgentRunFailed/internal_error → 500 carrying both records (#103)."""
     provider = ScriptedProvider(
         [
-            _calls(("create_task", {"data": {"title": "Ran fine"}})),
+            _calls(("create_task", {"title": "Ran fine"})),
             _calls(("complete_task", {"task_id": 1})),
             _text("never reached"),
         ]

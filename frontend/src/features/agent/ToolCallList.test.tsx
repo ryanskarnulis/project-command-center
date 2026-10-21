@@ -30,7 +30,7 @@ describe('ToolCallList', () => {
     renderList([
       {
         tool: 'create_task',
-        arguments: { data: { title: 'Water plants' } },
+        arguments: { title: 'Water plants' },
         result: JSON.stringify({ id: 7, title: 'Water plants' }),
         error: null,
       },
@@ -55,7 +55,7 @@ describe('ToolCallList', () => {
     renderList([
       {
         tool: 'create_task',
-        arguments: { data: { title: 'Water plants' } },
+        arguments: { title: 'Water plants' },
         result: JSON.stringify({ id: 7, title: 'Water plants' }),
         error: null,
       },
@@ -74,7 +74,7 @@ describe('ToolCallList', () => {
     renderList([
       {
         tool: 'create_task',
-        arguments: { data: { title: 'Water plants' } },
+        arguments: { title: 'Water plants' },
         result: JSON.stringify({ id: 7, title: 'Water plants' }),
         error: null,
       },

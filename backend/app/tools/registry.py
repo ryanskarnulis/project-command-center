@@ -28,8 +28,8 @@ from typing import Annotated, Any, TypeVar
 
 import structlog
 from mcp.server.fastmcp.exceptions import ToolError as ToolError  # re-export
-from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
-from pydantic import Field
+from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase, FuncMetadata, func_metadata
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.ai.providers.llamacpp import ToolSpec
@@ -40,7 +40,6 @@ from app.schemas.activity import ActivityEventRead
 from app.schemas.common import EntityId, PaginationOffset
 from app.schemas.focus import (
     CommitmentMinutes,
-    CommitmentRepeatInterval,
     CommitmentTitle,
     FocusEntryRead,
     FocusPlan,
@@ -60,6 +59,9 @@ from app.services import task_recurrence
 from app.services import task_trash
 from app.services import tasks as tasks_service
 from app.tools import runtime
+from app.tools.flat_args import CommitmentRepeatInterval as ToolCommitmentRepeatInterval
+from app.tools.flat_args import FlatArgs, flat_args
+from app.tools.flat_args import RepeatInterval as ToolRepeatInterval
 from app.tools.runtime import tool_session
 
 logger = structlog.get_logger(__name__)
@@ -96,18 +98,39 @@ _REGISTRY: dict[str, RegisteredTool] = {}
 _F = TypeVar("_F", bound=Callable[..., Any])
 
 
-def _register(fn: _F, *, read_only: bool) -> _F:
+def _register(fn: _F, *, read_only: bool, args: type[FlatArgs] | None = None) -> _F:
     description = inspect.getdoc(fn)
     if not description:
         raise ValueError(f"tool {fn.__name__} must have a docstring")
+    metadata = func_metadata(fn)
+    metadata = metadata.model_copy(
+        update={"arg_model": args if args is not None else _strict(metadata.arg_model)}
+    )
     _REGISTRY[fn.__name__] = RegisteredTool(
         name=fn.__name__,
         description=description,
         fn=fn,
-        metadata=func_metadata(fn),
+        metadata=metadata,
         read_only=read_only,
     )
     return fn
+
+
+def _strict(arg_model: type[ArgModelBase]) -> type[ArgModelBase]:
+    """``arg_model`` refusing unknown arguments, as every mutation input does (#164).
+
+    FastMCP's argument models ignore extra keys, so a filter a tool doesn't have
+    (``list_tasks(due_date=…)``) was dropped without a word and the call
+    answered a different question (#411).
+    """
+    return type(
+        arg_model.__name__,
+        (arg_model,),
+        {
+            "__module__": arg_model.__module__,
+            "model_config": ConfigDict(extra="forbid", arbitrary_types_allowed=True),
+        },
+    )
 
 
 def _tool(fn: _F) -> _F:
@@ -122,6 +145,34 @@ def _read_tool(fn: _F) -> _F:
     the run record rather than being left out of it as a lookup.
     """
     return _register(fn, read_only=True)
+
+
+def _flat_tool(
+    payload_model: type[BaseModel],
+    *,
+    payload_param: str,
+    leading: dict[str, tuple[Any, Any]] | None = None,
+    aliases: dict[str, str] | None = None,
+    overrides: dict[str, Any] | None = None,
+) -> Callable[[_F], _F]:
+    """Register a write tool whose body takes a whole payload model as ``payload_param``.
+
+    The payload's fields are advertised as top-level arguments (see
+    ``app/tools/flat_args.py``); the body still receives the payload model.
+    """
+
+    def register(fn: _F) -> _F:
+        args = flat_args(
+            fn.__name__,
+            payload_model,
+            payload_param=payload_param,
+            leading=leading,
+            aliases=aliases,
+            overrides=overrides,
+        )
+        return _register(fn, read_only=False, args=args)
+
+    return register
 
 
 def read_only_tool_names() -> frozenset[str]:
@@ -238,7 +289,11 @@ def get_task(task_id: EntityId) -> TaskRead:
         return read_with_blocked(db, _task_or_error(db, task_id))
 
 
-@_tool
+# What the model says for a task's fields, seen in the deployed history (#404).
+_TASK_ALIASES = {"name": "title", "parent_id": "parent_task_id"}
+
+
+@_flat_tool(TaskCreate, payload_param="data", aliases=_TASK_ALIASES)
 def create_task(data: TaskCreate) -> TaskRead:
     """Create a task. Omit project_id to file it in the General project."""
     with tool_session("create_task") as db:
@@ -263,9 +318,15 @@ def create_task(data: TaskCreate) -> TaskRead:
         return read_with_blocked(db, task)
 
 
-@_tool
+@_flat_tool(
+    TaskUpdate,
+    payload_param="changes",
+    leading={"task_id": (EntityId, ...)},
+    aliases=_TASK_ALIASES,
+    overrides={"repeat_interval": ToolRepeatInterval | None},
+)
 def update_task(task_id: EntityId, changes: TaskUpdate) -> TaskRead:
-    """Partially update a task; only the fields present in `changes` are touched.
+    """Partially update a task; only the fields you pass are touched.
 
     A parent's estimated_minutes is derived from its subtasks and cannot be set. Its
     workflow_status may be set to open or in_progress while every subtask is still
@@ -469,7 +530,10 @@ def get_project(project_id: EntityId) -> ProjectRead:
         return ProjectRead.model_validate(_project_or_error(db, project_id))
 
 
-@_tool
+_PROJECT_ALIASES = {"title": "name"}
+
+
+@_flat_tool(ProjectCreate, payload_param="data", aliases=_PROJECT_ALIASES)
 def create_project(data: ProjectCreate) -> ProjectRead:
     """Create a project."""
     with tool_session("create_project") as db:
@@ -481,7 +545,12 @@ def create_project(data: ProjectCreate) -> ProjectRead:
         return ProjectRead.model_validate(project)
 
 
-@_tool
+@_flat_tool(
+    ProjectUpdate,
+    payload_param="changes",
+    leading={"project_id": (EntityId, ...)},
+    aliases=_PROJECT_ALIASES,
+)
 def update_project(project_id: EntityId, changes: ProjectUpdate) -> ProjectRead:
     """Rename a project or edit its description; only fields present are touched."""
     with tool_session("update_project") as db:
@@ -628,7 +697,7 @@ def add_focus_commitment(
     start_time: _StartTime,
     duration_minutes: CommitmentMinutes,
     date: date_type | None = None,
-    repeat_interval: CommitmentRepeatInterval | None = None,
+    repeat_interval: ToolCommitmentRepeatInterval | None = None,
 ) -> FocusEntryRead:
     """Block fixed time in the Focus plan for something that is not a task, e.g. a 14:00 meeting.
 

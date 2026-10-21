@@ -35,6 +35,15 @@ describe('describeToolCall', () => {
   it('falls back to the arguments when the call failed', () => {
     const call = record({
       tool: 'create_task',
+      arguments: { title: 'Fix VPN', prioirty: 'high' },
+      error: 'Invalid arguments: prioirty: Extra inputs are not permitted',
+    })
+    expect(describeToolCall(call)).toBe('Created task “Fix VPN”')
+  })
+
+  it('reads the nested arguments of a run recorded before #411', () => {
+    const call = record({
+      tool: 'create_task',
       arguments: { data: { title: 'Fix VPN' } },
       error: 'Invalid arguments: data.title: Field required',
     })

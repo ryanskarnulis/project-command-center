@@ -70,7 +70,7 @@ const assistantWithToolCalls = message({
   tool_calls: [
     {
       tool: 'create_task',
-      arguments: { data: { title: 'Water plants' } },
+      arguments: { title: 'Water plants' },
       result: JSON.stringify({ id: 7, title: 'Water plants' }),
       error: null,
     },
@@ -697,13 +697,13 @@ describe('AgentPage desktop — M07f thread', () => {
       { tool: 'list_projects', arguments: {}, result: '[]', error: null },
       {
         tool: 'update_task',
-        arguments: { task_id: 3, data: { priority: 'high' } },
+        arguments: { task_id: 3, priority: 'high' },
         result: null,
         error: 'Task 3 not found',
       },
       {
         tool: 'create_task',
-        arguments: { data: { title: 'Water plants' } },
+        arguments: { title: 'Water plants' },
         result: JSON.stringify({ id: 7, title: 'Water plants' }),
         error: null,
       },

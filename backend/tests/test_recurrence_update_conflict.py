@@ -152,7 +152,7 @@ def test_tool_update_task_onto_live_sibling_date_raises_tool_error(
     with pytest.raises(ToolError) as excinfo:
         registry.call_tool(
             "update_task",
-            {"task_id": first_id, "changes": {"due_date": "2026-07-08"}},
+            {"task_id": first_id, "due_date": "2026-07-08"},
             actor="agent",
         )
 

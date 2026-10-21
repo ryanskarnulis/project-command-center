@@ -89,7 +89,7 @@ def test_cancel_between_iterations_stops_before_the_next_provider_call(
     monkeypatch.setattr(registry, "call_tool", call_tool)
     provider = ScriptedProvider(
         [
-            _calls(("create_task", {"data": {"title": "Ran before Stop"}})),
+            _calls(("create_task", {"title": "Ran before Stop"})),
             _text("never reached"),
         ]
     )
@@ -113,8 +113,8 @@ def test_cancel_before_a_tool_call_skips_it(tool_db: sessionmaker[Session]) -> N
     provider = _StopDuringChat(
         [
             _calls(
-                ("create_task", {"data": {"title": "First"}}),
-                ("create_task", {"data": {"title": "Second"}}),
+                ("create_task", {"title": "First"}),
+                ("create_task", {"title": "Second"}),
             )
         ],
         cancel,
@@ -145,8 +145,8 @@ def test_cancel_mid_batch_keeps_the_calls_that_already_ran(
     provider = ScriptedProvider(
         [
             _calls(
-                ("create_task", {"data": {"title": "First"}}),
-                ("create_task", {"data": {"title": "Second"}}),
+                ("create_task", {"title": "First"}),
+                ("create_task", {"title": "Second"}),
             )
         ]
     )
@@ -226,7 +226,7 @@ def test_cancel_endpoint_stops_the_in_flight_run_with_a_truthful_200(
 ) -> None:
     conversation_id = file_client.post("/api/agent/conversations", json={}).json()["id"]
     provider = _GatedProvider(
-        [_calls(("create_task", {"data": {"title": "Proposed after Stop"}}))]
+        [_calls(("create_task", {"title": "Proposed after Stop"}))]
     )
     app.dependency_overrides[routes_agent.get_agent_loop] = lambda: AgentLoop(provider)
 

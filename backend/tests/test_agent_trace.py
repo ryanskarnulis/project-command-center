@@ -144,7 +144,7 @@ def test_a_traced_run_writes_one_well_formed_record(
     ]
     provider = _ModelProvider(
         [
-            _metered(_calls(("create_task", {"data": {"title": "Alpha"}}))),
+            _metered(_calls(("create_task", {"title": "Alpha"}))),
             _metered(_text("Made Alpha."), prompt=150, completion=5),
         ]
     )
@@ -168,7 +168,7 @@ def test_a_traced_run_writes_one_well_formed_record(
 
     [tool] = record["tools"]
     assert tool["name"] == "create_task"
-    assert tool["args"] == {"data": {"title": "Alpha"}}
+    assert tool["args"] == {"title": "Alpha"}
     assert json.loads(tool["result"])["title"] == "Alpha"
     assert tool["error"] is None
 
@@ -241,7 +241,7 @@ def test_unmetered_calls_record_null_tokens(
 
 
 def _alpha() -> tuple[str, dict[str, Any]]:
-    return ("create_task", {"data": {"title": "Alpha"}})
+    return ("create_task", {"title": "Alpha"})
 
 
 def _cut_off() -> ChatResult:
@@ -252,7 +252,7 @@ def _cut_off() -> ChatResult:
 _LIMIT_RUNS: dict[str, tuple[list[ChatResult], dict[str, int], str]] = {
     "max_iterations": ([_calls(_alpha())], {"max_iterations": 1}, "max_iterations"),
     "correction_limit": (
-        [_calls(_alpha(), ("create_task", {"data": {"title": ""}}))],
+        [_calls(_alpha(), ("create_task", {"title": ""}))],
         {"max_corrections": 0},
         "max_corrections",
     ),
@@ -263,7 +263,7 @@ _LIMIT_RUNS: dict[str, tuple[list[ChatResult], dict[str, int], str]] = {
         "no_progress",
     ),
     "tool_call_limit": (
-        [_calls(_alpha(), ("create_task", {"data": {"title": "Beta"}}))],
+        [_calls(_alpha(), ("create_task", {"title": "Beta"}))],
         {"max_tool_calls": 1},
         "max_tool_calls",
     ),

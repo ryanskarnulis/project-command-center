@@ -17,6 +17,7 @@
               "type": "string"
             }
           },
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "anyOf": [
@@ -79,6 +80,7 @@
         "name": "get_task",
         "description": "Fetch one task with its subtask roll-up and blocked/blocking flags.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -102,102 +104,6 @@
         "description": "Create a task. Omit project_id to file it in the General project.",
         "parameters": {
           "$defs": {
-            "TaskCreate": {
-              "additionalProperties": false,
-              "properties": {
-                "title": {
-                  "minLength": 1,
-                  "title": "Title",
-                  "type": "string"
-                },
-                "description": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Description"
-                },
-                "workflow_status": {
-                  "$ref": "#/$defs/TaskWorkflowStatus",
-                  "default": "open"
-                },
-                "priority": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/TaskPriority"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null
-                },
-                "due_date": {
-                  "anyOf": [
-                    {
-                      "format": "date",
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Due Date"
-                },
-                "project_id": {
-                  "anyOf": [
-                    {
-                      "maximum": 9223372036854775807,
-                      "minimum": 1,
-                      "type": "integer"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Project Id"
-                },
-                "parent_task_id": {
-                  "anyOf": [
-                    {
-                      "maximum": 9223372036854775807,
-                      "minimum": 1,
-                      "type": "integer"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Parent Task Id"
-                },
-                "estimated_minutes": {
-                  "anyOf": [
-                    {
-                      "exclusiveMinimum": 0,
-                      "type": "integer"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Estimated Minutes"
-                }
-              },
-              "required": [
-                "title"
-              ],
-              "title": "TaskCreate",
-              "type": "object"
-            },
             "TaskPriority": {
               "enum": [
                 "low",
@@ -218,13 +124,97 @@
               "type": "string"
             }
           },
+          "additionalProperties": false,
           "properties": {
-            "data": {
-              "$ref": "#/$defs/TaskCreate"
+            "title": {
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Description"
+            },
+            "workflow_status": {
+              "$ref": "#/$defs/TaskWorkflowStatus",
+              "default": "open"
+            },
+            "priority": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/TaskPriority"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "due_date": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Due Date"
+            },
+            "project_id": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Project Id"
+            },
+            "parent_task_id": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Parent Task Id"
+            },
+            "estimated_minutes": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Estimated Minutes"
             }
           },
           "required": [
-            "data"
+            "title"
           ],
           "title": "create_taskArguments",
           "type": "object"
@@ -235,12 +225,12 @@
       "type": "function",
       "function": {
         "name": "update_task",
-        "description": "Partially update a task; only the fields present in `changes` are touched.\n\nA parent's estimated_minutes is derived from its subtasks and cannot be set. Its\nworkflow_status may be set to open or in_progress while every subtask is still\nopen; done is reached only by completing the subtasks. A blocked task cannot be\nmarked done. Recurring tasks accept edit_scope \"this\" (default) or \"future\".",
+        "description": "Partially update a task; only the fields you pass are touched.\n\nA parent's estimated_minutes is derived from its subtasks and cannot be set. Its\nworkflow_status may be set to open or in_progress while every subtask is still\nopen; done is reached only by completing the subtasks. A blocked task cannot be\nmarked done. Recurring tasks accept edit_scope \"this\" (default) or \"future\".",
         "parameters": {
           "$defs": {
             "RepeatInterval": {
               "additionalProperties": false,
-              "description": "A task recurrence cadence, e.g. ``{\"unit\": \"week\", \"every\": 2}``.\n\nBoth fields are always required (no defaults), so a partial payload is a 422\nrather than a silently ``None`` cadence. ``every`` is bounded 1-12 to match\nthe natural-text UI (``daily`` … ``every 12 months``).",
+              "description": "A task recurrence cadence, e.g. ``{\"unit\": \"week\", \"every\": 2}``; ``every`` defaults to 1.",
               "properties": {
                 "unit": {
                   "enum": [
@@ -252,6 +242,7 @@
                   "type": "string"
                 },
                 "every": {
+                  "default": 1,
                   "maximum": 12,
                   "minimum": 1,
                   "title": "Every",
@@ -259,8 +250,7 @@
                 }
               },
               "required": [
-                "unit",
-                "every"
+                "unit"
               ],
               "title": "RepeatInterval",
               "type": "object"
@@ -275,147 +265,6 @@
               "title": "TaskPriority",
               "type": "string"
             },
-            "TaskUpdate": {
-              "additionalProperties": false,
-              "properties": {
-                "title": {
-                  "anyOf": [
-                    {
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Title"
-                },
-                "description": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Description"
-                },
-                "workflow_status": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/TaskWorkflowStatus"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null
-                },
-                "priority": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/TaskPriority"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null
-                },
-                "due_date": {
-                  "anyOf": [
-                    {
-                      "format": "date",
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Due Date"
-                },
-                "deferred_until": {
-                  "anyOf": [
-                    {
-                      "format": "date",
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Deferred Until"
-                },
-                "project_id": {
-                  "anyOf": [
-                    {
-                      "maximum": 9223372036854775807,
-                      "minimum": 1,
-                      "type": "integer"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Project Id"
-                },
-                "parent_task_id": {
-                  "anyOf": [
-                    {
-                      "maximum": 9223372036854775807,
-                      "minimum": 1,
-                      "type": "integer"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Parent Task Id"
-                },
-                "estimated_minutes": {
-                  "anyOf": [
-                    {
-                      "exclusiveMinimum": 0,
-                      "type": "integer"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Estimated Minutes"
-                },
-                "repeat_interval": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/RepeatInterval"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null
-                },
-                "edit_scope": {
-                  "default": "this",
-                  "enum": [
-                    "this",
-                    "future"
-                  ],
-                  "title": "Edit Scope",
-                  "type": "string"
-                }
-              },
-              "title": "TaskUpdate",
-              "type": "object"
-            },
             "TaskWorkflowStatus": {
               "enum": [
                 "open",
@@ -426,6 +275,7 @@
               "type": "string"
             }
           },
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -433,13 +283,143 @@
               "title": "Task Id",
               "type": "integer"
             },
-            "changes": {
-              "$ref": "#/$defs/TaskUpdate"
+            "title": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Description"
+            },
+            "workflow_status": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/TaskWorkflowStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "priority": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/TaskPriority"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "due_date": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Due Date"
+            },
+            "deferred_until": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Deferred Until"
+            },
+            "project_id": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Project Id"
+            },
+            "parent_task_id": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Parent Task Id"
+            },
+            "estimated_minutes": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Estimated Minutes"
+            },
+            "repeat_interval": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RepeatInterval"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "edit_scope": {
+              "default": "this",
+              "enum": [
+                "this",
+                "future"
+              ],
+              "title": "Edit Scope",
+              "type": "string"
             }
           },
           "required": [
-            "task_id",
-            "changes"
+            "task_id"
           ],
           "title": "update_taskArguments",
           "type": "object"
@@ -452,6 +432,7 @@
         "name": "complete_task",
         "description": "Mark a task done. A recurring task spawns its next occurrence.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -474,6 +455,7 @@
         "name": "reopen_task",
         "description": "Reopen a done task (workflow_status back to open).",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -496,6 +478,7 @@
         "name": "trash_task",
         "description": "Move a task to the trash, together with all of its subtasks.\n\nUndo with restore_task(task_id, restore_subtasks=True), which brings back\nthe same set. Plain restore_task(task_id) returns only this task and leaves\nits subtasks in the trash.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -518,6 +501,7 @@
         "name": "restore_task",
         "description": "Restore a trashed task (see list_trash for what is restorable).\n\nSet restore_subtasks=True to also restore the subtasks that were trashed\ntogether with this task — that is the exact undo of a trash_task call.\nSubtasks the user had trashed separately beforehand stay in the trash.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -545,6 +529,7 @@
         "name": "list_dependencies",
         "description": "Both directions of a task's dependency graph: what it waits on (depends_on) and what waits on it (dependents).",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -567,6 +552,7 @@
         "name": "add_dependency",
         "description": "Make task_id wait on depends_on_task_id: it is blocked until that task is done.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -596,6 +582,7 @@
         "name": "remove_dependency",
         "description": "Remove a dependency edge by its id (from list_dependencies); task_id must be its dependent.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -625,6 +612,7 @@
         "name": "skip_occurrence",
         "description": "Skip a recurring task's current occurrence (to trash, restorable) and return the next one.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -647,6 +635,7 @@
         "name": "stop_recurrence",
         "description": "Stop a recurring task from repeating; the current occurrence stays as a normal task.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -669,6 +658,7 @@
         "name": "list_projects",
         "description": "List active projects in display order.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "include_closed": {
               "default": false,
@@ -687,6 +677,7 @@
         "name": "get_project",
         "description": "Fetch one project.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "maximum": 9223372036854775807,
@@ -709,42 +700,28 @@
         "name": "create_project",
         "description": "Create a project.",
         "parameters": {
-          "$defs": {
-            "ProjectCreate": {
-              "additionalProperties": false,
-              "properties": {
-                "name": {
-                  "minLength": 1,
-                  "title": "Name",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "minLength": 1,
+              "title": "Name",
+              "type": "string"
+            },
+            "description": {
+              "anyOf": [
+                {
                   "type": "string"
                 },
-                "description": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Description"
+                {
+                  "type": "null"
                 }
-              },
-              "required": [
-                "name"
               ],
-              "title": "ProjectCreate",
-              "type": "object"
-            }
-          },
-          "properties": {
-            "data": {
-              "$ref": "#/$defs/ProjectCreate"
+              "default": null,
+              "title": "Description"
             }
           },
           "required": [
-            "data"
+            "name"
           ],
           "title": "create_projectArguments",
           "type": "object"
@@ -757,40 +734,7 @@
         "name": "update_project",
         "description": "Rename a project or edit its description; only fields present are touched.",
         "parameters": {
-          "$defs": {
-            "ProjectUpdate": {
-              "additionalProperties": false,
-              "properties": {
-                "name": {
-                  "anyOf": [
-                    {
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Name"
-                },
-                "description": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Description"
-                }
-              },
-              "title": "ProjectUpdate",
-              "type": "object"
-            }
-          },
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "maximum": 9223372036854775807,
@@ -798,13 +742,34 @@
               "title": "Project Id",
               "type": "integer"
             },
-            "changes": {
-              "$ref": "#/$defs/ProjectUpdate"
+            "name": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Name"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Description"
             }
           },
           "required": [
-            "project_id",
-            "changes"
+            "project_id"
           ],
           "title": "update_projectArguments",
           "type": "object"
@@ -817,6 +782,7 @@
         "name": "close_project",
         "description": "Close a project: hidden from default lists, nothing deleted.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "maximum": 9223372036854775807,
@@ -839,6 +805,7 @@
         "name": "reopen_project",
         "description": "Reopen a closed project.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "maximum": 9223372036854775807,
@@ -861,6 +828,7 @@
         "name": "trash_project",
         "description": "Move a project and its tasks to the trash. Undo with restore_project.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "maximum": 9223372036854775807,
@@ -883,6 +851,7 @@
         "name": "restore_project",
         "description": "Restore a trashed project; restore_tasks also brings back the tasks trashed with it.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "maximum": 9223372036854775807,
@@ -910,6 +879,7 @@
         "name": "search",
         "description": "Full-text search over active projects and tasks (title, description).",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "query": {
               "title": "Query",
@@ -937,6 +907,7 @@
         "name": "get_focus_plan",
         "description": "Deterministic day plan: what to work on for `date` (default: today).",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "date": {
               "anyOf": [
@@ -976,6 +947,7 @@
         "name": "pin_focus_task",
         "description": "Pin a task into the Focus plan for `date` (default: today) so it never lands in \"Didn't fit\".\n\nWith start_time (HH:MM) it becomes a fixed block at that time; without, it\njoins the day ahead of the ranked work. Pinning an already pinned task moves\nit. Undo with remove_focus_entry(entry_id).",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "task_id": {
               "maximum": 9223372036854775807,
@@ -1027,7 +999,7 @@
           "$defs": {
             "CommitmentRepeatInterval": {
               "additionalProperties": false,
-              "description": "A commitment series' cadence: the task shape plus an optional weekday set (#427).\n\n``{\"unit\": \"week\", \"every\": 1, \"days\": [0, 1, 2, 3, 4]}`` is a Mon-Fri\nstandup; ``every: 2`` with ``days`` is \"every other week on those days\".\n``days`` is only meaningful with ``unit: \"week\"``; without it a weekly series\nlands on its first day's weekday, as before. Task recurrence keeps the plain\n``RepeatInterval``: this subclass is commitments-only.",
+              "description": "A commitment series' cadence; ``every`` defaults to 1.\n\n``{\"unit\": \"week\", \"every\": 1, \"days\": [0, 1, 2, 3, 4]}`` is Mon-Fri (days:\nMonday 0 to Sunday 6, weeks only).",
               "properties": {
                 "unit": {
                   "enum": [
@@ -1039,6 +1011,7 @@
                   "type": "string"
                 },
                 "every": {
+                  "default": 1,
                   "maximum": 12,
                   "minimum": 1,
                   "title": "Every",
@@ -1065,13 +1038,13 @@
                 }
               },
               "required": [
-                "unit",
-                "every"
+                "unit"
               ],
               "title": "CommitmentRepeatInterval",
               "type": "object"
             }
           },
+          "additionalProperties": false,
           "properties": {
             "title": {
               "maxLength": 200,
@@ -1131,6 +1104,7 @@
         "name": "skip_focus_occurrence",
         "description": "Skip one day of a repeating Focus commitment; the series and its other days are untouched.\n\nseries_id is the commitment's entry_id from get_focus_plan; plan_date is the\nday to skip. Undo with remove_focus_entry(entry_id) on the returned skip.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "series_id": {
               "maximum": 9223372036854775807,
@@ -1159,6 +1133,7 @@
         "name": "stop_focus_series",
         "description": "End a repeating Focus commitment from `stop_date` on; earlier days keep it.\n\nstop_date is the first day it no longer happens. Omit stop_date to lift an\nend and make it repeat with no end again. To remove it from its first day,\nuse remove_focus_entry. Undo by calling this again with the previous\nstop_date (see stop_date on the returned entry, or omit it to lift).",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "series_id": {
               "maximum": 9223372036854775807,
@@ -1194,6 +1169,7 @@
         "name": "edit_focus_occurrence",
         "description": "Change one day of a repeating Focus commitment (time, title and/or length), that day only.\n\nseries_id is the commitment's entry_id from get_focus_plan. Fields left out\nkeep the series' values. Undo with remove_focus_entry(entry_id) on the\nreturned entry, which resets the day.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "series_id": {
               "maximum": 9223372036854775807,
@@ -1263,6 +1239,7 @@
         "name": "reorder_focus_pins",
         "description": "Reorder the pinned tasks in the Focus plan for `date` (default: today), first to last.\n\nentry_ids are pin entry_ids from get_focus_plan; pins left out keep their\nplace. Commitments and pins at a fixed time keep their own times. Undo by\nreordering back.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "entry_ids": {
               "items": {
@@ -1303,6 +1280,7 @@
         "name": "remove_focus_entry",
         "description": "Unpin a task or drop a commitment from the Focus plan (entry_id from get_focus_plan).\n\nGiven a repeating commitment's entry_id it removes the whole series, every\nday: to drop just one day use skip_focus_occurrence, and to end it from a\nday on use stop_focus_series. Given a skip_entry_id (skipped_commitments) it\nun-skips that day; given an override_entry_id it resets that edited day to\nthe usual occurrence. Undo with restore_focus_entry(entry_id).",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "entry_id": {
               "maximum": 9223372036854775807,
@@ -1325,6 +1303,7 @@
         "name": "restore_focus_entry",
         "description": "Bring back a Focus pin or commitment removed with remove_focus_entry.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "entry_id": {
               "maximum": 9223372036854775807,
@@ -1347,6 +1326,7 @@
         "name": "list_trash",
         "description": "Recently trashed projects and tasks — what restore_task/restore_project can bring back.",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "limit": {
               "default": 50,
@@ -1367,6 +1347,7 @@
         "name": "list_activity",
         "description": "A project's audit trail, newest first. actor is null for the user; agents stamp theirs (e.g. \"agent:mcp\", \"agent:loop\").",
         "parameters": {
+          "additionalProperties": false,
           "properties": {
             "project_id": {
               "maximum": 9223372036854775807,
@@ -1407,6 +1388,7 @@
             "type": "string"
           }
         },
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "anyOf": [
@@ -1732,6 +1714,7 @@
       "name": "get_task",
       "description": "Fetch one task with its subtask roll-up and blocked/blocking flags.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -2002,102 +1985,6 @@
       "description": "Create a task. Omit project_id to file it in the General project.",
       "inputSchema": {
         "$defs": {
-          "TaskCreate": {
-            "additionalProperties": false,
-            "properties": {
-              "title": {
-                "minLength": 1,
-                "title": "Title",
-                "type": "string"
-              },
-              "description": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Description"
-              },
-              "workflow_status": {
-                "$ref": "#/$defs/TaskWorkflowStatus",
-                "default": "open"
-              },
-              "priority": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/TaskPriority"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null
-              },
-              "due_date": {
-                "anyOf": [
-                  {
-                    "format": "date",
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Due Date"
-              },
-              "project_id": {
-                "anyOf": [
-                  {
-                    "maximum": 9223372036854775807,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Project Id"
-              },
-              "parent_task_id": {
-                "anyOf": [
-                  {
-                    "maximum": 9223372036854775807,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Parent Task Id"
-              },
-              "estimated_minutes": {
-                "anyOf": [
-                  {
-                    "exclusiveMinimum": 0,
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Estimated Minutes"
-              }
-            },
-            "required": [
-              "title"
-            ],
-            "title": "TaskCreate",
-            "type": "object"
-          },
           "TaskPriority": {
             "enum": [
               "low",
@@ -2118,13 +2005,97 @@
             "type": "string"
           }
         },
+        "additionalProperties": false,
         "properties": {
-          "data": {
-            "$ref": "#/$defs/TaskCreate"
+          "title": {
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "workflow_status": {
+            "$ref": "#/$defs/TaskWorkflowStatus",
+            "default": "open"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TaskPriority"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Due Date"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Project Id"
+          },
+          "parent_task_id": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parent Task Id"
+          },
+          "estimated_minutes": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Estimated Minutes"
           }
         },
         "required": [
-          "data"
+          "title"
         ],
         "title": "create_taskArguments",
         "type": "object"
@@ -2382,12 +2353,12 @@
     },
     {
       "name": "update_task",
-      "description": "Partially update a task; only the fields present in `changes` are touched.\n\nA parent's estimated_minutes is derived from its subtasks and cannot be set. Its\nworkflow_status may be set to open or in_progress while every subtask is still\nopen; done is reached only by completing the subtasks. A blocked task cannot be\nmarked done. Recurring tasks accept edit_scope \"this\" (default) or \"future\".",
+      "description": "Partially update a task; only the fields you pass are touched.\n\nA parent's estimated_minutes is derived from its subtasks and cannot be set. Its\nworkflow_status may be set to open or in_progress while every subtask is still\nopen; done is reached only by completing the subtasks. A blocked task cannot be\nmarked done. Recurring tasks accept edit_scope \"this\" (default) or \"future\".",
       "inputSchema": {
         "$defs": {
           "RepeatInterval": {
             "additionalProperties": false,
-            "description": "A task recurrence cadence, e.g. ``{\"unit\": \"week\", \"every\": 2}``.\n\nBoth fields are always required (no defaults), so a partial payload is a 422\nrather than a silently ``None`` cadence. ``every`` is bounded 1-12 to match\nthe natural-text UI (``daily`` … ``every 12 months``).",
+            "description": "A task recurrence cadence, e.g. ``{\"unit\": \"week\", \"every\": 2}``; ``every`` defaults to 1.",
             "properties": {
               "unit": {
                 "enum": [
@@ -2399,6 +2370,7 @@
                 "type": "string"
               },
               "every": {
+                "default": 1,
                 "maximum": 12,
                 "minimum": 1,
                 "title": "Every",
@@ -2406,8 +2378,7 @@
               }
             },
             "required": [
-              "unit",
-              "every"
+              "unit"
             ],
             "title": "RepeatInterval",
             "type": "object"
@@ -2422,147 +2393,6 @@
             "title": "TaskPriority",
             "type": "string"
           },
-          "TaskUpdate": {
-            "additionalProperties": false,
-            "properties": {
-              "title": {
-                "anyOf": [
-                  {
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Title"
-              },
-              "description": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Description"
-              },
-              "workflow_status": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/TaskWorkflowStatus"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null
-              },
-              "priority": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/TaskPriority"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null
-              },
-              "due_date": {
-                "anyOf": [
-                  {
-                    "format": "date",
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Due Date"
-              },
-              "deferred_until": {
-                "anyOf": [
-                  {
-                    "format": "date",
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Deferred Until"
-              },
-              "project_id": {
-                "anyOf": [
-                  {
-                    "maximum": 9223372036854775807,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Project Id"
-              },
-              "parent_task_id": {
-                "anyOf": [
-                  {
-                    "maximum": 9223372036854775807,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Parent Task Id"
-              },
-              "estimated_minutes": {
-                "anyOf": [
-                  {
-                    "exclusiveMinimum": 0,
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Estimated Minutes"
-              },
-              "repeat_interval": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/RepeatInterval"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null
-              },
-              "edit_scope": {
-                "default": "this",
-                "enum": [
-                  "this",
-                  "future"
-                ],
-                "title": "Edit Scope",
-                "type": "string"
-              }
-            },
-            "title": "TaskUpdate",
-            "type": "object"
-          },
           "TaskWorkflowStatus": {
             "enum": [
               "open",
@@ -2573,6 +2403,7 @@
             "type": "string"
           }
         },
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -2580,13 +2411,143 @@
             "title": "Task Id",
             "type": "integer"
           },
-          "changes": {
-            "$ref": "#/$defs/TaskUpdate"
+          "title": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "workflow_status": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TaskWorkflowStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TaskPriority"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Due Date"
+          },
+          "deferred_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Deferred Until"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Project Id"
+          },
+          "parent_task_id": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parent Task Id"
+          },
+          "estimated_minutes": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Estimated Minutes"
+          },
+          "repeat_interval": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RepeatInterval"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "edit_scope": {
+            "default": "this",
+            "enum": [
+              "this",
+              "future"
+            ],
+            "title": "Edit Scope",
+            "type": "string"
           }
         },
         "required": [
-          "task_id",
-          "changes"
+          "task_id"
         ],
         "title": "update_taskArguments",
         "type": "object"
@@ -2846,6 +2807,7 @@
       "name": "complete_task",
       "description": "Mark a task done. A recurring task spawns its next occurrence.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -3115,6 +3077,7 @@
       "name": "reopen_task",
       "description": "Reopen a done task (workflow_status back to open).",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -3384,6 +3347,7 @@
       "name": "trash_task",
       "description": "Move a task to the trash, together with all of its subtasks.\n\nUndo with restore_task(task_id, restore_subtasks=True), which brings back\nthe same set. Plain restore_task(task_id) returns only this task and leaves\nits subtasks in the trash.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -3416,6 +3380,7 @@
       "name": "restore_task",
       "description": "Restore a trashed task (see list_trash for what is restorable).\n\nSet restore_subtasks=True to also restore the subtasks that were trashed\ntogether with this task — that is the exact undo of a trash_task call.\nSubtasks the user had trashed separately beforehand stay in the trash.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -3690,6 +3655,7 @@
       "name": "list_dependencies",
       "description": "Both directions of a task's dependency graph: what it waits on (depends_on) and what waits on it (dependents).",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -3821,6 +3787,7 @@
       "name": "add_dependency",
       "description": "Make task_id wait on depends_on_task_id: it is blocked until that task is done.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -3896,6 +3863,7 @@
       "name": "remove_dependency",
       "description": "Remove a dependency edge by its id (from list_dependencies); task_id must be its dependent.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -3935,6 +3903,7 @@
       "name": "skip_occurrence",
       "description": "Skip a recurring task's current occurrence (to trash, restorable) and return the next one.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -4204,6 +4173,7 @@
       "name": "stop_recurrence",
       "description": "Stop a recurring task from repeating; the current occurrence stays as a normal task.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -4473,6 +4443,7 @@
       "name": "list_projects",
       "description": "List active projects in display order.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "include_closed": {
             "default": false,
@@ -4596,6 +4567,7 @@
       "name": "get_project",
       "description": "Fetch one project.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "maximum": 9223372036854775807,
@@ -4705,42 +4677,28 @@
       "name": "create_project",
       "description": "Create a project.",
       "inputSchema": {
-        "$defs": {
-          "ProjectCreate": {
-            "additionalProperties": false,
-            "properties": {
-              "name": {
-                "minLength": 1,
-                "title": "Name",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
                 "type": "string"
               },
-              "description": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Description"
+              {
+                "type": "null"
               }
-            },
-            "required": [
-              "name"
             ],
-            "title": "ProjectCreate",
-            "type": "object"
-          }
-        },
-        "properties": {
-          "data": {
-            "$ref": "#/$defs/ProjectCreate"
+            "default": null,
+            "title": "Description"
           }
         },
         "required": [
-          "data"
+          "name"
         ],
         "title": "create_projectArguments",
         "type": "object"
@@ -4840,40 +4798,7 @@
       "name": "update_project",
       "description": "Rename a project or edit its description; only fields present are touched.",
       "inputSchema": {
-        "$defs": {
-          "ProjectUpdate": {
-            "additionalProperties": false,
-            "properties": {
-              "name": {
-                "anyOf": [
-                  {
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Name"
-              },
-              "description": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Description"
-              }
-            },
-            "title": "ProjectUpdate",
-            "type": "object"
-          }
-        },
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "maximum": 9223372036854775807,
@@ -4881,13 +4806,34 @@
             "title": "Project Id",
             "type": "integer"
           },
-          "changes": {
-            "$ref": "#/$defs/ProjectUpdate"
+          "name": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
           }
         },
         "required": [
-          "project_id",
-          "changes"
+          "project_id"
         ],
         "title": "update_projectArguments",
         "type": "object"
@@ -4987,6 +4933,7 @@
       "name": "close_project",
       "description": "Close a project: hidden from default lists, nothing deleted.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "maximum": 9223372036854775807,
@@ -5096,6 +5043,7 @@
       "name": "reopen_project",
       "description": "Reopen a closed project.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "maximum": 9223372036854775807,
@@ -5205,6 +5153,7 @@
       "name": "trash_project",
       "description": "Move a project and its tasks to the trash. Undo with restore_project.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "maximum": 9223372036854775807,
@@ -5237,6 +5186,7 @@
       "name": "restore_project",
       "description": "Restore a trashed project; restore_tasks also brings back the tasks trashed with it.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "maximum": 9223372036854775807,
@@ -5371,6 +5321,7 @@
       "name": "search",
       "description": "Full-text search over active projects and tasks (title, description).",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "query": {
             "title": "Query",
@@ -5494,6 +5445,7 @@
       "name": "get_focus_plan",
       "description": "Deterministic day plan: what to work on for `date` (default: today).",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "date": {
             "anyOf": [
@@ -6157,6 +6109,7 @@
       "name": "pin_focus_task",
       "description": "Pin a task into the Focus plan for `date` (default: today) so it never lands in \"Didn't fit\".\n\nWith start_time (HH:MM) it becomes a fixed block at that time; without, it\njoins the day ahead of the ranked work. Pinning an already pinned task moves\nit. Undo with remove_focus_entry(entry_id).",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "task_id": {
             "maximum": 9223372036854775807,
@@ -6381,7 +6334,7 @@
         "$defs": {
           "CommitmentRepeatInterval": {
             "additionalProperties": false,
-            "description": "A commitment series' cadence: the task shape plus an optional weekday set (#427).\n\n``{\"unit\": \"week\", \"every\": 1, \"days\": [0, 1, 2, 3, 4]}`` is a Mon-Fri\nstandup; ``every: 2`` with ``days`` is \"every other week on those days\".\n``days`` is only meaningful with ``unit: \"week\"``; without it a weekly series\nlands on its first day's weekday, as before. Task recurrence keeps the plain\n``RepeatInterval``: this subclass is commitments-only.",
+            "description": "A commitment series' cadence; ``every`` defaults to 1.\n\n``{\"unit\": \"week\", \"every\": 1, \"days\": [0, 1, 2, 3, 4]}`` is Mon-Fri (days:\nMonday 0 to Sunday 6, weeks only).",
             "properties": {
               "unit": {
                 "enum": [
@@ -6393,6 +6346,7 @@
                 "type": "string"
               },
               "every": {
+                "default": 1,
                 "maximum": 12,
                 "minimum": 1,
                 "title": "Every",
@@ -6419,13 +6373,13 @@
               }
             },
             "required": [
-              "unit",
-              "every"
+              "unit"
             ],
             "title": "CommitmentRepeatInterval",
             "type": "object"
           }
         },
+        "additionalProperties": false,
         "properties": {
           "title": {
             "maxLength": 200,
@@ -6658,6 +6612,7 @@
       "name": "skip_focus_occurrence",
       "description": "Skip one day of a repeating Focus commitment; the series and its other days are untouched.\n\nseries_id is the commitment's entry_id from get_focus_plan; plan_date is the\nday to skip. Undo with remove_focus_entry(entry_id) on the returned skip.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "series_id": {
             "maximum": 9223372036854775807,
@@ -6859,6 +6814,7 @@
       "name": "stop_focus_series",
       "description": "End a repeating Focus commitment from `stop_date` on; earlier days keep it.\n\nstop_date is the first day it no longer happens. Omit stop_date to lift an\nend and make it repeat with no end again. To remove it from its first day,\nuse remove_focus_entry. Undo by calling this again with the previous\nstop_date (see stop_date on the returned entry, or omit it to lift).",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "series_id": {
             "maximum": 9223372036854775807,
@@ -7067,6 +7023,7 @@
       "name": "edit_focus_occurrence",
       "description": "Change one day of a repeating Focus commitment (time, title and/or length), that day only.\n\nseries_id is the commitment's entry_id from get_focus_plan. Fields left out\nkeep the series' values. Undo with remove_focus_entry(entry_id) on the\nreturned entry, which resets the day.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "series_id": {
             "maximum": 9223372036854775807,
@@ -7309,6 +7266,7 @@
       "name": "reorder_focus_pins",
       "description": "Reorder the pinned tasks in the Focus plan for `date` (default: today), first to last.\n\nentry_ids are pin entry_ids from get_focus_plan; pins left out keep their\nplace. Commitments and pins at a fixed time keep their own times. Undo by\nreordering back.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "entry_ids": {
             "items": {
@@ -7538,6 +7496,7 @@
       "name": "remove_focus_entry",
       "description": "Unpin a task or drop a commitment from the Focus plan (entry_id from get_focus_plan).\n\nGiven a repeating commitment's entry_id it removes the whole series, every\nday: to drop just one day use skip_focus_occurrence, and to end it from a\nday on use stop_focus_series. Given a skip_entry_id (skipped_commitments) it\nun-skips that day; given an override_entry_id it resets that edited day to\nthe usual occurrence. Undo with restore_focus_entry(entry_id).",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "entry_id": {
             "maximum": 9223372036854775807,
@@ -7570,6 +7529,7 @@
       "name": "restore_focus_entry",
       "description": "Bring back a Focus pin or commitment removed with remove_focus_entry.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "entry_id": {
             "maximum": 9223372036854775807,
@@ -7765,6 +7725,7 @@
       "name": "list_trash",
       "description": "Recently trashed projects and tasks — what restore_task/restore_project can bring back.",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "limit": {
             "default": 50,
@@ -8158,6 +8119,7 @@
       "name": "list_activity",
       "description": "A project's audit trail, newest first. actor is null for the user; agents stamp theirs (e.g. \"agent:mcp\", \"agent:loop\").",
       "inputSchema": {
+        "additionalProperties": false,
         "properties": {
           "project_id": {
             "maximum": 9223372036854775807,

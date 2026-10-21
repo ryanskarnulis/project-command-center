@@ -82,12 +82,10 @@ CREATED_STAMPS = _evidence(
     _call(
         "create_task",
         {
-            "data": {
-                "title": "Buy stamps",
-                "project_id": 1,
-                "priority": "high",
-                "due_date": TOMORROW,
-            }
+            "title": "Buy stamps",
+            "project_id": 1,
+            "priority": "high",
+            "due_date": TOMORROW,
         },
         _task(5, "Buy stamps", priority="high", due=TOMORROW),
     ),
@@ -95,8 +93,8 @@ CREATED_STAMPS = _evidence(
 CREATE_REFUSED = _evidence(
     _call(
         "create_task",
-        {"data": {"name": "Buy stamps"}},
-        error="Invalid arguments: data.title: Field required",
+        {"titel": "Buy stamps"},
+        error="Invalid arguments: title: Field required",
     ),
 )
 COMPLETED_DENTIST = _evidence(
@@ -121,14 +119,14 @@ DENTIST_AND_FOLLOW_UP = _evidence(
     _call("complete_task", {"task_id": 3}, _task(3, "Book dentist appointment", status="done")),
     _call(
         "create_task",
-        {"data": {"title": "Dentist follow-up", "description": "Follow up next month"}},
+        {"title": "Dentist follow-up", "description": "Follow up next month"},
         _task(9, "Dentist follow-up", description="Follow up next month"),
     ),
 )
 MOVED_TO_FRIDAY = _evidence(
     _call(
         "update_task",
-        {"task_id": 3, "changes": {"due_date": FRIDAY}},
+        {"task_id": 3, "due_date": FRIDAY},
         _task(3, "Book dentist appointment", due=FRIDAY),
     ),
 )
@@ -155,7 +153,7 @@ FOUR_CREATED = _evidence(
     *(
         _call(
             "create_task",
-            {"data": {"title": title, "project_id": 2}},
+            {"title": title, "project_id": 2},
             _task(10 + i, title, project_id=2),
         )
         for i, title in enumerate(
@@ -184,7 +182,7 @@ SUBTASKS_COMPLETED = _evidence(
 PRIORITY_RAISED = _evidence(
     _call(
         "update_task",
-        {"task_id": 3, "changes": {"priority": "high"}},
+        {"task_id": 3, "priority": "high"},
         _task(3, "Review the Q3 report", priority="high"),
     ),
 )
@@ -241,7 +239,7 @@ PROJECT_REOPENED = _evidence(
 RENAMED_BACK = _evidence(
     _call(
         "update_task",
-        {"task_id": 1, "changes": {"title": "Order new furnace filters"}},
+        {"task_id": 1, "title": "Order new furnace filters"},
         _task(1, "Order new furnace filters"),
     ),
 )
@@ -256,8 +254,8 @@ SEARCHES_ONLY = _evidence(
 UPDATES_REFUSED = _evidence(
     _call(
         "update_task",
-        {"task_id": 1, "changes": {"recurrence": "weekly"}},
-        error="Invalid arguments: changes.recurrence",
+        {"task_id": 1, "recurrence": "weekly"},
+        error="Invalid arguments: recurrence",
     ),
 )
 WORK_LIST = _evidence(
@@ -275,7 +273,7 @@ THREE_MOVED = _evidence(
     *(
         _call(
             "update_task",
-            {"task_id": i, "changes": {"due_date": TOMORROW}},
+            {"task_id": i, "due_date": TOMORROW},
             _task(i, f"T{i}", due=TOMORROW),
         )
         for i in (1, 2, 3)
@@ -417,7 +415,7 @@ MUST_NOT_FIRE: list[tuple[str, Evidence]] = [
         _evidence(
             _call(
                 "update_task",
-                {"task_id": 1, "changes": {"title": "Done list"}},
+                {"task_id": 1, "title": "Done list"},
                 _task(1, "Done list"),
             ),
         ),
@@ -432,7 +430,7 @@ MUST_NOT_FIRE: list[tuple[str, Evidence]] = [
         _evidence(
             _call(
                 "update_project",
-                {"project_id": 2, "changes": {"name": "Workshop"}},
+                {"project_id": 2, "name": "Workshop"},
                 {"id": 2, "name": "Workshop", "closed_at": None},
             ),
         ),
@@ -484,7 +482,7 @@ MUST_BACK: list[tuple[str, str, Evidence]] = [
         _evidence(
             _call(
                 "update_task",
-                {"task_id": 1, "changes": {"workflow_status": "done"}},
+                {"task_id": 1, "workflow_status": "done"},
                 _task(1, "Dune", status="done"),
             )
         ),
@@ -525,11 +523,23 @@ def test_read_tools_are_the_registrys() -> None:
 def test_a_title_saying_done_is_not_a_completion() -> None:
     renamed = _evidence(
         _call(
-            "update_task", {"task_id": 1, "changes": {"title": "Done list"}}, _task(1, "Done list")
+            "update_task", {"task_id": 1, "title": "Done list"}, _task(1, "Done list")
         )
     )
     assert not renamed.completed()
     assert any(c.family == "completed" for c in unbacked(read_claims("Marked it done.", renamed)))
+
+
+def test_a_run_recorded_before_411_still_shows_its_completion() -> None:
+    """Stored runs nest an update's fields in ``changes``; the flat read misses them."""
+    nested = _evidence(
+        _call(
+            "update_task",
+            {"task_id": 1, "changes": {"workflow_status": "done"}},
+            _task(1, "Dune", status="done"),
+        )
+    )
+    assert nested.completed()
 
 
 def test_one_claim_per_family_per_sentence() -> None:

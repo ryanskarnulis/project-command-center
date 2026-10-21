@@ -83,14 +83,14 @@ def reply(text: str = "Done.") -> Turn:
 
 
 def _create(title: str) -> tuple[str, dict[str, Any]]:
-    return "create_task", {"data": {"title": title, "project_id": 2}}
+    return "create_task", {"title": title, "project_id": 2}
 
 
 _RECURRING = (
     "update_task",
     {
         "task_id": 3,
-        "changes": {"repeat_interval": {"unit": "day", "every": 1}, "due_date": "2026-01-05"},
+        "repeat_interval": {"unit": "day", "every": 1}, "due_date": "2026-01-05",
     },
 )
 
@@ -171,7 +171,7 @@ NAMED: dict[str, tuple[str, tuple[Step, ...]]] = {
             Step(
                 (
                     calls(("trash_project", {"project_id": 3})),
-                    calls(("create_project", {"data": {"title": "Wrong key"}})),
+                    calls(("create_project", {"title": "Wrong key"})),
                     calls(("restore_project", {"project_id": 3, "restore_tasks": True})),
                     reply(),
                 ),

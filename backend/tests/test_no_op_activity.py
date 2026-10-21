@@ -369,10 +369,10 @@ def test_agent_tool_no_op_task_update_records_nothing(
     before = _events(db_session)
     _tool_session(db_session, test_engine, monkeypatch)
 
-    registry.call_tool("update_task", {"task_id": task_id, "changes": {}}, actor="agent")
+    registry.call_tool("update_task", {"task_id": task_id}, actor="agent")
     registry.call_tool(
         "update_task",
-        {"task_id": task_id, "changes": {"title": "Ship", "edit_scope": "future"}},
+        {"task_id": task_id, "title": "Ship", "edit_scope": "future"},
         actor="agent",
     )
     registry.call_tool("complete_task", {"task_id": task_id}, actor="agent")
@@ -390,11 +390,11 @@ def test_agent_tool_no_op_project_update_records_nothing(
     _tool_session(db_session, test_engine, monkeypatch)
 
     registry.call_tool(
-        "update_project", {"project_id": project_id, "changes": {}}, actor="agent"
+        "update_project", {"project_id": project_id}, actor="agent"
     )
     registry.call_tool(
         "update_project",
-        {"project_id": project_id, "changes": {"name": "Audit"}},
+        {"project_id": project_id, "name": "Audit"},
         actor="agent",
     )
 
@@ -427,7 +427,7 @@ def test_agent_tool_real_update_still_records_an_event(
 
     registry.call_tool(
         "update_task",
-        {"task_id": task_id, "changes": {"due_date": str(date.today() + timedelta(1))}},
+        {"task_id": task_id, "due_date": str(date.today() + timedelta(1))},
         actor="agent",
     )
 

@@ -84,11 +84,11 @@ const reply = message({
     { tool: 'search', arguments: { query: 'firmware' }, result: '{}', error: null },
     {
       tool: 'create_task',
-      arguments: { data: { title: 'Draft the migration comms' } },
+      arguments: { title: 'Draft the migration comms' },
       result: JSON.stringify({ id: 7, title: 'Draft the migration comms' }),
       error: null,
     },
-    { tool: 'update_task', arguments: { task_id: 4, data: { scheduled_for: 'x' } }, result: null, error: 'unknown field "scheduled_for"' },
+    { tool: 'update_task', arguments: { task_id: 4, scheduled_for: 'x' }, result: null, error: 'unknown field "scheduled_for"' },
   ],
 })
 
@@ -294,8 +294,8 @@ describe('AgentPage — mobile handoff (M07f)', () => {
       content: null,
       stop_reason: 'cancelled',
       tool_calls: [
-        { tool: 'create_task', arguments: { data: { title: 'First' } }, result: JSON.stringify({ id: 11, title: 'First' }), error: null },
-        { tool: 'create_task', arguments: { data: { title: 'Second' } }, result: null, error: 'not run: the user stopped the agent run before this call' },
+        { tool: 'create_task', arguments: { title: 'First' }, result: JSON.stringify({ id: 11, title: 'First' }), error: null },
+        { tool: 'create_task', arguments: { title: 'Second' }, result: null, error: 'not run: the user stopped the agent run before this call' },
       ],
     })
     mockGet.mockResolvedValue({ ...detail, messages: [...detail.messages, user, assistant], message_count: 4 })

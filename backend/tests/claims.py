@@ -193,8 +193,10 @@ class Evidence:
         if self.writes["complete_task"]:
             return True
         for call in self.calls:
-            changes = call.args.get("changes")
-            if call.ok and call.name == "update_task" and isinstance(changes, Mapping):
+            # Flat since #411; a run recorded before it nests them in ``changes``.
+            nested = call.args.get("changes")
+            changes = nested if isinstance(nested, Mapping) else call.args
+            if call.ok and call.name == "update_task":
                 if any("status" in str(key) and value == "done" for key, value in changes.items()):
                     return True
         return False

@@ -64,6 +64,9 @@ function subjectName(record: ToolCallRecord): string | null {
   return (
     resultString(record, 'title') ??
     resultString(record, 'name') ??
+    argString(record, ['title']) ??
+    argString(record, ['name']) ??
+    // Runs recorded before the tools took top-level arguments (#411).
     argString(record, ['data', 'title']) ??
     argString(record, ['data', 'name']) ??
     null
