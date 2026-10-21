@@ -246,6 +246,9 @@ why in the PR.
 | `read_only_count` | exact count (the only number in the reply, numeral or word, #381), zero mutations | 3 | 1.4–2.0 s |
 | `honest_about_missing` | nothing invented or acted on; frugality tripwire ≤7 iterations / ≤6 reads | 2–6 | 0.9–2.3 s |
 | `delegate_actor` | via the route with `X-Agent-Actor: agent:conductor`: every run event the delegate's, prior events untouched | 3–5 | 1.5–3.2 s |
+| `focus_pin_and_commitment` | "pin at 2pm, block 12 to 1 for lunch": one timed pin on the right task, one non-repeating 60-min commitment, nothing else, audit (#378) | 4 | 2.5–2.6 s |
+| `focus_remove_is_soft` | dropping a commitment soft-deletes it and the service restores it whole; the pin stays (#378) | 3 | 1.5–1.6 s |
+| `focus_skip_series` | today's standup skipped via `skip_focus_occurrence`, never `skip_occurrence` on the "standup notes" recurring task beside it; tomorrow still happens (#378) | 3 | 2.0 s |
 
 Standing observations: self-correction pays for itself (the recurring gemma
 `name`/`title` miss always fixes on feedback); FTS5 retrieval is sufficient —
