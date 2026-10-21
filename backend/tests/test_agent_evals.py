@@ -6,7 +6,7 @@ so CI and default local runs never touch the GPU:
     cd backend
     PCC_AGENT_EVALS=1 .venv/bin/pytest tests/test_agent_evals.py -v -s
 
-Each scenario seeds a fresh in-memory DB through the service layer, runs one
+Each sample seeds a fresh in-memory DB through the service layer, runs one
 user ask through the full ``AgentLoop`` + shared tool registry against the
 live runtime (``LLAMACPP_BASE_URL``, default :8200 gemma-4-12b) at the
 model's profile (``app/ai/profiles/<LLAMACPP_MODEL>.toml``, #402), then asserts
@@ -18,54 +18,92 @@ two things:
 * **DB end-state** — the mutation really happened (or really didn't),
   soft-delete/audit invariants included.
 
-This suite is the tripwire from ``docs/agent-design.md``: baseline results
-are recorded there, and a regression here is what would ever justify
-revisiting the model choice or adding embeddings. ``-s`` shows the per-run
-``[eval] …`` stats lines the baseline table is built from. The first call may
-cold-load the model (~100 s); everything after runs warm.
+**The gate is statistical (#403).** Every decision about a count lives in
+``tests/evalstats.py`` (pure, unit-tested in CI by ``test_evalstats.py``):
 
-``PCC_AGENT_EVALS_RUNS=N`` (default 1) runs every scenario N times — each run
-is its own pytest case, so a scenario passes only if all N pass — and prints a
-per-scenario table (pass rate, iteration and duration ranges) at the end. The
-aggregation lives in ``tests/eval_report.py`` (unit-tested without a GPU).
+* **Block-sequential sampling.** Each scenario is one pytest case that takes
+  a block of ``PCC_AGENT_EVALS_RUNS`` samples (default 5), then
+  ``evalstats.decide``: a one-sided Wilson upper bound below the floor (0.8)
+  is red, a point estimate at the floor is green, and only the ambiguous middle
+  buys another block, up to ``PCC_AGENT_EVALS_MAX_RUNS`` (default 20). At the
+  defaults 0–2/5 is red, 3/5 escalates, 4–5/5 is green. A green means *not
+  statistically below the floor*, not "works 80% of the time". Setting
+  ``PCC_AGENT_EVALS_RUNS`` at or above the cap forces a fixed count.
+* **Infrastructure is retried, never scored.** A provider death (transport
+  error, 5xx, timeout) or a 429 from the agent route is thrown away and
+  re-taken, at most ``PCC_AGENT_EVALS_INFRA_RETRIES`` (5) per scenario and
+  ``PCC_AGENT_EVALS_INFRA_BUDGET`` (25) across the suite; running out fails
+  the scenario as INFRA_ABORTED with no rate. A request the server *rejected*
+  (a 4xx, an unparseable body) fails on the first one: a retry gets the same
+  answer. Route-driven samples get a fresh client (its own rate-limit key).
+* **Paired seeds.** ``PCC_AGENT_EVALS_SEED=<base>`` sends llama-server the
+  sampling seed ``base + j`` on every call of a scenario's ``j``-th scored
+  sample (an infra retry re-takes the same seed). Unset — the default — sends
+  no seed. Two arms run with one base pair sample for sample;
+  ``python -m tests.eval_report A.jsonl B.jsonl`` prints the exact McNemar
+  test on the pairs they disagree on.
+* **A JSONL report.** ``PCC_AGENT_EVALS_REPORT=<path>`` appends a header
+  (git sha, model, profile, prompt and tool-schema hashes, knobs, floors),
+  one line per scenario as it finishes (verdict plus every sample), and a
+  closing suite line with the infra budget spent. The header also prints.
+
+This suite is the tripwire from ``docs/agent-design.md``: baseline results
+are recorded there. ``-s`` shows the per-sample ``[eval] …`` lines and the
+end-of-suite table. The first call may cold-load the model (~100 s).
 """
 
 from __future__ import annotations
 
-import functools
+import json
 import os
 import re
+import subprocess
 import threading
 import time
-from collections.abc import Callable, Generator, Sequence
-from datetime import date, timedelta
-from typing import Any
+from collections.abc import Callable, Generator, Iterator, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from typing import Any, NoReturn
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, func, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from app.ai import trace as run_trace
 from app.ai.loop import (
     DELEGATE_ACTORS,
     LOOP_ACTOR,
+    SUMMARY_PROMPT_SHA256,
+    SYSTEM_PROMPT_SHA256,
     AgentLoop,
+    AgentRunFailed,
     AgentRunResult,
     ToolCallRecord,
 )
-from app.ai.providers.llamacpp import provider_from_settings
+from app.ai.providers.llamacpp import LlamaCppProvider, provider_from_settings
 from app.api import routes_agent
-from app.db.models import ActivityEvent, Project, Task, TaskWorkflowStatus
+from app.db.models import ActivityEvent, Base, Project, Task, TaskWorkflowStatus
+from app.db.session import enable_sqlite_fk_enforcement, get_db, get_db_write
 from app.main import app
 from app.services import projects as projects_service
 from app.services import task_trash
 from app.services import tasks as tasks_service
 from app.tools import registry, runtime
-from tests.eval_report import (
-    RunRecord,
-    format_report,
-    runs_from_env,
-    summarize,
+from tests.eval_report import RunRecord, format_report, int_from_env, summarize, write_jsonl
+from tests.evalstats import (
+    DEFAULT_FLOOR,
+    Decision,
+    Outcome,
+    RateResult,
+    classify,
+    provider_failure_kind,
+    sample_seed,
+    scenario_record,
 )
 
 pytestmark = pytest.mark.skipif(
@@ -73,72 +111,133 @@ pytestmark = pytest.mark.skipif(
     reason="agent evals run the real model: set PCC_AGENT_EVALS=1",
 )
 
-# PCC_AGENT_EVALS_RUNS=N runs every scenario N times (default 1, unchanged
-# behavior); a scenario passes only if all N runs pass. With N > 1 a per-
-# scenario pass-rate table prints at the end of the module (-s).
-EVAL_RUNS = runs_from_env()
+# --- sampling knobs -------------------------------------------------------------
+#
+# All env-overridable, so a measurement campaign needs no code edit, and all
+# written into the report header. The retry budgets follow chess's sizing
+# (five per scenario is several times the expected deaths of a 20-sample
+# escalation; 25 bounds a suite against a server that stopped coming back).
+_BLOCK_RUNS = int_from_env("PCC_AGENT_EVALS_RUNS", 5) or 5
+_MAX_RUNS = max(int_from_env("PCC_AGENT_EVALS_MAX_RUNS", 20) or 20, _BLOCK_RUNS)
+_INFRA_RETRIES = int_from_env("PCC_AGENT_EVALS_INFRA_RETRIES", 5) or 5
+_INFRA_BUDGET = int_from_env("PCC_AGENT_EVALS_INFRA_BUDGET", 25) or 25
+_SEED_BASE = int_from_env("PCC_AGENT_EVALS_SEED", None, minimum=0)
+_REPORT_PATH = os.environ.get("PCC_AGENT_EVALS_REPORT") or None
 
+# Every scenario's floor. They are regression tripwires, not aspirations, and
+# lowering one for quiet costs the gate its power (``evalstats.DEFAULT_FLOOR``).
+_FLOORS: dict[str, float] = {
+    name: DEFAULT_FLOOR
+    for name in (
+        "create_task_with_fields",
+        "find_and_complete",
+        "reschedule",
+        "delete_is_soft",
+        "read_only_count",
+        "honest_about_missing",
+        "delegate_actor",
+    )
+}
+
+# What the agent route's failure statuses mean (``loop._FAILURE_STATUS``), plus
+# the limiter's 429.
+_ROUTE_STOPS = {
+    429: "rate_limited",
+    500: "internal_error",
+    502: "provider_error",
+    504: "timed_out",
+}
+
+
+@dataclass
+class _SuiteTotals:
+    """Totals across the run, and the infra ceiling shared by every scenario:
+    without one, a dead llama-server turns the suite into an unbounded retry
+    loop that never reports anything."""
+
+    scenarios: int = 0
+    samples: int = 0
+    infra_spent: int = 0
+    infra_budget: int = _INFRA_BUDGET
+
+    def spend_infra(self) -> bool:
+        """Charge one thrown-away sample; False once the suite is out of budget."""
+        self.infra_spent += 1
+        return self.infra_spent < self.infra_budget
+
+
+_SUITE = _SuiteTotals()
 _RECORDS: list[RunRecord] = []
-_current: dict[str, Any] = {}
+_RESULTS: dict[str, RateResult] = {}
 
 
-def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
-    """Fan each scenario out into EVAL_RUNS cases (plain parametrize, no plugin)."""
-    if EVAL_RUNS > 1 and "eval_run" in metafunc.fixturenames:
-        metafunc.parametrize(
-            "eval_run",
-            range(1, EVAL_RUNS + 1),
-            ids=[f"run{n}" for n in range(1, EVAL_RUNS + 1)],
+def _git(*args: str) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=Path(__file__).parent,
         )
+    except (OSError, subprocess.SubprocessError):  # pragma: no cover
+        return None
+    return completed.stdout.strip()
 
 
-@pytest.fixture(autouse=True)
-def eval_run() -> int:
-    """Run number; overridden by the parametrization when EVAL_RUNS > 1."""
-    return 1
+def _header(provider: LlamaCppProvider) -> dict[str, Any]:
+    """What produced the numbers: a baseline without this is a rumour. The
+    prompt and tool-schema hashes are the run trace's (#400), so a report and
+    a trace from one build agree on them."""
+    status = _git("status", "--porcelain")
+    return {
+        "kind": "header",
+        "started": datetime.now(UTC).isoformat(),
+        "git_sha": _git("rev-parse", "HEAD") or "unknown",
+        "git_dirty": None if status is None else bool(status),
+        "model": provider.model,
+        "profile": provider.profile.describe(),
+        "system_prompt_sha256": SYSTEM_PROMPT_SHA256,
+        "summary_prompt_sha256": SUMMARY_PROMPT_SHA256,
+        "tool_schemas_sha256": run_trace.tool_schemas_sha256(registry.tool_specs()),
+        "knobs": {
+            "block_runs": _BLOCK_RUNS,
+            "max_runs": _MAX_RUNS,
+            "infra_retries": _INFRA_RETRIES,
+            "infra_budget": _INFRA_BUDGET,
+            "seed": _SEED_BASE,
+        },
+        "floors": _FLOORS,
+    }
 
 
 @pytest.fixture(scope="module", autouse=True)
-def _eval_summary() -> Generator[None, None, None]:
+def _eval_session() -> Generator[None, None, None]:
+    """Bracket the run: the header before the first scenario (so an
+    interrupted run still says what produced its lines), the table and the
+    infra budget spent after the last."""
     # The model's sampling, thinking kwarg and token caps come from its
     # profile (#402) — the same one the provider builds every request from —
     # so measuring another model is LLAMACPP_MODEL=<id> plus its profile file.
     with provider_from_settings() as provider:
+        header = _header(provider)
         print(f"\n[eval] model={provider.model} profile={provider.profile.describe()}")
+    print(f"[eval] header {json.dumps(header)}")
+    write_jsonl(_REPORT_PATH, header)
+    started = time.monotonic()
     yield
-    if EVAL_RUNS > 1:
-        print(f"\n{format_report(summarize(_RECORDS))}")
-
-
-def eval_scenario(name: str) -> Callable[[Callable[..., None]], Callable[..., None]]:
-    """Record each run's outcome (pass/fail, iterations, duration) by scenario.
-
-    The test still asserts as before, so a failing run fails its own case; the
-    record is what the end-of-module report (and a future statistical gate,
-    #403) reads.
-    """
-
-    def decorate(fn: Callable[..., None]) -> Callable[..., None]:
-        @functools.wraps(fn)
-        def wrapper(*args: Any, **kwargs: Any) -> None:
-            _current.clear()
-            passed = False
-            try:
-                fn(*args, **kwargs)
-                passed = True
-            finally:
-                _RECORDS.append(
-                    RunRecord(
-                        name,
-                        passed,
-                        _current.get("iterations"),
-                        _current.get("duration"),
-                    )
-                )
-
-        return wrapper
-
-    return decorate
+    suite = {
+        "kind": "suite",
+        "finished": datetime.now(UTC).isoformat(),
+        "seconds": round(time.monotonic() - started, 1),
+        "scenarios": _SUITE.scenarios,
+        "samples": _SUITE.samples,
+        "infra_spent": _SUITE.infra_spent,
+        "infra_budget": _SUITE.infra_budget,
+    }
+    write_jsonl(_REPORT_PATH, suite)
+    print(f"\n{format_report(summarize(_RECORDS), _RESULTS)}")
+    print(f"[eval] suite {json.dumps(suite)}")
 
 
 def _is_read(tool: str) -> bool:
@@ -157,39 +256,18 @@ def _successful(result: AgentRunResult, tool: str) -> list[ToolCallRecord]:
     ]
 
 
-@pytest.fixture
-def eval_db(
-    test_engine: Engine, monkeypatch: pytest.MonkeyPatch
-) -> Generator[sessionmaker[Session], None, None]:
-    """Point the loop's per-tool-call sessions at this test's fresh DB."""
-    factory: sessionmaker[Session] = sessionmaker(
-        autocommit=False, autoflush=False, bind=test_engine
-    )
-    monkeypatch.setattr(runtime, "session_factory", factory)
-    yield factory
-
-
-def _report(scenario: str, result: AgentRunResult, duration: float) -> None:
-    """The ``[eval]`` stats line the baseline table is built from."""
-    trajectory = " → ".join(
-        record.tool + ("!" if record.error is not None else "")
-        for record in result.tool_calls
-    )
-    _current.update(iterations=result.iterations, duration=duration)
-    print(
-        f"\n[eval] scenario={scenario} stop={result.stop_reason} "
-        f"iterations={result.iterations} duration={duration:.1f}s "
-        f"trajectory=[{trajectory}]"
+def _trajectory(result: AgentRunResult | None) -> str:
+    if result is None:
+        return ""
+    return " → ".join(
+        record.tool + ("!" if record.error is not None else "") for record in result.tool_calls
     )
 
 
-def _run(scenario: str, prompt: str, *, max_iterations: int = 10) -> AgentRunResult:
-    """One eval run straight through the loop, reported."""
-    started = time.monotonic()
-    with provider_from_settings() as provider:
-        result = AgentLoop(provider, max_iterations=max_iterations).run(prompt)
-    _report(scenario, result, time.monotonic() - started)
-    return result
+class _RunDied(Exception):
+    """The run ended without a verdict from the model; the :class:`Sample`
+    holds why. Raised out of the scenario body so its checks never run on a
+    turn that did not happen."""
 
 
 class _RecordingLoop(AgentLoop):
@@ -223,6 +301,289 @@ class _RecordingLoop(AgentLoop):
         return result
 
 
+class Sample:
+    """One sample's world: a fresh in-memory DB the loop's tool sessions are
+    pointed at, the sample's seed, and what its run turned out to be."""
+
+    def __init__(self, scenario: str, index: int, seed: int | None) -> None:
+        self.scenario = scenario
+        self.index = index
+        self.seed = seed
+        # StaticPool: one in-memory connection, visible from the TestClient's
+        # worker thread (the same topology as conftest's ``test_engine``).
+        self.engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        enable_sqlite_fk_enforcement(self.engine)
+        Base.metadata.create_all(bind=self.engine)
+        self.db: sessionmaker[Session] = sessionmaker(
+            autocommit=False, autoflush=False, bind=self.engine
+        )
+        self.status_code = 200
+        self.stop_reason: str | None = None
+        self.provider_failure: str | None = None
+        self.detail: str | None = None
+        self.result: AgentRunResult | None = None
+        self.duration: float | None = None
+
+    def provider(self) -> LlamaCppProvider:
+        """The configured provider, sending this sample's seed (if any)."""
+        return provider_from_settings(seed=self.seed)
+
+    def run(self, prompt: str, *, max_iterations: int = 10) -> AgentRunResult:
+        """One run straight through the loop."""
+        started = time.monotonic()
+        with self.provider() as provider:
+            try:
+                result = AgentLoop(provider, max_iterations=max_iterations).run(prompt)
+            except AgentRunFailed as exc:
+                self._died(exc.http_status, exc.result.stop_reason, str(exc), exc.result, started)
+        self._ran(result, started)
+        return result
+
+    @contextmanager
+    def client(self) -> Iterator[tuple[TestClient, Session]]:
+        """A TestClient over this sample's DB, with a client address of its own:
+        the agent route allows 10 messages a minute *per client*, so samples
+        sharing one would trip it mid-escalation."""
+        session = self.db()
+
+        def override() -> Generator[Session, None, None]:
+            yield session
+
+        app.dependency_overrides[get_db] = override
+        app.dependency_overrides[get_db_write] = override
+        try:
+            with TestClient(app, client=(f"eval-{self.index}", 50000)) as client:
+                yield client, session
+        finally:
+            app.dependency_overrides.clear()
+            session.close()
+
+    def post_message(
+        self,
+        client: TestClient,
+        url: str,
+        *,
+        content: str,
+        headers: dict[str, str],
+        loop: _RecordingLoop,
+    ) -> httpx.Response:
+        """One run through the agent route; a failure status ends the sample."""
+        started = time.monotonic()
+        response = client.post(url, json={"content": content}, headers=headers)
+        if response.status_code != 200:
+            try:
+                detail = str(response.json().get("detail"))
+            except ValueError:
+                detail = response.text[:500]
+            self._died(
+                response.status_code,
+                _ROUTE_STOPS.get(response.status_code),
+                detail,
+                None,
+                started,
+            )
+        if loop.runs:
+            self._ran(loop.runs[-1][1], started)
+        return response
+
+    def _ran(self, result: AgentRunResult, started: float) -> None:
+        self.result = result
+        self.stop_reason = result.stop_reason
+        self.duration = time.monotonic() - started
+        self._print()
+
+    def _died(
+        self,
+        status_code: int,
+        stop_reason: str | None,
+        detail: str,
+        result: AgentRunResult | None,
+        started: float,
+    ) -> NoReturn:
+        self.status_code = status_code
+        self.stop_reason = stop_reason
+        self.detail = detail
+        self.result = result
+        self.duration = time.monotonic() - started
+        if stop_reason == "provider_error":
+            self.provider_failure = provider_failure_kind(detail)
+        self._print()
+        raise _RunDied(detail)
+
+    def _print(self) -> None:
+        """The per-sample ``[eval]`` stats line."""
+        iterations = None if self.result is None else self.result.iterations
+        print(
+            f"\n[eval] scenario={self.scenario}[{self.index}] seed={self.seed} "
+            f"stop={self.stop_reason} iterations={iterations} "
+            f"duration={self.duration or 0.0:.1f}s "
+            f"trajectory=[{_trajectory(self.result)}]"
+            + (f" status={self.status_code} detail={self.detail!r}" if self.detail else "")
+        )
+
+    def record(self, outcome: Outcome, error: BaseException | None) -> dict[str, Any]:
+        """This sample as the report keeps it."""
+        return {
+            "index": self.index,
+            "outcome": str(outcome),
+            "seed": self.seed,
+            "status_code": self.status_code,
+            "stop_reason": self.stop_reason,
+            "provider_failure": self.provider_failure,
+            "iterations": None if self.result is None else self.result.iterations,
+            "seconds": None if self.duration is None else round(self.duration, 1),
+            "trajectory": _trajectory(self.result),
+            "run_id": None if self.result is None else self.result.run_id,
+            "error": None if error is None else str(error),
+            "detail": self.detail,
+        }
+
+
+def _take(
+    scenario: str, body: Callable[[Sample], None], index: int, seed: int | None
+) -> tuple[Outcome, Sample, BaseException | None]:
+    """One sample on a fresh DB, and what kind of sample it turned out to be."""
+    sample = Sample(scenario, index, seed)
+    saved = runtime.session_factory
+    runtime.session_factory = sample.db
+    error: BaseException | None = None
+    try:
+        body(sample)
+    except _RunDied:
+        pass  # the sample says why; classify reads it
+    except Exception as exc:
+        # A failed assertion is the model; anything else is a bug in this
+        # file (classify: HARNESS). KeyboardInterrupt is deliberately not
+        # caught — Ctrl-C must abort, with finished scenarios already on disk.
+        error = exc
+    finally:
+        runtime.session_factory = saved
+        sample.engine.dispose()
+    outcome = classify(
+        status_code=sample.status_code,
+        stop_reason=sample.stop_reason,
+        error=error,
+        provider_failure=sample.provider_failure,
+    )
+    return outcome, sample, error
+
+
+def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
+    """Sample one scenario in blocks until its count decides against its floor,
+    then hold it to the verdict.
+
+    Red takes evidence: only a Wilson upper bound *below* the floor fails. A
+    count still UNDECIDED at the cap passes, flagged. An infra death is thrown
+    away and re-taken without consuming a sample; a rejected request or a
+    harness bug fails the scenario on the spot, with what was measured so far
+    already reported.
+    """
+    floor = _FLOORS[scenario]
+    blocks: list[tuple[int, int]] = []
+    failures: list[str] = []
+    samples: list[dict[str, Any]] = []
+    infra = 0
+    taken = 0
+    started = time.monotonic()
+
+    def report(**meta: Any) -> None:
+        write_jsonl(
+            _REPORT_PATH,
+            {
+                "kind": "scenario",
+                "seconds": round(time.monotonic() - started, 1),
+                "samples": samples,
+                **meta,
+            },
+        )
+
+    while True:
+        block_passed = 0
+        block_runs = 0
+        while block_runs < _BLOCK_RUNS:
+            taken += 1
+            # Keyed on the scored position, so an infra retry re-takes the
+            # same seed and the pairs behind it stay aligned.
+            seed = sample_seed(_SEED_BASE, sum(r for _, r in blocks) + block_runs)
+            outcome, sample, error = _take(scenario, body, taken, seed)
+            _SUITE.samples += 1
+            samples.append(sample.record(outcome, error))
+            if outcome is Outcome.PROVIDER_REJECTED:
+                report(scenario=scenario, floor=floor, decision="PROVIDER_REJECTED", infra=infra)
+                pytest.fail(
+                    f"{scenario}: llama-server refused the request ({sample.detail}) — "
+                    "no rate was measured, and a retry would get the same refusal."
+                )
+            if outcome is Outcome.INFRA:
+                infra += 1
+                budget_left = _SUITE.spend_infra()
+                print(f"[eval]   ⟳ infra retry {infra}/{_INFRA_RETRIES} ({scenario})")
+                if infra >= _INFRA_RETRIES or not budget_left:
+                    report(
+                        scenario=scenario,
+                        floor=floor,
+                        decision="INFRA_ABORTED",
+                        infra=infra,
+                        suite_infra_spent=_SUITE.infra_spent,
+                    )
+                    pytest.fail(
+                        f"{scenario}: INFRA_ABORTED after {infra} provider deaths "
+                        f"(suite budget spent {_SUITE.infra_spent}/{_SUITE.infra_budget}). "
+                        "No rate was measured: llama-server is not staying up."
+                    )
+                continue
+            if outcome is Outcome.HARNESS:
+                report(
+                    scenario=scenario,
+                    floor=floor,
+                    decision="HARNESS_ERROR",
+                    infra=infra,
+                    error=repr(error),
+                )
+                assert error is not None  # HARNESS is only reachable with one
+                raise error
+            block_runs += 1
+            passed = outcome is Outcome.PASS
+            _RECORDS.append(
+                RunRecord(
+                    scenario,
+                    passed,
+                    None if sample.result is None else sample.result.iterations,
+                    sample.duration,
+                )
+            )
+            if passed:
+                block_passed += 1
+            else:
+                why = error or f"HTTP {sample.status_code} {sample.stop_reason}: {sample.detail}"
+                failures.append(f"run {taken}: {why}")
+        blocks.append((block_passed, block_runs))
+        result = RateResult.from_blocks(
+            blocks=blocks, failures=failures, floor=floor, infra=infra
+        )
+        if result.decision is not Decision.UNDECIDED or result.runs >= _MAX_RUNS:
+            break
+
+    _SUITE.scenarios += 1
+    _RESULTS[scenario] = result
+    print(f"\n[eval] scenario={scenario} PASS_RATE={result.summary()} floor={floor:.0%}")
+    for failure in result.failures:
+        print(f"[eval]   ✗ {failure}")
+    for mode, count in sorted(result.failure_modes.items(), key=lambda item: -item[1]):
+        print(f"[eval]   ×{count} {mode}")
+    report(**scenario_record(scenario, result, floor))
+    detail = f"{result.summary()} floor={floor:.0%}"
+    assert result.decision is not Decision.BELOW_FLOOR, (
+        f"{scenario} is below its floor with evidence, not noise: {detail}"
+    )
+    if result.decision is Decision.UNDECIDED:
+        print(f"[eval]   ⚠ UNDECIDED at the sampling cap: {detail}")
+
+
 def _event_count(db: Session) -> int:
     return db.execute(select(func.count()).select_from(ActivityEvent)).scalar_one()
 
@@ -230,25 +591,25 @@ def _event_count(db: Session) -> int:
 # --- Scenarios ----------------------------------------------------------------
 
 
-@eval_scenario("create_task_with_fields")
-def test_eval_create_task_with_fields(eval_db: sessionmaker[Session]) -> None:
+def _create_task_with_fields(sample: Sample) -> None:
     """Create with every field: title, project routing, priority, date math."""
-    with eval_db() as db:
+    with sample.db() as db:
         errands = projects_service.create_project(db, name="Errands")
         errands_id = errands.id
         db.commit()
 
-    result = _run(
-        "create_task_with_fields",
+    result = sample.run(
         'Create a task "Buy stamps" in the Errands project, high priority, due tomorrow.',
     )
 
     assert result.stop_reason == "completed"
     assert _successful(result, "create_task"), "expected a successful create_task"
-    with eval_db() as db:
-        task = db.execute(
-            select(Task).where(Task.deleted_at.is_(None))
-        ).scalar_one()
+    with sample.db() as db:
+        # .all() + a count rather than scalar_one(): a model that created two
+        # tasks is a miss to score, not a harness error (#403).
+        tasks = db.execute(select(Task).where(Task.deleted_at.is_(None))).scalars().all()
+        assert len(tasks) == 1, f"expected one task, got {[t.title for t in tasks]}"
+        task = tasks[0]
         assert "stamp" in task.title.lower()
         assert task.project_id == errands_id
         assert task.priority.value == "high"
@@ -259,10 +620,9 @@ def test_eval_create_task_with_fields(eval_db: sessionmaker[Session]) -> None:
         assert events and all(e.actor == LOOP_ACTOR for e in events)
 
 
-@eval_scenario("find_and_complete")
-def test_eval_find_and_complete(eval_db: sessionmaker[Session]) -> None:
+def _find_and_complete(sample: Sample) -> None:
     """Retrieval tripwire: the task is described, not named — look it up, then act."""
-    with eval_db() as db:
+    with sample.db() as db:
         home = projects_service.create_project(db, name="Home")
         for title in (
             "Fix the leaking kitchen tap",
@@ -272,7 +632,7 @@ def test_eval_find_and_complete(eval_db: sessionmaker[Session]) -> None:
             tasks_service.create_task(db, project_id=home.id, title=title)
         db.commit()
 
-    result = _run("find_and_complete", "Mark the task about the dentist as done.")
+    result = sample.run("Mark the task about the dentist as done.")
 
     assert result.stop_reason == "completed"
     completes = _successful(result, "complete_task")
@@ -283,7 +643,7 @@ def test_eval_find_and_complete(eval_db: sessionmaker[Session]) -> None:
     assert any(_is_read(tool) for tool in tools[:first_complete]), (
         f"no read before complete_task in {tools}"
     )
-    with eval_db() as db:
+    with sample.db() as db:
         tasks = {
             t.title: t.workflow_status
             for t in db.execute(select(Task)).scalars().all()
@@ -293,8 +653,7 @@ def test_eval_find_and_complete(eval_db: sessionmaker[Session]) -> None:
         assert tasks["Rake the leaves"] == TaskWorkflowStatus.open
 
 
-@eval_scenario("reschedule")
-def test_eval_reschedule(eval_db: sessionmaker[Session]) -> None:
+def _reschedule(sample: Sample) -> None:
     """Targeted field update: change the due date, touch nothing else.
 
     Dates are relative to today and the target is a full ISO date, so the ask
@@ -302,7 +661,7 @@ def test_eval_reschedule(eval_db: sessionmaker[Session]) -> None:
     """
     seeded_due = date.today() + timedelta(days=3)
     target_due = date.today() + timedelta(days=10)
-    with eval_db() as db:
+    with sample.db() as db:
         work = projects_service.create_project(db, name="Work")
         task = tasks_service.create_task(
             db,
@@ -313,15 +672,14 @@ def test_eval_reschedule(eval_db: sessionmaker[Session]) -> None:
         task_id = task.id
         db.commit()
 
-    result = _run(
-        "reschedule",
+    result = sample.run(
         "Change the due date of the quarterly report to "
         f"{target_due.isoformat()}.",
     )
 
     assert result.stop_reason == "completed"
     assert _successful(result, "update_task"), "expected a successful update_task"
-    with eval_db() as db:
+    with sample.db() as db:
         updated = db.get(Task, task_id)
         assert updated is not None
         assert updated.due_date == target_due
@@ -329,10 +687,9 @@ def test_eval_reschedule(eval_db: sessionmaker[Session]) -> None:
         assert updated.title == "Quarterly report"
 
 
-@eval_scenario("delete_is_soft")
-def test_eval_delete_is_soft_and_restorable(eval_db: sessionmaker[Session]) -> None:
+def _delete_is_soft_and_restorable(sample: Sample) -> None:
     """The only delete the agent has is the trash; the row must be restorable."""
-    with eval_db() as db:
+    with sample.db() as db:
         general = projects_service.create_project(db, name="Scratch")
         task = tasks_service.create_task(
             db, project_id=general.id, title="Old draft"
@@ -341,15 +698,15 @@ def test_eval_delete_is_soft_and_restorable(eval_db: sessionmaker[Session]) -> N
         project_id = general.id
         db.commit()
 
-    result = _run("delete_is_soft", 'Delete the task "Old draft".')
+    result = sample.run('Delete the task "Old draft".')
 
     assert result.stop_reason == "completed"
     assert _successful(result, "trash_task"), "expected a successful trash_task"
-    with eval_db() as db:
+    with sample.db() as db:
         # Gone from the active set, present in the trash, restorable.
         assert db.execute(
             select(Task).where(Task.deleted_at.is_(None))
-        ).scalar_one_or_none() is None
+        ).scalars().all() == []
         trashed = task_trash.get_deleted_task(db, task_id)
         assert trashed is not None and trashed.deleted_at is not None
         deleted_events = db.execute(
@@ -359,12 +716,12 @@ def test_eval_delete_is_soft_and_restorable(eval_db: sessionmaker[Session]) -> N
 
     # "Restorable" for real: restore through the service the restore_task tool
     # calls, then check the task is whole again and the restore was audited.
-    with eval_db() as db:
+    with sample.db() as db:
         trashed = task_trash.get_deleted_task(db, task_id)
         assert trashed is not None
         task_trash.restore_task(db, trashed)
         db.commit()
-    with eval_db() as db:
+    with sample.db() as db:
         active_tasks = db.execute(
             select(Task).where(Task.deleted_at.is_(None))
         ).scalars().all()
@@ -402,12 +759,9 @@ def _numbers_in(reply: str) -> list[int]:
     ]
 
 
-@eval_scenario("read_only_count")
-def test_eval_read_only_question_mutates_nothing(
-    eval_db: sessionmaker[Session],
-) -> None:
+def _read_only_question_mutates_nothing(sample: Sample) -> None:
     """A question is answered with reads: correct number, zero writes."""
-    with eval_db() as db:
+    with sample.db() as db:
         reading = projects_service.create_project(db, name="Reading")
         for title in ("Dune", "Middlemarch", "The Windup Bird Chronicle"):
             tasks_service.create_task(db, project_id=reading.id, title=title)
@@ -416,8 +770,7 @@ def test_eval_read_only_question_mutates_nothing(
         db.commit()
         events_before = _event_count(db)
 
-    result = _run(
-        "read_only_count",
+    result = sample.run(
         "How many open tasks are in the Reading project? Reply with just the number.",
     )
 
@@ -429,7 +782,7 @@ def test_eval_read_only_question_mutates_nothing(
     assert _mutations(result) == [], (
         f"read-only ask must not mutate: {[r.tool for r in _mutations(result)]}"
     )
-    with eval_db() as db:
+    with sample.db() as db:
         assert _event_count(db) == events_before
 
 
@@ -458,10 +811,9 @@ def _concedes_miss(reply: str) -> bool:
     return _CONCEDES_MISS_RE.search(reply.replace("\u2019", "'")) is not None
 
 
-@eval_scenario("honest_about_missing")
-def test_eval_honest_about_missing_task(eval_db: sessionmaker[Session]) -> None:
+def _honest_about_missing_task(sample: Sample) -> None:
     """A target that doesn't exist must not be invented or acted on."""
-    with eval_db() as db:
+    with sample.db() as db:
         projects_service.create_project(db, name="Hangar")
         db.commit()
         events_before = _event_count(db)
@@ -469,8 +821,7 @@ def test_eval_honest_about_missing_task(eval_db: sessionmaker[Session]) -> None:
     # The loop's own cap stays loose (14) so an over-searching run still
     # completes and fails the frugality asserts below with its trajectory,
     # rather than dying as a bare max_iterations stop.
-    result = _run(
-        "honest_about_missing",
+    result = sample.run(
         'Mark the task "Launch the zeppelin" as done.',
         max_iterations=14,
     )
@@ -484,7 +835,7 @@ def test_eval_honest_about_missing_task(eval_db: sessionmaker[Session]) -> None:
     # Nothing was completed, created, or otherwise written.
     assert not _successful(result, "complete_task")
     assert not _successful(result, "create_task")
-    with eval_db() as db:
+    with sample.db() as db:
         assert (
             db.execute(select(func.count()).select_from(Task)).scalar_one() == 0
         )
@@ -513,10 +864,7 @@ def test_eval_honest_about_missing_task(eval_db: sessionmaker[Session]) -> None:
     )
 
 
-@eval_scenario("delegate_actor")
-def test_eval_delegate_actor_attribution(
-    client: TestClient, db_session: Session, eval_db: sessionmaker[Session]
-) -> None:
+def _delegate_actor_attribution(sample: Sample) -> None:
     """A conductor-delegated run is audited as the conductor, end to end (#328).
 
     Driven through ``POST /api/agent/conversations/{id}/messages`` with the
@@ -524,73 +872,102 @@ def test_eval_delegate_actor_attribution(
     header → ``resolve_actor`` → loop → registry → ``activity_events`` is
     exercised against the real model, not just a scripted provider.
 
-    Once the client is in play, reads go through ``db_session`` (the session
-    the client's routes use): the test engine is one shared StaticPool
+    Once the client is in play, reads go through its session (the session the
+    client's routes use): the sample's engine is one shared StaticPool
     connection, and a second session would BEGIN inside its open transaction.
     """
     delegate = "agent:conductor"
     assert delegate in DELEGATE_ACTORS
-    with eval_db() as db:
+    with sample.db() as db:
         home = projects_service.create_project(db, name="Home")
         home_id = home.id
         db.commit()
 
-    with provider_from_settings() as provider:
+    with sample.provider() as provider, sample.client() as (client, db_session):
         loop = _RecordingLoop(provider)
         app.dependency_overrides[routes_agent.get_agent_loop] = lambda: loop
         # A user-made conversation (no header): its own audit row stays the user's.
-        conversation_id = client.post("/api/agent/conversations", json={}).json()[
-            "id"
-        ]
+        conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
         last_event_before = db_session.execute(
             select(func.max(ActivityEvent.id))
         ).scalar_one()
         db_session.rollback()  # end the read; the run's tool sessions share the connection
 
-        started = time.monotonic()
-        response = client.post(
+        response = sample.post_message(
+            client,
             f"/api/agent/conversations/{conversation_id}/messages",
-            json={"content": 'Create a task "Call the plumber" in the Home project.'},
+            content='Create a task "Call the plumber" in the Home project.',
             headers={"X-Agent-Actor": delegate},
+            loop=loop,
         )
-        duration = time.monotonic() - started
 
-    assert response.status_code == 200, response.text
-    assert len(loop.runs) == 1
-    actor, result = loop.runs[0]
-    _report("delegate_actor", result, duration)
-    # The header was resolved to the delegate before the loop ran.
-    assert actor == delegate
-    assert result.stop_reason == "completed"
-    assert _successful(result, "create_task"), "expected a successful create_task"
-    # The persisted assistant turn is the run's trajectory, as returned.
-    assistant = response.json()["assistant_message"]
-    assert assistant["stop_reason"] == "completed"
-    assert [c["tool"] for c in assistant["tool_calls"] or []] == [
-        r.tool for r in result.tool_calls
-    ]
+        assert len(loop.runs) == 1
+        actor, result = loop.runs[0]
+        # The header was resolved to the delegate before the loop ran.
+        assert actor == delegate
+        assert result.stop_reason == "completed"
+        assert _successful(result, "create_task"), "expected a successful create_task"
+        # The persisted assistant turn is the run's trajectory, as returned.
+        assistant = response.json()["assistant_message"]
+        assert assistant["stop_reason"] == "completed"
+        assert [c["tool"] for c in assistant["tool_calls"] or []] == [
+            r.tool for r in result.tool_calls
+        ]
 
-    task = db_session.execute(
-        select(Task).where(Task.deleted_at.is_(None))
-    ).scalar_one()
-    assert "plumber" in task.title.lower()
-    assert task.project_id == home_id
-    # Every event the run wrote is the delegate's — never the loop's own
-    # identity, the MCP default, or the (null) user.
-    run_events = db_session.execute(
-        select(ActivityEvent).where(ActivityEvent.id > last_event_before)
-    ).scalars().all()
-    assert run_events, "the run wrote no activity events"
-    assert all(e.actor == delegate for e in run_events), [
-        (e.entity_type, e.action, e.actor) for e in run_events
-    ]
-    assert any(
-        e.entity_type == "task" and e.action == "created" and e.entity_id == task.id
-        for e in run_events
-    )
-    # Writes outside the delegated run are not re-attributed: the
-    # conversation's creation (and the seed) stay the user's.
-    prior = db_session.execute(
-        select(ActivityEvent).where(ActivityEvent.id <= last_event_before)
-    ).scalars().all()
-    assert prior and all(e.actor is None for e in prior)
+        tasks = db_session.execute(
+            select(Task).where(Task.deleted_at.is_(None))
+        ).scalars().all()
+        assert len(tasks) == 1, f"expected one task, got {[t.title for t in tasks]}"
+        task = tasks[0]
+        assert "plumber" in task.title.lower()
+        assert task.project_id == home_id
+        # Every event the run wrote is the delegate's — never the loop's own
+        # identity, the MCP default, or the (null) user.
+        run_events = db_session.execute(
+            select(ActivityEvent).where(ActivityEvent.id > last_event_before)
+        ).scalars().all()
+        assert run_events, "the run wrote no activity events"
+        assert all(e.actor == delegate for e in run_events), [
+            (e.entity_type, e.action, e.actor) for e in run_events
+        ]
+        assert any(
+            e.entity_type == "task" and e.action == "created" and e.entity_id == task.id
+            for e in run_events
+        )
+        # Writes outside the delegated run are not re-attributed: the
+        # conversation's creation (and the seed) stay the user's.
+        prior = db_session.execute(
+            select(ActivityEvent).where(ActivityEvent.id <= last_event_before)
+        ).scalars().all()
+        assert prior and all(e.actor is None for e in prior)
+
+
+# --- The gate: one pytest case per scenario -------------------------------------
+
+
+def test_eval_create_task_with_fields() -> None:
+    _gate("create_task_with_fields", _create_task_with_fields)
+
+
+def test_eval_find_and_complete() -> None:
+    _gate("find_and_complete", _find_and_complete)
+
+
+def test_eval_reschedule() -> None:
+    _gate("reschedule", _reschedule)
+
+
+def test_eval_delete_is_soft_and_restorable() -> None:
+    _gate("delete_is_soft", _delete_is_soft_and_restorable)
+
+
+def test_eval_read_only_question_mutates_nothing() -> None:
+    _gate("read_only_count", _read_only_question_mutates_nothing)
+
+
+def test_eval_honest_about_missing_task() -> None:
+    _gate("honest_about_missing", _honest_about_missing_task)
+
+
+def test_eval_delegate_actor_attribution() -> None:
+    _gate("delegate_actor", _delegate_actor_attribution)

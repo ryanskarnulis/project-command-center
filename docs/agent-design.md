@@ -169,21 +169,73 @@ PCC_AGENT_EVALS=1 .venv/bin/pytest tests/test_agent_evals.py -v -s
 ```
 
 Opt-in; scripted scenarios through the full loop + registry against the real
-runtime. Asserts trajectory *shape* + DB end-state + audit invariants, never
-exact sequences (temp 1.0). **Gate: prompt/model/loop changes must not
-regress this baseline.**
+runtime, a fresh DB per sample. Asserts trajectory *shape* + DB end-state +
+audit invariants, never exact sequences (temp 1.0).
 
-`PCC_AGENT_EVALS_RUNS=N` (default 1) repeats every scenario N times — each run
-is its own pytest case with a fresh DB, so the gate is "all N pass", matching
-the "N consecutive suites" baseline below. With N > 1 and `-s`, an end-of-run
-table gives each scenario's pass rate (k/N), min–max iterations and min–max
-duration (the first call can include a cold model load). Aggregation is in
-`tests/eval_report.py`, unit-tested in CI without a GPU.
+**The gating rule (#403): no scenario may go statistically below its floor.**
+Every scenario's floor is 0.8. A scenario is sampled in blocks of
+`PCC_AGENT_EVALS_RUNS` (default 5) and judged by `tests/evalstats.py` (pure,
+unit-tested in CI by `test_evalstats.py`): a one-sided 95% Wilson upper bound
+*below* the floor is red; a pass rate at or above it is green; anything in
+between buys another block, up to `PCC_AGENT_EVALS_MAX_RUNS` (default 20). At
+the defaults 0–2/5 is red, 3/5 escalates, 4–5/5 is green, so a healthy
+scenario costs exactly five samples. A count still undecided at the cap
+passes, flagged `UNDECIDED`. A green therefore means *not statistically below
+the floor* (a red is strong evidence of harm, a green weak evidence of
+health), not "works ≥80% of the time". Don't lower a floor to get quiet: the
+gate's power depends on it. Why not "N clean runs in a row": consecutive
+samples on one llama-server are correlated (chess read one unchanged prompt
+at 5/20, 19/40 and 31/40 in three batches), and, per chess's analysis, at a
+true rate of 0.80 a fixed `rate >= 0.8` check goes green 74% of the time at
+n=5 and *less* often (63%) at n=20. `tests/evalstats.py` is a copy of chess's
+(provenance in its header); folding it into agent-standard is #396 phase 7.
 
-**Baseline (gemma-4-12b UD-Q4_K_XL, 2026-07-11, 4 consecutive suites, 24/24;
-re-confirmed under the layered personality 2026-07-11, the context budget
-2026-08-05, and llama-swap serving 2026-10-18 — 4 consecutive suites, 28/28
-with `delegate_actor` added):**
+- **Infrastructure is retried, never scored.** A provider death (dead socket,
+  5xx, timeout, the run budget running out on the provider) or a 429 from the
+  agent route is thrown away and re-taken, at most
+  `PCC_AGENT_EVALS_INFRA_RETRIES` (5) times per scenario and
+  `PCC_AGENT_EVALS_INFRA_BUDGET` (25) per suite; running out fails the
+  scenario as `INFRA_ABORTED`, with no rate. A request the server rejected (a
+  4xx such as a context overrun, an unparseable body) fails on the first one:
+  a retry gets the same answer. Limit stops (`max_iterations`, `no_progress`,
+  …) and a tool that raised (`internal_error`) are the agent's doing and are
+  scored. `delegate_actor` drives the HTTP route, so each of its samples gets
+  a fresh client address (the route allows 10 messages a minute per client).
+- **Paired seeds for A/B.** `PCC_AGENT_EVALS_SEED=<base>` sends llama-server
+  the sampling `seed` `base + j` on every call of a scenario's `j`-th scored
+  sample (an infra retry re-takes the same seed). Unset sends no seed, and the
+  app itself never seeds: the pinned request bytes carry no `seed` field. Run
+  both arms with the same base and their own report, then
+  `.venv/bin/python -m tests.eval_report A.jsonl B.jsonl` prints each
+  scenario's counts and the exact two-sided McNemar test on the discordant
+  pairs (`pairs N · A-only b · B-only c · p=…`). Read p with the counts, not
+  instead of them. Pairing is approximate (llama.cpp is not bit-reproducible
+  across batch sizes or slots) but never worse than unpaired.
+- **The report.** `PCC_AGENT_EVALS_REPORT=<path>` appends JSONL: a header
+  (git sha and dirty flag, model, profile, system/summary prompt and
+  tool-schema sha256 — the run trace's hashes, #400 — knobs, floors), one line
+  per scenario as it finishes (verdict, interval, blocks, failure modes, and
+  every sample with its seed, outcome, stop reason, trajectory and `run_id`),
+  and a closing suite line with the infra budget spent. The header also
+  prints, and `-s` ends with a per-scenario table (count, interval, verdict,
+  blocks, infra retries, iteration and duration ranges). Formatting and the
+  paired comparison live in `tests/eval_report.py`.
+
+`PCC_AGENT_EVALS_RUNS` keeps its #384 name with a new meaning: the block
+size, not a fixed repeat count. `PCC_AGENT_EVALS_RUNS=1` takes one sample per
+scenario (a miss is red, as before #403); setting it at or above
+`PCC_AGENT_EVALS_MAX_RUNS` forces a fixed count. Each scenario is one pytest
+case (no more `[runK]` ids), so `-k <scenario>` picks scenarios.
+
+**Baseline (gemma-4-12b UD-Q4_K_XL). Under the floor rule (#403,
+2026-10-20, llama-swap, `PCC_AGENT_EVALS_SEED=403`): every scenario
+`ABOVE_FLOOR` on its first block — 5/5, interval [0.65, 1.00], `STABLE`,
+0 infra retries; 35 samples in 69 s. Before it, as all-pass suites: 24/24 on
+2026-07-11, re-confirmed under the layered personality 2026-07-11, the
+context budget 2026-08-05, and llama-swap serving 2026-10-18 (28/28 with
+`delegate_actor` added).** A change regresses this baseline when a scenario
+goes `BELOW_FLOOR`; re-record the table when it legitimately moves, and say
+why in the PR.
 
 | Scenario | Asserts | Iterations | Warm time |
 | --- | --- | --- | --- |
@@ -192,7 +244,7 @@ with `delegate_actor` added):**
 | `reschedule` | targeted due-date update only (ISO target relative to today, #380) | 3 | 1.5–4.5 s |
 | `delete_is_soft` | lands in trash, restorable, audited | 3 | 1.0–3.2 s |
 | `read_only_count` | exact count (the only number in the reply, numeral or word, #381), zero mutations | 3 | 1.4–2.0 s |
-| `honest_about_missing` | nothing invented or acted on; frugality tripwire ≤7 iterations / ≤6 reads | 2–5 | 0.9–2.3 s |
+| `honest_about_missing` | nothing invented or acted on; frugality tripwire ≤7 iterations / ≤6 reads | 2–6 | 0.9–2.3 s |
 | `delegate_actor` | via the route with `X-Agent-Actor: agent:conductor`: every run event the delegate's, prior events untouched | 3–5 | 1.5–3.2 s |
 
 Standing observations: self-correction pays for itself (the recurring gemma

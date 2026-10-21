@@ -40,8 +40,9 @@ architecture; the backlog is GitHub issues (`gh issue list`).
   (`gh pr checks --watch`, then `gh pr merge --squash`). Run `./test.sh`
   before pushing.
 - **Eval gate:** prompt/model/loop changes run the opt-in harness
-  (`PCC_AGENT_EVALS=1 pytest tests/test_agent_evals.py -v -s`) and must not
-  regress the baseline in `docs/agent-design.md`.
+  (`PCC_AGENT_EVALS=1 pytest tests/test_agent_evals.py -v -s`); no scenario
+  may go statistically below its floor (0.8, one-sided Wilson bound, block
+  sampling, infra retried not scored — `docs/agent-design.md`).
 - **Ask before adding a dependency.**
 - **Backlog = GitHub issues** (`gh issue list`). File follow-up work as an
   issue, never in a markdown file; PRs close issues with `Closes #N`. One

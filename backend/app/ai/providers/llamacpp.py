@@ -246,6 +246,12 @@ class LlamaCppProvider:
 
     ``profile`` is the model's (#402); ``None`` — the default — loads the one
     named for ``model``, or the default profile with a warning when none is.
+
+    ``seed``, when given, is sent as llama-server's sampling ``seed`` on every
+    call, so two providers with one seed draw the same sampling stream — the
+    eval gate's paired arms (#403). ``None`` — the default, and all the app
+    ever uses — sends no ``seed`` field at all, so the request bytes are what
+    they were (``tests/test_request_bytes.py``).
     """
 
     def __init__(
@@ -257,11 +263,13 @@ class LlamaCppProvider:
         client: httpx.Client | None = None,
         capture: ContextCapture | None = None,
         profile: ModelProfile | None = None,
+        seed: int | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._profile = profile if profile is not None else load_profile(model)
         self._capture = capture
+        self._seed = seed
         # llama-swap's root: ``/upstream/<model>/apply-template`` hangs off it,
         # not off the OpenAI ``/v1`` prefix.
         self._root = self._base_url.removesuffix("/v1")
@@ -372,6 +380,8 @@ class LlamaCppProvider:
             payload["chat_template_kwargs"] = {kwarg: enable_thinking}
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
+        if self._seed is not None:
+            payload["seed"] = self._seed
         if tools:
             payload["tools"] = [tool.to_wire() for tool in tools]
             payload["tool_choice"] = "auto"
@@ -582,15 +592,17 @@ class LlamaCppProvider:
         )
 
 
-def provider_from_settings() -> LlamaCppProvider:
+def provider_from_settings(*, seed: int | None = None) -> LlamaCppProvider:
     """The provider as configured (``LLAMACPP_*`` env / ``.env``), capturing
-    every call's bytes when ``PCC_CONTEXT_PATH`` is set (#401)."""
+    every call's bytes when ``PCC_CONTEXT_PATH`` is set (#401). ``seed`` is
+    the eval harness's paired-sample seed (#403); the app never passes one."""
     settings = get_settings()
     return LlamaCppProvider(
         settings.llamacpp_base_url,
         settings.llamacpp_model,
         timeout_seconds=settings.llamacpp_timeout_seconds,
         capture=context_capture_from_settings(),
+        seed=seed,
     )
 
 

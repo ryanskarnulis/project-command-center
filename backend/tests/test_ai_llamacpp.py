@@ -80,6 +80,31 @@ def test_chat_returns_text_and_sets_sampling_per_request() -> None:
     assert "tools" not in payload and "response_format" not in payload
 
 
+def test_a_seed_rides_on_every_call_and_no_seed_sends_no_field() -> None:
+    """The eval gate's paired samples (#403): a seeded provider sends llama-
+    server's ``seed`` on every call, structured ones included; the default
+    sends no ``seed`` key at all, so the app's request bytes never move."""
+    captured: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(json.loads(request.content))
+        return httpx.Response(
+            200, json=_completion_body({"role": "assistant", "content": '{"title": "x"}'})
+        )
+
+    class _Title(BaseModel):
+        title: str
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    seeded = LlamaCppProvider("http://llm.test/v1", "gemma-4-12b", client=client, seed=403)
+    seeded.chat(_USER)
+    seeded.chat_structured(_USER, schema=_Title)
+    LlamaCppProvider("http://llm.test/v1", "gemma-4-12b", client=client).chat(_USER)
+
+    assert [payload.get("seed") for payload in captured] == [403, 403, None]
+    assert "seed" not in captured[2]
+
+
 def test_chat_with_tools_parses_tool_call_arguments() -> None:
     captured: list[dict[str, Any]] = []
     body = _completion_body(
