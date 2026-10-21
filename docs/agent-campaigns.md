@@ -125,6 +125,53 @@ approximate (llama.cpp is not bit-reproducible across batch sizes), never worse
 than unpaired, and does not replace the alternating order, which is what
 cancels drift.
 
+### The frontier tier
+
+The same discipline over `tests/test_agent_frontier.py` (#408, #460):
+
+```bash
+# dev split (the default here: iterate on dev, confirm on heldout), 4 blocks.
+backend/scripts/eval_campaign.sh --frontier --a ~/code/pcc-main --b ~/code/pcc-change --blocks 4
+
+# the number of record, a scenario subset, 10 samples a block.
+backend/scripts/eval_campaign.sh --frontier --split heldout --runs 10 \
+    --k 'some_scenario' --a . --b . --env-b LLAMACPP_MODEL=other
+```
+
+`--frontier` swaps the pytest target and the knobs (`PCC_AGENT_FRONTIER=1`,
+`PCC_FRONTIER_SPLIT=<--split>`, `PCC_FRONTIER_RUNS=<--runs>`; without `--runs`
+a block is one sample per wording). `--k` is optional. Blocks alternate,
+flip order and share `PCC_AGENT_EVALS_SEED = seed + 1000·n`, so sample *j* of a
+scenario draws the same wording and sampling stream in both arms. The harness
+sha in the log covers `test_agent_frontier.py`, `frontier.py` and
+`frontier_corpus.py`.
+
+Each block's `block-<n>-<arm>.jsonl` is the frontier test's own report: a
+`frontier_header` (build, model, split, seed) and one `frontier` record per
+scenario (`FrontierResult.record`: `fingerprint`, `runs`, `passed`, `rubric`,
+and `samples`, each with `variant`, `seed`, `whole` and `score`). No stdout is
+scraped. `campaign_report.py` joins them into a second table:
+
+```
+frontier
+
+scenario | a | b | a vs b
+--- | --- | --- | ---
+`some_scenario` | 9/20 45% rubric 0.71 (2, 3, 2, 2) | 5/20 25% rubric 0.58 (1, 2, 1, 1) | pairs 20 · A-only 5 · B-only 1 · p=0.219
+```
+
+A cell is whole-task passes over samples, the **mean rubric** (the fraction of
+checkpoints met, which moves while whole passes are still near zero) and each
+block's whole passes. The paired column is the exact McNemar p over the
+whole-task verdicts of samples sharing (block, seed).
+
+**The report refuses to join blocks whose fingerprints differ.** Every
+scenario's `fingerprint` must be one value across all arms and blocks, and so
+must the header's `split`; otherwise it exits naming the scenario and the
+values. Two trees whose corpus changed (or one run on dev, one on heldout) did
+not measure the same thing. A frontier result is a measurement, never a
+verdict: read the pass counts and rubric beside the p.
+
 ## Reading a result
 
 - 4 blocks of 5 is 20 samples per arm per scenario: enough to see a collapse

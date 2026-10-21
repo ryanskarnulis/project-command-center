@@ -20,6 +20,21 @@
 # prove which tree it measured measured nothing), and llama-swap /running. The
 # arm order flips every block.
 #
+# --frontier targets the frontier tier (tests/test_agent_frontier.py, #408, #460)
+# instead of the gate: the same alternating blocks, one server and paired seeds,
+# with PCC_AGENT_FRONTIER=1, PCC_FRONTIER_SPLIT=<--split, default dev: iterate on
+# dev, confirm on heldout> and PCC_FRONTIER_RUNS=<--runs; with no --runs a block
+# is one sample per wording. --k is then optional (a pytest -k over scenario
+# names). The per-block record is the frontier test's own `frontier` record,
+# written through PCC_AGENT_EVALS_REPORT; its samples carry the seed, the whole-
+# task verdict and the rubric score. The harness identity covers the test file
+# plus frontier.py and frontier_corpus.py. campaign_report.py then prints the
+# frontier table (whole-pass pairing per scenario, McNemar, mean rubric per arm)
+# and REFUSES to join blocks whose scenario fingerprints differ: the arms must
+# have run the same split of the same corpus.
+#
+#   backend/scripts/eval_campaign.sh --frontier --a . --b ../change --blocks 4 [--split heldout]
+#
 # Two trees with different harness files are not a fair A/B on any scenario the
 # difference touches; the script says so when the shas differ.
 #
@@ -47,7 +62,8 @@ BACKEND="$(cd "$HERE/.." && pwd)"
 PYTHON="${PYTHON:-$BACKEND/.venv/bin/python}"
 [ -x "$PYTHON" ] || PYTHON="$(command -v python)"
 
-A=""; B=""; K=""; BLOCKS=4; FRESH=0; OUT=""; RUNS=5; SEED=410
+A=""; B=""; K=""; BLOCKS=4; FRESH=0; OUT=""; RUNS=""; SEED=410
+FRONTIER=0; SPLIT="dev"
 ENV_A=(); ENV_B=()
 BASE_URL="${LLAMACPP_BASE_URL:-http://127.0.0.1:8200/v1}"
 while [ $# -gt 0 ]; do
@@ -61,16 +77,29 @@ while [ $# -gt 0 ]; do
     --runs) RUNS="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
     --fresh-per-block) FRESH=1; shift ;;
+    --frontier) FRONTIER=1; shift ;;
+    --split) SPLIT="$2"; shift 2 ;;
     --seed) SEED="$2"; shift 2 ;;
     --no-seed) SEED=""; shift ;;
-    -h|--help) sed -n '2,41p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,57p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-[ -n "$A" ] && [ -n "$B" ] && [ -n "$K" ] || { echo "need --a, --b and --k" >&2; exit 2; }
+[ -n "$A" ] && [ -n "$B" ] || { echo "need --a and --b" >&2; exit 2; }
+if [ "$FRONTIER" = 1 ]; then
+  HARNESS_FILES=(tests/test_agent_frontier.py tests/frontier.py tests/frontier_corpus.py)
+  [ "$SPLIT" = dev ] || [ "$SPLIT" = heldout ] || { echo "--split is dev or heldout" >&2; exit 2; }
+else
+  [ -n "$K" ] || { echo "need --k" >&2; exit 2; }
+  HARNESS_FILES=(tests/test_agent_evals.py)
+  RUNS="${RUNS:-5}"
+fi
 A="$(cd "$A" && pwd)"; B="$(cd "$B" && pwd)"
-[ -f "$A/backend/tests/test_agent_evals.py" ] || { echo "$A is not a PCC tree" >&2; exit 2; }
-[ -f "$B/backend/tests/test_agent_evals.py" ] || { echo "$B is not a PCC tree" >&2; exit 2; }
+for tree in "$A" "$B"; do
+  for f in "${HARNESS_FILES[@]}"; do
+    [ -f "$tree/backend/$f" ] || { echo "$tree is not a PCC tree with $f" >&2; exit 2; }
+  done
+done
 OUT="${OUT:-${TMPDIR:-/tmp}/pcc-campaign-$(date -u +%Y%m%dT%H%M%SZ)}"
 mkdir -p "$OUT"
 LOG="$OUT/campaign.log"
@@ -87,7 +116,7 @@ declare -A HARNESSES
 identity() {  # $1 = arm name, $2 = tree; records the harness sha in HARNESSES
   local head file running
   head="$(git -C "$2" rev-parse --short HEAD)"
-  HARNESSES["$1"]="$(sha256sum "$2/backend/tests/test_agent_evals.py" | cut -c1-12)"
+  HARNESSES["$1"]="$(cd "$2/backend" && cat "${HARNESS_FILES[@]}" | sha256sum | cut -c1-12)"
   file="$(cd "$2/backend" && "$PYTHON" -c 'import app; print(app.__file__)')"
   running="$(curl -s -m 5 "$SWAP_ROOT/running" || echo '{}')"
   log "  arm $1: tree $2 HEAD $head harness ${HARNESSES[$1]} app $file env [$(arm_env "$1" | tr '\n' ' ')] running $running"
@@ -109,26 +138,37 @@ run_block() {  # $1 = block number, $2 = arm name, $3 = tree
   identity "$2" "$3"
   local -a extra=()
   while IFS= read -r kv; do [ -n "$kv" ] && extra+=("$kv"); done < <(arm_env "$2")
+  local -a tier=() pick=() show='^\[eval\] scenario=.*PASS_RATE|passed|failed'
+  local file=tests/test_agent_evals.py
+  if [ "$FRONTIER" = 1 ]; then
+    # The frontier is measured, never gated; PCC_FRONTIER_RUNS unset = one per wording.
+    tier=(PCC_AGENT_FRONTIER=1 "PCC_FRONTIER_SPLIT=$SPLIT")
+    [ -n "$RUNS" ] && tier+=("PCC_FRONTIER_RUNS=$RUNS")
+    file=tests/test_agent_frontier.py
+    show='^\[frontier\] scenario=|passed|failed'
+  else
+    tier=(PCC_AGENT_EVALS=1 "PCC_AGENT_EVALS_RUNS=$RUNS" "PCC_AGENT_EVALS_MAX_RUNS=$RUNS")
+  fi
+  [ -n "$K" ] && pick=(-k "$K")
   # A block below its floor exits non-zero; the report is still what we came for.
-  (cd "$3/backend" && env "${extra[@]+"${extra[@]}"}" PCC_AGENT_EVALS=1 \
-     PCC_AGENT_EVALS_RUNS="$RUNS" PCC_AGENT_EVALS_MAX_RUNS="$RUNS" \
+  (cd "$3/backend" && env "${extra[@]+"${extra[@]}"}" "${tier[@]}" \
      PCC_AGENT_EVALS_REPORT="$report" PCC_AGENT_EVALS_SEED="$seed" \
      LLAMACPP_BASE_URL="$BASE_URL" \
-     "$PYTHON" -m pytest tests/test_agent_evals.py -k "$K" -s 2>&1 \
+     "$PYTHON" -m pytest "$file" "${pick[@]+"${pick[@]}"}" -s 2>&1 \
        | tee -a "$OUT/block-$1-$2.out" \
-       | grep -E '^\[eval\] scenario=.*PASS_RATE|passed|failed' || true)
+       | grep -E "$show" || true)
   log "block $1 arm $2 end $(date -u +%H:%M:%SZ)"
   SPECS+=("$2=$report")
 }
 
 SPECS=()
-log "campaign $(date -u +%FT%TZ) k='$K' blocks=$BLOCKS runs=$RUNS fresh=$FRESH seed=${SEED:-none} out=$OUT"
+log "campaign $(date -u +%FT%TZ) tier=$([ "$FRONTIER" = 1 ] && echo "frontier split=$SPLIT" || echo gate) k='$K' blocks=$BLOCKS runs=${RUNS:-per-wording} fresh=$FRESH seed=${SEED:-none} out=$OUT"
 for ((i = 1; i <= BLOCKS; i++)); do
   if (( i % 2 )); then run_block "$i" a "$A"; run_block "$i" b "$B"
   else run_block "$i" b "$B"; run_block "$i" a "$A"; fi
 done
 if [ "${HARNESSES[a]}" != "${HARNESSES[b]}" ]; then
-  log "!! the arms ran different test_agent_evals.py files (${HARNESSES[a]} vs ${HARNESSES[b]}): scenarios whose checks differ are not comparable"
+  log "!! the arms ran different harness files (${HARNESSES[a]} vs ${HARNESSES[b]}): scenarios whose checks differ are not comparable"
 fi
 log ""
 (cd "$BACKEND" && "$PYTHON" scripts/campaign_report.py "${SPECS[@]}") | tee -a "$LOG"

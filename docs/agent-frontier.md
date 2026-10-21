@@ -122,9 +122,11 @@ never a typo: `Checkpoint` refuses a mode outside the list.
   total and claims rows are marked only between runs of the same corpus (the
   same scenarios on the same fingerprints), and are `†` otherwise.
 - **A claim that a change moved a score is an A/B** on one server, arms
-  alternating, seeds paired (`docs/agent-campaigns.md`). The campaign script
-  drives the gate today; for the frontier, run both arms' dev split in
-  alternation with one `PCC_AGENT_EVALS_SEED` and compare sample *j* of each.
+  alternating, seeds paired (`docs/agent-campaigns.md`). `eval_campaign.sh --frontier`
+  runs the frontier in alternating blocks with paired seeds, and
+  `campaign_report.py` joins the records (McNemar per scenario, mean rubric per
+  arm) and refuses blocks whose fingerprints differ; see
+  `docs/agent-campaigns.md`.
 
 ## Solved scenarios stay
 
