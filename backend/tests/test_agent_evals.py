@@ -154,6 +154,8 @@ _FLOORS: dict[str, float] = {
         "recurrence_make_repeating",
         "recurrence_skip",
         "recurrence_stop",
+        "restore_task",
+        "restore_project",
     )
 }
 
@@ -1289,6 +1291,78 @@ def _recurrence_stop(sample: Sample) -> None:
         _assert_run_events_are_the_loops(db, last_seed_event)
 
 
+def _restore_task_from_trash(sample: Sample) -> None:
+    """"Bring back the task I deleted" goes through list_trash → restore_task (#387).
+
+    Search only sees live rows, so the trash is the only place to look. A
+    second trashed task is the distractor; it must stay in the trash.
+    """
+    with sample.db() as db:
+        home = projects_service.create_project(db, name="Home")
+        filters = tasks_service.create_task(
+            db, project_id=home.id, title="Order new furnace filters"
+        )
+        gutters = tasks_service.create_task(db, project_id=home.id, title="Clean the gutters")
+        tasks_service.create_task(db, project_id=home.id, title="Rake the leaves")
+        tasks_service.soft_delete_task(db, filters)
+        tasks_service.soft_delete_task(db, gutters)
+        filters_id, gutters_id, home_id = filters.id, gutters.id, home.id
+        db.commit()
+        last_seed_event = _last_event_id(db)
+
+    result = sample.run(
+        "I deleted the task about ordering furnace filters by mistake. Bring it back."
+    )
+
+    assert result.stop_reason == "completed"
+    assert _successful(result, "restore_task"), "expected a successful restore_task"
+    with sample.db() as db:
+        assert sorted(t.title for t in _live_tasks(db)) == [
+            "Order new furnace filters",
+            "Rake the leaves",
+        ]
+        restored = db.get(Task, filters_id)
+        assert restored is not None and restored.deleted_at is None
+        assert restored.project_id == home_id
+        assert task_trash.get_deleted_task(db, gutters_id) is not None, (
+            "the other trashed task must stay in the trash"
+        )
+        events = _events_after(db, last_seed_event)
+        # One restore, and nothing else written: no re-create of the task.
+        assert [(e.entity_type, e.entity_id, e.action) for e in events] == [
+            ("task", filters_id, "restored")
+        ], [(e.entity_type, e.entity_id, e.action) for e in events]
+        assert all(e.actor == LOOP_ACTOR for e in events)
+
+
+def _restore_project_from_trash(sample: Sample) -> None:
+    """Restore a trashed project together with the tasks trashed with it (#387)."""
+    with sample.db() as db:
+        garage = projects_service.create_project(db, name="Garage")
+        for title in ("Paint the walls", "Buy primer"):
+            tasks_service.create_task(db, project_id=garage.id, title=title)
+        projects_service.create_project(db, name="Home")
+        projects_service.soft_delete_project(db, garage)
+        garage_id = garage.id
+        db.commit()
+        last_seed_event = _last_event_id(db)
+
+    result = sample.run("Restore the Garage project I deleted, with its tasks.")
+
+    assert result.stop_reason == "completed"
+    assert _successful(result, "restore_project"), "expected a successful restore_project"
+    with sample.db() as db:
+        projects = db.execute(
+            select(Project).where(Project.deleted_at.is_(None)).order_by(Project.name)
+        ).scalars().all()
+        assert [p.name for p in projects] == ["Garage", "Home"], [p.name for p in projects]
+        assert projects[0].id == garage_id, "restored, not re-created"
+        tasks = _live_tasks(db)
+        assert sorted(t.title for t in tasks) == ["Buy primer", "Paint the walls"]
+        assert all(t.project_id == garage_id for t in tasks)
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+
 # --- The gate: one pytest case per scenario -------------------------------------
 
 
@@ -1359,3 +1433,11 @@ def test_eval_recurrence_skip() -> None:
 
 def test_eval_recurrence_stop() -> None:
     _gate("recurrence_stop", _recurrence_stop)
+
+
+def test_eval_restore_task_from_trash() -> None:
+    _gate("restore_task", _restore_task_from_trash)
+
+
+def test_eval_restore_project_from_trash() -> None:
+    _gate("restore_project", _restore_project_from_trash)

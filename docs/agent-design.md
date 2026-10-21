@@ -255,6 +255,8 @@ why in the PR.
 | `recurrence_make_repeating` | **xfail, known red (1/5, `BELOW_FLOOR`).** "Make the weekly review repeat every week": weekly `repeat_interval` on the one task, due date unchanged, no duplicate. The model guesses `recurrence`/`recur_interval` inside `changes`, is refused with no field named, then creates a duplicate task. Before-number for #411/#413 (#386) | 6–9 | 3.9–6.6 s |
 | `recurrence_skip` | skip this week's weekly task: that occurrence trashed (not done), one live occurrence a week on, series continues (#386) | 3–4 | 1.9–2.2 s |
 | `recurrence_stop` | stop the series: same task, still open and due today, `repeat_interval` cleared (#386) | 3 | 1.4–1.5 s |
+| `restore_task` | "bring back the task about ordering furnace filters" (paraphrased; search can't see the trash): that task restored to its project, the other trashed task left in the trash, exactly one `restored` event and no other write (#387) | 3 | 1.8–1.9 s |
+| `restore_project` | a trashed project restored with the tasks trashed with it, by id (not re-created), audit (#387) | 3 | 1.4–1.6 s |
 
 Standing observations: self-correction pays for itself (the recurring gemma
 `name`/`title` miss always fixes on feedback); FTS5 retrieval is sufficient —
