@@ -257,6 +257,11 @@ why in the PR.
 | `recurrence_stop` | stop the series: same task, still open and due today, `repeat_interval` cleared (#386) | 3 | 1.4–1.5 s |
 | `restore_task` | "bring back the task about ordering furnace filters" (paraphrased; search can't see the trash): that task restored to its project, the other trashed task left in the trash, exactly one `restored` event and no other write (#387) | 3 | 1.8–1.9 s |
 | `restore_project` | a trashed project restored with the tasks trashed with it, by id (not re-created), audit (#387) | 3 | 1.4–1.6 s |
+| `project_create` | one project named as asked, no tasks, audit (#388). The first `create_project` sends `title` for `name` in 5/5 seeded samples and self-corrects on the refusal: a #411 signal | 3 | 1.5–1.7 s |
+| `project_rename` | `update_project` in place: same id, new name, tasks still in it (#388) | 3 | 1.5–1.6 s |
+| `project_close` | "done with it, close it" closes (`closed_at`), never trashes, tasks untouched (#388) | 3 | 1.4–1.5 s |
+| `project_reopen` | a closed project (hidden from default `list_projects`) reopened, not re-created (#388) | 3–4 | 1.3–1.8 s |
+| `project_trash` | trashed with both its tasks, restorable, the other project untouched (#388) | 3 | 1.3–1.4 s |
 
 Standing observations: self-correction pays for itself (the recurring gemma
 `name`/`title` miss always fixes on feedback); FTS5 retrieval is sufficient —
