@@ -151,6 +151,9 @@ _FLOORS: dict[str, float] = {
         "focus_skip_series",
         "dependency_add",
         "dependency_remove",
+        "recurrence_make_repeating",
+        "recurrence_skip",
+        "recurrence_stop",
     )
 }
 
@@ -1182,6 +1185,110 @@ def _dependency_remove(sample: Sample) -> None:
         _assert_run_events_are_the_loops(db, last_seed_event)
 
 
+_WEEKLY = {"unit": "week", "every": 1}
+
+
+def _seed_weekly(sample: Sample, title: str) -> tuple[int, int | None]:
+    """A weekly task due today in a Home project; returns its id and the last
+    seed event."""
+    with sample.db() as db:
+        home = projects_service.create_project(db, name="Home")
+        task = tasks_service.create_task(
+            db, project_id=home.id, title=title, due_date=date.today()
+        )
+        tasks_service.update_task(db, task, {"repeat_interval": _WEEKLY})
+        tasks_service.create_task(db, project_id=home.id, title="Rake the leaves")
+        task_id = task.id
+        db.commit()
+        return task_id, _last_event_id(db)
+
+
+def _live_tasks(db: Session) -> list[Task]:
+    return list(
+        db.execute(select(Task).where(Task.deleted_at.is_(None)).order_by(Task.id))
+        .scalars()
+        .all()
+    )
+
+
+def _recurrence_make_repeating(sample: Sample) -> None:
+    """Attach a weekly cadence to an existing task, nothing else (#386)."""
+    due = date.today() + timedelta(days=2)
+    with sample.db() as db:
+        work = projects_service.create_project(db, name="Work")
+        review = tasks_service.create_task(
+            db, project_id=work.id, title="Weekly review", due_date=due
+        )
+        review_id = review.id
+        db.commit()
+        last_seed_event = _last_event_id(db)
+
+    result = sample.run("Make the weekly review repeat every week.")
+
+    assert result.stop_reason == "completed"
+    assert _successful(result, "update_task"), "expected a successful update_task"
+    with sample.db() as db:
+        tasks = _live_tasks(db)
+        assert [t.id for t in tasks] == [review_id], [t.title for t in tasks]
+        review = tasks[0]
+        assert review.repeat_interval == _WEEKLY, review.repeat_interval
+        assert review.due_date == due, "the due date must not move"
+        assert review.workflow_status == TaskWorkflowStatus.open
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+
+def _recurrence_skip(sample: Sample) -> None:
+    """Skip this week's occurrence: it goes to the trash, next week's is live (#386)."""
+    today = date.today()
+    task_id, last_seed_event = _seed_weekly(sample, "Water the plants")
+
+    result = sample.run('Skip this week\'s "Water the plants".')
+
+    assert result.stop_reason == "completed"
+    assert _successful(result, "skip_occurrence"), "expected a successful skip_occurrence"
+    with sample.db() as db:
+        skipped = task_trash.get_deleted_task(db, task_id)
+        assert skipped is not None, "the skipped occurrence should be in the trash"
+        plants = [t for t in _live_tasks(db) if t.title == "Water the plants"]
+        assert len(plants) == 1, [(t.id, t.due_date) for t in plants]
+        assert plants[0].due_date == today + timedelta(days=7)
+        assert plants[0].repeat_interval == _WEEKLY, "the series must go on"
+        assert plants[0].workflow_status == TaskWorkflowStatus.open
+        assert db.execute(
+            select(func.count()).select_from(Task).where(
+                Task.workflow_status == TaskWorkflowStatus.done
+            )
+        ).scalar_one() == 0, "a skip is not a completion"
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+
+def _recurrence_stop(sample: Sample) -> None:
+    """Stop the series: the current occurrence stays as a plain open task (#386).
+
+    ``stop_recurrence`` is the specific tool; ``update_task`` clearing
+    ``repeat_interval`` reaches the same end state on a one-row series, so the
+    end state is what's asserted.
+    """
+    today = date.today()
+    task_id, last_seed_event = _seed_weekly(sample, "Water the plants")
+
+    result = sample.run('Stop "Water the plants" from repeating.')
+
+    assert result.stop_reason == "completed"
+    assert _successful(result, "stop_recurrence") or _successful(result, "update_task"), (
+        "expected a successful stop_recurrence (or update_task)"
+    )
+    with sample.db() as db:
+        tasks = _live_tasks(db)
+        assert sorted(t.title for t in tasks) == ["Rake the leaves", "Water the plants"]
+        plants = db.get(Task, task_id)
+        assert plants is not None and plants.deleted_at is None
+        assert plants.repeat_interval is None, plants.repeat_interval
+        assert plants.due_date == today, "stopping must not move or clear the date"
+        assert plants.workflow_status == TaskWorkflowStatus.open
+        _assert_run_events_are_the_loops(db, last_seed_event)
+
+
 # --- The gate: one pytest case per scenario -------------------------------------
 
 
@@ -1231,3 +1338,24 @@ def test_eval_dependency_add() -> None:
 
 def test_eval_dependency_remove() -> None:
     _gate("dependency_remove", _dependency_remove)
+
+
+# Known red, kept as a before-number (#386): the model can't find
+# ``repeat_interval`` inside ``changes`` (it guesses ``recurrence``,
+# ``recur_interval``), the refusal doesn't name the field, and it falls back to
+# creating a duplicate task. 1/5 on gemma-4-12b, 2026-10-20. #411 flattens the
+# arguments and #413 makes refusals say how to recover; drop the mark when it
+# goes green. Until the frontier tier (#408), xfail runs it without gating.
+@pytest.mark.xfail(
+    strict=False, reason="below floor until #411/#413: repeat_interval is hard to find"
+)
+def test_eval_recurrence_make_repeating() -> None:
+    _gate("recurrence_make_repeating", _recurrence_make_repeating)
+
+
+def test_eval_recurrence_skip() -> None:
+    _gate("recurrence_skip", _recurrence_skip)
+
+
+def test_eval_recurrence_stop() -> None:
+    _gate("recurrence_stop", _recurrence_stop)

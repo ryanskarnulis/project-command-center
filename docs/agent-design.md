@@ -234,7 +234,8 @@ case (no more `[runK]` ids), so `-k <scenario>` picks scenarios.
 2026-07-11, re-confirmed under the layered personality 2026-07-11, the
 context budget 2026-08-05, and llama-swap serving 2026-10-18 (28/28 with
 `delegate_actor` added).** A change regresses this baseline when a scenario
-goes `BELOW_FLOOR`; re-record the table when it legitimately moves, and say
+goes `BELOW_FLOOR` (a scenario marked `xfail` is a known-red before-number,
+not gated; drop the mark once it goes green); re-record the table when it legitimately moves, and say
 why in the PR.
 
 | Scenario | Asserts | Iterations | Warm time |
@@ -251,6 +252,9 @@ why in the PR.
 | `focus_skip_series` | today's standup skipped via `skip_focus_occurrence`, never `skip_occurrence` on the "standup notes" recurring task beside it; tomorrow still happens (#378) | 3 | 2.0 s |
 | `dependency_add` | "X is blocked by Y" (titles as stored): exactly one edge, X waits on Y, X blocked and Y not, audit (#385). One of five first tried `remove_dependency` (refused) and recovered | 3–7 | 1.6–3.4 s |
 | `dependency_remove` | drop one of two blockers: that edge soft-deleted, the other kept, no task trashed, audit (#385) | 4–5 | 2.0–2.4 s |
+| `recurrence_make_repeating` | **xfail, known red (1/5, `BELOW_FLOOR`).** "Make the weekly review repeat every week": weekly `repeat_interval` on the one task, due date unchanged, no duplicate. The model guesses `recurrence`/`recur_interval` inside `changes`, is refused with no field named, then creates a duplicate task. Before-number for #411/#413 (#386) | 6–9 | 3.9–6.6 s |
+| `recurrence_skip` | skip this week's weekly task: that occurrence trashed (not done), one live occurrence a week on, series continues (#386) | 3–4 | 1.9–2.2 s |
+| `recurrence_stop` | stop the series: same task, still open and due today, `repeat_interval` cleared (#386) | 3 | 1.4–1.5 s |
 
 Standing observations: self-correction pays for itself (the recurring gemma
 `name`/`title` miss always fixes on feedback); FTS5 retrieval is sufficient —
