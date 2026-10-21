@@ -412,3 +412,87 @@ def test_agent_tools_pin_commit_remove_and_restore(
             select(ActivityEvent.actor).where(ActivityEvent.entity_type == "focus_entry")
         ).scalars().all()
     assert set(actors) == {"agent:test"}
+
+
+def test_agent_tools_repeat_skip_edit_and_stop(tool_db: sessionmaker[Session]) -> None:
+    day = TARGET.isoformat()
+    next_day = (TARGET + timedelta(days=1)).isoformat()
+    third_day = (TARGET + timedelta(days=2)).isoformat()
+    series = registry.call_tool(
+        "add_focus_commitment",
+        {
+            "title": "Standup",
+            "start_time": "09:00",
+            "duration_minutes": 15,
+            "date": day,
+            "repeat_interval": {"unit": "day", "every": 1},
+        },
+        actor="agent:test",
+    )
+    assert series.repeat_interval is not None
+    assert series.repeat_interval.model_dump() == {"unit": "day", "every": 1}
+
+    weekdays = registry.call_tool(
+        "add_focus_commitment",
+        {
+            "title": "Weekday sync",
+            "start_time": "10:00",
+            "duration_minutes": 15,
+            "date": day,
+            "repeat_interval": {"unit": "week", "every": 1, "days": [0, 1, 2, 3, 4]},
+        },
+        actor="agent:test",
+    )
+    assert weekdays.repeat_interval is not None
+    assert weekdays.repeat_interval.model_dump() == {
+        "unit": "week",
+        "every": 1,
+        "days": [0, 1, 2, 3, 4],
+    }
+
+    def titles(plan_day: str) -> list[str]:
+        plan = registry.call_tool("get_focus_plan", {"date": plan_day}, actor="agent:test")
+        return [c.title for c in plan.commitments if c.title == "Standup"]
+
+    skip = registry.call_tool(
+        "skip_focus_occurrence",
+        {"series_id": series.id, "plan_date": next_day},
+        actor="agent:test",
+    )
+    assert titles(day) == ["Standup"]
+    assert titles(next_day) == []
+    assert titles(third_day) == ["Standup"]
+
+    edited = registry.call_tool(
+        "edit_focus_occurrence",
+        {"series_id": series.id, "plan_date": third_day, "start_time": "13:00"},
+        actor="agent:test",
+    )
+    plan = registry.call_tool("get_focus_plan", {"date": third_day}, actor="agent:test")
+    block = next(c for c in plan.commitments if c.title == "Standup")
+    assert (block.start_time, block.override_entry_id) == ("13:00", edited.id)
+    assert titles(day) == ["Standup"]
+
+    stopped = registry.call_tool(
+        "stop_focus_series",
+        {"series_id": series.id, "stop_date": third_day},
+        actor="agent:test",
+    )
+    assert stopped.stop_date is not None
+    assert titles(day) == ["Standup"]
+    assert titles(third_day) == []
+    lifted = registry.call_tool(
+        "stop_focus_series", {"series_id": series.id}, actor="agent:test"
+    )
+    assert lifted.stop_date is None
+
+    # Undoing the skip through remove_focus_entry brings that day back.
+    registry.call_tool("remove_focus_entry", {"entry_id": skip.id}, actor="agent:test")
+    assert titles(next_day) == ["Standup"]
+
+    with pytest.raises(registry.ToolError):
+        registry.call_tool(
+            "skip_focus_occurrence",
+            {"series_id": 99999, "plan_date": day},
+            actor="agent:test",
+        )

@@ -1022,8 +1022,56 @@
       "type": "function",
       "function": {
         "name": "add_focus_commitment",
-        "description": "Block fixed time in the Focus plan for something that is not a task, e.g. a 14:00 meeting.\n\nThe plan packs tasks around it. Undo with remove_focus_entry(entry_id).",
+        "description": "Block fixed time in the Focus plan for something that is not a task, e.g. a 14:00 meeting.\n\nThe plan packs tasks around it. With repeat_interval it recurs from `date`\non (a series): {\"unit\": \"day\", \"every\": 1} is daily; {\"unit\": \"week\",\n\"every\": 1, \"days\": [0, 1, 2, 3, 4]} is Mon-Fri (days: Monday 0 to Sunday 6,\nweeks only). Undo with remove_focus_entry(entry_id), which removes the whole\nseries.",
         "parameters": {
+          "$defs": {
+            "CommitmentRepeatInterval": {
+              "additionalProperties": false,
+              "description": "A commitment series' cadence: the task shape plus an optional weekday set (#427).\n\n``{\"unit\": \"week\", \"every\": 1, \"days\": [0, 1, 2, 3, 4]}`` is a Mon-Fri\nstandup; ``every: 2`` with ``days`` is \"every other week on those days\".\n``days`` is only meaningful with ``unit: \"week\"``; without it a weekly series\nlands on its first day's weekday, as before. Task recurrence keeps the plain\n``RepeatInterval``: this subclass is commitments-only.",
+              "properties": {
+                "unit": {
+                  "enum": [
+                    "day",
+                    "week",
+                    "month"
+                  ],
+                  "title": "Unit",
+                  "type": "string"
+                },
+                "every": {
+                  "maximum": 12,
+                  "minimum": 1,
+                  "title": "Every",
+                  "type": "integer"
+                },
+                "days": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "maximum": 6,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "maxItems": 7,
+                      "minItems": 1,
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Days"
+                }
+              },
+              "required": [
+                "unit",
+                "every"
+              ],
+              "title": "CommitmentRepeatInterval",
+              "type": "object"
+            }
+          },
           "properties": {
             "title": {
               "maxLength": 200,
@@ -1054,6 +1102,17 @@
               ],
               "default": null,
               "title": "Date"
+            },
+            "repeat_interval": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/CommitmentRepeatInterval"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "required": [
@@ -1062,6 +1121,138 @@
             "duration_minutes"
           ],
           "title": "add_focus_commitmentArguments",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "skip_focus_occurrence",
+        "description": "Skip one day of a repeating Focus commitment; the series and its other days are untouched.\n\nseries_id is the commitment's entry_id from get_focus_plan; plan_date is the\nday to skip. Undo with remove_focus_entry(entry_id) on the returned skip.",
+        "parameters": {
+          "properties": {
+            "series_id": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Series Id",
+              "type": "integer"
+            },
+            "plan_date": {
+              "format": "date",
+              "title": "Plan Date",
+              "type": "string"
+            }
+          },
+          "required": [
+            "series_id",
+            "plan_date"
+          ],
+          "title": "skip_focus_occurrenceArguments",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "stop_focus_series",
+        "description": "End a repeating Focus commitment from `stop_date` on; earlier days keep it.\n\nstop_date is the first day it no longer happens. Omit stop_date to lift an\nend and make it repeat with no end again. To remove it from its first day,\nuse remove_focus_entry. Undo by calling this again with the previous\nstop_date (see stop_date on the returned entry, or omit it to lift).",
+        "parameters": {
+          "properties": {
+            "series_id": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Series Id",
+              "type": "integer"
+            },
+            "stop_date": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Stop Date"
+            }
+          },
+          "required": [
+            "series_id"
+          ],
+          "title": "stop_focus_seriesArguments",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit_focus_occurrence",
+        "description": "Change one day of a repeating Focus commitment (time, title and/or length), that day only.\n\nseries_id is the commitment's entry_id from get_focus_plan. Fields left out\nkeep the series' values. Undo with remove_focus_entry(entry_id) on the\nreturned entry, which resets the day.",
+        "parameters": {
+          "properties": {
+            "series_id": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Series Id",
+              "type": "integer"
+            },
+            "plan_date": {
+              "format": "date",
+              "title": "Plan Date",
+              "type": "string"
+            },
+            "start_time": {
+              "anyOf": [
+                {
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Start Time"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "duration_minutes": {
+              "anyOf": [
+                {
+                  "maximum": 1440,
+                  "minimum": 5,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Duration Minutes"
+            }
+          },
+          "required": [
+            "series_id",
+            "plan_date"
+          ],
+          "title": "edit_focus_occurrenceArguments",
           "type": "object"
         }
       }
@@ -1110,7 +1301,7 @@
       "type": "function",
       "function": {
         "name": "remove_focus_entry",
-        "description": "Unpin a task or drop a commitment from the Focus plan (entry_id from get_focus_plan).\n\nUndo with restore_focus_entry(entry_id).",
+        "description": "Unpin a task or drop a commitment from the Focus plan (entry_id from get_focus_plan).\n\nGiven a repeating commitment's entry_id it removes the whole series, every\nday: to drop just one day use skip_focus_occurrence, and to end it from a\nday on use stop_focus_series. Given a skip_entry_id (skipped_commitments) it\nun-skips that day; given an override_entry_id it resets that edited day to\nthe usual occurrence. Undo with restore_focus_entry(entry_id).",
         "parameters": {
           "properties": {
             "entry_id": {
@@ -6185,8 +6376,56 @@
     },
     {
       "name": "add_focus_commitment",
-      "description": "Block fixed time in the Focus plan for something that is not a task, e.g. a 14:00 meeting.\n\nThe plan packs tasks around it. Undo with remove_focus_entry(entry_id).",
+      "description": "Block fixed time in the Focus plan for something that is not a task, e.g. a 14:00 meeting.\n\nThe plan packs tasks around it. With repeat_interval it recurs from `date`\non (a series): {\"unit\": \"day\", \"every\": 1} is daily; {\"unit\": \"week\",\n\"every\": 1, \"days\": [0, 1, 2, 3, 4]} is Mon-Fri (days: Monday 0 to Sunday 6,\nweeks only). Undo with remove_focus_entry(entry_id), which removes the whole\nseries.",
       "inputSchema": {
+        "$defs": {
+          "CommitmentRepeatInterval": {
+            "additionalProperties": false,
+            "description": "A commitment series' cadence: the task shape plus an optional weekday set (#427).\n\n``{\"unit\": \"week\", \"every\": 1, \"days\": [0, 1, 2, 3, 4]}`` is a Mon-Fri\nstandup; ``every: 2`` with ``days`` is \"every other week on those days\".\n``days`` is only meaningful with ``unit: \"week\"``; without it a weekly series\nlands on its first day's weekday, as before. Task recurrence keeps the plain\n``RepeatInterval``: this subclass is commitments-only.",
+            "properties": {
+              "unit": {
+                "enum": [
+                  "day",
+                  "week",
+                  "month"
+                ],
+                "title": "Unit",
+                "type": "string"
+              },
+              "every": {
+                "maximum": 12,
+                "minimum": 1,
+                "title": "Every",
+                "type": "integer"
+              },
+              "days": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "maximum": 6,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "maxItems": 7,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Days"
+              }
+            },
+            "required": [
+              "unit",
+              "every"
+            ],
+            "title": "CommitmentRepeatInterval",
+            "type": "object"
+          }
+        },
         "properties": {
           "title": {
             "maxLength": 200,
@@ -6217,6 +6456,17 @@
             ],
             "default": null,
             "title": "Date"
+          },
+          "repeat_interval": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CommitmentRepeatInterval"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -6225,6 +6475,657 @@
           "duration_minutes"
         ],
         "title": "add_focus_commitmentArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "CommitmentRepeatInterval": {
+            "additionalProperties": false,
+            "description": "A commitment series' cadence: the task shape plus an optional weekday set (#427).\n\n``{\"unit\": \"week\", \"every\": 1, \"days\": [0, 1, 2, 3, 4]}`` is a Mon-Fri\nstandup; ``every: 2`` with ``days`` is \"every other week on those days\".\n``days`` is only meaningful with ``unit: \"week\"``; without it a weekly series\nlands on its first day's weekday, as before. Task recurrence keeps the plain\n``RepeatInterval``: this subclass is commitments-only.",
+            "properties": {
+              "unit": {
+                "enum": [
+                  "day",
+                  "week",
+                  "month"
+                ],
+                "title": "Unit",
+                "type": "string"
+              },
+              "every": {
+                "maximum": 12,
+                "minimum": 1,
+                "title": "Every",
+                "type": "integer"
+              },
+              "days": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "maximum": 6,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "maxItems": 7,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Days"
+              }
+            },
+            "required": [
+              "unit",
+              "every"
+            ],
+            "title": "CommitmentRepeatInterval",
+            "type": "object"
+          }
+        },
+        "description": "A stored entry as written; ``start_time`` is HH:MM or null (floating).",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "plan_date": {
+            "format": "date",
+            "title": "Plan Date",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "repeat_interval": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CommitmentRepeatInterval"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "stop_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stop Date"
+          },
+          "series_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Series Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          }
+        },
+        "required": [
+          "id",
+          "plan_date",
+          "task_id",
+          "title",
+          "start_time",
+          "duration_minutes",
+          "position",
+          "created_at",
+          "deleted_at"
+        ],
+        "title": "FocusEntryRead",
+        "type": "object"
+      }
+    },
+    {
+      "name": "skip_focus_occurrence",
+      "description": "Skip one day of a repeating Focus commitment; the series and its other days are untouched.\n\nseries_id is the commitment's entry_id from get_focus_plan; plan_date is the\nday to skip. Undo with remove_focus_entry(entry_id) on the returned skip.",
+      "inputSchema": {
+        "properties": {
+          "series_id": {
+            "maximum": 9223372036854775807,
+            "minimum": 1,
+            "title": "Series Id",
+            "type": "integer"
+          },
+          "plan_date": {
+            "format": "date",
+            "title": "Plan Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "series_id",
+          "plan_date"
+        ],
+        "title": "skip_focus_occurrenceArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "CommitmentRepeatInterval": {
+            "additionalProperties": false,
+            "description": "A commitment series' cadence: the task shape plus an optional weekday set (#427).\n\n``{\"unit\": \"week\", \"every\": 1, \"days\": [0, 1, 2, 3, 4]}`` is a Mon-Fri\nstandup; ``every: 2`` with ``days`` is \"every other week on those days\".\n``days`` is only meaningful with ``unit: \"week\"``; without it a weekly series\nlands on its first day's weekday, as before. Task recurrence keeps the plain\n``RepeatInterval``: this subclass is commitments-only.",
+            "properties": {
+              "unit": {
+                "enum": [
+                  "day",
+                  "week",
+                  "month"
+                ],
+                "title": "Unit",
+                "type": "string"
+              },
+              "every": {
+                "maximum": 12,
+                "minimum": 1,
+                "title": "Every",
+                "type": "integer"
+              },
+              "days": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "maximum": 6,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "maxItems": 7,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Days"
+              }
+            },
+            "required": [
+              "unit",
+              "every"
+            ],
+            "title": "CommitmentRepeatInterval",
+            "type": "object"
+          }
+        },
+        "description": "A stored entry as written; ``start_time`` is HH:MM or null (floating).",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "plan_date": {
+            "format": "date",
+            "title": "Plan Date",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "repeat_interval": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CommitmentRepeatInterval"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "stop_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stop Date"
+          },
+          "series_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Series Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          }
+        },
+        "required": [
+          "id",
+          "plan_date",
+          "task_id",
+          "title",
+          "start_time",
+          "duration_minutes",
+          "position",
+          "created_at",
+          "deleted_at"
+        ],
+        "title": "FocusEntryRead",
+        "type": "object"
+      }
+    },
+    {
+      "name": "stop_focus_series",
+      "description": "End a repeating Focus commitment from `stop_date` on; earlier days keep it.\n\nstop_date is the first day it no longer happens. Omit stop_date to lift an\nend and make it repeat with no end again. To remove it from its first day,\nuse remove_focus_entry. Undo by calling this again with the previous\nstop_date (see stop_date on the returned entry, or omit it to lift).",
+      "inputSchema": {
+        "properties": {
+          "series_id": {
+            "maximum": 9223372036854775807,
+            "minimum": 1,
+            "title": "Series Id",
+            "type": "integer"
+          },
+          "stop_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stop Date"
+          }
+        },
+        "required": [
+          "series_id"
+        ],
+        "title": "stop_focus_seriesArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "CommitmentRepeatInterval": {
+            "additionalProperties": false,
+            "description": "A commitment series' cadence: the task shape plus an optional weekday set (#427).\n\n``{\"unit\": \"week\", \"every\": 1, \"days\": [0, 1, 2, 3, 4]}`` is a Mon-Fri\nstandup; ``every: 2`` with ``days`` is \"every other week on those days\".\n``days`` is only meaningful with ``unit: \"week\"``; without it a weekly series\nlands on its first day's weekday, as before. Task recurrence keeps the plain\n``RepeatInterval``: this subclass is commitments-only.",
+            "properties": {
+              "unit": {
+                "enum": [
+                  "day",
+                  "week",
+                  "month"
+                ],
+                "title": "Unit",
+                "type": "string"
+              },
+              "every": {
+                "maximum": 12,
+                "minimum": 1,
+                "title": "Every",
+                "type": "integer"
+              },
+              "days": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "maximum": 6,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "maxItems": 7,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Days"
+              }
+            },
+            "required": [
+              "unit",
+              "every"
+            ],
+            "title": "CommitmentRepeatInterval",
+            "type": "object"
+          }
+        },
+        "description": "A stored entry as written; ``start_time`` is HH:MM or null (floating).",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "plan_date": {
+            "format": "date",
+            "title": "Plan Date",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "repeat_interval": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CommitmentRepeatInterval"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "stop_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stop Date"
+          },
+          "series_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Series Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          }
+        },
+        "required": [
+          "id",
+          "plan_date",
+          "task_id",
+          "title",
+          "start_time",
+          "duration_minutes",
+          "position",
+          "created_at",
+          "deleted_at"
+        ],
+        "title": "FocusEntryRead",
+        "type": "object"
+      }
+    },
+    {
+      "name": "edit_focus_occurrence",
+      "description": "Change one day of a repeating Focus commitment (time, title and/or length), that day only.\n\nseries_id is the commitment's entry_id from get_focus_plan. Fields left out\nkeep the series' values. Undo with remove_focus_entry(entry_id) on the\nreturned entry, which resets the day.",
+      "inputSchema": {
+        "properties": {
+          "series_id": {
+            "maximum": 9223372036854775807,
+            "minimum": 1,
+            "title": "Series Id",
+            "type": "integer"
+          },
+          "plan_date": {
+            "format": "date",
+            "title": "Plan Date",
+            "type": "string"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Time"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Title"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "maximum": 1440,
+                "minimum": 5,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Duration Minutes"
+          }
+        },
+        "required": [
+          "series_id",
+          "plan_date"
+        ],
+        "title": "edit_focus_occurrenceArguments",
         "type": "object"
       },
       "outputSchema": {
@@ -6635,7 +7536,7 @@
     },
     {
       "name": "remove_focus_entry",
-      "description": "Unpin a task or drop a commitment from the Focus plan (entry_id from get_focus_plan).\n\nUndo with restore_focus_entry(entry_id).",
+      "description": "Unpin a task or drop a commitment from the Focus plan (entry_id from get_focus_plan).\n\nGiven a repeating commitment's entry_id it removes the whole series, every\nday: to drop just one day use skip_focus_occurrence, and to end it from a\nday on use stop_focus_series. Given a skip_entry_id (skipped_commitments) it\nun-skips that day; given an override_entry_id it resets that edited day to\nthe usual occurrence. Undo with restore_focus_entry(entry_id).",
       "inputSchema": {
         "properties": {
           "entry_id": {

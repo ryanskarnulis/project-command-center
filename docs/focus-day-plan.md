@@ -430,31 +430,32 @@ series still act on the series) and adds `override_entry_id`.
 
 ### Agent
 
-The tool schemas are unchanged in this PR, so the eval gate isn't triggered by
-an input-schema change. `add_focus_commitment` still adds a one-off. Its
-service call simply leaves the new `repeat_interval` argument at its default.
+Since #426 the agent can work with series, through thin adapters over the
+same `focus_plan` service verbs the routes use (all flat, top-level args):
 
-Two things the agent does see:
+- `add_focus_commitment` takes an optional `repeat_interval`, the same
+  `CommitmentRepeatInterval` the API accepts (`{"unit": "week", "every": 1,
+  "days": [0, 1, 2, 3, 4]}` is Mon-Fri; `days` is weeks-only).
+- `skip_focus_occurrence(series_id, plan_date)` skips one day. It returns the
+  skip; `remove_focus_entry` on it is the undo.
+- `edit_focus_occurrence(series_id, plan_date, start_time?, title?,
+  duration_minutes?)` changes one day only. It returns the override;
+  `remove_focus_entry` on it resets the day.
+- `stop_focus_series(series_id, stop_date?)` ends a series from a day on;
+  omitting `stop_date` lifts the end.
+- `remove_focus_entry` on a series' `entry_id` still removes the whole series
+  (undo: `restore_focus_entry`); its docstring points the model to the narrower
+  tools. On a `skip_entry_id` it un-skips the day; on an `override_entry_id` it
+  resets the day.
 
-- Results gain the new nullable fields: `repeat_interval` on
-  `get_focus_plan`'s commitments, and `repeat_interval` / `series_id` on
-  entries. Since #427 a `repeat_interval` in those results may carry `days`
-  (output only; no tool takes a cadence yet, see #426).
-- `get_focus_plan` gains `skipped_commitments` (#429), a separate list, so
-  `commitments` stays the day's live time. Each names its `skip_entry_id`, so
-  `remove_focus_entry` on it un-skips the day.
-- `remove_focus_entry` given a series' `entry_id` removes the whole series.
-  It stays undoable with `restore_focus_entry`, and the activity summary names
-  the cadence ("…, daily from 2026-10-20, removed from Focus").
-- #428 adds no tool. `get_focus_plan`'s commitments gain `series_start_date`,
-  `stop_date` and `override_entry_id`, and entries gain `stop_date`.
-  `remove_focus_entry` on an `override_entry_id` resets that day. Tools to
-  stop a series or edit one day are #426's.
-
-Letting the agent create a series or skip one day means a tool-schema change,
-which runs the eval gate, so it is a follow-up.
+What the agent reads: `repeat_interval` (with `days`) and `series_id` on
+entries; `get_focus_plan`'s commitments carry `series_start_date`, `stop_date`
+and `override_entry_id`, and `skipped_commitments` (#429) is a separate list
+naming each `skip_entry_id`, so `commitments` stays the day's live time.
+Failures the service reports (a day the series doesn't have, a skipped day
+being edited) come back as tool errors.
 
 ## Not built (follow-ups)
 
-- Agent tools for series, skips, stops and one-day edits (#426). The forms offer only the Mon-Fri weekday set; other sets
+- The forms offer only the Mon-Fri weekday set; other sets
   are API-only.
