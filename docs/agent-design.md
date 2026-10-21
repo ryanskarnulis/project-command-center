@@ -44,7 +44,10 @@ validation it forgives what the deployed history shows the model sending: a
 are renamed (the canonical key wins when both come; the schema names only
 it). Each forgiveness logs `tool_args_forgiven`. On the tools, a
 `repeat_interval` without `every` means every 1, for tasks and Focus
-commitments; REST still requires `every`.
+commitments; REST still requires `every`. Every tool, not only these four,
+refuses an argument it does not have: FastMCP's argument models ignore extras,
+and once `due_date` was a top-level `update_task` argument the model sometimes
+sent `list_tasks(due_date=…)`, which came back unfiltered, done tasks included.
 
 **Deliberately not exposed:** `purge_task`, `purge_project`, `empty_trash`,
 `reorder_projects`, the dashboard overview. Trash retention (#321) — the
