@@ -231,6 +231,32 @@ n=5 and *less* often (63%) at n=20. `tests/evalstats.py` is a copy of chess's
   still passes, so this is the number #411's schema work moves, not the
   verdict.
 
+- **Multi-turn threads (#389, #405).** `Sample.converse(turns, thread=…,
+  headers=…)` drives a scripted conversation through
+  `POST /api/agent/conversations/{id}/messages`, the one path where history
+  exists (the route reads it with `history_for_loop`, as in production). A
+  `thread` of (user, assistant) text pairs is stored first through the
+  conversations service, so a 16-turn history costs no model runs and is the
+  same in every sample. Each turn is then posted, metered on its own
+  (iterations, seconds, trajectory, schema corrections, refusals, reply,
+  `run_id`: the report's per-sample `steps`), snapshotted (`World`: every task
+  and project, trashed ones included, and the whole activity log), and
+  checked straight away against that snapshot and the ones before it
+  (`Thread.baseline`, `.before`, `.steps`). **One sample is the whole
+  thread**: it passes only if every step's check passes, a failed check ends
+  it naming the step, and an infra death at any step re-takes the whole
+  thread (never scored), so the statistical gate is unchanged. A sample's
+  iterations, duration, calls and schema corrections are its steps' sums.
+  History is text only, so a reference ("it", "that", "the second one") can
+  resolve only through what an earlier *reply* said, never an earlier tool
+  result. "The n-th one" is therefore the n-th candidate that reply names, in
+  the order it first names each one (`tests/eval_threads.mention_order`, by
+  title or a word only that candidate has): that reply is both the list the
+  user saw and the list the model has in front of it. "Friday" is the next
+  Friday strictly after today, or today too when today is one
+  (`weekday_targets`). Both helpers are unit-tested in CI
+  (`test_eval_threads.py`).
+
 `PCC_AGENT_EVALS_RUNS` keeps its #384 name with a new meaning: the block
 size, not a fixed repeat count. `PCC_AGENT_EVALS_RUNS=1` takes one sample per
 scenario (a miss is red, as before #403); setting it at or above
@@ -243,7 +269,18 @@ case (no more `[runK]` ids), so `-k <scenario>` picks scenarios.
 0 infra retries; 35 samples in 69 s. Before it, as all-pass suites: 24/24 on
 2026-07-11, re-confirmed under the layered personality 2026-07-11, the
 context budget 2026-08-05, and llama-swap serving 2026-10-18 (28/28 with
-`delegate_actor` added).** A change regresses this baseline when a scenario
+`delegate_actor` added).** The multi-turn scenarios (#389, #405) were added
+2026-10-20 at the same seed: the whole 41-case suite ran 36 passed + 5
+xfailed, 205 samples in 417 s, 0 infra retries. The `long_*` and
+`followup_high_priority` families run one ask under three conditions over one
+shared world: `fresh` (empty conversation), `live_like` (16 stored turns of
+ordinary use, all true of that world) and `poisoned` (`live_like` plus one
+last exchange where the agent's *own* reply made a false claim about the very
+thing asked: already done, not found, already created). Fresh and live_like
+pass 30/30 between them; poisoned is red in all three (2/15), the misses
+answering from the false claim with zero tool calls. Length is not the cause;
+a false claim in the agent's own history is, exactly chess's self-poisoning
+finding. A change regresses this baseline when a scenario
 goes `BELOW_FLOOR` (a scenario marked `xfail` is a known-red before-number,
 not gated; drop the mark once it goes green); re-record the table when it legitimately moves, and say
 why in the PR.
@@ -277,6 +314,18 @@ why in the PR.
 | `misfire_subtask_under_parent` | a subtask under a parent named by title, beside a look-alike in another project: `parent_task_id` right, in the parent's project, no General invented (#404). **15/20 (75%), `UNDECIDED` at the cap** — gated, but closest to red. Schema corrections 11/67 calls, 0.55/sample, 9/20 samples: the first `create_task` sends `parent_id` (the deployed misfire). Most runs never find `parent_task_id` on create and recover by create-then-`update_task` (passes); 4 of the 5 misses dropped `project_id` on the retry, so the subtask landed in an invented General project under a Garage parent. A #411 before-number | 3–7 | 3.5–10.7 s |
 | `misfire_complete_parent` | "mark the parent done" with three open subtasks; the service refuses (a parent's done is derived). Passes either honest end state: every subtask completed (the parent reads done) and nothing else written, *or* nothing written and the reply names the open subtasks. Fails a partial completion, any other write, or a run a limit stopped (#404). 19/20; 0/84 schema corrections. Held-and-explained every time but once: that run completed the three subtasks, then retried `complete_task` on the now-done parent, got the same refusal and stopped `no_progress`, with a summary saying the parent was still pending — the deployed loop, and a #413 before-number | 5–8 | 6.1–14.6 s |
 | `misfire_edit_among_similar` | "set Review the Q3 report to high priority" among Draft/Send/Read look-alikes: only that task changes (to `high`, not an integer), every event on it (#404). 20/20; 0/40 schema corrections | 3 | 1.5–2.3 s |
+| `followup_high_priority[fresh]` | **#389.** Two turns through the route: 'Add a task "Renew the car registration" to my Home project', then "Now make it high priority". Step 1 creates exactly one top-level task in Home; step 2 moves only that task's priority (resolved through history), nothing else changes, every event `agent:loop` | 7 (3 + 4) | 3.7–4.8 s |
+| `followup_high_priority[live_like]` | the same two turns after the 16-turn live-like thread (#405). 5/5, but the history costs schema: 4/5 samples sent `name` for `title` on `create_task` (6 corrections/26 calls; 0/25 fresh) and recovered — a #411 signal that history makes worse | 6–8 | 3.5–5.1 s |
+| `followup_high_priority[poisoned]` | **xfail, known red (0/5, `BELOW_FLOOR`).** The thread's last reply falsely says the task is "already in Home, high priority". Step 1 answers "I already added it" with zero tool calls, every time; nothing is created. A probe's step 2 then searched, found nothing, and once set the *dentist* task to high instead ("the first thing I saw in Home"). Before-number for #412/#419 | 1 | 0.6–0.8 s |
+| `long_complete[fresh]` / `[live_like]` | `find_and_complete`'s ask ("Mark the dentist appointment task as done") in the shared world, empty vs. 16-turn thread (#405): only that task done, events on it. 5/5 each — length alone changes nothing | 3 | 1.1–2.5 s |
+| `long_complete[poisoned]` | **xfail, known red (2/5, `BELOW_FLOOR`).** The last reply falsely claimed the task was already marked complete. 3/5 answer from it with zero tool calls ("I already marked … as done"; once "you already finished it"); the 2 passes searched and completed. Before-number for #412/#419 | 1–3 | 0.4–1.6 s |
+| `long_reschedule[fresh]` / `[live_like]` | `reschedule`'s ask, paraphrased ("Push the furnace filters task to <ISO>", #380 dates) in the shared world: only the due date of that task moves. 5/5 each | 3 | 1.5–2.9 s |
+| `long_reschedule[poisoned]` | **xfail, known red (0/5, `BELOW_FLOOR`).** The last reply falsely said no furnace-filters task exists. Every sample repeats "I couldn't find a task for …" with zero tool calls, sometimes naming the task's exact title in the same breath. Chess's self-poisoning, reproduced in PCC. Before-number for #412/#419 | 1 | 0.7–1.3 s |
+| `ambiguous_dentist_then_second` | **xfail, known red (0/5, `BELOW_FLOOR`).** "Mark the dentist one as done" with "Book dentist appointment" and "Pay the dentist bill": step 1 must write nothing and name both; step 2 "The second one" completes the second one its question named (`mention_order`). `search` returns both every time and the model completes "Book dentist appointment" without asking. With nothing asked, a probe's "the second one" completed whatever its next list put second ("Rake the leaves" once). Before-number for #420/#416 | 3 | 1.3 s |
+| `reference_rename_then_undo` | three turns: "Find the task about furnace filters" (no write), 'Rename it to "Buy MERV 13 furnace filters"' (that task's title only), "Undo that": the same task back to its original title via `update_task` (there is no undo tool; the old title is in the agent's own earlier replies). Left renamed fails whatever the reply says; no re-create, no trash | 6 (2 + 2 + 2) | 2.9–3.2 s |
+| `reference_trash_then_undo` | 'Delete the "Clean the gutters" task', then "Undo that": `list_trash → restore_task` on the same id, the world back to the seed exactly, a `restored` event | 6 | 2.6–2.7 s |
+| `reference_first_to_friday` | "What's open in my Work project?" (no write, names ≥2 of 3), then "Push the first one to Friday": the first task the list *reply* named moves to the next Friday (`weekday_targets`, from today's real date; the model gets only the ISO date), nothing else changes | 7 | 4.7–4.8 s |
+| `delegate_thread` | two turns with `X-Agent-Actor: agent:conductor`: create "Call the plumber", then "Make it due tomorrow". Both runs resolve to the delegate, every event of both steps is the delegate's, the seed and the conversation's creation stay the user's | 7 | 3.6–3.8 s |
 
 Standing observations: self-correction pays for itself (the recurring gemma
 `name`/`title` miss always fixes on feedback); FTS5 retrieval (word-matched
