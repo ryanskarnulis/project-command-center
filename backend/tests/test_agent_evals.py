@@ -146,7 +146,6 @@ from tests.eval_report import (
     write_jsonl,
 )
 from tests.eval_threads import (
-    FRIDAY,
     changed_keys,
     end_of_month,
     mention_order,
@@ -219,9 +218,8 @@ _FLOORS: dict[str, float] = {
         *(
             f"{family}[{condition}]"
             for family in ("followup_high_priority", "long_complete", "long_reschedule")
-            for condition in ("fresh", "live_like", "poisoned")
+            for condition in ("fresh", "live_like")
         ),
-        "ambiguous_dentist_then_second",
         "reference_rename_then_undo",
         "reference_trash_then_undo",
         "reference_first_to_friday",
@@ -236,7 +234,6 @@ _FLOORS: dict[str, float] = {
         "date_this_weekend",
         "speech_add_task",
         "speech_mark_done",
-        "speech_push_appointment",
         "dependency_paraphrase",
     )
 }
@@ -2335,34 +2332,26 @@ def _live_thread(today: date) -> list[tuple[str, str]]:
     ]
 
 
-# Each long-thread ask runs under three conditions (chess's ``long_*`` family),
+# Each long-thread ask runs under two conditions (chess's ``long_*`` family),
 # so the history is the only variable:
 #
 #   fresh      the same world, an empty conversation       (the control)
 #   live_like  the world plus ``_live_thread``'s 16 turns  (what a user has)
-#   poisoned   live_like plus one last exchange where the agent's OWN reply
-#              made a false claim about the very thing the ask is about
 #
-# Chess's finding was that length alone did nothing and self-poisoning broke
-# the agent: it read its own earlier answer as a fact about the app. The
-# poison goes last, where chess found it bites.
-_CONDITIONS = ("fresh", "live_like", "poisoned")
+# A third, ``poisoned`` (live_like plus one last exchange where the agent's OWN
+# reply made a false claim about the very thing asked), was red in all three
+# families (#405: chess's self-poisoning, reproduced; length alone did
+# nothing). It needs #412/#419 rather than a regression fix, so it is measured
+# in the frontier tier (``tests/frontier_corpus.py``, ``poisoned_*``, #408).
+_CONDITIONS = ("fresh", "live_like")
 
 
-def _condition_thread(label: str, poison: tuple[str, str]) -> list[tuple[str, str]]:
-    if label == "fresh":
-        return []
-    thread = _live_thread(date.today())
-    return [*thread, poison] if label == "poisoned" else thread
+def _condition_thread(label: str) -> list[tuple[str, str]]:
+    return [] if label == "fresh" else _live_thread(date.today())
 
 
 _REGISTRATION_ASK = 'Add a task "Renew the car registration" to my Home project.'
 _HIGH_PRIORITY_ASK = "Now make it high priority."
-# False: no such task exists until the ask creates it.
-_REGISTRATION_POISON = (
-    "did you add the car registration renewal?",
-    'Yes, "Renew the car registration" is already in Home, high priority.',
-)
 
 
 def _followup_high_priority(sample: Sample, label: str) -> None:
@@ -2371,7 +2360,6 @@ def _followup_high_priority(sample: Sample, label: str) -> None:
     The second ask names nothing, so it resolves only through the first turn's
     reply in the stored history. The right task is the one step 1 created; it
     alone changes, only its priority moves, and every event is the loop's.
-    Under ``poisoned`` the thread's last reply claims the task already exists.
     """
     _seed_world(sample)
     created: list[int] = []
@@ -2397,21 +2385,15 @@ def _followup_high_priority(sample: Sample, label: str) -> None:
 
     sample.converse(
         [(_REGISTRATION_ASK, check_created), (_HIGH_PRIORITY_ASK, check_high)],
-        thread=_condition_thread(label, _REGISTRATION_POISON),
+        thread=_condition_thread(label),
     )
 
 
 _DENTIST_DONE_ASK = "Mark the dentist appointment task as done."
-# False: the dentist task is still open.
-_DENTIST_POISON = (
-    "I booked the dentist, check that off",
-    'Done. "Book dentist appointment" is marked complete.',
-)
 
 
 def _long_complete(sample: Sample, label: str) -> None:
-    """``find_and_complete``'s ask inside a thread (#405). Under ``poisoned``
-    the agent's last reply already claimed it was done; it wasn't."""
+    """``find_and_complete``'s ask inside a thread (#405)."""
     _seed_world(sample)
 
     def check(thread: Thread) -> None:
@@ -2422,22 +2404,12 @@ def _long_complete(sample: Sample, label: str) -> None:
         )
         _assert_only(thread, dentist)
 
-    sample.converse(
-        [(_DENTIST_DONE_ASK, check)], thread=_condition_thread(label, _DENTIST_POISON)
-    )
-
-
-# False: "Order new furnace filters" exists, due in three days.
-_FILTERS_POISON = (
-    "do I have anything about furnace filters?",
-    "I couldn't find any task about furnace filters.",
-)
+    sample.converse([(_DENTIST_DONE_ASK, check)], thread=_condition_thread(label))
 
 
 def _long_reschedule(sample: Sample, label: str) -> None:
     """``reschedule``'s ask (paraphrased title, ISO target per #380) inside a
-    thread (#405). Under ``poisoned`` the agent's last reply said no such task
-    exists."""
+    thread (#405)."""
     _seed_world(sample)
     target = date.today() + timedelta(days=10)
 
@@ -2451,52 +2423,7 @@ def _long_reschedule(sample: Sample, label: str) -> None:
 
     sample.converse(
         [(f"Push the furnace filters task to {target.isoformat()}.", check)],
-        thread=_condition_thread(label, _FILTERS_POISON),
-    )
-
-
-# "The dentist one" fits both. Each is recognised in a reply by its title or a
-# word only it has, for the "second one" rule (``eval_threads.mention_order``).
-_DENTIST_CANDIDATES = {
-    "Book dentist appointment": ("Book dentist appointment", "appointment"),
-    "Pay the dentist bill": ("Pay the dentist bill", "bill"),
-}
-
-
-def _ambiguous_then_second(sample: Sample) -> None:
-    """Two tasks fit "the dentist one": ask, change nothing; then "the second
-    one" lands on the right task (#405).
-
-    **"Second" is the second candidate the agent's question named**, in the
-    order its reply first names them (``mention_order``), not the ids' or the
-    list tool's order: history is text only, so that reply is the list the
-    model has in front of it when the answer comes, and the list the user saw.
-    A question that doesn't name both is a miss (there is no "second" in it).
-    """
-    with sample.db() as db:
-        home = projects_service.create_project(db, name="Home")
-        for title in (*_DENTIST_CANDIDATES, "Rake the leaves"):
-            tasks_service.create_task(db, project_id=home.id, title=title)
-        db.commit()
-
-    def check_asked(thread: Thread) -> None:
-        _assert_completed(thread)
-        _assert_wrote_nothing(thread)
-        named = mention_order(thread.step.reply, _DENTIST_CANDIDATES)
-        assert len(named) == 2, f"the question names {named}: {thread.step.reply!r}"
-
-    def check_second(thread: Thread) -> None:
-        _assert_completed(thread)
-        second = mention_order(thread.steps[0].reply, _DENTIST_CANDIDATES)[1]
-        target = thread.baseline.task_id(second)
-        assert thread.step.world.tasks[target].status == "done", (
-            f"{second!r} is {thread.step.world.tasks[target].status}; "
-            f"asked with {thread.steps[0].reply!r}"
-        )
-        _assert_only(thread, target)
-
-    sample.converse(
-        [("Mark the dentist one as done.", check_asked), ("The second one.", check_second)]
+        thread=_condition_thread(label),
     )
 
 
@@ -3025,27 +2952,6 @@ def _speech_mark_done(sample: Sample) -> None:
     _assert_events_only_about(after, before, {groceries})
 
 
-def _speech_push_appointment(sample: Sample) -> None:
-    """"push the dennis appointment to friday": "Dentist appointment" (not the
-    car service one) moves to the next Friday (``weekday_targets``)."""
-    today = date.today()
-    _seed_errands(sample)
-    before = _world(sample)
-    dentist = before.task_id("Dentist appointment")
-
-    result = sample.run("push the dennis appointment to friday")
-
-    assert result.stop_reason == "completed", f"stopped: {result.stop_reason}"
-    assert _successful(result, "update_task"), "expected a successful update_task"
-    after = _world(sample)
-    due = after.tasks[dentist].due_date
-    assert due in weekday_targets(today, FRIDAY), (
-        f"due {due}, want one of {sorted(weekday_targets(today, FRIDAY))}"
-    )
-    _assert_task_changes(before, after, {dentist: replace(before.tasks[dentist], due_date=due)})
-    _assert_events_only_about(after, before, {dentist})
-
-
 def _dependency_paraphrase(sample: Sample) -> None:
     """The user describes stored tasks in their own words ("Painting the
     walls" for "Paint the walls", "buying primer" for "Buy primer"): exactly
@@ -3111,7 +3017,10 @@ def test_eval_dependency_remove() -> None:
 # ``recur_interval``), the refusal doesn't name the field, and it falls back to
 # creating a duplicate task. 1/5 on gemma-4-12b, 2026-10-20. #411 flattens the
 # arguments and #413 makes refusals say how to recover; drop the mark when it
-# goes green. Until the frontier tier (#408), xfail runs it without gating.
+# goes green. It stays here rather than in the frontier tier (#408): it is one
+# plain ask the agent must do, so once #411 lands it is a tripwire, and the
+# frontier never graduates a scenario back. ``long_composition`` there carries
+# it inside a harder whole.
 @pytest.mark.xfail(
     strict=False, reason="below floor until #411/#413: repeat_interval is hard to find"
 )
@@ -3179,29 +3088,9 @@ def test_eval_misfire_edit_among_similar() -> None:
     _gate("misfire_edit_among_similar", _edit_among_similar)
 
 
-# Known red under ``poisoned`` (#405), measured 2026-10-20 on gemma-4-12b with
-# seed 403: chess's self-poisoning, reproduced. The model takes its own last
-# reply as a fact about the data and answers from it with zero tool calls,
-# though fresh and live_like (16 true turns) pass 5/5 each: length is not the
-# cause, the false claim is. Before-numbers for #412 (a fresh state block every
-# turn) and #419 (code-kept memory instead of chat-turn history); drop a mark
-# once its condition goes green. Until the frontier tier (#408), xfail runs it
-# without gating.
-def _poisoned_xfail(reason: str) -> list[Any]:
-    """The three conditions, with ``poisoned`` a known-red xfail."""
-    return [
-        "fresh",
-        "live_like",
-        pytest.param("poisoned", marks=pytest.mark.xfail(strict=False, reason=reason)),
-    ]
-
-
-@pytest.mark.parametrize(
-    "condition",
-    _poisoned_xfail(
-        "0/5 until #412/#419: trusts its own false 'already in Home' and creates nothing"
-    ),
-)
+# Each family under ``fresh`` and ``live_like`` (#405); ``poisoned`` is
+# measured in the frontier tier (``poisoned_*``, #408).
+@pytest.mark.parametrize("condition", _CONDITIONS)
 def test_eval_followup_high_priority(condition: str) -> None:
     _gate(
         f"followup_high_priority[{condition}]",
@@ -3209,31 +3098,19 @@ def test_eval_followup_high_priority(condition: str) -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "condition",
-    _poisoned_xfail("2/5 until #412/#419: repeats its own false 'already done', no tool call"),
-)
+@pytest.mark.parametrize("condition", _CONDITIONS)
 def test_eval_long_complete(condition: str) -> None:
     _gate(f"long_complete[{condition}]", lambda sample: _long_complete(sample, condition))
 
 
-@pytest.mark.parametrize(
-    "condition",
-    _poisoned_xfail("0/5 until #412/#419: repeats its own false 'couldn't find', no tool call"),
-)
+@pytest.mark.parametrize("condition", _CONDITIONS)
 def test_eval_long_reschedule(condition: str) -> None:
     _gate(f"long_reschedule[{condition}]", lambda sample: _long_reschedule(sample, condition))
 
 
-# Known red (#405): 0/5 on gemma-4-12b, 2026-10-20. ``search`` returns both
-# dentist tasks and the model completes "Book dentist appointment" without
-# asking, every time; with nothing asked, "the second one" has no list to
-# point into (a probe's follow-up then completed whichever task its next list
-# put second, "Rake the leaves" once). Before-number for #420 (typed
-# clarification with an open-question record) and #416's prompt rules.
-@pytest.mark.xfail(strict=False, reason="0/5 until #420: never asks, completes one dentist task")
-def test_eval_ambiguous_dentist_then_second() -> None:
-    _gate("ambiguous_dentist_then_second", _ambiguous_then_second)
+# ``ambiguous_dentist_then_second`` (0/5, #405) is measured in the frontier
+# tier as ``ambiguous_then_pick`` (#408): it needs #420's clarification, not a
+# regression fix.
 
 
 def test_eval_reference_rename_then_undo() -> None:
@@ -3269,6 +3146,8 @@ def test_eval_compose_move_due_today() -> None:
 # month's visit"), and the reply says the follow-up is "set". The completion
 # half of the composition is fine. Before-number for #411 (create_task's
 # flattened schema) and #416's prompt rules; drop the mark once it goes green.
+# Kept here, like ``recurrence_make_repeating``, as a tripwire-to-be (#408);
+# the frontier's ``long_composition`` carries it inside a harder whole.
 @pytest.mark.xfail(
     strict=False, reason="0/5 until #411/#416: follow-up created with no due date"
 )
@@ -3304,21 +3183,9 @@ def test_eval_speech_mark_done() -> None:
     _gate("speech_mark_done", _speech_mark_done)
 
 
-# Known red (#406): 6/20 (30%) on gemma-4-12b, 2026-10-20, seed 403 (the first
-# block of the full suite read 1/5, an isolated one 4/5: read the 20). "Dennis"
-# matches nothing, so ``search`` returns only the two "... appointment" tasks
-# and the model cannot pick one: 7/20 loop on search/list_tasks until
-# ``no_progress``; 4 stop and ask "did you mean the Dentist appointment?" with
-# nothing written; 3 move the wrong date (today, or Saturday); once it replies
-# "Moved the dentist appointment to Friday" having written nothing. The same
-# tasks pass when the mangled word is "groserys" (one fuzzy match). Before-
-# number for #416's prompt rules / #420's clarification; drop the mark once it
-# goes green.
-@pytest.mark.xfail(
-    strict=False, reason="6/20 until #416/#420: cannot resolve 'dennis' to the dentist task"
-)
-def test_eval_speech_push_appointment() -> None:
-    _gate("speech_push_appointment", _speech_push_appointment)
+# ``speech_push_appointment`` (6/20, #406) is measured in the frontier tier as
+# ``misheard_push`` (#408): it needs #416/#420's clarification, not a
+# regression fix.
 
 
 def test_eval_dependency_paraphrase() -> None:
