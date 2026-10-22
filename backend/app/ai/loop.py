@@ -176,11 +176,40 @@ def resolve_actor(header_value: str | None) -> str:
 
 # Layer 1 — app base prompt (app-owned behavioral contract). Upholds the
 # standard's invariants: tools-only action, no invented results, deterministic
-# truth, clarify-on-ambiguity.
+# truth. Clarify-on-ambiguity is not a prompt line (see below; #420).
+#
+# What survived, and why (#416: probe screens, then paired campaigns vs main
+# on gemma-4-12b, 2026-10-22; numbers in docs/agent-design.md). Each line
+# was also tried in operational voice ("X → do Y"), the fleet's usual fix for
+# descriptive rules; here every rewording measured equal or worse, because
+# main's wording already holds its scenarios at 20/20:
+# - the opening: the tools-only invariant. "You turn the user's words into
+#   tool calls" measured no different;
+# - the state block, ids and dates: "Use an id only when … a tool result in
+#   this run showed it" with "take every date from its calendar" took
+#   reference_first_to_friday 20/20 → 11/20, long_reschedule[live_like]
+#   20 → 12, followup_high_priority[fresh] 20 → 14 and date_next_friday
+#   20 → 16 (wrong task in follow-ups, today for "Friday"). This wording back
+#   took date_next_friday to 20/20;
+# - possible matches (#415's line, measured by its gather A/B);
+# - "Prefer the specific tool": without it, "make the quarterly report due
+#   next Friday" opened with create_task 10/10 (main: search 10/10); as
+#   "To finish a task, call complete_task; to change …, call update_task",
+#   5/10. This wording: 10/10;
+# - the refusal line: #413's (misfire_complete_parent 19/20 → 20/20);
+# - the closing reply line: no invented ids, tasks or outcomes (#407 scores it).
+# Dropped: "Every delete is a soft delete into a restorable trash" — a no-op
+# (delete_is_soft, project_trash, reference_trash_then_undo 20/20 without it;
+# MCP clients still read it in the server instructions).
+# Not added: "two or more tasks fit → change nothing, name them and ask",
+# with a worked example. ambiguous_then_pick (frontier) 0/20 → 4/20, p=0.125,
+# but it made "the first one" and "it" in follow-ups look ambiguous: the
+# three scenarios above 30/30 without it, 26/30 with. Ambiguity is #420's.
 _APP_BASE_PROMPT = """\
-You turn the user's words into tool calls for Project Command Center (PCC), their \
-project and task manager. You act only by calling the provided tools.
+You are the assistant for Project Command Center (PCC), the user's project and \
+task manager. You act only by calling the provided tools.
 
+Rules:
 - The user's message opens with a state block the app wrote at the start of this run: \
 today's date and calendar, the open projects with their ids, and today's task counts. Its \
 project ids are current; find any other id with the list_*/get_*/search tools; never guess \
@@ -189,16 +218,11 @@ an id. Take dates (today, tomorrow, a weekday, the end of the month) from its ca
 user's words found before the run, with real ids. Act on one that is clearly the task meant without looking it \
 up again; they are only candidates, and nothing has been done to them.
 - Prefer the specific tool: complete_task to finish a task, update_task to edit its fields.
-- Two or more tasks fit the user's words: change nothing. Reply naming every one that \
-fits and ask which they meant. Example: "mark the gym one done" with "Renew gym \
-membership" and "Pack the gym bag" open → no tool call; reply "Which one: 1. Renew gym \
-membership, or 2. Pack the gym bag?"
-- When they ask for several things, call a tool for each, in their order.
-- A rejected call says how to recover: "retry": "different_args" → correct the \
-arguments and call again; "retry": "never" → do not repeat that call; follow its "next".
-- When the work is done, or cannot be done, reply in plain text with a short summary. \
-State only what the tool results confirm: never an id, a task or an outcome they did \
-not return."""
+- If a tool call is rejected, read the error and correct your next call. Never repeat a \
+call rejected with "retry": "never"; follow its "next" instead.
+- When the work is done (or turns out to be impossible), reply with plain text: a short \
+summary of what you did or found. State only what the tool results confirm — never invent \
+an id, a task, or an outcome the tools didn't return."""
 
 # Layer 2 — global Glitch, the vendored house personality (STANDARD.md §5).
 _PERSONALITY_PATH = Path(__file__).with_name("personality-global.md")

@@ -697,8 +697,7 @@ def test_system_prompt_layers_compose_in_order() -> None:
     # Layer 1: the app behavioral contract.
     assert "Project Command Center (PCC)" in prompt
     assert "never guess an id" in prompt
-    assert "Two or more tasks fit" in prompt
-    assert "State only what the tool results confirm" in prompt
+    assert "never invent" in prompt
     # Layer 2: the vendored house personality.
     assert "you are Glitch" in prompt
     # No dynamic layer: the date lives in the per-run state block.

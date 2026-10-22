@@ -269,6 +269,39 @@ worst case (the provider timeout tolerates it). Containers reach it via
   among the matches in place of a read. The frontier A/B was flat:
   `misheard_push` 10/10 on both arms (already fixed by #412–#414),
   `ambiguous_then_pick` 0/10 on both (#420's).
+- **Base prompt** (#416) `_APP_BASE_PROMPT` in `app/ai/loop.py`: every line
+  carries a comment with what it fixes and its measurement. The fleet's
+  finding (chess, the conductor) is that descriptive rules hold about half
+  the time on a 12B and operational voice binds. Here it didn't: main's lines
+  already hold their scenarios at 20/20, and every operational rewording
+  measured equal or worse. So the wording stayed. One no-op line went ("Every
+  delete is a soft delete …").
+
+  **Measured** (2026-10-22, gemma-4-12b; probe screens, then paired
+  campaigns vs main with `eval_campaign.sh`, seed 416):
+  - The full rewrite (v2: operational id/date/match lines, a clarify-on-
+    ambiguity rule with a worked example, "several things → a tool for
+    each", reworded refusal and reply lines, routing lines in the
+    `update_task`/`complete_task` docstrings). Full gate, 4 blocks: flat on
+    44 of 48. `reference_first_to_friday` 20/20 → 11/20 (p=0.004),
+    `long_reschedule[live_like]` 20 → 12 (p=0.008),
+    `followup_high_priority[fresh]` 20 → 14 (p=0.03), `date_next_friday`
+    20 → 16. Frontier: `ambiguous_then_pick` 0/20 → 4/20 (p=0.125), the rest
+    flat.
+  - Main's id/date and match lines back (v3): `date_next_friday` 20/20. The
+    other three were 16, 17 and 18/20, every discordant pair main's.
+  - Leave-one-out from v3 on those three: only removing the ambiguity rule
+    brings them back (30/30). It reads "the first one" and "it" in a
+    follow-up as ambiguous. Clarification is #420's, as a typed record rather
+    than a prompt line.
+  - Probe, "make the quarterly report due next Friday": without "Prefer the
+    specific tool", `create_task` 10/10 (main: `search` 10/10). The same
+    rule in operational voice gives 5/10.
+
+  Probe gotcha: arms with different system prompts evict each other's
+  prompt-cache prefix. Past two arms, every call pays a full prefill (about
+  6 s instead of 0.4 s), so screen many variants as separate pairs against
+  the control.
 - **Persistence** (`conversations`, `conversation_messages`): assistant turns
   carry the tool trajectory + stop_reason; the user turn commits before the
   loop runs. `POST /api/agent/conversations/{id}/messages` is the one
@@ -486,7 +519,7 @@ why in the PR.
 | `long_complete[poisoned]` | **Moved to the frontier tier (#408) as `poisoned_complete`; known red while gated (2/5, `BELOW_FLOOR`).** The last reply falsely claimed the task was already marked complete. 3/5 answer from it with zero tool calls ("I already marked … as done"; once "you already finished it"); the 2 passes searched and completed. Before-number for #412/#419 | 1–3 | 0.4–1.6 s |
 | `long_reschedule[fresh]` / `[live_like]` | `reschedule`'s ask, paraphrased ("Push the furnace filters task to <ISO>", #380 dates) in the shared world: only the due date of that task moves. 5/5 each | 3 | 1.5–2.9 s |
 | `long_reschedule[poisoned]` | **Moved to the frontier tier (#408) as `poisoned_reschedule`; known red while gated (0/5, `BELOW_FLOOR`).** The last reply falsely said no furnace-filters task exists. Every sample repeats "I couldn't find a task for …" with zero tool calls, sometimes naming the task's exact title in the same breath. Chess's self-poisoning, reproduced in PCC. Before-number for #412/#419 | 1 | 0.7–1.3 s |
-| `ambiguous_dentist_then_second` | **Moved to the frontier tier (#408) as `ambiguous_then_pick`; known red while gated (0/5, `BELOW_FLOOR`).** "Mark the dentist one as done" with "Book dentist appointment" and "Pay the dentist bill": step 1 must write nothing and name both; step 2 "The second one" completes the second one its question named (`mention_order`). `search` returns both every time and the model completes "Book dentist appointment" without asking. With nothing asked, a probe's "the second one" completed whatever its next list put second ("Rake the leaves" once). Before-number for #420/#416 | 3 | 1.3 s |
+| `ambiguous_dentist_then_second` | **Moved to the frontier tier (#408) as `ambiguous_then_pick`; known red while gated (0/5, `BELOW_FLOOR`).** "Mark the dentist one as done" with "Book dentist appointment" and "Pay the dentist bill": step 1 must write nothing and name both; step 2 "The second one" completes the second one its question named (`mention_order`). `search` returns both every time and the model completes "Book dentist appointment" without asking. With nothing asked, a probe's "the second one" completed whatever its next list put second ("Rake the leaves" once). Before-number for #420; #416's prompt rule took it to 4/20 (p=0.125) at a cost to reference follow-ups and was not shipped | 3 | 1.3 s |
 | `reference_rename_then_undo` | three turns: "Find the task about furnace filters" (no write), 'Rename it to "Buy MERV 13 furnace filters"' (that task's title only), "Undo that": the same task back to its original title via `update_task` (there is no undo tool; the old title is in the agent's own earlier replies). Left renamed fails whatever the reply says; no re-create, no trash | 6 (2 + 2 + 2) | 2.9–3.2 s |
 | `reference_trash_then_undo` | 'Delete the "Clean the gutters" task', then "Undo that": `list_trash → restore_task` on the same id, the world back to the seed exactly, a `restored` event | 6 | 2.6–2.7 s |
 | `reference_first_to_friday` | "What's open in my Work project?" (no write, names ≥2 of 3), then "Push the first one to Friday": the first task the list *reply* named moves to the next Friday (`weekday_targets`, from today's real date; the model gets only the ISO date), nothing else changes | 7 | 4.7–4.8 s |

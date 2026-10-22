@@ -238,7 +238,7 @@
       "type": "function",
       "function": {
         "name": "update_task",
-        "description": "Partially update an existing task; only the fields you pass are touched.\n\nAny change to a task that already exists goes here, never through create_task;\nto mark one done, use complete_task.\n\nA parent's estimated_minutes is derived from its subtasks and cannot be set. Its\nworkflow_status may be set to open or in_progress while every subtask is still\nopen; done is reached only by completing the subtasks. A blocked task cannot be\nmarked done. Recurring tasks accept edit_scope \"this\" (default) or \"future\".",
+        "description": "Partially update a task; only the fields you pass are touched.\n\nA parent's estimated_minutes is derived from its subtasks and cannot be set. Its\nworkflow_status may be set to open or in_progress while every subtask is still\nopen; done is reached only by completing the subtasks. A blocked task cannot be\nmarked done. Recurring tasks accept edit_scope \"this\" (default) or \"future\".",
         "parameters": {
           "$defs": {
             "RepeatInterval": {
@@ -443,7 +443,7 @@
       "type": "function",
       "function": {
         "name": "complete_task",
-        "description": "Mark a task done: the tool for \"it's done\", \"finished\", \"tick it off\".\n\nA recurring task spawns its next occurrence.",
+        "description": "Mark a task done. A recurring task spawns its next occurrence.",
         "parameters": {
           "additionalProperties": false,
           "properties": {
@@ -2390,7 +2390,7 @@
     },
     {
       "name": "update_task",
-      "description": "Partially update an existing task; only the fields you pass are touched.\n\nAny change to a task that already exists goes here, never through create_task;\nto mark one done, use complete_task.\n\nA parent's estimated_minutes is derived from its subtasks and cannot be set. Its\nworkflow_status may be set to open or in_progress while every subtask is still\nopen; done is reached only by completing the subtasks. A blocked task cannot be\nmarked done. Recurring tasks accept edit_scope \"this\" (default) or \"future\".",
+      "description": "Partially update a task; only the fields you pass are touched.\n\nA parent's estimated_minutes is derived from its subtasks and cannot be set. Its\nworkflow_status may be set to open or in_progress while every subtask is still\nopen; done is reached only by completing the subtasks. A blocked task cannot be\nmarked done. Recurring tasks accept edit_scope \"this\" (default) or \"future\".",
       "inputSchema": {
         "$defs": {
           "RepeatInterval": {
@@ -2842,7 +2842,7 @@
     },
     {
       "name": "complete_task",
-      "description": "Mark a task done: the tool for \"it's done\", \"finished\", \"tick it off\".\n\nA recurring task spawns its next occurrence.",
+      "description": "Mark a task done. A recurring task spawns its next occurrence.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
