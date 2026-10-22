@@ -10,7 +10,9 @@ advertise exactly the same contract.
 
 Each tool is a thin adapter: validate arguments (Pydantic, reusing the API
 schemas), open a session, call the service layer, serialize with the API read
-models. No business logic here.
+models. No business logic here. A rejection leaves as a :class:`ToolRefusal`
+(``app/tools/refusals.py``): its reason, whether retrying can help, and the
+way forward.
 
 Deliberately not registered: ``purge_task``, ``purge_project``, ``empty_trash``
 (hard deletes are structurally unreachable from any agent), ``reorder_projects``
@@ -58,10 +60,12 @@ from app.services import task_dependencies as deps_service
 from app.services import task_recurrence
 from app.services import task_trash
 from app.services import tasks as tasks_service
-from app.tools import runtime
+from app.tools import refusals, runtime
 from app.tools.flat_args import CommitmentRepeatInterval as ToolCommitmentRepeatInterval
 from app.tools.flat_args import FlatArgs, flat_args
 from app.tools.flat_args import RepeatInterval as ToolRepeatInterval
+from app.tools.refusals import ToolRefusal as ToolRefusal  # re-export
+from app.tools.refusals import refusal_for
 from app.tools.runtime import tool_session
 
 logger = structlog.get_logger(__name__)
@@ -207,7 +211,8 @@ def call_tool(name: str, arguments: dict[str, Any], *, actor: str) -> Any:
     makes. Raises :class:`UnknownToolError` for an unregistered name,
     ``pydantic.ValidationError`` when the arguments fail the argument model
     (both schema-level — the caller can feed them back for self-correction),
-    and :class:`ToolError` for not-found/domain rejections from the body.
+    and :class:`ToolRefusal` (a ``ToolError``) for not-found/domain rejections
+    from the body, carrying ``retry`` and the way forward (#413).
     """
     tool = get_tool(name)
     validated = tool.metadata.arg_model.model_validate(tool.metadata.pre_parse_json(arguments))
@@ -226,7 +231,8 @@ _StartTime = Annotated[str, Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")]
 _AvailableMinutes = Annotated[int, Field(ge=15, le=1440)]
 
 # Domain rejections the service layer raises on bad-but-well-typed input;
-# surfaced as tool errors so the model can read the reason and self-correct.
+# surfaced as refusals (``app/tools/refusals.py``, #413) so the model can read
+# the reason, whether retrying can help, and the way forward.
 _TASK_DOMAIN_ERRORS = (
     tasks_service.TaskCycleError,
     tasks_service.TaskDepthError,
@@ -239,14 +245,14 @@ _TASK_DOMAIN_ERRORS = (
 def _task_or_error(db: Session, task_id: int) -> Task:
     task = tasks_service.get_task(db, task_id)
     if task is None:
-        raise ToolError(f"Task {task_id} not found")
+        raise refusals.not_found(f"Task {task_id} not found", refusals.FIND_TASK)
     return task
 
 
 def _project_or_error(db: Session, project_id: int) -> Project:
     project = projects_service.get_project(db, project_id)
     if project is None:
-        raise ToolError(f"Project {project_id} not found")
+        raise refusals.not_found(f"Project {project_id} not found", refusals.FIND_PROJECT)
     return project
 
 
@@ -312,7 +318,7 @@ def create_task(data: TaskCreate) -> TaskRead:
                 estimated_minutes=data.estimated_minutes,
             )
         except _TASK_DOMAIN_ERRORS as exc:
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc, args_fixable=True) from exc
         db.flush()
         logger.info("tool_task_created", task_id=task.id, project_id=task.project_id)
         return read_with_blocked(db, task)
@@ -341,7 +347,7 @@ def update_task(task_id: EntityId, changes: TaskUpdate) -> TaskRead:
         try:
             updated = tasks_service.update_task(db, task, fields)
         except _TASK_DOMAIN_ERRORS as exc:
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc, task, args_fixable=True) from exc
         db.flush()
         logger.info("tool_task_updated", task_id=updated.id)
         return read_with_blocked(db, updated)
@@ -355,7 +361,7 @@ def complete_task(task_id: EntityId) -> TaskRead:
         try:
             updated = tasks_service.mark_done(db, task)
         except _TASK_DOMAIN_ERRORS as exc:
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc, task) from exc
         db.flush()
         logger.info("tool_task_completed", task_id=updated.id)
         return read_with_blocked(db, updated)
@@ -369,7 +375,7 @@ def reopen_task(task_id: EntityId) -> TaskRead:
         try:
             updated = tasks_service.reopen_task(db, task)
         except _TASK_DOMAIN_ERRORS as exc:
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc, task) from exc
         db.flush()
         logger.info("tool_task_reopened", task_id=updated.id)
         return read_with_blocked(db, updated)
@@ -405,7 +411,7 @@ def restore_task(task_id: EntityId, restore_subtasks: bool = False) -> TaskRead:
     with tool_session("restore_task") as db:
         task = task_trash.get_deleted_task(db, task_id)
         if task is None:
-            raise ToolError(f"No deleted task with id {task_id}")
+            raise refusals.not_found(f"No deleted task with id {task_id}", refusals.FIND_TRASHED)
         try:
             if restore_subtasks:
                 restored, _ = task_trash.restore_task_subtree(db, task)
@@ -415,7 +421,7 @@ def restore_task(task_id: EntityId, restore_subtasks: bool = False) -> TaskRead:
             # The date is taken by a live occurrence of the same series. Surfaced
             # as a tool error so the model can trash/skip that one and retry
             # rather than silently duplicating the series.
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc, task) from exc
         db.flush()
         logger.info("tool_task_restored", task_id=restored.id)
         return read_with_blocked(db, restored)
@@ -457,7 +463,7 @@ def add_dependency(task_id: EntityId, depends_on_task_id: EntityId) -> TaskDepen
         try:
             edge = deps_service.add_dependency(db, task_id, depends_on_task_id)
         except deps_service.DependencyError as exc:
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc) from exc
         logger.info(
             "tool_dependency_added",
             task_id=task_id,
@@ -472,7 +478,9 @@ def remove_dependency(task_id: EntityId, dependency_id: EntityId) -> str:
     with tool_session("remove_dependency") as db:
         edge = deps_service.get_dependency(db, dependency_id)
         if edge is None or edge.task_id != task_id:
-            raise ToolError(f"Task {task_id} has no dependency {dependency_id}")
+            raise refusals.not_found(
+                f"Task {task_id} has no dependency {dependency_id}", refusals.FIND_DEPENDENCY
+            )
         deps_service.remove_dependency(db, edge)
         logger.info(
             "tool_dependency_removed", task_id=task_id, dependency_id=dependency_id
@@ -488,7 +496,7 @@ def skip_occurrence(task_id: EntityId) -> TaskRead:
         try:
             next_occurrence = task_recurrence.skip_occurrence(db, task)
         except tasks_service.RecurrenceError as exc:
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc, task) from exc
         db.flush()
         logger.info(
             "tool_occurrence_skipped",
@@ -506,7 +514,7 @@ def stop_recurrence(task_id: EntityId) -> TaskRead:
         try:
             updated = task_recurrence.stop_recurrence(db, task)
         except tasks_service.RecurrenceError as exc:
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc, task) from exc
         db.flush()
         logger.info("tool_recurrence_stopped", task_id=updated.id)
         return read_with_blocked(db, updated)
@@ -571,7 +579,7 @@ def close_project(project_id: EntityId) -> ProjectRead:
         try:
             closed = projects_service.close_project(db, project)
         except ValueError as exc:
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc) from exc
         db.flush()
         logger.info("tool_project_closed", project_id=closed.id)
         return ProjectRead.model_validate(closed)
@@ -597,7 +605,7 @@ def trash_project(project_id: EntityId) -> str:
         try:
             projects_service.soft_delete_project(db, project)
         except ValueError as exc:
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc) from exc
         logger.info("tool_project_trashed", project_id=project_id)
         return (
             f'Project {project_id} "{name}" and its tasks moved to trash '
@@ -613,7 +621,9 @@ def restore_project(
     with tool_session("restore_project") as db:
         project = projects_service.get_deleted_project(db, project_id)
         if project is None:
-            raise ToolError(f"No deleted project with id {project_id}")
+            raise refusals.not_found(
+                f"No deleted project with id {project_id}", refusals.FIND_TRASHED
+            )
         try:
             restored, restored_task_count = projects_service.restore_project(
                 db, project, restore_tasks=restore_tasks
@@ -622,7 +632,7 @@ def restore_project(
             # A cascade task's occurrence date is held by a live sibling. Surfaced
             # as a tool error (this path isn't wrapped by _TASK_DOMAIN_ERRORS) so
             # the model can trash/skip that one, or restore without tasks, and retry.
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc) from exc
         db.flush()
         logger.info(
             "tool_project_restored",
@@ -686,7 +696,7 @@ def pin_focus_task(
                 start_minute=start_minute,
             )
         except focus_plan_service.FocusEntryError as exc:
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc) from exc
         logger.info("tool_focus_task_pinned", entry_id=entry.id, task_id=task_id)
         return focus_plan_service.entry_read(entry)
 
@@ -734,11 +744,13 @@ def skip_focus_occurrence(series_id: EntityId, plan_date: date_type) -> FocusEnt
     with tool_session("skip_focus_occurrence") as db:
         series = focus_plan_service.get_entry(db, series_id)
         if series is None:
-            raise ToolError(f"Focus entry {series_id} not found")
+            raise refusals.not_found(
+                f"Focus entry {series_id} not found", refusals.FIND_FOCUS_ENTRY
+            )
         try:
             skip = focus_plan_service.skip_occurrence(db, series, plan_date)
         except focus_plan_service.FocusEntryError as exc:
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc) from exc
         logger.info("tool_focus_occurrence_skipped", entry_id=skip.id, series_id=series_id)
         return focus_plan_service.entry_read(skip)
 
@@ -757,11 +769,13 @@ def stop_focus_series(
     with tool_session("stop_focus_series") as db:
         series = focus_plan_service.get_entry(db, series_id)
         if series is None:
-            raise ToolError(f"Focus entry {series_id} not found")
+            raise refusals.not_found(
+                f"Focus entry {series_id} not found", refusals.FIND_FOCUS_ENTRY
+            )
         try:
             focus_plan_service.stop_series(db, series, stop_date)
         except focus_plan_service.FocusEntryError as exc:
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc) from exc
         logger.info("tool_focus_series_stopped", entry_id=series_id)
         return focus_plan_service.entry_read(series)
 
@@ -792,11 +806,13 @@ def edit_focus_occurrence(
     with tool_session("edit_focus_occurrence") as db:
         series = focus_plan_service.get_entry(db, series_id)
         if series is None:
-            raise ToolError(f"Focus entry {series_id} not found")
+            raise refusals.not_found(
+                f"Focus entry {series_id} not found", refusals.FIND_FOCUS_ENTRY
+            )
         try:
             override = focus_plan_service.edit_occurrence(db, series, plan_date, fields)
         except focus_plan_service.FocusEntryError as exc:
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc) from exc
         logger.info("tool_focus_occurrence_edited", entry_id=override.id, series_id=series_id)
         return focus_plan_service.entry_read(override)
 
@@ -818,7 +834,7 @@ def reorder_focus_pins(
                 db, plan_date=date or date_type.today(), entry_ids=entry_ids
             )
         except focus_plan_service.FocusEntryError as exc:
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc, args_fixable=True) from exc
         logger.info("tool_focus_pins_reordered", entry_ids=entry_ids)
         return [focus_plan_service.entry_read(pin) for pin in pins]
 
@@ -836,7 +852,9 @@ def remove_focus_entry(entry_id: EntityId) -> str:
     with tool_session("remove_focus_entry") as db:
         entry = focus_plan_service.get_entry(db, entry_id)
         if entry is None:
-            raise ToolError(f"Focus entry {entry_id} not found")
+            raise refusals.not_found(
+                f"Focus entry {entry_id} not found", refusals.FIND_FOCUS_ENTRY
+            )
         focus_plan_service.remove_entry(db, entry)
         logger.info("tool_focus_entry_removed", entry_id=entry_id)
         return (
@@ -851,11 +869,14 @@ def restore_focus_entry(entry_id: EntityId) -> FocusEntryRead:
     with tool_session("restore_focus_entry") as db:
         entry = focus_plan_service.get_deleted_entry(db, entry_id)
         if entry is None:
-            raise ToolError(f"No removed focus entry with id {entry_id}")
+            raise refusals.not_found(
+                f"No removed focus entry with id {entry_id}",
+                refusals.FIND_REMOVED_FOCUS_ENTRY,
+            )
         try:
             focus_plan_service.restore_entry(db, entry)
         except focus_plan_service.FocusEntryError as exc:
-            raise ToolError(str(exc)) from exc
+            raise refusal_for(db, exc) from exc
         logger.info("tool_focus_entry_restored", entry_id=entry_id)
         return focus_plan_service.entry_read(entry)
 

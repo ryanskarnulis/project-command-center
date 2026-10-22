@@ -49,6 +49,23 @@ refuses an argument it does not have: FastMCP's argument models ignore extras,
 and once `due_date` was a top-level `update_task` argument the model sometimes
 sent `list_tasks(due_date=…)`, which came back unfiltered, done tasks included.
 
+**Refusals say how to recover (#413).** Every failure the loop feeds back is
+one JSON shape, `{"ok": false, "error", "retry", …}`, built in
+`AgentLoop._dispatch` from a `ToolRefusal` (`app/tools/refusals.py`). `retry`
+is decided by code: `different_args` when another call to the same tool can
+succeed (schema-invalid arguments, an id that names nothing, a create/edit
+whose values clash: another parent, another date), `never` when repeating
+cannot help until the state changes (a parent's derived status, a blocked
+task, an unknown tool, a call that never ran, a crash). Where a better call
+exists, the refusal names it: `open_subtasks` for completing a parent,
+`subtasks` for reopening one, `blockers` for a blocked task,
+`conflicting_occurrence` for a series date already held, and a `next`
+sentence (e.g. "find the task's id with search or list_tasks"). The
+`ToolCallRecord` keeps the bare reason, so the run record and saved
+conversations are unchanged. MCP clients keep the `ToolError` text path: the
+same refusal's text is the reason plus a prose line built from those details.
+REST and UI messages are untouched.
+
 **Deliberately not exposed:** `purge_task`, `purge_project`, `empty_trash`,
 `reorder_projects`, the dashboard overview. Trash retention (#321) — the
 scheduled purge of trash older than `TRASH_RETENTION_DAYS` — is a lifespan job

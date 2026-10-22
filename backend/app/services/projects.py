@@ -334,26 +334,26 @@ def _assert_no_occurrence_conflicts(db: Session, tasks: Sequence[Task]) -> None:
     from app.services.task_recurrence import find_live_occurrence_on
     from app.services.tasks import OccurrenceConflictError
 
-    claimed: set[tuple[str, date]] = set()
+    claimed: dict[tuple[str, date], int] = {}
     for task in tasks:
         if task.recurrence_id is None or task.due_date is None:
             continue
         slot = (task.recurrence_id, task.due_date)
-        conflict = (
-            slot in claimed
-            or find_live_occurrence_on(
+        conflict_id = claimed.get(slot)
+        if conflict_id is None:
+            live = find_live_occurrence_on(
                 db, task.recurrence_id, task.due_date, exclude_id=task.id
             )
-            is not None
-        )
-        if conflict:
+            conflict_id = None if live is None else live.id
+        if conflict_id is not None:
             raise OccurrenceConflictError(
                 f'Task {task.id} "{task.title}" cannot be restored: its series '
                 f"already has an active occurrence due "
                 f"{task.due_date.isoformat()}. Trash or skip that one first, then "
-                f"restore the project (or restore it without its tasks)."
+                f"restore the project (or restore it without its tasks).",
+                conflict_id=conflict_id,
             )
-        claimed.add(slot)
+        claimed[slot] = task.id
 
 
 def restore_project(
