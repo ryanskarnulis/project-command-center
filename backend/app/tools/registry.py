@@ -338,7 +338,10 @@ def create_task(data: TaskCreate) -> TaskRead:
     overrides={"repeat_interval": ToolRepeatInterval | None},
 )
 def update_task(task_id: EntityId, changes: TaskUpdate) -> TaskRead:
-    """Partially update a task; only the fields you pass are touched.
+    """Partially update an existing task; only the fields you pass are touched.
+
+    Any change to a task that already exists goes here, never through create_task;
+    to mark one done, use complete_task.
 
     A parent's estimated_minutes is derived from its subtasks and cannot be set. Its
     workflow_status may be set to open or in_progress while every subtask is still
@@ -361,7 +364,10 @@ def update_task(task_id: EntityId, changes: TaskUpdate) -> TaskRead:
 
 @_tool
 def complete_task(task_id: EntityId) -> TaskRead:
-    """Mark a task done. A recurring task spawns its next occurrence."""
+    """Mark a task done: the tool for "it's done", "finished", "tick it off".
+
+    A recurring task spawns its next occurrence.
+    """
     with tool_session("complete_task") as db:
         task = _task_or_error(db, task_id)
         try:

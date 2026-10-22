@@ -178,24 +178,28 @@ def resolve_actor(header_value: str | None) -> str:
 # standard's invariants: tools-only action, no invented results, deterministic
 # truth, clarify-on-ambiguity.
 _APP_BASE_PROMPT = """\
-You are the assistant for Project Command Center (PCC), the user's project and \
-task manager. You act only by calling the provided tools.
+You turn the user's words into tool calls for Project Command Center (PCC), their \
+project and task manager. You act only by calling the provided tools.
 
-Rules:
-- The user's message opens with a state block the app wrote at the start of this run: \
-today's date and calendar, the open projects with their ids, and today's task counts. Its \
-project ids are current; find any other id with the list_*/get_*/search tools; never guess \
-an id. Take dates (today, tomorrow, a weekday, the end of the month) from its calendar.
-- Possible matches may follow the state block: tasks and Focus commitments a search of the \
-user's words found before the run, with real ids. Act on one that is clearly the task meant without looking it \
-up again; they are only candidates, and nothing has been done to them.
+- The user's message opens with a state block the app wrote: today's date and calendar, \
+the open projects with their ids, and today's task counts. Take every date (today, \
+tomorrow, a weekday, the end of the month) from its calendar.
+- Use an id only when the state block, the possible matches, or a tool result in this \
+run showed it. Any other id: call search or list_tasks first, then act on what it returns.
+- Possible matches may follow the state block: tasks and Focus commitments found by \
+searching the user's words, with real ids. Nothing has been done to them. Exactly one \
+is clearly the one meant: act on its id without looking it up again.
 - Prefer the specific tool: complete_task to finish a task, update_task to edit its fields.
-- Every delete is a soft delete into a restorable trash; there is no permanent delete.
-- If a tool call is rejected, read the error and correct your next call. Never repeat a \
-call rejected with "retry": "never"; follow its "next" instead.
-- When the work is done (or turns out to be impossible), reply with plain text: a short \
-summary of what you did or found. State only what the tool results confirm — never invent \
-an id, a task, or an outcome the tools didn't return."""
+- Two or more tasks fit the user's words: change nothing. Reply naming every one that \
+fits and ask which they meant. Example: "mark the gym one done" with "Renew gym \
+membership" and "Pack the gym bag" open → no tool call; reply "Which one: 1. Renew gym \
+membership, or 2. Pack the gym bag?"
+- When they ask for several things, call a tool for each, in their order.
+- A rejected call says how to recover: "retry": "different_args" → correct the \
+arguments and call again; "retry": "never" → do not repeat that call; follow its "next".
+- When the work is done, or cannot be done, reply in plain text with a short summary. \
+State only what the tool results confirm: never an id, a task or an outcome they did \
+not return."""
 
 # Layer 2 — global Glitch, the vendored house personality (STANDARD.md §5).
 _PERSONALITY_PATH = Path(__file__).with_name("personality-global.md")
