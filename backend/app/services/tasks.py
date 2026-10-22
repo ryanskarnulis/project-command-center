@@ -944,7 +944,11 @@ def _parent_status_write_takes_effect(
     """Gate a status write on a parent against what its subtasks say.
 
     A parent's ``done`` is derived — only its subtasks can complete it — so a
-    direct ``done`` is always refused. ``open`` and ``in_progress`` are the
+    direct ``done`` is refused while any subtask is unfinished. Once every
+    subtask is done the parent already reads ``done``, so a ``done`` is the
+    no-op below rather than a refusal that sends the caller to do what it just
+    did (#467); a parent capped at ``in_progress`` by an unfinished dependency
+    is refused as blocked. ``open`` and ``in_progress`` are the
     parent's own to set (``_effective_parent_status``), but only while the
     subtasks leave the question open: once any subtask has moved they pin the
     parent at ``in_progress``, and once all are done they pin it at ``done``.
@@ -958,11 +962,16 @@ def _parent_status_write_takes_effect(
 
     The caller has already established that the task has active children.
     """
+    rollup = get_rollup(db, task)
     if target == TaskWorkflowStatus.done:
+        if rollup.workflow_status == TaskWorkflowStatus.done:
+            return False
+        if rollup.subtask_status == TaskWorkflowStatus.done:
+            _assert_not_blocked(db, task.id)
         raise DerivedStatusError(
             "This task is completed by its subtasks; complete them to complete it"
         )
-    pinned = get_rollup(db, task).subtask_status
+    pinned = rollup.subtask_status
     if pinned is None or pinned == TaskWorkflowStatus.open:
         return True
     if pinned == target:
@@ -1441,9 +1450,12 @@ def mark_done(
     # page's PATCH path.) Local import: same deliberate inversion as update_task.
     from app.services import task_recurrence
 
-    # A parent is completed by its subtasks, never directly (always raises).
+    # A parent is completed by its subtasks, never directly: refused while any
+    # is unfinished, and a quiet no-op once they are all done (#467) — its own
+    # column is never written, and the read model already says done.
     if has_active_children(db, task.id):
         _parent_status_write_takes_effect(db, task, TaskWorkflowStatus.done)
+        return task
     # Completing an already-done task changes nothing, so it records nothing: the
     # activity trail describes transitions, not requests (issue #218). Mirrors
     # ``projects.close_project``, which has always been quiet about a re-close.

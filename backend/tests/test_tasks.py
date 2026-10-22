@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db.models import ActivityEvent, Task, TaskPriority, TaskWorkflowStatus
 from app.services import dashboard as dashboard_service
 from app.services import projects as projects_service
+from app.services import task_dependencies
 from app.services import tasks as tasks_service
 from app.tools import registry, runtime
 
@@ -1033,6 +1034,77 @@ def test_parent_done_is_never_direct(client: TestClient, db_session: Session) ->
         client.get(f"/api/tasks/{parent.id}").json()["workflow_status"]
         == "in_progress"
     )
+
+
+def _parent_with_done_children(db: Session) -> Task:
+    parent = tasks_service.create_task(db, project_id=None, title="parent")
+    for i in range(3):
+        tasks_service.mark_done(db, _subtask(db, parent.id, title=f"step {i}"))
+    db.commit()
+    return parent
+
+
+def test_completing_a_parent_whose_subtasks_are_all_done_is_a_quiet_no_op(
+    client: TestClient, db_session: Session
+) -> None:
+    """Once every subtask is done the parent already reads done, so a done at
+    either door succeeds and changes nothing (#467): no event, and its own
+    column is never written — it stays derived."""
+    parent = _parent_with_done_children(db_session)
+    before = _event_count(db_session)
+
+    done = client.post(f"/api/tasks/{parent.id}/done")
+    assert done.status_code == 200
+    assert done.json()["workflow_status"] == "done"
+    patched = client.patch(f"/api/tasks/{parent.id}", json={"workflow_status": "done"})
+    assert patched.status_code == 200
+    assert patched.json()["workflow_status"] == "done"
+
+    assert _event_count(db_session) == before
+    db_session.refresh(parent)
+    assert parent.workflow_status == TaskWorkflowStatus.open
+
+
+def test_completing_an_all_done_parent_held_by_a_dependency_is_refused_as_blocked(
+    client: TestClient, db_session: Session
+) -> None:
+    """All subtasks done, but the parent waits on an unfinished task: it reads
+    in progress, and a done is refused for the dependency, not the subtasks."""
+    parent = _parent_with_open_children(db_session, count=2)
+    blocker = tasks_service.create_task(db_session, project_id=None, title="blocker")
+    task_dependencies.add_dependency(db_session, parent.id, blocker.id)
+    for child in tasks_service.list_subtasks(db_session, parent.id):
+        tasks_service.mark_done(db_session, child)
+    db_session.commit()
+    before = _event_count(db_session)
+
+    for response in (
+        client.post(f"/api/tasks/{parent.id}/done"),
+        client.patch(f"/api/tasks/{parent.id}", json={"workflow_status": "done"}),
+    ):
+        assert response.status_code == 409
+        assert "blocked" in response.json()["detail"]
+    assert client.get(f"/api/tasks/{parent.id}").json()["workflow_status"] == "in_progress"
+    assert _event_count(db_session) == before
+
+
+def test_the_agents_complete_task_on_an_all_done_parent_succeeds(
+    db_session: Session,
+    test_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The #412 A/B trap: the agent completes the subtasks, retries the parent,
+    and must get the parent back done — not the refusal it already obeyed."""
+    parent_id = _parent_with_done_children(db_session).id
+    db_session.close()
+    factory: sessionmaker[Session] = sessionmaker(
+        autocommit=False, autoflush=False, bind=test_engine
+    )
+    monkeypatch.setattr(runtime, "session_factory", factory)
+
+    result = registry.call_tool("complete_task", {"task_id": parent_id}, actor="agent")
+    assert result.id == parent_id
+    assert result.workflow_status == TaskWorkflowStatus.done
 
 
 def test_reopening_a_parent_whose_subtasks_are_under_way_rejected(

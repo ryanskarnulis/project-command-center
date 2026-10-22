@@ -103,8 +103,10 @@ Key decisions:
   the subtree sum and read-only; the status is `done` only once every subtask
   is, `in_progress` as soon as any subtask moves, and otherwise the parent's
   own — a parent can be started (`open` → `in_progress`) before any subtask
-  is. A direct `done` on a parent, or an `open`/`in_progress` its subtasks
-  already override, returns `409`. The read model carries `subtask_status`
+  is. A direct `done` on a parent with an unfinished subtask, or an
+  `open`/`in_progress` its subtasks already override, returns `409`; a `done`
+  once every subtask is done is a quiet no-op (it already reads done; still
+  `409` if a dependency holds it). The read model carries `subtask_status`
   (what the subtasks alone say) so the UI can mirror that guard. A subtask
   may be filed in a different
   project than its parent; membership (`project_id`), not hierarchy, decides
