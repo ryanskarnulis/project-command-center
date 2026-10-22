@@ -138,7 +138,12 @@ class Evidence:
     closed_seen: bool = False
 
     @classmethod
-    def of(cls, calls: Iterable[ToolCall], today: date) -> Evidence:
+    def of(
+        cls, calls: Iterable[ToolCall], today: date, shown: Iterable[Mapping[str, Any]] = ()
+    ) -> Evidence:
+        """``shown`` is what the run was handed without a call: the gather's
+        task rows (#415). Its titles, texts and dates back claims like a read's
+        result would; it is not a call, so it never counts as having looked."""
         calls = tuple(calls)
         writes: Counter[str] = Counter()
         texts: set[str] = set()
@@ -182,6 +187,12 @@ class Evidence:
                             done_titles.add(_norm(name))
                     if node.get("closed_at"):
                         closed_seen = True
+        for node in _walk(list(shown)):
+            if isinstance(node, str):
+                texts.add(_norm(node))
+                dates |= _dates_in(node)
+            elif isinstance(node, Mapping) and isinstance(node.get("title"), str):
+                titles.add(_norm(node["title"]))
         action_counts = {*writes.values(), sum(writes.values()), *result_counts}
         return cls(
             calls=calls,
@@ -895,6 +906,12 @@ def calls_from_trace(record: Mapping[str, Any]) -> list[ToolCall]:
     ]
 
 
+def shown_from_trace(record: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """The gather's task rows a trace record's run was shown (schema 3, #415)."""
+    gathered = record.get("gather") or {}
+    return list(gathered.get("rows") or []) if isinstance(gathered, Mapping) else []
+
+
 def _record_day(record: Mapping[str, Any]) -> date:
     stamp = str(record.get("started") or record.get("ts") or "")
     try:
@@ -922,20 +939,22 @@ def score_trace(records: Iterable[Mapping[str, Any]]) -> Tally:
     """Read every run's reply against its own calls and, in a conversation,
     the calls of the runs before it that it continues (a thread's evidence)."""
     tally = Tally()
-    threads: dict[Any, tuple[str | None, list[ToolCall]]] = {}
+    threads: dict[Any, tuple[str | None, list[ToolCall], list[Mapping[str, Any]]]] = {}
     for record in records:
         if record.get("kind", "run") != "run":
             continue
         calls = calls_from_trace(record)
         conversation = record.get("conversation_id")
         history: list[ToolCall] = []
+        shown: list[Mapping[str, Any]] = []
         if conversation is not None:
-            last_reply, earlier = threads.get(conversation, (None, []))
+            last_reply, earlier, earlier_shown = threads.get(conversation, (None, [], []))
             if _continues(record, last_reply):
-                history = earlier
-            threads[conversation] = (record.get("reply"), history)
+                history, shown = earlier, earlier_shown
+            threads[conversation] = (record.get("reply"), history, shown)
         history.extend(calls)
-        evidence = Evidence.of(history, _record_day(record))
+        shown.extend(shown_from_trace(record))
+        evidence = Evidence.of(history, _record_day(record), shown)
         tally.add(
             read_claims(record.get("reply"), evidence),
             run=str(record.get("run_id", ""))[:8],

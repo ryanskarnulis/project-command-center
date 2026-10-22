@@ -32,10 +32,10 @@ def agent_view(outcome: Any) -> Any:
     """``outcome`` as the model reads it; unchanged when it has no view."""
     if isinstance(outcome, TaskRead):
         with runtime.session_factory() as db:
-            return task_detail(outcome, _project_names(db, [outcome.project_id]))
+            return task_detail(outcome, project_names(db, [outcome.project_id]))
     if isinstance(outcome, TaskPage):
         with runtime.session_factory() as db:
-            names = _project_names(db, (t.project_id for t in outcome.items))
+            names = project_names(db, (t.project_id for t in outcome.items))
         return {
             "tasks": [task_row(t, names) for t in outcome.items],
             "total": outcome.total,
@@ -59,7 +59,7 @@ def agent_view(outcome: Any) -> Any:
         }
     if isinstance(outcome, TrashRead):
         with runtime.session_factory() as db:
-            names = _project_names(db, (t.project_id for t in outcome.tasks))
+            names = project_names(db, (t.project_id for t in outcome.tasks))
         return {
             "projects": [trashed_project_view(p) for p in outcome.projects],
             "tasks": [task_row(t, names) for t in outcome.tasks],
@@ -134,7 +134,7 @@ def trashed_project_view(project: ProjectTrashRead) -> dict[str, Any]:
     }
 
 
-def _project_names(db: Session, project_ids: Iterable[int]) -> dict[int, str]:
+def project_names(db: Session, project_ids: Iterable[int]) -> dict[int, str]:
     """Names by id, trashed projects included (a trashed task can point at one)."""
     ids = set(project_ids)
     if not ids:

@@ -111,6 +111,9 @@ def build(today: date) -> str:
     return render(today, snapshot)
 
 
-def with_state(block: str, user_message: str) -> str:
-    """The current user turn as the model sees it: the block, then the ask."""
+def with_state(block: str, user_message: str, matches: str | None = None) -> str:
+    """The current user turn as the model sees it: the block, the gather's
+    possible matches when it found any (#415), then the ask."""
+    if matches:
+        return f"{block}\n\n{matches}\n\n{user_message}"
     return f"{block}\n\n{user_message}"

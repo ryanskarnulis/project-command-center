@@ -93,6 +93,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.ai import gather
 from app.ai import trace as run_trace
 from app.ai.loop import (
     DELEGATE_ACTORS,
@@ -396,6 +397,21 @@ class _RunDied(Exception):
     turn that did not happen."""
 
 
+def _warm_vectors() -> None:
+    """Embed the sample's world before a run (#415), as a deployed instance has
+    long since done by the time anyone asks: the gather's background warm would
+    otherwise leave the first run of every sample on keywords alone. Vectors
+    are keyed on each task's text, so a seed shared across samples embeds
+    once. A no-op when no embeddings service is configured.
+
+    Background warming is off: a sample's database is one shared in-memory
+    connection, and a warm thread reading it mid-run collides with the run's
+    own transaction ("cannot start a transaction within a transaction")."""
+    searcher = gather.default_searcher()
+    searcher.background_warm = False
+    searcher.warm()
+
+
 class _RecordingLoop(AgentLoop):
     """The real loop, keeping each run's actor + result for the asserts/stats.
 
@@ -416,6 +432,7 @@ class _RecordingLoop(AgentLoop):
         deadline: float | None = None,
         cancel: threading.Event | None = None,
     ) -> AgentRunResult:
+        _warm_vectors()
         result = super().run(
             user_message,
             history=history,
@@ -602,6 +619,8 @@ class Sample:
         # Every tool call this sample's runs made, and what each reply claimed
         # (with its step) read against the calls made so far (#407).
         self.calls: list[ToolCall] = []
+        # And every task row a run was shown by the gather (#415).
+        self.shown: list[dict[str, Any]] = []
         self.claims: list[tuple[str | None, Claim]] = []
 
     # A thread's sample is metered as the sum of its steps; each step's own
@@ -645,6 +664,7 @@ class Sample:
         """One run straight through the loop."""
         started = time.monotonic()
         self.prompt = prompt
+        _warm_vectors()
         with self.provider() as provider:
             try:
                 result = AgentLoop(provider, max_iterations=max_iterations).run(prompt)
@@ -716,7 +736,8 @@ class Sample:
             ToolCall(r.tool, r.arguments, r.result, r.error, r.refusal)
             for r in result.tool_calls
         )
-        evidence = Evidence.of(self.calls, date.today())
+        self.shown.extend(result.gathered)
+        evidence = Evidence.of(self.calls, date.today(), self.shown)
         self.claims.extend((self.step_label, c) for c in read_claims(result.reply, evidence))
 
     def _died(
@@ -1080,7 +1101,9 @@ def _create_task_with_fields(sample: Sample) -> None:
 
 
 def _find_and_complete(sample: Sample) -> None:
-    """Retrieval tripwire: the task is described, not named — look it up, then act."""
+    """Retrieval tripwire: the task is described, not named — find it, then act.
+    Found means a read before the write, or the task among the matches the
+    run was shown before it started (#415): either way the id is not guessed."""
     with sample.db() as db:
         home = projects_service.create_project(db, name="Home")
         for title in (
@@ -1096,12 +1119,13 @@ def _find_and_complete(sample: Sample) -> None:
     assert result.stop_reason == "completed"
     completes = _successful(result, "complete_task")
     assert completes, "expected a successful complete_task"
-    # A read (search/list/get) must have located the task before the write.
+    # A read (search/list/get), or the gather, must have located the task.
     tools = [record.tool for record in result.tool_calls]
     first_complete = tools.index("complete_task")
-    assert any(_is_read(tool) for tool in tools[:first_complete]), (
-        f"no read before complete_task in {tools}"
-    )
+    gathered = [row.get("title") for row in result.gathered]
+    assert "Book dentist appointment" in gathered or any(
+        _is_read(tool) for tool in tools[:first_complete]
+    ), f"no read before complete_task in {tools}, gathered {gathered}"
     with sample.db() as db:
         tasks = {
             t.title: t.workflow_status

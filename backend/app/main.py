@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRouter
 from sqlalchemy.exc import IntegrityError
 
+from app.ai import gather
 from app.api import (
     routes_agent,
     routes_dashboard,
@@ -45,6 +46,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     configure_logging()
     logger.info("startup", env=get_settings().app_env)
     retention_task = trash_retention.start()
+    # Embed the tasks for the agent's gather (#415) off the request path; a
+    # down service leaves the gather on keywords until a later run retries.
+    gather.default_searcher().warm_in_background()
     try:
         yield
     finally:

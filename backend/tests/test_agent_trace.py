@@ -60,6 +60,7 @@ RECORD_KEYS = {
     "actor",
     "utterance",
     "state_block",
+    "gather",
     "lookup_turns",
     "history",
     "stop_reason",
@@ -155,7 +156,7 @@ def test_a_traced_run_writes_one_well_formed_record(
 
     record = _only_record(trace_path)
     assert result.run_id and record["run_id"] == result.run_id
-    assert record["schema"] == run_trace.TRACE_SCHEMA == 2
+    assert record["schema"] == run_trace.TRACE_SCHEMA == 3
     assert record["kind"] == "run"
     assert record["conversation_id"] == 7
     assert record["actor"] == "agent:loop"

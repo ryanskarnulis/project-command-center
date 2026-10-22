@@ -76,7 +76,7 @@ def _escape_like(term: str) -> str:
     )
 
 
-def _query_words(q: str) -> list[str]:
+def query_words(q: str) -> list[str]:
     """The words the query is matched by: lowercased, deduplicated, stop-words
     dropped (unless nothing else is left), capped at ``_MAX_QUERY_WORDS``."""
     words = list(dict.fromkeys(word.lower() for word in _WORD_RE.findall(q)))
@@ -84,7 +84,7 @@ def _query_words(q: str) -> list[str]:
     return (significant or words)[:_MAX_QUERY_WORDS]
 
 
-def _fts_phrase(word: str) -> str:
+def fts_phrase(word: str) -> str:
     # ``word`` is ``\w+`` so it holds no double quote; doubling any anyway keeps
     # this safe if the word pattern ever widens.
     return '"' + word.replace('"', '""') + '"'
@@ -133,13 +133,13 @@ class _Matcher:
     def _all_words(self, *, primary_only: bool) -> str | None:
         if not self._words:
             return None
-        every = " AND ".join(_fts_phrase(word) for word in self._words)
+        every = " AND ".join(fts_phrase(word) for word in self._words)
         return f"{{{self._primary_name}}} : ({every})" if primary_only else every
 
     def _any_word(self) -> str | None:
         if not self._words:
             return None
-        return " OR ".join(_fts_phrase(word) for word in self._words)
+        return " OR ".join(fts_phrase(word) for word in self._words)
 
     def where(self) -> ColumnElement[bool]:
         """Text or any of the query's words, in either column."""
@@ -170,7 +170,7 @@ class _Matcher:
         """How many distinct query words the row matches (orders the some-words
         tier; every other tier already holds the whole query)."""
         hits: list[ColumnElement[int]] = [
-            case((self._has(_fts_phrase(word)), 1), else_=0) for word in self._words
+            case((self._has(fts_phrase(word)), 1), else_=0) for word in self._words
         ]
         if not hits:
             return case((false(), 1), else_=0)
@@ -186,7 +186,7 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
     if not q:
         return SearchResults(projects=[], tasks=[])
 
-    words = _query_words(q)
+    words = query_words(q)
 
     # Relevance ordering: best text tier first (within the some-words tier, more
     # matched words first), recency (id desc) as the tiebreak.

@@ -540,6 +540,16 @@ argument validation on every dispatch and bounded self-correction turns when
 the model emits an invalid call. Its writes are stamped `agent:loop` in
 `activity_events` and every delete is a restorable soft delete.
 
+Before the first model call the loop gathers likely matches for the user's
+words (`app/ai/gather.py`). FTS5 keywords and, when `EMBEDDINGS_BASE_URL`
+points at the shared embeddings service (`../embeddings`, port 8600;
+`http://host.docker.internal:8600/v1` in docker), EmbeddingGemma vectors find
+the top tasks and Focus commitments, which go to the model as candidates on which nothing was done.
+The service is optional: unset, down or slower than 0.3 s means keywords
+alone. Vectors are cached in-process and in `EMBEDDINGS_CACHE_PATH` (docker:
+`/data/embeddings_cache.json`; safe to delete) and re-embedded off the write
+path when a task's text changes.
+
 The loop is driven over REST (`app/api/routes_agent.py`): create/list/fetch/
 rename/delete/restore conversations under `/api/agent/conversations`,
 `POST /api/agent/conversations/{id}/messages` — the one model-calling
@@ -659,7 +669,8 @@ llama.cpp runtime + provider layer, agent loop, chat panel, eval harness,
 and the fleet agent-standard alignment (layered personality, `app.yaml`
 agent block, delegate attribution). Every run opens with a code-built state
 block (today's calendar, the open projects with their ids, today's counts) at
-the head of the user's message, never saved into the conversation. What's next lives in
+the head of the user's message, never saved into the conversation, followed by the
+tasks and Focus commitments a hybrid keyword + embedding search of the user's words found. What's next lives in
 [GitHub issues](https://github.com/ryanskarnulis/project-command-center/issues);
 merged PRs and git history are the changelog.
 
@@ -671,7 +682,7 @@ merged PRs and git history are the changelog.
 ```
 Multi-user auth · internet exposure   (trusted home LAN only)
 Celery / Redis                        (SQLite + in-process is fine)
-External vector DB                    (if embeddings: sqlite-vec, in-process)
+External vector DB                    (embeddings stay in-process: see #415's gather)
 Cloud model providers                 (the agent runs locally on llama.cpp)
 Obsidian integration · Email ingestion
 ```

@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 # The record layouts this reader understands (``TRACE_SCHEMA`` in trace.py).
-KNOWN_SCHEMAS = {1, 2}
+KNOWN_SCHEMAS = {1, 2, 3}
 # The registry's read-only tools (``registry.read_only_tool_names()``), by the
 # naming they all follow — this reader imports nothing from the app.
 _READ_PREFIXES = ("list_", "get_")
@@ -156,6 +156,16 @@ def detail(record: dict[str, Any]) -> str:
         f"tools={str(serving.get('tool_schemas_sha256'))[:12]} "
         f"({serving.get('tools_offered')} offered)"
     )
+    gathered = record.get("gather")
+    if gathered:
+        found = ", ".join(
+            f"#{m.get('id')}" + (f" lift {m['lift']:+.3f}" if m.get("lift") is not None else "")
+            for m in gathered.get("matches") or []
+        )
+        lines.append(
+            f"  gather:  {gathered.get('source')} {gathered.get('ms')}ms"
+            f" -> {found or 'no matches'}"
+        )
     if record.get("state_block"):
         lines.append("  state block:")
         lines.extend(f"    {line}" for line in str(record["state_block"]).splitlines())

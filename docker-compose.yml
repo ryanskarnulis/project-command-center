@@ -25,6 +25,12 @@ services:
       # Ollama path used. The host proxy binds docker0 (172.17.0.1) as well
       # as loopback; a plain 127.0.0.1 URL would be unreachable from here.
       LLAMACPP_BASE_URL: ${LLAMACPP_BASE_URL:-http://host.docker.internal:8200/v1}
+      # Shared embeddings service (../embeddings/, port 8600) for the agent's
+      # pre-run gather (#415). It binds docker0 (172.17.0.1) beside loopback,
+      # so the host-gateway alias reaches it. Optional: down or slow means
+      # keywords alone. Vectors persist in ./data, rebuilt if deleted.
+      EMBEDDINGS_BASE_URL: ${EMBEDDINGS_BASE_URL:-http://host.docker.internal:8600/v1}
+      EMBEDDINGS_CACHE_PATH: ${EMBEDDINGS_CACHE_PATH:-/data/embeddings_cache.json}
       # Shared workspace speech service (../speech/, ports 8400/8410). Env var
       # names per ../agent-standard/voice.md. Voice is opt-in: no default is
       # substituted here, so leaving these unset (or empty) in .env runs

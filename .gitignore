@@ -31,6 +31,8 @@ data/replica/
 data/.app.db-litestream/
 # Agent run traces (PCC_TRACE_PATH, #400)
 data/traces/
+data/embeddings_cache.json
+data/embeddings_cache.json.tmp
 
 # Training artifacts (large)
 training/unsloth/models/*

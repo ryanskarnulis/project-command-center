@@ -53,15 +53,16 @@ response and rendered prompt to the run: see
 [`agent-context-capture.md`](agent-context-capture.md). The agent
 route binds `conversation_id` the same way, and the record picks it up.
 
-## The record (schema 2)
+## The record (schema 3)
 
 | Field | Meaning |
 | --- | --- |
-| `schema`, `kind` | Layout version (`2`) and `"run"`. A reader keys off `schema`; bump it on any change a reader must branch on. Schema 2 (#412) added `state_block` and `lookup_turns`. |
+| `schema`, `kind` | Layout version (`3`) and `"run"`. A reader keys off `schema`; bump it on any change a reader must branch on. Schema 2 (#412) added `state_block` and `lookup_turns`; schema 3 (#415) added `gather`. |
 | `ts`, `started` | When the record was written / the run began (UTC ISO). |
 | `run_id`, `conversation_id`, `actor` | Which run; the thread (`null` outside the route); who its writes are stamped as (`agent:loop`, `agent:conductor`). |
 | `utterance` | The user message, as typed — without the state block in front of it. |
 | `state_block` | The state block the run's user turn opened with (#412): the calendar, the open-project roster and today's counts, as of the run's start. With `utterance` it is exactly the turn the model saw. |
+| `gather` | The possible matches shown before the first model call (#415): `source` (`hybrid` — keywords and meaning; `keyword` — the embeddings service was unset, down, slow or still warming; `none` — nothing searched), `model` (the embedding model, `null` unless hybrid), `ms` (the gather's wall clock, the query's embedding included), `matches`: each item's `kind` (`task` or `commitment`), `id`, fused `score`, `lift` over the median cosine (`null` without vectors) and `keyword` score (query words held, plus a BM25 fraction for tasks; `null` without a word hit), and `rows`: the matches exactly as the model read them, after `state_block` in its user turn. |
 | `lookup_turns` | Model turns that asked only for reads (`list_*`, `get_*`, `search`) before the first turn asking for anything else. The before/after measure for the state block; `read_trace.py` rebuilds it from `calls` + `tools` for schema-1 records, so old and new traces compare. |
 | `history` | `given` / `kept` / `dropped` message counts after the context budget, and `messages`: the kept history exactly as the model saw it. |
 | `stop_reason`, `limit` | The loop's stop reason, and which configured limit ended it: `max_iterations`, `max_corrections`, `max_tokens` (a `truncated` stop), `max_tool_calls`, `no_progress`, `deadline` (`timed_out`); `null` for `completed`, `cancelled` and failures. |

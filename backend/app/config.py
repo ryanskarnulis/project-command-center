@@ -71,6 +71,19 @@ class Settings(BaseSettings):
     tts_model: str = "speaches-ai/Kokoro-82M-v1.0-ONNX"
     tts_voice: str = "af_heart"
 
+    # Shared workspace embeddings service (../embeddings/: EmbeddingGemma 2 on
+    # 8600, OpenAI /v1/embeddings). The agent's pre-run gather (#415,
+    # app/ai/gather.py) ranks tasks by meaning as well as keywords with it.
+    # Unset = keywords alone; a stopped or slow service falls back the same way.
+    embeddings_base_url: str | None = None
+    # The service's llama.cpp build (its docker-compose image tag). It isn't
+    # exposed over HTTP, and a new build can change the vectors, so the cache
+    # is keyed on it beside the model name the server reports.
+    embeddings_build: str = "b11541"
+    # Where the task vectors persist between restarts (one JSON file, rebuilt
+    # from scratch when deleted). Unset = in memory only, re-embedded at start.
+    embeddings_cache_path: Path | None = None
+
     # Per-IP cap on the /voice endpoints, rate-limited like the agent surface.
     # STT/TTS round-trips are cheap CPU work but proxy to a shared service;
     # 30/min covers a lively hands-free conversation with headroom.
