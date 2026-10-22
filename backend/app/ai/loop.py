@@ -188,9 +188,8 @@ project ids are current; find any other id with the list_*/get_*/search tools; n
 an id. Take dates (today, tomorrow, a weekday, the end of the month) from its calendar.
 - Prefer the specific tool: complete_task to finish a task, update_task to edit its fields.
 - Every delete is a soft delete into a restorable trash; there is no permanent delete.
-- A rejected tool call comes back with "retry". On "different_args", fix the arguments \
-and call again. On "never", the same call cannot succeed: do not repeat it; follow \
-"next" and the ids the rejection lists, or tell the user what stands in the way.
+- If a tool call is rejected, read the error and correct your next call. Never repeat a \
+call rejected with "retry": "never"; follow its "next" instead.
 - When the work is done (or turns out to be impossible), reply with plain text: a short \
 summary of what you did or found. State only what the tool results confirm — never invent \
 an id, a task, or an outcome the tools didn't return."""
