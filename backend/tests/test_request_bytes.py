@@ -53,7 +53,7 @@ _TODAY = date(2026, 7, 15)
 
 
 class _FixedDate(date):
-    """``date`` with a fixed ``today()``, so the prompt's date layer is stable."""
+    """``date`` with a fixed ``today()``, so the state block's calendar is stable."""
 
     @classmethod
     def today(cls) -> _FixedDate:
@@ -202,6 +202,10 @@ def test_the_canonical_run_covers_turns_tools_history_and_the_summary() -> None:
         "assistant",
         "user",
     ]
-    assert _TODAY.isoformat() in turns[0]["messages"][0]["content"]
+    # The date is the state block's, at the head of the current turn (#412);
+    # the system prompt carries none, so its bytes never move with the day.
+    assert _TODAY.isoformat() not in turns[0]["messages"][0]["content"]
+    assert f"Today: Wednesday {_TODAY.isoformat()}" in turns[0]["messages"][-1]["content"]
+    assert turns[3]["messages"][1]["content"].startswith("What projects")
     # The refusal reached the model as a tool result, not a crash.
     assert "999" in turns[2]["messages"][-1]["content"]

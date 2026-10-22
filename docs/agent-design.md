@@ -158,7 +158,23 @@ worst case (the provider timeout tolerates it). Containers reach it via
   run lock), so a late Stop never leaks into the next run.
 - **Prompt**: app base contract + vendored global Glitch
   (`app/ai/personality-global.md`, canonical in `../agent-standard/`; fix
-  drift by re-copying) + today's date. PCC ships no app-flavor layer.
+  drift by re-copying). PCC ships no app-flavor layer, and the system prompt
+  carries nothing dynamic: it and the tool schemas are byte-identical across
+  runs and days, so llama-server's prompt cache keeps the prefix.
+- **State block** (#412) `app/ai/state_block.py`: code builds one block per
+  run and puts it at the head of the current user message: today with its
+  weekday, tomorrow, the rest of this week, next Monday, the end of the month,
+  the open-project roster (id · name · open · overdue, at most 25 rows, names
+  clipped at 60 chars), and today's open-task counts (overdue, due today,
+  blocked). The numbers come from `dashboard.get_agent_snapshot`, using the
+  same effective-status roll-up as the dashboard. The block is labelled as of
+  the run's start and is never saved: the conversation stores what the user
+  typed, and every run gets a fresh one. A failing query falls back to the
+  calendar alone. The prompt's lookup rule says its project ids are current,
+  so no lookup is needed for them. Any other id is still looked up, never
+  guessed. The trace records the block and `lookup_turns` (read-only turns
+  before the first write), the before/after measure. Chess does the same
+  with `planner_state`.
 - **Persistence** (`conversations`, `conversation_messages`): assistant turns
   carry the tool trajectory + stop_reason; the user turn commits before the
   loop runs. `POST /api/agent/conversations/{id}/messages` is the one
@@ -172,7 +188,7 @@ worst case (the provider timeout tolerates it). Containers reach it via
 A deterministic recent window over history — no summarizer (that's a second
 GPU call; cloud is forbidden). Token estimate is `CHARS_PER_TOKEN = 3`
 (deliberately over-counts, so budgets are floors). Reserves off the 131,072
-window: system prompt + schemas 8,192; current turn 2,667; run tool traffic
+window: system prompt + schemas 8,192; the state block 1,024; current turn 2,667; run tool traffic
 16,384; completion 2,048. The binding constraint is prefill *time*, not the
 window: `PREFILL_BUDGET_TOKENS = 24_576` (~55 s pessimistic against the 240 s
 run budget) is the effective history ceiling.

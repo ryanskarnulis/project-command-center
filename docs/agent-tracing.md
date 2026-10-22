@@ -53,14 +53,16 @@ response and rendered prompt to the run: see
 [`agent-context-capture.md`](agent-context-capture.md). The agent
 route binds `conversation_id` the same way, and the record picks it up.
 
-## The record (schema 1)
+## The record (schema 2)
 
 | Field | Meaning |
 | --- | --- |
-| `schema`, `kind` | Layout version (`1`) and `"run"`. A reader keys off `schema`; bump it on any change a reader must branch on. |
+| `schema`, `kind` | Layout version (`2`) and `"run"`. A reader keys off `schema`; bump it on any change a reader must branch on. Schema 2 (#412) added `state_block` and `lookup_turns`. |
 | `ts`, `started` | When the record was written / the run began (UTC ISO). |
 | `run_id`, `conversation_id`, `actor` | Which run; the thread (`null` outside the route); who its writes are stamped as (`agent:loop`, `agent:conductor`). |
-| `utterance` | The user message. |
+| `utterance` | The user message, as typed — without the state block in front of it. |
+| `state_block` | The state block the run's user turn opened with (#412): the calendar, the open-project roster and today's counts, as of the run's start. With `utterance` it is exactly the turn the model saw. |
+| `lookup_turns` | Model turns that asked only for reads (`list_*`, `get_*`, `search`) before the first turn asking for anything else. The before/after measure for the state block; `read_trace.py` rebuilds it from `calls` + `tools` for schema-1 records, so old and new traces compare. |
 | `history` | `given` / `kept` / `dropped` message counts after the context budget, and `messages`: the kept history exactly as the model saw it. |
 | `stop_reason`, `limit` | The loop's stop reason, and which configured limit ended it: `max_iterations`, `max_corrections`, `max_tokens` (a `truncated` stop), `max_tool_calls`, `no_progress`, `deadline` (`timed_out`); `null` for `completed`, `cancelled` and failures. |
 | `error` | Empty, or the failure message of a `provider_error` / `timed_out` / `internal_error` run. |
@@ -71,7 +73,7 @@ route binds `conversation_id` the same way, and the record picks it up.
 | `model_calls`, `unmetered_calls`, `prompt_tokens`, `completion_tokens`, `cached_tokens`, `model_ms` | Totals derived from `calls`; `unmetered_calls` counts calls with no token usage, which makes the token totals a lower bound. |
 | `total_ms` | The run's wall clock. |
 | `limits` | The configured `max_iterations`, `max_corrections`, `max_tokens`, `summary_max_tokens`, `max_tool_calls`, and `deadline_s` — the budget left as the first model call started (`null` with no deadline). |
-| `serving` | `model` (the alias sent), `profile` (`null` until per-model profiles, #402), `system_prompt_sha256` and `summary_prompt_sha256` (the static prompt layers — the date line is excluded, so the hash moves with wording, not the calendar), `tool_schemas_sha256` (canonical JSON of every offered tool's wire schema), `tools_offered`. |
+| `serving` | `model` (the alias sent), `profile` (`null` until per-model profiles, #402), `system_prompt_sha256` and `summary_prompt_sha256` (the prompts, which carry no date since #412, so the hash moves with wording, not the calendar), `tool_schemas_sha256` (canonical JSON of every offered tool's wire schema), `tools_offered`. |
 
 Each `calls` entry:
 
@@ -89,5 +91,6 @@ Each `calls` entry:
 
 `utterance` + `history.messages` is the input; `tools` is the trajectory to
 assert on (or against); `serving` names the configuration that produced it.
-The database state the tools saw is not in the record — the tool results are,
-which is usually enough to seed a scenario by hand.
+The database itself is not in the record, but `state_block` gives the open
+projects with their ids and counts as the run began, and the tool results
+give the rest — usually enough to seed a scenario by hand.

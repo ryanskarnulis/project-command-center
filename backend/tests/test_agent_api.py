@@ -290,6 +290,18 @@ def test_post_message_runs_loop_and_persists_exchange(
     assert [m["role"] for m in prior_turns] == ["system", "user", "assistant", "user"]
     assert prior_turns[1]["content"] == "Create a task called Ship slice 2"
     assert not any("tool" in (m.get("role") or "") for m in prior_turns)
+    # The state block (#412) opens only the current turn, fresh: it is never
+    # stored, so neither the transcript nor the next run's history has it.
+    current = prior_turns[-1]["content"]
+    assert current.startswith("[State at the start of this run")
+    assert current.endswith("\n\nWhat did I ask you to do?")
+    assert "1 open" in current
+    assert sum("[State at the start" in m["content"] for m in prior_turns) == 1
+    detail = client.get(f"/api/agent/conversations/{conversation_id}").json()
+    assert [m["content"] for m in detail["messages"] if m["role"] == "user"] == [
+        "Create a task called Ship slice 2",
+        "What did I ask you to do?",
+    ]
 
 
 def test_cut_off_reply_is_saved_as_truncated_without_content(

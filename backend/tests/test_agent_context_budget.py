@@ -16,11 +16,12 @@ from datetime import date
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.ai import context_budget
-from app.ai.loop import AgentLoop, AgentRunResult, build_system_prompt
+from app.ai import context_budget, state_block
+from app.ai.loop import SYSTEM_PROMPT, AgentLoop, AgentRunResult
 from app.api import routes_agent
 from app.schemas.conversations import MAX_AGENT_MESSAGE_LENGTH
 from app.services import conversations as conversations_service
+from app.services.dashboard import AgentSnapshot, RosterEntry
 from app.tools import registry
 from tests.scripted_provider import ScriptedProvider, text_turn
 
@@ -53,15 +54,33 @@ def _seed_huge_conversation(db: Session) -> int:
 # --- Policy -------------------------------------------------------------------
 
 
+def _largest_state_block() -> str:
+    roster = [
+        RosterEntry(
+            project_id=100_000 + index,
+            name="x" * (state_block.MAX_NAME_CHARS * 2),
+            open_count=9_999,
+            overdue_count=9_999,
+        )
+        for index in range(state_block.MAX_ROSTER + 5)
+    ]
+    snapshot = AgentSnapshot(roster=roster, overdue=9_999, due_today=9_999, blocked=9_999)
+    return state_block.render(date(2026, 9, 28), snapshot)
+
+
 def test_reserves_leave_a_positive_budget_and_fit_the_real_prompt() -> None:
     """The static reserve really does cover the prompt the loop sends."""
-    overhead = context_budget.estimate_tokens(
-        build_system_prompt(date.today())
-    ) + sum(
+    overhead = context_budget.estimate_tokens(SYSTEM_PROMPT) + sum(
         context_budget.estimate_tokens(spec.model_dump_json())
         for spec in registry.tool_specs()
     )
     assert overhead <= context_budget.STATIC_PROMPT_RESERVE_TOKENS
+    # The state block at its largest (#412): a full roster of names at the
+    # clip, with more behind it.
+    assert (
+        context_budget.estimate_tokens(_largest_state_block())
+        <= context_budget.STATE_BLOCK_RESERVE_TOKENS
+    )
 
     budget = context_budget.history_token_budget()
     assert budget > 0
@@ -191,7 +210,9 @@ def test_loop_windows_history_before_the_provider_request() -> None:
 
     sent = provider.requests[0]["messages"]
     assert sent[0]["role"] == "system"
-    assert sent[-1] == {"role": "user", "content": "what now?"}
+    # The current turn, behind its state block (#412).
+    assert sent[-1]["role"] == "user"
+    assert sent[-1]["content"].endswith("\n\nwhat now?")
     # The system prompt and the current turn always survive; history does not.
     assert len(sent) < len(history) + 2
     total = sum(context_budget.estimate_tokens(str(m["content"])) for m in sent)

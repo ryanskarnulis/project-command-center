@@ -64,6 +64,11 @@ STATIC_PROMPT_RESERVE_TOKENS = 8_192
 # message fits by construction whatever the caller sends.
 CURRENT_TURN_RESERVE_TOKENS = -(-MAX_AGENT_MESSAGE_LENGTH // CHARS_PER_TOKEN)
 
+# The state block opening the current turn (#412, ``app/ai/state_block.py``):
+# a capped roster of clipped names plus the calendar, so its size is bounded
+# by construction. ``test_context_budget.py`` asserts the largest one fits.
+STATE_BLOCK_RESERVE_TOKENS = 1_024
+
 # The run's *own* tool traffic: up to `max_iterations` assistant turns with
 # tool calls plus their results, all appended to the same request as the loop
 # proceeds. History has to leave room for it or the loop dies mid-run.
@@ -88,7 +93,7 @@ PREFILL_BUDGET_TOKENS = 24_576
 HISTORY_SCAN_LIMIT = 500
 
 DEFAULT_PROMPT_OVERHEAD_TOKENS = (
-    STATIC_PROMPT_RESERVE_TOKENS + CURRENT_TURN_RESERVE_TOKENS
+    STATIC_PROMPT_RESERVE_TOKENS + STATE_BLOCK_RESERVE_TOKENS + CURRENT_TURN_RESERVE_TOKENS
 )
 
 

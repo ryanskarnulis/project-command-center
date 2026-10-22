@@ -21,7 +21,8 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai import loop as loop_module
-from app.ai.loop import LOOP_ACTOR, AgentLoop, AgentRunFailed, build_system_prompt
+from app.ai import state_block
+from app.ai.loop import LOOP_ACTOR, SYSTEM_PROMPT, AgentLoop, AgentRunFailed
 from app.ai.providers.llamacpp import (
     ChatResult,
     ProviderRequestError,
@@ -30,6 +31,8 @@ from app.ai.providers.llamacpp import (
 )
 from app.db.models import ActivityEvent, Project, Task, TaskWorkflowStatus
 from app.mcp.server import mcp
+from app.services import dashboard as dashboard_service
+from app.services import projects as projects_service
 from app.tools import registry, runtime
 from tests.scripted_provider import ScriptedProvider
 from tests.scripted_provider import text_turn as _text
@@ -491,7 +494,10 @@ def test_provider_crash_on_the_first_call_fails_with_nothing_run(
     assert result.stop_reason == "internal_error"
     assert result.iterations == 1
     assert result.tool_calls == []
-    assert result.messages[-1] == {"role": "user", "content": "Do a thing"}
+    assert result.messages[-1] == {
+        "role": "user",
+        "content": state_block.with_state(state_block.build(date.today()), "Do a thing"),
+    }
 
 
 def test_passed_deadline_times_out_before_calling_the_provider(
@@ -685,8 +691,8 @@ def test_tool_session_reuses_a_bound_request_id(
 
 
 def test_system_prompt_layers_compose_in_order() -> None:
-    """app base → global Glitch → date, in that order, all present."""
-    prompt = build_system_prompt(date(2026, 7, 11))
+    """app base → global Glitch, in that order, and nothing dated (#412)."""
+    prompt = SYSTEM_PROMPT
 
     # Layer 1: the app behavioral contract.
     assert "Project Command Center (PCC)" in prompt
@@ -694,13 +700,12 @@ def test_system_prompt_layers_compose_in_order() -> None:
     assert "never invent" in prompt
     # Layer 2: the vendored house personality.
     assert "you are Glitch" in prompt
-    # Layer 3: the dynamic date injection.
-    assert "Today's date is 2026-07-11." in prompt
+    # No dynamic layer: the date lives in the per-run state block.
+    assert "Today's date" not in prompt
 
     base_at = prompt.index("You act only by calling the provided tools.")
     glitch_at = prompt.index("you are Glitch")
-    date_at = prompt.index("Today's date is 2026-07-11.")
-    assert base_at < glitch_at < date_at
+    assert base_at < glitch_at
 
 
 def test_global_personality_is_the_vendored_glitch_without_its_header() -> None:
@@ -725,3 +730,68 @@ def test_registry_and_mcp_expose_identical_tools() -> None:
     for name, spec in specs.items():
         assert spec.parameters == mcp_tools[name].parameters, name
         assert spec.description  # never advertise an undocumented tool
+
+
+# --- The state block (#412) ---------------------------------------------------
+
+
+def test_the_state_block_opens_the_user_turn_and_the_system_prompt_is_static(
+    tool_db: sessionmaker[Session],
+) -> None:
+    with tool_db() as db:
+        projects_service.create_project(db, name="Garage")
+        db.commit()
+    provider = ScriptedProvider([_text("You have Garage.")])
+    AgentLoop(provider).run("What projects do I have?")
+
+    [request] = provider.requests
+    system, user = request["messages"]
+    assert system == {"role": "system", "content": SYSTEM_PROMPT}
+    assert user["role"] == "user"
+    block, ask = user["content"].split("\n\n", 1)
+    assert ask == "What projects do I have?"
+    assert block == state_block.build(date.today())
+    assert "· Garage · 0 open · 0 overdue" in block
+    assert f"Today: {state_block.day(date.today())}" in block
+
+
+def test_the_state_block_is_built_once_per_run_as_of_its_start(
+    tool_db: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A write mid-run does not re-render the block: later turns still carry
+    the run-start text (the write is in the tool result)."""
+    built: list[date] = []
+    real_build = state_block.build
+
+    def counting(today: date) -> str:
+        built.append(today)
+        return real_build(today)
+
+    monkeypatch.setattr(state_block, "build", counting)
+    provider = ScriptedProvider(
+        [
+            _calls(("create_project", {"name": "Garage"})),
+            _text("Made Garage."),
+        ]
+    )
+    AgentLoop(provider).run("Make a Garage project.")
+
+    assert len(built) == 1
+    first, second = (request["messages"] for request in provider.requests)
+    assert first[1]["content"] == second[1]["content"]
+    assert "Open projects: none yet." in second[1]["content"]
+
+
+def test_a_failing_state_block_query_still_runs_with_the_calendar(
+    tool_db: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(db: Session, today: date) -> object:
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(dashboard_service, "get_agent_snapshot", broken)
+    provider = ScriptedProvider([_text("Hi.")])
+    result = AgentLoop(provider).run("Hi")
+
+    assert result.stop_reason == "completed"
+    user = provider.requests[0]["messages"][-1]["content"]
+    assert user == state_block.with_state(state_block.render(date.today(), None), "Hi")

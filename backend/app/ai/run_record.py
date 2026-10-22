@@ -29,6 +29,7 @@ from collections.abc import Sequence
 from datetime import date
 from typing import TYPE_CHECKING, Any, Literal
 
+from app.ai import state_block
 from app.tools import registry
 from app.tools.registry import UnknownToolError
 
@@ -167,7 +168,7 @@ def summary_messages(
             "role": "system",
             "content": (
                 f"{SUMMARY_RULES}\n\n{personality}\n\n"
-                f"Today's date is {today.isoformat()}."
+                f"Today is {state_block.day(today)}."
             ),
         },
         {"role": "user", "content": brief},

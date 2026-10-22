@@ -639,8 +639,10 @@ cd backend && PCC_AGENT_EVALS=1 .venv/bin/pytest tests/test_agent_evals.py -v -s
 the docker `.env`) and every agent run — app, delegate or eval — appends one
 JSONL record: the ask and the history it was shown, every tool call with its
 arguments and result, the stop reason and the limit behind it, the reply, one
-entry per model call (status, ms, prompt/completion/cached tokens), and hashes
-of the system prompt and tool schemas beside the model. A failed write is
+entry per model call (status, ms, prompt/completion/cached tokens), hashes
+of the system prompt and tool schemas beside the model, the state block the
+run opened with, and its lookup turns (read-only turns before the first
+write). A failed write is
 logged and never costs the run. Read it with
 `python backend/scripts/read_trace.py <file>` (`--run <id>` for one run in
 full); the record layout is in [`docs/agent-tracing.md`](docs/agent-tracing.md).
@@ -655,7 +657,9 @@ dependencies, Focus, search, trash, dashboard, docker + litestream deploy.
 Phase 2 (the local agent) is shipped end-to-end: MCP server, shared
 llama.cpp runtime + provider layer, agent loop, chat panel, eval harness,
 and the fleet agent-standard alignment (layered personality, `app.yaml`
-agent block, delegate attribution). What's next lives in
+agent block, delegate attribution). Every run opens with a code-built state
+block (today's calendar, the open projects with their ids, today's counts) at
+the head of the user's message, never saved into the conversation. What's next lives in
 [GitHub issues](https://github.com/ryanskarnulis/project-command-center/issues);
 merged PRs and git history are the changelog.
 

@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 from app.ai import loop as agent_loop
+from app.ai import state_block
 from app.ai.model_profile import load_profile
 from app.ai.providers.llamacpp import (
     ChatResult,
@@ -163,7 +164,7 @@ def test_override_of_a_missing_parameter_is_an_error() -> None:
 def test_prompt_override_keeps_the_date_line() -> None:
     messages = [{"role": "system", "content": "old"}, {"role": "user", "content": "hi"}]
     out = probe.override_system_prompt(messages, "  new rules  ", date(2026, 1, 2))
-    assert out[0]["content"] == "new rules\n\nToday's date is 2026-01-02."
+    assert out[0]["content"] == "new rules"
     assert out[1] == messages[1] and messages[0]["content"] == "old"
     placed = probe.override_system_prompt(messages, "on {today}.", date(2026, 1, 2))
     assert placed[0]["content"] == "on 2026-01-02."
@@ -177,8 +178,13 @@ def test_control_arm_request_is_what_the_loop_sends() -> None:
     payload = probe.dry_run_payload(probe.Arm("control"), item, MODEL, seed=7)
     profile = load_profile(MODEL)
     assert payload["messages"] == [
-        {"role": "system", "content": agent_loop.build_system_prompt(date.today())},
-        {"role": "user", "content": "add a task to buy milk"},
+        {"role": "system", "content": agent_loop.SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": state_block.with_state(
+                state_block.build(date.today()), "add a task to buy milk"
+            ),
+        },
     ]
     assert payload["tools"] == [spec.to_wire() for spec in registry.tool_specs()]
     assert payload["max_tokens"] == profile.turn_max_tokens
@@ -191,7 +197,9 @@ def test_history_goes_through_the_loops_own_window() -> None:
     history = [{"role": "user", "content": "earlier"}, {"role": "assistant", "content": "ok"}]
     item = probe.Item("i", "and now", history=tuple(history))
     payload = probe.dry_run_payload(probe.Arm("control"), item, MODEL, seed=None)
-    assert [m["content"] for m in payload["messages"][1:]] == ["earlier", "ok", "and now"]
+    contents = [m["content"] for m in payload["messages"][1:]]
+    assert contents[:2] == ["earlier", "ok"]
+    assert contents[2].endswith("\n\nand now")
     assert "seed" not in payload
 
 
