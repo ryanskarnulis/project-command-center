@@ -548,7 +548,7 @@ def _as_match(db: Session, row: dict[str, Any]) -> dict[str, Any]:
                 select(Task.id, Task.title).where(
                     Task.id.in_([e.depends_on_task_id for e in edges])
                 )
-            ).tuples()
+            ).tuples().all()
         )
         match["waits_on"] = [
             {

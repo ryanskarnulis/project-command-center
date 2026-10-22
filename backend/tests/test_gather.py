@@ -27,6 +27,7 @@ from app.ai.gather import Searcher, VectorCache
 from app.ai.loop import AgentLoop
 from app.services import focus_plan as focus_plan_service
 from app.services import projects as projects_service
+from app.services import task_dependencies as deps_service
 from app.services import tasks as tasks_service
 from app.tools import runtime
 from tests.scripted_provider import ScriptedProvider, text_turn
@@ -392,6 +393,33 @@ def test_the_section_is_the_task_rows_under_the_label(
     }
     assert gather.rows(gather.Gathered()) == []
     assert gather.section([]) is None
+
+
+def test_a_waiting_task_carries_its_edges_and_keeps_the_other_matches(
+    tool_db: sessionmaker[Session],
+) -> None:
+    """One edge used to drop every match (#478): the titles lookup handed
+    ``dict()`` a Result, which it read as a mapping."""
+    ids = _seed(tool_db)
+    report, plumber = ids["Write the quarterly report"], ids["Call the plumber"]
+    with tool_db() as db:
+        edge = deps_service.add_dependency(db, task_id=report, depends_on_id=plumber)
+        db.commit()
+        edge_id = edge.id
+    gathered = gather.Gathered(
+        matches=[
+            gather.Match(item=("task", report), score=1.0),
+            gather.Match(item=("task", plumber), score=0.9),
+        ]
+    )
+
+    shown = gather.rows(gathered)
+
+    assert [row["task_id"] for row in shown] == [report, plumber]
+    assert shown[0]["waits_on"] == [
+        {"dependency_id": edge_id, "task_id": plumber, "title": "Call the plumber"}
+    ]
+    assert "waits_on" not in shown[1]
 
 
 def test_with_state_puts_the_matches_between_the_block_and_the_ask() -> None:
