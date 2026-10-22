@@ -49,7 +49,7 @@ from app.schemas.focus import (
 from app.schemas.projects import ProjectCreate, ProjectRead, ProjectUpdate
 from app.schemas.search import SearchResults
 from app.schemas.task_dependencies import TaskDependenciesRead, TaskDependencyRead
-from app.schemas.tasks import TaskCreate, TaskRead, TaskUpdate
+from app.schemas.tasks import TaskCreate, TaskPage, TaskRead, TaskUpdate
 from app.schemas.trash import ProjectRestoreResult, ProjectTrashRead, TrashRead
 from app.services import activity as activity_service
 from app.services import focus as focus_service
@@ -270,14 +270,14 @@ def list_tasks(
     exclude_done: bool = False,
     top_level_only: bool = False,
     due_date: date_type | None = None,
-    limit: _ListLimit = 50,
+    limit: _ListLimit = 20,
     offset: PaginationOffset = 0,
-) -> list[TaskRead]:
+) -> TaskPage:
     """List active tasks, oldest first. Omit project_id to search all projects."""
     with tool_session("list_tasks", write=False) as db:
         if project_id is not None:
             _ensure_project_exists(db, project_id)
-        tasks = tasks_service.list_tasks(
+        tasks, total = tasks_service.list_tasks_page(
             db,
             project_id,
             workflow_status=workflow_status,
@@ -287,7 +287,11 @@ def list_tasks(
             limit=limit,
             offset=offset,
         )
-        return reads_with_blocked(db, tasks)
+        return TaskPage(
+            items=reads_with_blocked(db, tasks),
+            total=total,
+            has_more=offset + len(tasks) < total,
+        )
 
 
 @_read_tool

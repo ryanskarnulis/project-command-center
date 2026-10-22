@@ -118,7 +118,7 @@ from app.ai.providers.llamacpp import (
     ToolSpec,
     tool_result_message,
 )
-from app.tools import registry
+from app.tools import registry, views
 from app.tools.refusals import RETRY_DIFFERENT_ARGS, RETRY_NEVER, Retry, ToolRefusal
 from app.tools.registry import ToolError, UnknownToolError
 
@@ -1015,9 +1015,11 @@ class AgentLoop:
         except ToolError as exc:
             record.error = str(exc)
         else:
+            # The record keeps the full read model (the UI's undo, the trace);
+            # the model reads the trimmed view (#414).
             record.result = _result_text(outcome)
             logger.info("agent_tool_call", tool=call.name, ok=True)
-            return record, record.result, False
+            return record, _result_text(views.agent_view(outcome)), False
         logger.warning(
             "agent_tool_call",
             tool=call.name,

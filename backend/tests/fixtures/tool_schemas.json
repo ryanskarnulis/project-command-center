@@ -68,7 +68,7 @@
               "title": "Due Date"
             },
             "limit": {
-              "default": 50,
+              "default": 20,
               "maximum": 200,
               "minimum": 1,
               "title": "Limit",
@@ -1452,7 +1452,7 @@
             "title": "Due Date"
           },
           "limit": {
-            "default": 50,
+            "default": 20,
             "maximum": 200,
             "minimum": 1,
             "title": "Limit",
@@ -1720,19 +1720,30 @@
             "type": "string"
           }
         },
+        "description": "One page of a task list: the rows, how many match in all, and whether\na larger offset holds more.",
         "properties": {
-          "result": {
+          "items": {
             "items": {
               "$ref": "#/$defs/TaskRead"
             },
-            "title": "Result",
+            "title": "Items",
             "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
           }
         },
         "required": [
-          "result"
+          "items",
+          "total",
+          "has_more"
         ],
-        "title": "list_tasksOutput",
+        "title": "TaskPage",
         "type": "object"
       }
     },

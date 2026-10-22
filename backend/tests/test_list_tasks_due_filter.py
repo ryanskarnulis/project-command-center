@@ -36,7 +36,7 @@ def _call(name: str, arguments: dict[str, Any]) -> Any:
 
 
 def _titles(arguments: dict[str, Any]) -> list[str]:
-    return [task.title for task in _call("list_tasks", arguments)]
+    return [task.title for task in _call("list_tasks", arguments).items]
 
 
 @pytest.fixture
