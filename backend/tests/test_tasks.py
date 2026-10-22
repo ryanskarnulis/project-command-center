@@ -1459,7 +1459,7 @@ def test_agent_tool_top_level_only_returns_the_orphan(
         {"project_id": proj_b_id, "top_level_only": True},
         actor="agent",
     )
-    assert child.id in {t.id for t in result}
+    assert child.id in {t.id for t in result.items}
 
 
 # --- Subtasks under an effective top-level orphan (issue #128) ----------------

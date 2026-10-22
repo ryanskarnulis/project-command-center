@@ -5,7 +5,7 @@ from datetime import date
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import ColumnElement, or_, select, update
+from sqlalchemy import ColumnElement, func, or_, select, update
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import (
@@ -1027,6 +1027,35 @@ def list_tasks(
     limit: int | None = None,
     offset: int = 0,
 ) -> Sequence[Task]:
+    """One page of the active tasks matching the filters (see :func:`list_tasks_page`)."""
+    tasks, _ = list_tasks_page(
+        db,
+        project_id,
+        workflow_status=workflow_status,
+        exclude_done=exclude_done,
+        top_level_only=top_level_only,
+        due_date=due_date,
+        limit=limit,
+        offset=offset,
+    )
+    return tasks
+
+
+def list_tasks_page(
+    db: Session,
+    project_id: int | None = None,
+    workflow_status: TaskWorkflowStatus | None = None,
+    exclude_done: bool = False,
+    top_level_only: bool = False,
+    due_date: date | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[Sequence[Task], int]:
+    """One page of the matching active tasks, and how many match in all (#414).
+
+    The total counts the same effective result the page is cut from, so
+    ``offset + len(page) < total`` says exactly whether another page exists.
+    """
     # ``due_date`` filters the stored due date (a task without one never
     # matches). It's a column, not a roll-up, so it filters in SQL and paging
     # stays exact.
@@ -1058,12 +1087,19 @@ def list_tasks(
         query = query.where(effective_top_level_clause())
     if due_date is not None:
         query = query.where(Task.due_date == due_date)
+    total = 0
     if not filtering:
+        if limit is not None or offset:
+            total = db.execute(
+                select(func.count()).select_from(query.order_by(None).subquery())
+            ).scalar_one()
         if offset:
             query = query.offset(offset)
         if limit is not None:
             query = query.limit(limit)
     tasks = db.execute(query).scalars().all()
+    if not filtering and not (limit is not None or offset):
+        total = len(tasks)
 
     # Status filtering resolves EFFECTIVE (rolled-up) status, not the stored
     # column. A checklist parent's status is derived from its children and never
@@ -1087,9 +1123,10 @@ def list_tasks(
         else:
             tasks = [t for t in tasks if _effective(t) != TaskWorkflowStatus.done]
         # The page boundary belongs on the filtered set, not the stored one.
+        total = len(tasks)
         end = None if limit is None else offset + limit
         tasks = tasks[offset:end]
-    return tasks
+    return tasks, total
 
 
 def get_task(db: Session, task_id: int) -> Task | None:

@@ -171,6 +171,15 @@ class TaskRead(BaseModel):
     is_effective_top_level: bool = True
 
 
+class TaskPage(BaseModel):
+    """One page of a task list: the rows, how many match in all, and whether
+    a larger offset holds more."""
+
+    items: list[TaskRead]
+    total: int
+    has_more: bool
+
+
 class TaskSeries(BaseModel):
     """A recurrence series: the active and skipped occurrences sharing a
     ``recurrence_id``.

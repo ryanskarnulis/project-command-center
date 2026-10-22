@@ -86,7 +86,8 @@ async def test_task_lifecycle_with_agent_attribution(
         assert task["workflow_status"] == "open"
 
         listed = await _call(client, "list_tasks", {"project_id": project_id})
-        assert [t["id"] for t in listed["result"]] == [task_id]
+        assert [t["id"] for t in listed["items"]] == [task_id]
+        assert listed["total"] == 1 and listed["has_more"] is False
 
         done = await _call(client, "complete_task", {"task_id": task_id})
         assert done["workflow_status"] == "done"

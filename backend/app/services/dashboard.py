@@ -80,6 +80,17 @@ def _per_project_counts(
     ]
 
 
+def open_task_counts(db: Session) -> dict[int, int]:
+    """Open (not effectively done) active tasks per project id, closed projects
+    included; a project with none is absent. The lanes' own numbers (#414)."""
+    open_tasks, _ = _split_by_effective_status(db)
+    counts: dict[int, int] = defaultdict(int)
+    for task in open_tasks:
+        if task.project_id is not None:
+            counts[task.project_id] += 1
+    return dict(counts)
+
+
 def get_overview(
     db: Session,
 ) -> tuple[int, Sequence[ProjectCounts]]:

@@ -74,6 +74,19 @@ reply naming the subtasks a refusal listed is backed. MCP clients keep the `Tool
 same refusal's text is the reason plus a prose line built from those details.
 REST and UI messages are untouched.
 
+**What the model reads back (#414).** Tools answer with the REST read models,
+and the `ToolCallRecord` keeps that full answer in `result`, which the trace,
+the saved conversation, the run record and the UI's undo read. The loop's
+`role: tool` message is a trimmed view instead (`app/tools/views.py`). A task
+is its id, title, project *name*, status, priority, due date when set, and
+only the flags that are true (`parent`, `subtasks`, `recurring`, `blocked`,
+`blocking`). A single task, from `get_task` or a write, also carries the set
+fields a write can change. A project is its id, name and `open_tasks`.
+`list_tasks` answers a page (`total`, `has_more`, default 20 rows) on both
+surfaces. Other results (focus, search, dependencies, activity, sentences)
+pass through unchanged. MCP clients keep the full read models: they are
+frontier models with room in context, and they get the page envelope only.
+
 **Deliberately not exposed:** `purge_task`, `purge_project`, `empty_trash`,
 `reorder_projects`, the dashboard overview. Trash retention (#321) — the
 scheduled purge of trash older than `TRASH_RETENTION_DAYS` — is a lifespan job
