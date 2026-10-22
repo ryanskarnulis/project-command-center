@@ -150,6 +150,13 @@ RESTORED_FILTERS = _evidence(
     _call("list_trash", {}, {"projects": [], "tasks": [_task(7, "Order furnace filters")]}),
     _call("restore_task", {"task_id": 7}, _task(7, "Order furnace filters")),
 )
+RESTORED_GARAGE = _evidence(
+    _call(
+        "restore_project",
+        {"project_id": 3, "restore_tasks": True},
+        {"project": {"id": 3, "name": "Garage", "closed_at": None}, "restored_task_count": 2},
+    ),
+)
 FOUR_CREATED = _evidence(
     *(
         _call(
@@ -335,6 +342,9 @@ MUST_FIRE: list[tuple[str, str, Evidence]] = [
     # Counts: four creates are not five.
     ("count", "I've added all five tasks to Garage.", FOUR_CREATED),
     ("count", "I created 5 new tasks in Garage.", FOUR_CREATED),
+    # A write's result backs its own counts, never its ids (#471).
+    ("count", "I created 12 tasks in Garage.", FOUR_CREATED),
+    ("count", "Restored Garage and its 3 tasks.", RESTORED_GARAGE),
     ("count", "You have 5 open tasks in Reading.", READING_LIST),
     # Titles the run never saw.
     ("title", 'I\'ve completed "Book the dentist" for you.', MOVED_TO_FRIDAY),
@@ -473,6 +483,8 @@ MUST_BACK: list[tuple[str, str, Evidence]] = [
     ("trashed", "Trashed it.", TRASHED_GUTTERS),
     ("restored", "Restored it.", RESTORED_FILTERS),
     ("count", "Created 4 tasks.", FOUR_CREATED),
+    # The count is the write's own result, not the number of writes (#471).
+    ("count", "The Garage project and its 2 tasks are back in the mix.", RESTORED_GARAGE),
     ("date", "It's due Friday now.", MOVED_TO_FRIDAY),
     ("title", 'Created "Buy stamps".', CREATED_STAMPS),
     ("not_found", "I couldn't find that task.", SEARCHED_NOTHING),

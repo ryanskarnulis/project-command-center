@@ -119,7 +119,9 @@ class Evidence:
     the task titles and project names their results named; ``dates`` every
     calendar date in them; ``counts`` every number a count could honestly be
     read off (list lengths, per-status/priority/project groups, integers);
-    ``action_counts`` the numbers of writes (per tool, and in all);
+    ``action_counts`` the numbers of writes (per tool, and in all) and the
+    counts a write's own result carries (#471: ``restored_task_count``, the
+    length of a list it returned), never its ids;
     ``read_tools`` the read tools that answered.
     """
 
@@ -144,6 +146,7 @@ class Evidence:
         done_titles: set[str] = set()
         dates: set[date] = set()
         counts: set[int] = set()
+        result_counts: set[int] = set()
         read_tools: set[str] = set()
         closed_seen = False
         for call in calls:
@@ -159,6 +162,7 @@ class Evidence:
                 read_tools.add(call.name)
             else:
                 writes[call.name] += 1
+                result_counts |= _result_counts(_parsed(call.result))
             for node in (*_walk(dict(call.args)), *_walk(_parsed(call.result))):
                 if isinstance(node, str):
                     texts.add(_norm(node))
@@ -178,7 +182,7 @@ class Evidence:
                             done_titles.add(_norm(name))
                     if node.get("closed_at"):
                         closed_seen = True
-        action_counts = {*writes.values(), sum(writes.values())}
+        action_counts = {*writes.values(), sum(writes.values()), *result_counts}
         return cls(
             calls=calls,
             today=today,
@@ -219,6 +223,23 @@ class Evidence:
         return any(
             said == text or said in text or (len(text) >= 4 and text in said) for text in self.texts
         )
+
+
+def _result_counts(value: Any) -> set[int]:
+    """The counts a write's result reports: integers under a ``*_count`` key
+    and list lengths. Not every integer, so a created task's id can't back
+    "I created 12 tasks"."""
+    found: set[int] = set()
+    for node in _walk(value):
+        if isinstance(node, list):
+            found.add(len(node))
+        elif isinstance(node, Mapping):
+            found.update(
+                item
+                for key, item in node.items()
+                if str(key).endswith("_count") and isinstance(item, int) and not isinstance(item, bool)
+            )
+    return found
 
 
 def _group_counts(items: list[Any]) -> set[int]:
