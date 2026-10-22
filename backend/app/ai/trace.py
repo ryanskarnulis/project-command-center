@@ -40,11 +40,15 @@ if TYPE_CHECKING:
 
 # The record layout's version. A reader keys off it rather than off which
 # fields happen to be present; bump it on any change a reader must branch on.
-TRACE_SCHEMA = 2
+TRACE_SCHEMA = 3
 # Schema 2 (#412) adds ``state_block`` (the text the run's user turn opened
 # with) and ``lookup_turns`` (model turns of only reads before the first turn
 # asking for anything else). Schema 1 records have neither; a reader rebuilds
-# ``lookup_turns`` from ``calls`` and ``tools``.
+# ``lookup_turns`` from ``calls`` and ``tools``. Schema 3 (#415) adds
+# ``gather``: the possible matches shown before the first model call — how they
+# were found (``hybrid``, ``keyword``, ``none``), the embedding model, the
+# milliseconds it took, each match's task id, fused score, lift over the
+# median cosine and BM25 score, and ``rows``: the task rows the model read.
 # What a record in the trace file is: one agent run. On every record so a
 # later kind (#401's context captures, a serving manifest) is never mistaken
 # for one.
@@ -163,6 +167,9 @@ class RunTrace:
     summarised: bool = False
     corrections: int = 0
     state_block: str | None = None
+    gather: dict[str, Any] | None = None
+    # The gather's rows as the model read them (also under ``gather["rows"]``).
+    gathered: list[dict[str, Any]] = field(default_factory=list)
     lookup_turns: int = 0
     # Set at the first turn that asked for more than reads; ends the count.
     wrote: bool = False
@@ -204,6 +211,7 @@ class RunTrace:
             "actor": self.actor,
             "utterance": self.utterance,
             "state_block": self.state_block,
+            "gather": self.gather,
             "lookup_turns": self.lookup_turns,
             "history": {
                 "given": self.history_given,

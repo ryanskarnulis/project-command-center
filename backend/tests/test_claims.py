@@ -692,3 +692,37 @@ def test_a_refusal_backs_the_titles_it_named() -> None:
     evidence = _evidence(refused)
     assert not unbacked(read_claims('You gotta finish "Sweep the floor" first.', evidence))
     assert evidence.writes == Counter()
+
+
+# --- what the gather showed (#415) -----------------------------------------------
+
+_GATHERED = [{"task_id": 2, "title": "Paint the walls", "project": "Home", "status": "open"}]
+_LINKED = _call("add_dependency", {"task_id": 2, "depends_on_task_id": 1}, {"ok": True})
+
+
+def test_a_title_the_gather_showed_backs_a_reply() -> None:
+    """A write by id names its task from the matches the run was shown: true."""
+    reply = '"Paint the walls" is now blocked by the primer task.'
+    assert not unbacked(read_claims(reply, Evidence.of([_LINKED], TODAY, _GATHERED)))
+    assert unbacked(read_claims(reply, Evidence.of([_LINKED], TODAY)))
+
+
+def test_being_shown_matches_is_not_looking() -> None:
+    """The gather is not a call: "I couldn't find it" with no call stays
+    answered from memory, matches or not."""
+    reply = "I couldn't find a task called Zeppelin."
+    evidence = Evidence.of([], TODAY, _GATHERED)
+    assert [c.family for c in unbacked(read_claims(reply, evidence))] == ["not_found"]
+
+
+def test_score_trace_reads_the_gathered_rows() -> None:
+    record = {
+        "kind": "run",
+        "run_id": "r1",
+        "started": f"{TODAY.isoformat()}T09:00:00+00:00",
+        "utterance": "painting the walls waits on the primer",
+        "reply": '"Paint the walls" is now blocked by the primer task.',
+        "tools": [{"name": "add_dependency", "args": dict(_LINKED.args), "result": _LINKED.result}],
+        "gather": {"source": "hybrid", "rows": _GATHERED},
+    }
+    assert score_trace([record]).misses == []

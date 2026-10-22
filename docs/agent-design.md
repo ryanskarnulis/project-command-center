@@ -213,6 +213,62 @@ worst case (the provider timeout tolerates it). Containers reach it via
   guessed. The trace records the block and `lookup_turns` (read-only turns
   before the first write), the before/after measure. Chess does the same
   with `planner_state`.
+- **Gather** (#415) `app/ai/gather.py`: before the first model call the loop
+  searches the user's own words. It puts the top matches (at most 5) between
+  the state block and the ask, labelled "may match; nothing was done to them".
+  They are candidates, never a tool result, and like the block they are never
+  saved. Two kinds of item are searched:
+  - **Tasks**, as the #414 task row with its id named `task_id`. A task that
+    waits on others adds `waits_on` (each edge's `dependency_id`, task id and
+    title).
+  - **Live Focus commitments**, by `entry_id` (with time, and how they repeat).
+
+  Projects are not searched, because the open ones are already in the block.
+  Ranking is hybrid:
+  - **Keywords:** query words held (tasks via the porter-stemmed `tasks_fts`,
+    with BM25 breaking ties; commitment titles by word or shared prefix).
+  - **Meaning:** EmbeddingGemma 2 cosines from the shared embeddings service
+    (`../embeddings`, `EMBEDDINGS_BASE_URL`, `app/ai/embeddings.py`, with
+    EmbeddingGemma's query and document prefixes).
+  - **The bar:** an item counts when its cosine clears the corpus median by
+    0.15, or by 0.05 with a keyword hit (calibrated on the dev corpus: real
+    hits +0.2–0.3, chit-chat under +0.11). RRF (k 60) only orders what passed.
+
+  The query embeds with a 0.3 s timeout. Unset, down, slow, a model change or
+  fewer than 5 vectors all mean keywords alone (`source: keyword`): the
+  service costs recall, never the run. Vectors live in this process, persisted
+  as JSON at `EMBEDDINGS_CACHE_PATH` and keyed on the hash of each item's text
+  under the model plus `EMBEDDINGS_BUILD`. An edited or new item is missing
+  until a background thread embeds it (never on a write path), which also
+  catches the MCP process's writes. The cosines are pure Python, with no numpy
+  and no sqlite-vec: 15–26 ms per gather over the 155-task dev corpus.
+
+  The `search` tool and UI `/search` keep their tiered ranking. Only the
+  gather is hybrid, so its A/B measured one change. The trace records
+  `gather` (source, ms, each match's lift and keyword score, and the rows).
+  Chess does the same with `gather.py` and `Index.hybrid`.
+
+  **Measured** (2026-10-22, gemma-4-12b, seed 415, one gate pass each):
+  - main: 237/245 samples passed, 3.36 iterations, 2.27 tool calls, 1.88 s
+    per sample.
+  - this change: 239/240 passed, 2.67 iterations, 1.60 tool calls, 1.45 s,
+    all 48 scenarios above their floor. The lookup turn is gone from
+    `find_and_complete`, `reschedule`, `dependency_paraphrase`, the misfire
+    and long-thread scenarios.
+
+  What the early cuts got wrong, and the fix for each:
+  - With bare `id`s, `dependency_remove` removed the wrong edge (a task id
+    taken as a dependency id, 1/5). Fixed by `task_id` and `waits_on`.
+  - With tasks only, `focus_skip_series` skipped the look-alike recurring task
+    instead of the standup commitment (0/10). Fixed by gathering commitments.
+  - A label that said "only tasks are searched" made `dependency_add` claim
+    writes it never made (6/10). That label was dropped.
+
+  The harness counts gathered rows as evidence: titles the model was shown
+  back its reply's claims (#407), and `find_and_complete` accepts the task
+  among the matches in place of a read. The frontier A/B was flat:
+  `misheard_push` 10/10 on both arms (already fixed by #412–#414),
+  `ambiguous_then_pick` 0/10 on both (#420's).
 - **Persistence** (`conversations`, `conversation_messages`): assistant turns
   carry the tool trajectory + stop_reason; the user turn commits before the
   loop runs. `POST /api/agent/conversations/{id}/messages` is the one
@@ -450,8 +506,8 @@ why in the PR.
 
 Standing observations: self-correction pays for itself (the recurring gemma
 `name`/`title` miss always fixes on feedback); FTS5 retrieval (word-matched
-and porter-stemmed since #444; before that `search` was one `LIKE` substring) is sufficient —
-this table is the tripwire for ever adding embeddings; `honest_about_missing`
+and porter-stemmed since #444; before that `search` was one `LIKE` substring) is sufficient
+for the `search` tool; embeddings arrived with the pre-run gather (#415), not the tool; `honest_about_missing`
 no longer sweeps exhaustively before conceding (pre-llama-swap: up to 10
 turns, per-project lists, the trash) — under llama-swap it's `search` then at
 most three `list_tasks`/`list_trash` (32 runs, 2026-10-18). The scenario now
@@ -592,5 +648,6 @@ PCC_UPDATE_FIXTURES=1 .venv/bin/pytest tests/test_request_bytes.py tests/test_to
 
 ## Deferred
 
-Embeddings/`sqlite-vec` (only if retrieval regresses) · SSE streaming (only
-if the synchronous wait feels bad).
+`sqlite-vec` (only if the pure-Python cosines get slow; the gather's `ms` in
+the trace is the tripwire) · SSE streaming (only if the synchronous wait feels
+bad).

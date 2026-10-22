@@ -105,9 +105,9 @@ from time import perf_counter
 from typing import Any, Literal, Protocol
 
 import structlog
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
-from app.ai import context_budget, model_profile, run_record, state_block
+from app.ai import context_budget, gather, model_profile, run_record, state_block
 from app.ai import trace as run_trace
 from app.ai.context_capture import model_phase
 from app.ai.providers.llamacpp import (
@@ -186,6 +186,9 @@ Rules:
 today's date and calendar, the open projects with their ids, and today's task counts. Its \
 project ids are current; find any other id with the list_*/get_*/search tools; never guess \
 an id. Take dates (today, tomorrow, a weekday, the end of the month) from its calendar.
+- Possible matches may follow the state block: tasks and Focus commitments a search of the \
+user's words found before the run, with real ids. Act on one that is clearly the task meant without looking it \
+up again; they are only candidates, and nothing has been done to them.
 - Prefer the specific tool: complete_task to finish a task, update_task to edit its fields.
 - Every delete is a soft delete into a restorable trash; there is no permanent delete.
 - If a tool call is rejected, read the error and correct your next call. Never repeat a \
@@ -354,6 +357,10 @@ class AgentRunResult(BaseModel):
     iterations: int
     messages: list[dict[str, Any]]
     run_id: str = ""
+    # The possible matches the run was shown before its first model call
+    # (#415), as the task rows the model read: what the run knew without a
+    # tool call. Not persisted with the conversation.
+    gathered: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AgentRunFailed(Exception):
@@ -387,6 +394,7 @@ class AgentLoop:
         max_tokens: int | None = None,
         max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
         tracer: run_trace.Tracer | None = None,
+        searcher: gather.Searcher | None = None,
     ) -> None:
         """``tracer`` receives one record per run (#400); ``None`` (the
         default) uses the configured one — ``PCC_TRACE_PATH``, or no tracing.
@@ -394,7 +402,10 @@ class AgentLoop:
         The per-call caps are the provider's model profile's (#402) when it
         carries one, else :data:`DEFAULT_MAX_TOKENS` and
         :data:`SUMMARY_MAX_TOKENS`. ``max_tokens`` overrides the turn cap; the
-        summary's is never above it."""
+        summary's is never above it.
+
+        ``searcher`` finds the possible matches shown before the first model
+        call (#415); ``None`` uses the process's shared one."""
         profile = getattr(provider, "profile", None)
         self._profile = profile if isinstance(profile, model_profile.ModelProfile) else None
         if max_tokens is None:
@@ -417,6 +428,7 @@ class AgentLoop:
         self._summary_max_tokens = min(max_tokens, summary_cap)
         self._max_tool_calls = max_tool_calls
         self._tracer = tracer if tracer is not None else run_trace.tracer_from_settings()
+        self._searcher = searcher if searcher is not None else gather.default_searcher()
 
     def run(
         self,
@@ -493,6 +505,7 @@ class AgentLoop:
                 result = self._run(user_message, history, actor, deadline, cancel, trace)
             except AgentRunFailed as exc:
                 exc.result.run_id = run_id
+                exc.result.gathered = trace.gathered
                 self._write_trace(trace, exc.result, started, error=str(exc))
                 raise
             except Exception as exc:
@@ -514,6 +527,7 @@ class AgentLoop:
                 )
                 raise failed from exc
             result.run_id = run_id
+            result.gathered = trace.gathered
             self._write_trace(trace, result, started)
             return result
 
@@ -604,7 +618,12 @@ class AgentLoop:
         # after this are in its tool results, not here.
         block = state_block.build(date.today())
         trace.state_block = block
-        user_turn = state_block.with_state(block, user_message)
+        # The user's own words, searched before the model sees them (#415):
+        # candidates beside the state block, never a tool result.
+        gathered = self._searcher.gather(user_message)
+        trace.gathered = gather.rows(gathered)
+        trace.gather = {**gathered.as_trace(), "rows": trace.gathered}
+        user_turn = state_block.with_state(block, user_message, gather.section(trace.gathered))
         read_only = registry.read_only_tool_names()
         trace.system_prompt_sha256 = SYSTEM_PROMPT_SHA256
         trace.summary_prompt_sha256 = SUMMARY_PROMPT_SHA256
