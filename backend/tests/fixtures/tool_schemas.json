@@ -67,32 +67,6 @@
               "default": null,
               "title": "Due Date"
             },
-            "due_before": {
-              "anyOf": [
-                {
-                  "format": "date",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "title": "Due Before"
-            },
-            "due_after": {
-              "anyOf": [
-                {
-                  "format": "date",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "title": "Due After"
-            },
             "limit": {
               "default": 50,
               "maximum": 200,
@@ -1476,32 +1450,6 @@
             ],
             "default": null,
             "title": "Due Date"
-          },
-          "due_before": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Due Before"
-          },
-          "due_after": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Due After"
           },
           "limit": {
             "default": 50,

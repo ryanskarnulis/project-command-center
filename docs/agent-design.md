@@ -14,7 +14,7 @@ Tools map 1:1 onto service functions — (validate args) → (open session) →
 (call service) → (serialize). Read tools reuse the REST response models.
 
 - **Tasks:** `list_tasks` (filtered — status, project, top-level, and
-  `due_date`/`due_before`/`due_after` since #466 — paginated, cap 200), `get_task` (+rollup
+  `due_date` since #466 — paginated, cap 200), `get_task` (+rollup
   and blocked flag), `create_task`, `update_task` (recurrence `edit_scope`
   supported), `complete_task` (triggers recurrence spawning), `reopen_task`,
   `trash_task` (the only delete — cascades, restorable).
@@ -50,7 +50,10 @@ refuses an argument it does not have: FastMCP's argument models ignore extras,
 and once `due_date` was a top-level `update_task` argument the model sometimes
 sent `list_tasks(due_date=…)`, which came back unfiltered, done tasks included.
 That guess is now a real filter (#466): the model reached for it, so
-`list_tasks` takes it rather than paying a correction round trip.
+`list_tasks` takes it rather than paying a correction round trip. Only that
+one: `due_before`/`due_after` beside it, or a docstring line explaining them,
+turned "make the report due next Friday" into `create_task` (A/B, seed 466:
+`date_next_friday` 20/20 → 0/20; `date_this_weekend` 40/40 → 34/40).
 
 **Refusals say how to recover (#413).** Every failure the loop feeds back is
 one JSON shape, `{"ok": false, "error", "retry", …}`, built in

@@ -3,6 +3,11 @@
 The model's first call for "move everything due today" is
 ``list_tasks(due_date=<today>)``; before this it was refused as an unknown
 argument and the run paid a correction round trip.
+
+Only ``due_date``: with ``due_before``/``due_after`` (or a docstring line
+explaining them) beside it, the model read "make the report due next Friday"
+as ``create_task`` (A/B, seed 466: ``date_next_friday`` 20/20 -> 0/20 with the
+docstring, ``date_this_weekend`` 40/40 -> 34/40 without it).
 """
 
 from __future__ import annotations
@@ -54,16 +59,6 @@ def _dated(_tool_db: sessionmaker[Session]) -> None:
 def test_due_date_matches_that_day() -> None:
     assert _titles({"due_date": "2026-10-21", "exclude_done": True}) == ["Today", "Today too"]
     assert _titles({"due_date": "2026-10-21"}) == ["Today", "Today too", "Today, done"]
-
-
-@pytest.mark.usefixtures("_dated")
-def test_due_before_and_after_are_exclusive() -> None:
-    assert _titles({"due_before": "2026-10-21"}) == ["Monday"]
-    assert _titles({"due_after": "2026-10-21"}) == ["Friday"]
-    assert _titles({"due_after": "2026-10-19", "due_before": "2026-10-23", "exclude_done": True}) == [
-        "Today",
-        "Today too",
-    ]
 
 
 @pytest.mark.usefixtures("_dated")
