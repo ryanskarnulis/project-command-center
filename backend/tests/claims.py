@@ -59,6 +59,9 @@ class ToolCall:
     args: Mapping[str, Any]
     result: str | None = None
     error: str | None = None
+    # What a refusal named beside its error (#413): ids and titles the model
+    # was shown, so a reply repeating them is backed. Never a write.
+    refusal: Mapping[str, Any] | None = None
 
     @property
     def ok(self) -> bool:
@@ -145,6 +148,12 @@ class Evidence:
         closed_seen = False
         for call in calls:
             if not call.ok:
+                for node in _walk(dict(call.refusal or {})):
+                    if isinstance(node, Mapping):
+                        name = node.get("title")
+                        if isinstance(name, str):
+                            titles.add(_norm(name))
+                            texts.add(_norm(name))
                 continue
             if call.name in READ_TOOLS:
                 read_tools.add(call.name)
@@ -859,6 +868,7 @@ def calls_from_trace(record: Mapping[str, Any]) -> list[ToolCall]:
             args=tool.get("args") or {},
             result=tool.get("result"),
             error=tool.get("error"),
+            refusal=tool.get("refusal"),
         )
         for tool in record.get("tools") or []
     ]

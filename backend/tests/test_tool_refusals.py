@@ -139,5 +139,9 @@ def test_every_failure_reaches_the_model_in_one_shape(
     assert answers[0]["next"].startswith("Find the task's id")
     # The record keeps the bare reason; the run record reads it unchanged.
     assert result.tool_calls[0].error == "Task 999 not found"
+    assert result.tool_calls[0].refusal == {
+        "retry": "different_args",
+        "next": answers[0]["next"],
+    }
     assert result.tool_calls[1].error is not None
     assert result.tool_calls[1].error.startswith("Invalid arguments: ")

@@ -337,6 +337,9 @@ class ToolCallRecord(BaseModel):
     arguments: dict[str, Any]
     result: str | None = None
     error: str | None = None
+    # A refused call's ``retry`` and the way forward it named (#413) — the ids
+    # and titles the model was shown beside ``error``.
+    refusal: dict[str, Any] | None = None
 
 
 class AgentRunResult(BaseModel):
@@ -1023,6 +1026,7 @@ class AgentLoop:
             error=record.error,
             schema_error=schema_error,
         )
+        record.refusal = {"retry": retry, **details}
         return record, _refusal_text(record.error, retry, details), schema_error
 
     @staticmethod

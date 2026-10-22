@@ -59,6 +59,7 @@ class ToolCallRead(BaseModel):
     arguments: dict[str, Any]
     result: str | None = None
     error: str | None = None
+    refusal: dict[str, Any] | None = None
 
 
 class MessageRead(BaseModel):
