@@ -269,10 +269,15 @@ def list_tasks(
     workflow_status: TaskWorkflowStatus | None = None,
     exclude_done: bool = False,
     top_level_only: bool = False,
+    due_date: date_type | None = None,
+    due_before: date_type | None = None,
+    due_after: date_type | None = None,
     limit: _ListLimit = 50,
     offset: PaginationOffset = 0,
 ) -> list[TaskRead]:
-    """List active tasks, oldest first. Omit project_id to search all projects."""
+    """List active tasks, oldest first. Omit project_id to search all projects.
+
+    due_date matches tasks due that day; due_before/due_after are exclusive."""
     with tool_session("list_tasks", write=False) as db:
         if project_id is not None:
             _ensure_project_exists(db, project_id)
@@ -282,6 +287,9 @@ def list_tasks(
             workflow_status=workflow_status,
             exclude_done=exclude_done,
             top_level_only=top_level_only,
+            due_date=due_date,
+            due_before=due_before,
+            due_after=due_after,
             limit=limit,
             offset=offset,
         )

@@ -4,7 +4,7 @@
       "type": "function",
       "function": {
         "name": "list_tasks",
-        "description": "List active tasks, oldest first. Omit project_id to search all projects.",
+        "description": "List active tasks, oldest first. Omit project_id to search all projects.\n\ndue_date matches tasks due that day; due_before/due_after are exclusive.",
         "parameters": {
           "$defs": {
             "TaskWorkflowStatus": {
@@ -53,6 +53,45 @@
               "default": false,
               "title": "Top Level Only",
               "type": "boolean"
+            },
+            "due_date": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Due Date"
+            },
+            "due_before": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Due Before"
+            },
+            "due_after": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Due After"
             },
             "limit": {
               "default": 50,
@@ -1375,7 +1414,7 @@
   "mcp": [
     {
       "name": "list_tasks",
-      "description": "List active tasks, oldest first. Omit project_id to search all projects.",
+      "description": "List active tasks, oldest first. Omit project_id to search all projects.\n\ndue_date matches tasks due that day; due_before/due_after are exclusive.",
       "inputSchema": {
         "$defs": {
           "TaskWorkflowStatus": {
@@ -1424,6 +1463,45 @@
             "default": false,
             "title": "Top Level Only",
             "type": "boolean"
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Due Date"
+          },
+          "due_before": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Due Before"
+          },
+          "due_after": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Due After"
           },
           "limit": {
             "default": 50,
