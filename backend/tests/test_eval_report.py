@@ -167,6 +167,19 @@ def test_unparseable_turns_are_the_user_messages_after_the_runs_prompt() -> None
     assert unparseable_turns(messages, "something else") == 0
 
 
+def test_unparseable_turns_find_the_prompt_behind_a_state_block() -> None:
+    """Since #412 the run's turn is the state block, a blank line, the ask."""
+    prompt = "Add a task"
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": "rules"},
+        {"role": "user", "content": f"[State …]\nToday: …\n[End of state]\n\n{prompt}"},
+        {"role": "assistant", "content": None, "tool_calls": []},
+        {"role": "user", "content": "Your tool call failed before execution: bad JSON."},
+        {"role": "assistant", "content": "Added."},
+    ]
+    assert unparseable_turns(messages, prompt) == 1
+
+
 def test_schema_stats_rate_per_sample_and_per_call() -> None:
     assert schema_stats([(2, 6), (0, 3), (1, 4), (0, 0)]) == {
         "schema_errors": 3,

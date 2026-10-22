@@ -148,12 +148,16 @@ def unparseable_turns(messages: Sequence[Mapping[str, Any]], prompt: str) -> int
     The loop answers such a turn with a user-role correction (there is no call
     record to carry it), so they are the user messages after the run's own
     prompt. The prompt's *last* occurrence is the run's: an earlier one can
-    only be history, and no correction repeats the prompt.
+    only be history, and no correction repeats the prompt. Since #412 the
+    run's turn is the state block, a blank line, then the prompt, so a turn
+    ending that way counts too (and a bare prompt still does, for older trees).
     """
     starts = [
         index
         for index, message in enumerate(messages)
-        if message.get("role") == "user" and message.get("content") == prompt
+        if message.get("role") == "user"
+        and isinstance(content := message.get("content"), str)
+        and (content == prompt or content.endswith(f"\n\n{prompt}"))
     ]
     if not starts:
         return 0

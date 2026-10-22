@@ -101,7 +101,7 @@ from typing import Any, Literal, Protocol
 import structlog
 from pydantic import BaseModel, ValidationError
 
-from app.ai import context_budget, model_profile, run_record
+from app.ai import context_budget, model_profile, run_record, state_block
 from app.ai import trace as run_trace
 from app.ai.context_capture import model_phase
 from app.ai.providers.llamacpp import (
@@ -159,7 +159,11 @@ def resolve_actor(header_value: str | None) -> str:
 #   1. app base prompt — PCC's behavioral contract and tool guidance (below);
 #   2. global Glitch — the vendored house personality (verbatim canonical
 #      text, see personality-global.md); PCC adds no app flavor on top;
-#   3. dynamic layers — today's date, injected per run.
+#   3. no dynamic layer: the system prompt is byte-identical across runs and
+#      days, so the server's prompt cache keeps it with the tool schemas. What
+#      changes per run — today, the calendar, the projects and today's counts
+#      — is the state block at the head of the current user message (#412,
+#      ``app/ai/state_block.py``), never saved into history.
 # The vendored Glitch body is never edited here: fix drift by re-copying from
 # agent-standard/ (../agent-standard/check-sync.sh).
 
@@ -171,7 +175,10 @@ You are the assistant for Project Command Center (PCC), the user's project and \
 task manager. You act only by calling the provided tools.
 
 Rules:
-- Look things up before writing: find ids with the list_*/get_*/search tools; never guess an id.
+- The user's message opens with a state block the app wrote at the start of this run: \
+today's date and calendar, the open projects with their ids, and today's task counts. Its \
+project ids are current; find any other id with the list_*/get_*/search tools; never guess \
+an id. Take dates (today, tomorrow, a weekday, the end of the month) from its calendar.
 - Prefer the specific tool: complete_task to finish a task, update_task to edit its fields.
 - Every delete is a soft delete into a restorable trash; there is no permanent delete.
 - If a tool call is rejected, read the error and correct your next call.
@@ -198,19 +205,11 @@ def _load_global_personality() -> str:
 _GLOBAL_PERSONALITY = _load_global_personality()
 
 
-def build_system_prompt(today: date) -> str:
-    """Compose the layered system prompt: app base → global Glitch → date.
-
-    PCC ships no app-flavor layer (nothing has earned it); the date is the only
-    dynamic layer.
-    """
-    return f"{_STATIC_SYSTEM_PROMPT}\n\nToday's date is {today.isoformat()}."
-
-
-# Layers 1 and 2 — everything but the date. The run trace hashes this (#400),
-# so a prompt's hash changes with its wording and never with the calendar.
-_STATIC_SYSTEM_PROMPT = f"{_APP_BASE_PROMPT}\n\n{_GLOBAL_PERSONALITY}"
-SYSTEM_PROMPT_SHA256 = run_trace.sha256(_STATIC_SYSTEM_PROMPT)
+# The layered system prompt: app base → global Glitch. PCC ships no app-flavor
+# layer (nothing has earned it) and no dynamic one (#412). The run trace hashes
+# it (#400), so its hash changes with its wording and never with the calendar.
+SYSTEM_PROMPT = f"{_APP_BASE_PROMPT}\n\n{_GLOBAL_PERSONALITY}"
+SYSTEM_PROMPT_SHA256 = run_trace.sha256(SYSTEM_PROMPT)
 # The limit summary's prompt (#399), hashed the same way.
 SUMMARY_PROMPT_SHA256 = run_trace.sha256(
     f"{run_record.SUMMARY_RULES}\n\n{_GLOBAL_PERSONALITY}"
@@ -589,7 +588,13 @@ class AgentLoop:
         trace: run_trace.RunTrace,
     ) -> AgentRunResult:
         specs = registry.tool_specs()
-        system_prompt = build_system_prompt(date.today())
+        system_prompt = SYSTEM_PROMPT
+        # Built once, as of the run's start (#412): the agent's own writes
+        # after this are in its tool results, not here.
+        block = state_block.build(date.today())
+        trace.state_block = block
+        user_turn = state_block.with_state(block, user_message)
+        read_only = registry.read_only_tool_names()
         trace.system_prompt_sha256 = SYSTEM_PROMPT_SHA256
         trace.summary_prompt_sha256 = SUMMARY_PROMPT_SHA256
         trace.tool_schemas_sha256 = run_trace.tool_schemas_sha256(specs)
@@ -610,7 +615,7 @@ class AgentLoop:
                         context_budget.estimate_tokens(spec.model_dump_json())
                         for spec in specs
                     )
-                    + context_budget.estimate_tokens(user_message)
+                    + context_budget.estimate_tokens(user_turn)
                 )
             ),
         )
@@ -619,7 +624,7 @@ class AgentLoop:
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
             *windowed,
-            {"role": "user", "content": user_message},
+            {"role": "user", "content": user_turn},
         ]
         records: list[ToolCallRecord] = []
         ctx = _RunContext(
@@ -727,6 +732,13 @@ class AgentLoop:
                 # them is dropped from history.
                 result = result.model_copy(update={"content": None})
             messages.append(result.to_message())
+            if not trace.wrote:
+                # Lookup round trips (#412): turns of only reads before the
+                # first turn that asks for anything else.
+                if all(call.name in read_only for call in result.tool_calls):
+                    trace.lookup_turns += 1
+                else:
+                    trace.wrote = True
             schema_error_this_turn = False
             progressed = False
             over_cap = False

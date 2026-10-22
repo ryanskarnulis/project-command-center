@@ -40,7 +40,11 @@ if TYPE_CHECKING:
 
 # The record layout's version. A reader keys off it rather than off which
 # fields happen to be present; bump it on any change a reader must branch on.
-TRACE_SCHEMA = 1
+TRACE_SCHEMA = 2
+# Schema 2 (#412) adds ``state_block`` (the text the run's user turn opened
+# with) and ``lookup_turns`` (model turns of only reads before the first turn
+# asking for anything else). Schema 1 records have neither; a reader rebuilds
+# ``lookup_turns`` from ``calls`` and ``tools``.
 # What a record in the trace file is: one agent run. On every record so a
 # later kind (#401's context captures, a serving manifest) is never mistaken
 # for one.
@@ -158,6 +162,10 @@ class RunTrace:
     calls: list[ModelCall] = field(default_factory=list)
     summarised: bool = False
     corrections: int = 0
+    state_block: str | None = None
+    lookup_turns: int = 0
+    # Set at the first turn that asked for more than reads; ends the count.
+    wrote: bool = False
     started: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def record(
@@ -194,6 +202,8 @@ class RunTrace:
             "conversation_id": self.conversation_id,
             "actor": self.actor,
             "utterance": self.utterance,
+            "state_block": self.state_block,
+            "lookup_turns": self.lookup_turns,
             "history": {
                 "given": self.history_given,
                 "kept": len(self.history_kept),

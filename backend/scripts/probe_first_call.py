@@ -15,9 +15,9 @@ profile (#402) — so the system prompt, the tool schemas, the history window
 and the request bytes cannot drift from production. An arm changes exactly the
 knobs it names:
 
-    prompt=FILE        replaces the static system prompt with FILE's text
-                       (the date line is still appended; ``{today}`` in the
-                       file is replaced instead, if you want it elsewhere)
+    prompt=FILE        replaces the system prompt with FILE's text (``{today}``
+                       in the file becomes today's date; the state block in
+                       the user turn is the loop's, unchanged)
     tools=FILE         JSON ``{"tool": "description", "tool.param": "text"}``
                        overriding a tool's, or one parameter's, description
     temperature=T      sampling temperature (the profile's otherwise)
@@ -200,13 +200,11 @@ def apply_tool_overrides(specs: Sequence[ToolSpec], overrides: dict[str, str]) -
 def override_system_prompt(
     messages: Sequence[dict[str, Any]], text: str, today: date
 ) -> list[dict[str, Any]]:
-    """``messages`` with the system message's content replaced by ``text``."""
-    body = text.strip()
-    content = (
-        body.replace("{today}", today.isoformat())
-        if "{today}" in body
-        else f"{body}\n\nToday's date is {today.isoformat()}."
-    )
+    """``messages`` with the system message's content replaced by ``text``.
+
+    The system prompt carries no date since #412 (the state block does), so
+    none is appended; ``{today}`` in ``text`` is still filled in."""
+    content = text.strip().replace("{today}", today.isoformat())
     out = [dict(message) for message in messages]
     if not out or out[0].get("role") != "system":
         raise ValueError("the loop's first message is no longer the system prompt")

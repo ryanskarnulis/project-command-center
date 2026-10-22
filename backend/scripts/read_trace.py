@@ -27,7 +27,11 @@ from pathlib import Path
 from typing import Any
 
 # The record layouts this reader understands (``TRACE_SCHEMA`` in trace.py).
-KNOWN_SCHEMAS = {1}
+KNOWN_SCHEMAS = {1, 2}
+# The registry's read-only tools (``registry.read_only_tool_names()``), by the
+# naming they all follow — this reader imports nothing from the app.
+_READ_PREFIXES = ("list_", "get_")
+_READ_NAMES = {"search"}
 KIND_RUN = "run"
 _CLIP = 100
 
@@ -63,6 +67,30 @@ def clip(text: object, limit: int = _CLIP) -> str:
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
+def is_read(tool: str) -> bool:
+    return tool.startswith(_READ_PREFIXES) or tool in _READ_NAMES
+
+
+def lookup_turns(record: dict[str, Any]) -> int:
+    """Model turns of only reads before the first turn that asked for anything
+    else (#412). Rebuilt from ``calls`` and ``tools`` for every schema — each
+    turn's ``tool_calls`` count takes that many records off the flat tool list
+    — so a schema-1 baseline and a schema-2 run are counted the same way."""
+    tools = [str(tool.get("name")) for tool in record.get("tools") or []]
+    turns = 0
+    at = 0
+    for call in record.get("calls") or []:
+        count = int(call.get("tool_calls") or 0)
+        if call.get("phase") != "turn" or count == 0:
+            continue
+        names = tools[at : at + count]
+        at += count
+        if not names or not all(is_read(name) for name in names):
+            break
+        turns += 1
+    return turns
+
+
 def summary_line(record: dict[str, Any]) -> str:
     stop = str(record.get("stop_reason"))
     if record.get("summarised"):
@@ -73,6 +101,7 @@ def summary_line(record: dict[str, Any]) -> str:
         f"conv={conversation if conversation is not None else '-':<4} "
         f"{stop:<24} calls={record.get('model_calls', 0):<2} "
         f"tools={len(record.get('tools') or []):<2} "
+        f"lookups={lookup_turns(record)} "
         f"tok={record.get('prompt_tokens', 0)}/{record.get('completion_tokens', 0)} "
         f"{record.get('total_ms', 0)}ms  {clip(record.get('utterance', ''), 60)!r}"
     )
@@ -87,9 +116,15 @@ def totals(records: Sequence[dict[str, Any]]) -> str:
     calls = sum(int(record.get("model_calls", 0)) for record in records)
     prompt = sum(int(record.get("prompt_tokens", 0)) for record in records)
     completion = sum(int(record.get("completion_tokens", 0)) for record in records)
+    tooled = [record for record in records if record.get("tools")]
+    lookups = sum(lookup_turns(record) for record in tooled)
+    opened = sum(1 for record in tooled if lookup_turns(record) > 0)
+    mean = f"{lookups / len(tooled):.2f}" if tooled else "-"
     return (
         f"{len(records)} runs ({by_stop}); {calls} model calls, "
-        f"{prompt} prompt / {completion} completion tokens"
+        f"{prompt} prompt / {completion} completion tokens; "
+        f"lookup turns {mean}/run over {len(tooled)} runs with tools "
+        f"({opened} opened with a lookup)"
     )
 
 
@@ -108,6 +143,7 @@ def detail(record: dict[str, Any]) -> str:
         f"{record.get('actor')}  {record.get('ts')}",
         f"  ask:     {clip(record.get('utterance', ''), 300)!r}",
         f"  history: kept {history.get('kept', 0)}, dropped {history.get('dropped', 0)}",
+        f"  lookups: {lookup_turns(record)} turn(s) of only reads before the first write",
         f"  stop:    {stop}",
     ]
     if record.get("error"):
@@ -120,6 +156,9 @@ def detail(record: dict[str, Any]) -> str:
         f"tools={str(serving.get('tool_schemas_sha256'))[:12]} "
         f"({serving.get('tools_offered')} offered)"
     )
+    if record.get("state_block"):
+        lines.append("  state block:")
+        lines.extend(f"    {line}" for line in str(record["state_block"]).splitlines())
     lines.append("  model calls:")
     for call in record.get("calls") or []:
         cached = call.get("cached_tokens")

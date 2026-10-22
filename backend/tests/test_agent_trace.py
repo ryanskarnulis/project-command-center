@@ -59,6 +59,8 @@ RECORD_KEYS = {
     "conversation_id",
     "actor",
     "utterance",
+    "state_block",
+    "lookup_turns",
     "history",
     "stop_reason",
     "limit",
@@ -153,11 +155,14 @@ def test_a_traced_run_writes_one_well_formed_record(
 
     record = _only_record(trace_path)
     assert result.run_id and record["run_id"] == result.run_id
-    assert record["schema"] == run_trace.TRACE_SCHEMA == 1
+    assert record["schema"] == run_trace.TRACE_SCHEMA == 2
     assert record["kind"] == "run"
     assert record["conversation_id"] == 7
     assert record["actor"] == "agent:loop"
+    # The raw ask, never the state block the model saw in front of it (#412).
     assert record["utterance"] == "Make Alpha."
+    assert record["state_block"].startswith("[State at the start of this run")
+    assert record["lookup_turns"] == 0
     assert record["history"] == {"given": 2, "kept": 2, "dropped": 0, "messages": history}
     assert record["stop_reason"] == "completed"
     assert record["limit"] is None
@@ -539,3 +544,54 @@ def _records_ok(path: Path) -> list[dict[str, Any]]:
         except json.JSONDecodeError:
             continue
     return records
+
+
+# --- Lookup round trips (#412) ------------------------------------------------
+
+
+def _lookup_then_create() -> list[ChatResult]:
+    return [
+        _calls(("list_projects", {})),
+        _calls(("search", {"query": "garage"}), ("list_projects", {})),
+        _calls(("create_task", {"title": "Alpha"})),
+        _calls(("list_tasks", {})),
+        _text("Made Alpha."),
+    ]
+
+
+def test_lookup_turns_count_the_read_only_turns_before_the_first_write(
+    tool_db: sessionmaker[Session], trace_path: Path
+) -> None:
+    """Two turns of reads, then a create: 2. The read after the write is not a
+    lookup round trip — the count stops at the first write."""
+    _loop(ScriptedProvider(_lookup_then_create()), trace_path).run("Add Alpha.")
+
+    record = _only_record(trace_path)
+    assert record["lookup_turns"] == 2
+    assert _reader().lookup_turns(record) == 2
+
+
+def test_the_reader_rebuilds_lookup_turns_for_a_schema_1_record(
+    tool_db: sessionmaker[Session], trace_path: Path
+) -> None:
+    _loop(ScriptedProvider(_lookup_then_create()), trace_path).run("Add Alpha.")
+    record = _only_record(trace_path)
+    old = {k: v for k, v in record.items() if k not in {"state_block", "lookup_turns"}}
+    old["schema"] = 1
+    assert _reader().lookup_turns(old) == 2
+
+
+def test_the_readers_read_names_are_the_registrys_read_only_tools() -> None:
+    reader = _reader()
+    names = {tool.name for tool in registry.all_tools()}
+    assert {name for name in names if reader.is_read(name)} == registry.read_only_tool_names()
+
+
+def _reader() -> Any:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("read_trace", READER)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
