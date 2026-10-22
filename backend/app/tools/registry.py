@@ -275,9 +275,7 @@ def list_tasks(
     limit: _ListLimit = 50,
     offset: PaginationOffset = 0,
 ) -> list[TaskRead]:
-    """List active tasks, oldest first. Omit project_id to search all projects.
-
-    due_date matches tasks due that day; due_before/due_after are exclusive."""
+    """List active tasks, oldest first. Omit project_id to search all projects."""
     with tool_session("list_tasks", write=False) as db:
         if project_id is not None:
             _ensure_project_exists(db, project_id)

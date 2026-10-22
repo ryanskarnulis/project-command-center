@@ -4,7 +4,7 @@
       "type": "function",
       "function": {
         "name": "list_tasks",
-        "description": "List active tasks, oldest first. Omit project_id to search all projects.\n\ndue_date matches tasks due that day; due_before/due_after are exclusive.",
+        "description": "List active tasks, oldest first. Omit project_id to search all projects.",
         "parameters": {
           "$defs": {
             "TaskWorkflowStatus": {
@@ -1414,7 +1414,7 @@
   "mcp": [
     {
       "name": "list_tasks",
-      "description": "List active tasks, oldest first. Omit project_id to search all projects.\n\ndue_date matches tasks due that day; due_before/due_after are exclusive.",
+      "description": "List active tasks, oldest first. Omit project_id to search all projects.",
       "inputSchema": {
         "$defs": {
           "TaskWorkflowStatus": {

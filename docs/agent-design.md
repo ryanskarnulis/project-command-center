@@ -13,7 +13,8 @@ destructive endpoints (purge, empty-trash) simply never exposed as tools.**
 Tools map 1:1 onto service functions — (validate args) → (open session) →
 (call service) → (serialize). Read tools reuse the REST response models.
 
-- **Tasks:** `list_tasks` (filtered, paginated, cap 200), `get_task` (+rollup
+- **Tasks:** `list_tasks` (filtered — status, project, top-level, and
+  `due_date`/`due_before`/`due_after` since #466 — paginated, cap 200), `get_task` (+rollup
   and blocked flag), `create_task`, `update_task` (recurrence `edit_scope`
   supported), `complete_task` (triggers recurrence spawning), `reopen_task`,
   `trash_task` (the only delete — cascades, restorable).
@@ -48,6 +49,8 @@ commitments; REST still requires `every`. Every tool, not only these four,
 refuses an argument it does not have: FastMCP's argument models ignore extras,
 and once `due_date` was a top-level `update_task` argument the model sometimes
 sent `list_tasks(due_date=…)`, which came back unfiltered, done tasks included.
+That guess is now a real filter (#466): the model reached for it, so
+`list_tasks` takes it rather than paying a correction round trip.
 
 **Refusals say how to recover (#413).** Every failure the loop feeds back is
 one JSON shape, `{"ok": false, "error", "retry", …}`, built in
