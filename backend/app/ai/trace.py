@@ -187,6 +187,7 @@ class RunTrace:
                     "args": record.arguments,
                     "result": record.result,
                     "error": record.error,
+                    "refusal": record.refusal,
                 }
                 for record in result.tool_calls
             ]

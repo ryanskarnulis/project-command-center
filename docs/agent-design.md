@@ -49,6 +49,25 @@ refuses an argument it does not have: FastMCP's argument models ignore extras,
 and once `due_date` was a top-level `update_task` argument the model sometimes
 sent `list_tasks(due_date=…)`, which came back unfiltered, done tasks included.
 
+**Refusals say how to recover (#413).** Every failure the loop feeds back is
+one JSON shape, `{"ok": false, "error", "retry", …}`, built in
+`AgentLoop._dispatch` from a `ToolRefusal` (`app/tools/refusals.py`). `retry`
+is decided by code: `different_args` when another call to the same tool can
+succeed (schema-invalid arguments, an id that names nothing, a create/edit
+whose values clash: another parent, another date), `never` when repeating
+cannot help until the state changes (a parent's derived status, a blocked
+task, an unknown tool, a call that never ran, a crash). Where a better call
+exists, the refusal names it: `open_subtasks` for completing a parent,
+`subtasks` for reopening one, `blockers` for a blocked task,
+`conflicting_occurrence` for a series date already held, and a `next`
+sentence (e.g. "find the task's id with search or list_tasks"). The
+`ToolCallRecord` keeps the bare reason in `error` (the run record reads it
+unchanged) and the rest in `refusal` (`retry` plus the details), which the
+trace and saved conversations carry and the eval's claim checker reads: a
+reply naming the subtasks a refusal listed is backed. MCP clients keep the `ToolError` text path: the
+same refusal's text is the reason plus a prose line built from those details.
+REST and UI messages are untouched.
+
 **Deliberately not exposed:** `purge_task`, `purge_project`, `empty_trash`,
 `reorder_projects`, the dashboard overview. Trash retention (#321) — the
 scheduled purge of trash older than `TRASH_RETENTION_DAYS` — is a lifespan job
@@ -374,7 +393,7 @@ why in the PR.
 | `recurrence_skip` | skip this week's weekly task: that occurrence trashed (not done), one live occurrence a week on, series continues (#386) | 3–4 | 1.9–2.2 s |
 | `recurrence_stop` | stop the series: same task, still open and due today, `repeat_interval` cleared (#386) | 3 | 1.4–1.5 s |
 | `restore_task` | "bring back the task about ordering furnace filters" (paraphrased; search can't see the trash): that task restored to its project, the other trashed task left in the trash, exactly one `restored` event and no other write (#387) | 3 | 1.8–1.9 s |
-| `restore_project` | a trashed project restored with the tasks trashed with it, by id (not re-created), audit (#387) | 3 | 1.4–1.6 s |
+| `restore_project` | a trashed project restored with the tasks trashed with it, by id (not re-created), audit (#387). 18/20 on main (2026-10-22): the misses are a claim-checker false positive, "its 2 tasks are back" scored unbacked though the restore returned `restored_task_count: 2` (#471) | 3 | 1.4–1.6 s |
 | `project_create` | one project named as asked, no tasks, audit (#388). The first `create_project` sends `title` for `name` in 5/5 seeded samples and self-corrects on the refusal: a #411 signal | 3 | 1.5–1.7 s |
 | `project_rename` | `update_project` in place: same id, new name, tasks still in it (#388) | 3 | 1.5–1.6 s |
 | `project_close` | "done with it, close it" closes (`closed_at`), never trashes, tasks untouched (#388) | 3 | 1.4–1.5 s |
@@ -383,7 +402,7 @@ why in the PR.
 | `misfire_batch_create` | "add these five tasks to Garage: …" (id 1 a trashed project): exactly five new top-level tasks, one per item, all in Garage, no project invented, the run writes only about the five (#404). 20/20 at a fixed 20 (seed 403); schema corrections 2/122 calls, 0.1/sample — one sample sent `name` for `title` twice, then recovered | 3–7 | 4.9–14.7 s |
 | `misfire_create_in_named_project` | a create naming Reading among five projects (Reading is id 6, id 1 trashed): filed in Reading by lookup, no General default (#404). 20/20; 0/40 schema corrections; always `list_projects → create_task` | 3 | 3.8–7.0 s |
 | `misfire_subtask_under_parent` | a subtask under a parent named by title, beside a look-alike in another project: `parent_task_id` right, in the parent's project, no General invented (#404). **15/20 (75%), `UNDECIDED` at the cap** — gated, but closest to red; **20/20 after #411** (13/20 on main in the same A/B), which accepts `parent_id`. Schema corrections 11/67 calls, 0.55/sample, 9/20 samples: the first `create_task` sends `parent_id` (the deployed misfire). Most runs never find `parent_task_id` on create and recover by create-then-`update_task` (passes); 4 of the 5 misses dropped `project_id` on the retry, so the subtask landed in an invented General project under a Garage parent. A #411 before-number | 3–7 | 3.5–10.7 s |
-| `misfire_complete_parent` | "mark the parent done" with three open subtasks; the service refuses (a parent's done is derived). Passes either honest end state: every subtask completed (the parent reads done) and nothing else written, *or* nothing written and the reply names the open subtasks. Fails a partial completion, any other write, or a run a limit stopped (#404). 19/20; 0/84 schema corrections. Held-and-explained every time but once: that run completed the three subtasks, then retried `complete_task` on the now-done parent, got the same refusal and stopped `no_progress`, with a summary saying the parent was still pending — the deployed loop, and a #413 before-number | 5–8 | 6.1–14.6 s |
+| `misfire_complete_parent` | "mark the parent done" with three open subtasks; the service refuses (a parent's done is derived). Passes either honest end state: every subtask completed (the parent reads done) and nothing else written, *or* nothing written and the reply names the open subtasks. Fails a partial completion, any other write, or a run a limit stopped (#404). 19/20; 0/84 schema corrections. Held-and-explained every time but once: that run completed the three subtasks, then retried `complete_task` on the now-done parent, got the same refusal and stopped `no_progress`, with a summary saying the parent was still pending — the deployed loop, and a #413 before-number. **#413 A/B (2026-10-22, seed 413, 20 each): 19/20 → 20/20**; the refusal now lists the open subtasks, and the replies that name them are backed by it | 5–8 | 6.1–14.6 s |
 | `misfire_edit_among_similar` | "set Review the Q3 report to high priority" among Draft/Send/Read look-alikes: only that task changes (to `high`, not an integer), every event on it (#404). 20/20; 0/40 schema corrections | 3 | 1.5–2.3 s |
 | `followup_high_priority[fresh]` | **#389.** Two turns through the route: 'Add a task "Renew the car registration" to my Home project', then "Now make it high priority". Step 1 creates exactly one top-level task in Home; step 2 moves only that task's priority (resolved through history), nothing else changes, every event `agent:loop` | 7 (3 + 4) | 3.7–4.8 s |
 | `followup_high_priority[live_like]` | the same two turns after the 16-turn live-like thread (#405). 5/5, but the history costs schema: 4/5 samples sent `name` for `title` on `create_task` (6 corrections/26 calls; 0/25 fresh) and recovered — a #411 signal that history makes worse | 6–8 | 3.5–5.1 s |
@@ -404,7 +423,7 @@ why in the PR.
 | `date_next_friday` | "Make the quarterly report due next Friday" (report has no date; a bystander is dated). Accepts both readings, the coming Friday and the Friday of next week (`next_friday_targets`; they coincide from Friday to Sunday, and today is never accepted). Only the report's due date changes. 5/5; 0/10 | 3 | 1.8–1.9 s |
 | `date_in_two_weeks` | "...due in two weeks": exactly today + 14 days. 5/5; 0/10 | 3 | 1.7–1.8 s |
 | `date_end_of_month` | "...due at the end of the month": the last day of this month (`end_of_month`). 5/5; 0/10 | 3 | 1.7 s |
-| `date_this_weekend` | "...due this weekend": a Saturday or Sunday of the current or upcoming weekend, none already past (`weekend_targets`). 5/5; 0/10 | 3 | 1.7–1.9 s |
+| `date_this_weekend` | "...due this weekend": a Saturday or Sunday of the current or upcoming weekend, none already past (`weekend_targets`). 5/5; 0/10. #413 (2026-10-22): the first wording of the refusal rule (a three-sentence `retry` explainer) dropped it to 18/20 unseeded (main 20/20) — the misses created a second task instead of updating the first. The shipped wording keeps the old sentence and adds one clause: 20/20 seeded and unseeded | 3 | 1.7–1.9 s |
 | `speech_add_task` | "ad a task to by stamps": one new open top-level task naming stamps, the verb read as "buy" (a title still saying "by stamps"/"to by" is a transcription, not an understanding); nothing else changed. The ask names no project, so the app's own default "General" is allowed. 5/5, all in 2 iterations (`create_task` straight away); 0/5 | 2 | 0.9–1.0 s |
 | `speech_mark_done` | "mark the groserys done" beside "Buy a birthday card": only "Buy groceries" done. 5/5; 0/11 | 3–4 | 1.2–1.6 s |
 | `speech_push_appointment` | **Moved to the frontier tier (#408) as `misheard_push`; known red while gated (6/20, 30%, `BELOW_FLOOR`).** "push the dennis appointment to friday" beside "Car service appointment": the dentist task, and only it, moves to the next Friday (`weekday_targets`). "Dennis" matches nothing, so `search` returns just the two appointments and the model cannot choose: 7/20 loop on search/list_tasks to `no_progress`; 4 stop and ask "did you mean the Dentist appointment?" having written nothing; 3 set the wrong date (today, or Saturday); once it replied "Moved the dentist appointment to Friday" having only added a focus commitment. The suite's first block read 1/5 and an isolated one 4/5, hence the 20. Before-number for #416/#420 | 4–5 | 3.1–5.0 s |

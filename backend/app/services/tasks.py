@@ -93,7 +93,15 @@ class DerivedStatusError(DerivedFieldError):
     direct ``done`` is always refused. ``open``/``in_progress`` are the parent's
     own to set, but only while its subtasks leave the question open (see
     ``_parent_status_write_takes_effect``). The caller surfaces a 409.
+
+    ``target`` is the status that was asked for, so a caller explaining the way
+    forward (the agent's refusal, #413) knows whether the subtasks stand in the
+    way of finishing the parent or of reopening it.
     """
+
+    def __init__(self, message: str, *, target: TaskWorkflowStatus) -> None:
+        super().__init__(message)
+        self.target = target
 
 
 class DerivedEstimateError(DerivedFieldError):
@@ -127,7 +135,14 @@ class OccurrenceConflictError(RecurrenceError):
     replacement has since taken), so the caller surfaces a 409 rather than the 422
     its ``RecurrenceError`` base gets. It subclasses ``RecurrenceError`` so existing
     handlers still catch it; handlers that want the 409 check it *first*.
+
+    ``conflict_id`` names the live occurrence holding the date, when the raise
+    site knows it, so the agent's refusal can point at it (#413).
     """
+
+    def __init__(self, message: str, *, conflict_id: int | None = None) -> None:
+        super().__init__(message)
+        self.conflict_id = conflict_id
 
 
 def _default_project_id(db: Session, project_id: int | None) -> int:
@@ -969,7 +984,8 @@ def _parent_status_write_takes_effect(
         if rollup.subtask_status == TaskWorkflowStatus.done:
             _assert_not_blocked(db, task.id)
         raise DerivedStatusError(
-            "This task is completed by its subtasks; complete them to complete it"
+            "This task is completed by its subtasks; complete them to complete it",
+            target=target,
         )
     pinned = rollup.subtask_status
     if pinned is None or pinned == TaskWorkflowStatus.open:
@@ -978,10 +994,12 @@ def _parent_status_write_takes_effect(
         return False
     if pinned == TaskWorkflowStatus.done:
         raise DerivedStatusError(
-            "This task's subtasks are all done; reopen one to reopen it"
+            "This task's subtasks are all done; reopen one to reopen it",
+            target=target,
         )
     raise DerivedStatusError(
-        "This task's subtasks are under way; reopen them to reopen it"
+        "This task's subtasks are under way; reopen them to reopen it",
+        target=target,
     )
 
 
@@ -1287,7 +1305,8 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
             raise OccurrenceConflictError(
                 f"This series already has an active occurrence due "
                 f"{effective_due.isoformat()}. Pick another date, or trash or skip "
-                f"that occurrence first."
+                f"that occurrence first.",
+                conflict_id=conflict.id,
             )
 
     # Same invariant, one scope wider: "this and all future occurrences" forwards

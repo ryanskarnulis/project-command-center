@@ -83,6 +83,12 @@ write that fails is logged and never costs the run. Each run has a ``run_id``
 (bound on its log lines, returned on the result) that the record is keyed by.
 With ``PCC_CONTEXT_PATH`` set, the provider also captures every model call's
 exact bytes keyed by that ``run_id`` (:mod:`app.ai.context_capture`, #401).
+
+Every failure the loop feeds back takes one shape (#413): the ``role: tool``
+answer is ``{"ok": false, "error": …, "retry": "different_args" | "never",
+…}`` plus whatever recovery needs (:mod:`app.tools.refusals`) — a schema
+error, an unknown tool, a domain refusal, a call never run, a crash. The
+:class:`ToolCallRecord` keeps the bare error text.
 """
 
 from __future__ import annotations
@@ -113,6 +119,7 @@ from app.ai.providers.llamacpp import (
     tool_result_message,
 )
 from app.tools import registry
+from app.tools.refusals import RETRY_DIFFERENT_ARGS, RETRY_NEVER, Retry, ToolRefusal
 from app.tools.registry import ToolError, UnknownToolError
 
 logger = structlog.get_logger(__name__)
@@ -181,7 +188,8 @@ project ids are current; find any other id with the list_*/get_*/search tools; n
 an id. Take dates (today, tomorrow, a weekday, the end of the month) from its calendar.
 - Prefer the specific tool: complete_task to finish a task, update_task to edit its fields.
 - Every delete is a soft delete into a restorable trash; there is no permanent delete.
-- If a tool call is rejected, read the error and correct your next call.
+- If a tool call is rejected, read the error and correct your next call. Never repeat a \
+call rejected with "retry": "never"; follow its "next" instead.
 - When the work is done (or turns out to be impossible), reply with plain text: a short \
 summary of what you did or found. State only what the tool results confirm — never invent \
 an id, a task, or an outcome the tools didn't return."""
@@ -328,6 +336,9 @@ class ToolCallRecord(BaseModel):
     arguments: dict[str, Any]
     result: str | None = None
     error: str | None = None
+    # A refused call's ``retry`` and the way forward it named (#413) — the ids
+    # and titles the model was shown beside ``error``.
+    refusal: dict[str, Any] | None = None
 
 
 class AgentRunResult(BaseModel):
@@ -942,7 +953,7 @@ class AgentLoop:
                 error=error,
             )
             records.append(record)
-            messages.append(tool_result_message(call.id, f"Error: {error}"))
+            messages.append(tool_result_message(call.id, _refusal_text(error, RETRY_NEVER)))
             logger.warning("agent_tool_call_skipped", tool=call.name, reason=reason)
 
     @staticmethod
@@ -963,7 +974,9 @@ class AgentLoop:
                 tool=call.name, arguments=call.arguments, error=_INTERNAL_ERROR
             )
         )
-        messages.append(tool_result_message(call.id, f"Error: {_INTERNAL_ERROR}"))
+        messages.append(
+            tool_result_message(call.id, _refusal_text(_INTERNAL_ERROR, RETRY_NEVER))
+        )
         logger.exception(
             "agent_tool_call_crashed",
             tool=call.name,
@@ -982,16 +995,24 @@ class AgentLoop:
         """
         record = ToolCallRecord(tool=call.name, arguments=call.arguments)
         schema_error = False
+        retry: Retry = RETRY_NEVER
+        details: dict[str, Any] = {}
         try:
             outcome = registry.call_tool(call.name, call.arguments, actor=actor)
         except UnknownToolError as exc:
+            # The offer is the offer: no arguments make an unknown name work.
             record.error = str(exc)
             schema_error = True
         except ValidationError as exc:
             record.error = f"{run_record.INVALID_ARGUMENTS_PREFIX}{_validation_summary(exc)}"
+            retry = RETRY_DIFFERENT_ARGS
             schema_error = True
+        except ToolRefusal as exc:
+            # Domain rejection with a reason and the way forward (#413).
+            record.error = exc.error
+            retry = exc.retry
+            details = exc.details
         except ToolError as exc:
-            # Domain rejection with a reason the model can act on.
             record.error = str(exc)
         else:
             record.result = _result_text(outcome)
@@ -1004,7 +1025,8 @@ class AgentLoop:
             error=record.error,
             schema_error=schema_error,
         )
-        return record, f"Error: {record.error}", schema_error
+        record.refusal = {"retry": retry, **details}
+        return record, _refusal_text(record.error, retry, details), schema_error
 
     @staticmethod
     def _finish(
@@ -1100,6 +1122,15 @@ def _exchange_key(name: str, arguments: dict[str, Any], answer: str) -> tuple[st
     raising inside the loop.
     """
     return name, json.dumps(arguments, sort_keys=True, default=str), answer
+
+
+def _refusal_text(
+    error: str, retry: Retry, details: dict[str, Any] | None = None
+) -> str:
+    """A failed call's ``role: tool`` answer, the one shape every failure takes (#413)."""
+    return json.dumps(
+        {"ok": False, "error": error, "retry": retry, **(details or {})}, default=str
+    )
 
 
 def _ms_since(started: float) -> int:

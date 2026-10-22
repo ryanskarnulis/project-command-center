@@ -713,7 +713,8 @@ class Sample:
         far: a thread's evidence is its earlier runs too, never its seeded
         (stored) history, whose replies are the very claims under test."""
         self.calls.extend(
-            ToolCall(r.tool, r.arguments, r.result, r.error) for r in result.tool_calls
+            ToolCall(r.tool, r.arguments, r.result, r.error, r.refusal)
+            for r in result.tool_calls
         )
         evidence = Evidence.of(self.calls, date.today())
         self.claims.extend((self.step_label, c) for c in read_claims(result.reply, evidence))

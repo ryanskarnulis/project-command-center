@@ -15,6 +15,7 @@ so in the PR, and re-read the eval suite's unbacked lines with it.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -664,3 +665,18 @@ def test_score_trace_threads_a_conversation(
     assert main([str(path), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["made"] == 4
     assert main([]) == 2
+
+
+def test_a_refusal_backs_the_titles_it_named() -> None:
+    """A refusal that listed the open subtasks (#413) backs a reply naming them,
+    and backs nothing as done."""
+    refused = ToolCall(
+        "complete_task",
+        {"task_id": 1},
+        None,
+        "This task is completed by its subtasks; complete them to complete it",
+        {"retry": "never", "open_subtasks": [{"id": 2, "title": "Sweep the floor"}]},
+    )
+    evidence = _evidence(refused)
+    assert not unbacked(read_claims('You gotta finish "Sweep the floor" first.', evidence))
+    assert evidence.writes == Counter()

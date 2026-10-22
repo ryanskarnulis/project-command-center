@@ -207,7 +207,8 @@ def restore_task_with_undo(
             raise OccurrenceConflictError(
                 f"This series already has an active occurrence due "
                 f"{task.due_date.isoformat()}. Trash or skip that one first, "
-                f"then restore this."
+                f"then restore this.",
+                conflict_id=conflict.id,
             )
 
     # Read before the plain restore clears it: an un-skip with no live successor
