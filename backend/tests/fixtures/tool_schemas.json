@@ -54,6 +54,19 @@
               "title": "Top Level Only",
               "type": "boolean"
             },
+            "due_date": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Due Date"
+            },
             "limit": {
               "default": 50,
               "maximum": 200,
@@ -1424,6 +1437,19 @@
             "default": false,
             "title": "Top Level Only",
             "type": "boolean"
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Due Date"
           },
           "limit": {
             "default": 50,

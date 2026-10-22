@@ -1023,9 +1023,14 @@ def list_tasks(
     workflow_status: TaskWorkflowStatus | None = None,
     exclude_done: bool = False,
     top_level_only: bool = False,
+    due_date: date | None = None,
     limit: int | None = None,
     offset: int = 0,
 ) -> Sequence[Task]:
+    # ``due_date`` filters the stored due date (a task without one never
+    # matches). It's a column, not a roll-up, so it filters in SQL and paging
+    # stays exact.
+    #
     # ``limit``/``offset`` page the *effective* result (default: unbounded, for
     # internal callers), so they mean the same thing whether or not a status
     # filter is on. That forces a choice, because the roll-up filter below can
@@ -1051,6 +1056,8 @@ def list_tasks(
         # up on boards and in top-level tool reads instead of vanishing with its
         # parent. Filtered in SQL to avoid an N+1 and to keep paging exact.
         query = query.where(effective_top_level_clause())
+    if due_date is not None:
+        query = query.where(Task.due_date == due_date)
     if not filtering:
         if offset:
             query = query.offset(offset)
