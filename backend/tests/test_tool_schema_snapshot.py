@@ -80,7 +80,8 @@ def test_the_fixture_holds_every_registry_tool_on_both_surfaces() -> None:
     pinned = json.loads(FIXTURE.read_text(encoding="utf-8"))
     names = [tool.name for tool in registry.all_tools()]
     assert [tool["function"]["name"] for tool in pinned["agent"]] == names
-    assert sorted(tool["name"] for tool in pinned["mcp"]) == sorted(names)
+    mcp_names = [tool.name for tool in registry.mcp_tools()]
+    assert sorted(tool["name"] for tool in pinned["mcp"]) == sorted(mcp_names)
 
 
 def test_mcp_descriptions_are_the_registry_s_cleaned_docstrings() -> None:
@@ -90,4 +91,4 @@ def test_mcp_descriptions_are_the_registry_s_cleaned_docstrings() -> None:
     emitted = _emitted()
     agent = {tool["function"]["name"]: tool["function"]["description"] for tool in emitted["agent"]}
     mcp_side = {tool["name"]: tool["description"] for tool in emitted["mcp"]}
-    assert mcp_side == agent
+    assert mcp_side == {name: agent[name] for name in mcp_side}

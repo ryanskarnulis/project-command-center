@@ -29,6 +29,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from app.ai import run_record
+from app.ai.clarification import Candidate
 
 if TYPE_CHECKING:
     from app.ai.loop import ToolCallRecord
@@ -75,11 +76,14 @@ def brief(
     gathered: str | None,
     stop_reason: str,
     state: str,
+    asked: Sequence[Candidate] = (),
 ) -> str:
     """The narrator's one user message: the run handed over as data. ``state``
     is the state block the planner's run opened with (#412): the app's facts
     as of the run's start — the calendar, the projects' open counts — which
-    the planner may have answered from without a tool."""
+    the planner may have answered from without a tool. ``asked`` are the
+    candidates of the ``ask_user`` the run ended on (#420): the reply asks
+    which one the user meant, naming them in that order."""
     parts = [earlier] if earlier else []
     parts.append(state)
     parts.append(f"The user said:\n{user_message}")
@@ -91,7 +95,16 @@ def brief(
         parts.append(gathered)
     if note:
         parts.append(f'{_NOTE_LABEL}: "{note.strip()}"')
-    if stop_reason in run_record.LIMIT_REASONS:
+    if asked:
+        named = "\n".join(
+            f"{number}. {candidate.title}" for number, candidate in enumerate(asked, start=1)
+        )
+        parts.append(
+            "The run ended on a question: more than one task fits what the user said, so "
+            "nothing was changed for it. Ask which one they meant, naming every one of these "
+            f"tasks by its title, in this order:\n{named}"
+        )
+    elif stop_reason in run_record.LIMIT_REASONS:
         why = run_record.LIMIT_REASONS[stop_reason]
         parts.append(
             f"The run stopped because {why}. {run_record.LIMIT_NOTE}\n"

@@ -56,7 +56,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.ai import loop as loop_module
-from app.ai import run_record
+from app.ai import clarification, run_record
 from app.ai.loop import AgentLoop, AgentRunFailed, AgentRunResult, resolve_actor
 from app.ai.providers.llamacpp import (
     ChatResult,
@@ -463,6 +463,7 @@ def _valid_call(rng: random.Random, world: World, name: str) -> Call:
         },
         "list_trash": lambda: {},
         "list_activity": lambda: {"project_id": project},
+        "ask_user": lambda: {"task_ids": [task, _one(rng, world.tasks, world.trashed_tasks)]},
     }
     return name, calls[name]()
 
@@ -503,6 +504,7 @@ TOOL_WEIGHTS: dict[str, int] = {
     "restore_focus_entry": 2,
     "list_trash": 1,
     "list_activity": 1,
+    "ask_user": 1,
 }
 
 
@@ -1321,12 +1323,23 @@ def check_fault_ends_the_run_as_documented(observed: Observed) -> None:
             raise InvariantBreach(f"a {reason} stop after {fault.kind} was still narrated")
         return
     if narrator_chat:
-        # A failed narration is dropped, never the run (#399, #418).
+        # A failed narration is dropped, never the run (#399, #418). A run
+        # that ended on a landed ask replies with code's question (#420).
         if reason == "completed":
-            if result.reply != result.note:
+            asked = [
+                record
+                for record in result.tool_calls
+                if record.tool == clarification.ASK_TOOL and record.result is not None
+            ]
+            fallback = (
+                clarification.ask_text(clarification.candidates_of(asked[0].result or ""))
+                if asked
+                else result.note
+            )
+            if result.reply != fallback:
                 raise InvariantBreach(
                     f"{fault.describe()} in the narrator call left reply {result.reply!r}, "
-                    f"not the planner's note {result.note!r}"
+                    f"not {fallback!r}"
                 )
         elif reason not in _LIMITS or result.reply is not None:
             raise InvariantBreach(

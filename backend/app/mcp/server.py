@@ -30,7 +30,7 @@ mcp = FastMCP(
     ),
 )
 
-for _registered in registry.all_tools():
+for _registered in registry.mcp_tools():
     # The registry's description (``inspect.getdoc``, cleaned), not FastMCP's
     # raw ``__doc__``: Python 3.13+ dedents docstrings at compile time and
     # 3.11 doesn't, so the raw form would differ by interpreter (#402).
@@ -46,7 +46,7 @@ for _registered in registry.all_tools():
 def main() -> None:
     # stdout carries the JSON-RPC transport; all logging must go to stderr.
     configure_logging(stream=sys.stderr)
-    logger.info("mcp_server_starting", server="pcc", tools=len(registry.all_tools()))
+    logger.info("mcp_server_starting", server="pcc", tools=len(registry.mcp_tools()))
     mcp.run()  # stdio transport
 
 

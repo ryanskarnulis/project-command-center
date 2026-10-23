@@ -35,7 +35,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from app.ai import run_record
+from app.ai import clarification, run_record
 
 # The user's earlier requests: each cut to this many characters, and the
 # newest kept until this many in all (chess's ``REQUEST_CHARS`` /
@@ -169,7 +169,10 @@ def _earlier_record(history: Sequence[dict[str, Any]]) -> list[str]:
             record = ToolCallRecord.model_validate(stored)
             outcome = run_record.classify(record)
             call = f"{record.tool} {run_record.clip(_compact(record.arguments))}"
-            if outcome == "looked_up":
+            if outcome == "looked_up" and record.tool == clarification.ASK_TOOL:
+                found = run_record.found_brief(record.result or "")
+                line = f"asked the user which they meant: {run_record.clip(found, 300)}"
+            elif outcome == "looked_up":
                 found = run_record.found_brief(record.result or "")
                 line = f"looked up then: {call} -> {run_record.clip(found, 300)}"
             elif outcome == "done":

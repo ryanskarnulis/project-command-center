@@ -108,7 +108,7 @@ import threading
 import time
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 from time import perf_counter
@@ -118,6 +118,7 @@ import structlog
 from pydantic import BaseModel, Field, PrivateAttr, ValidationError
 
 from app.ai import (
+    clarification,
     gather,
     model_profile,
     narration,
@@ -161,6 +162,10 @@ _SKIPPED_ERROR = (
 # call never reached the registry or the service layer.
 _CANCELLED_ERROR = f"{run_record.NOT_RUN_PREFIX}the user stopped the agent run before this call"
 
+# Recorded (and fed back) for a call after a landed ``ask_user`` in the same
+# turn (#420): the run ends on the question, so it never reached the registry.
+_ASKED_ERROR = f"{run_record.NOT_RUN_PREFIX}the run ended on a question to the user before this call"
+
 # Recorded (and fed back) for a call past the run's tool-call cap (#398) — the
 # call never reached the registry or the service layer.
 _TOOL_CALL_LIMIT_ERROR = (
@@ -199,7 +204,7 @@ def resolve_actor(header_value: str | None) -> str:
 
 # The planner's contract. Upholds the standard's invariants: tools-only
 # action, no invented results, deterministic truth. Clarify-on-ambiguity is
-# not a prompt line (see below; #420). It is #416's single-phase prompt minus
+# the ask_user tool, pointed at from the matches line (see below; #420). It is #416's single-phase prompt minus
 # Glitch, with its last line turned from a reply into a handoff note: the
 # planner never speaks to the user.
 #
@@ -255,6 +260,13 @@ def resolve_actor(header_value: str | None) -> str:
 # with a worked example. ambiguous_then_pick (frontier) 0/20 → 4/20, p=0.125,
 # but it made "the first one" and "it" in follow-ups look ambiguous: the
 # three scenarios above 30/30 without it, 26/30 with. Ambiguity is #420's.
+# #420 added the clause that ends the possible-matches line: "If two or more
+# fit … call ask_user with their ids instead of acting". The tool alone took
+# ambiguous_then_pick (held-out) 0/20 → 2/10, because the planner acted
+# straight from the matches. With the clause, paired vs main (seed 420,
+# 2026-10-23): 0/10 → 10/10 (p=0.002). The 13 follow-up and match items
+# #416's rule broke stayed 10/10 on both arms: a tool to call, unlike "name
+# them and ask", doesn't make "the first one" read as ambiguous.
 PLANNER_PROMPT = """\
 You are the assistant for Project Command Center (PCC), the user's project and \
 task manager. You act only by calling the provided tools.
@@ -266,7 +278,8 @@ project ids are current; find any other id with the list_*/get_*/search tools; n
 an id. Take dates (today, tomorrow, a weekday, the end of the month) from its calendar.
 - Possible matches may follow the state block: tasks and Focus commitments a search of the \
 user's words found before the run, with real ids. Act on one that is clearly the task meant without looking it \
-up again; they are only candidates, and nothing has been done to them.
+up again; they are only candidates, and nothing has been done to them. If two or more fit the user's words and \
+nothing tells them apart, call ask_user with their ids instead of acting.
 - Prefer the specific tool: complete_task to finish a task, update_task to edit its fields.
 - If a tool call is rejected, read the error and correct your next call. Never repeat a \
 call rejected with "retry": "never"; follow its "next" instead.
@@ -406,6 +419,9 @@ class _RunContext:
     gathered: str | None
     # The state block the planner's run opened with (#412).
     state: str
+    # The candidates of a landed ``ask_user`` (#420): the run ends on asking
+    # which one the user meant. Set by the loop once the ask lands.
+    asked: tuple[clarification.Candidate, ...] = ()
 
 
 class ToolCallRecord(BaseModel):
@@ -718,9 +734,14 @@ class AgentLoop:
         trace: run_trace.RunTrace,
     ) -> AgentRunResult:
         specs = registry.tool_specs()
+        # A question an earlier run asked and nobody answered (#420), kept
+        # only while its candidates are as they were.
+        question, closed = state_block.still_open(clarification.from_history(history or []))
+        trace.open_question = None if question is None else question.trace()
+        trace.question_closed = closed
         # Built once, as of the run's start (#412): the agent's own writes
         # after this are in its tool results, not here.
-        block = state_block.build(date.today())
+        block = state_block.build(date.today(), question)
         trace.state_block = block
         # The user's own words, searched before the model sees them (#415):
         # candidates beside the state block, never a tool result.
@@ -877,6 +898,7 @@ class AgentLoop:
             schema_error_this_turn = False
             progressed = False
             over_cap = False
+            asked: tuple[clarification.Candidate, ...] = ()
             for index, call in enumerate(result.tool_calls):
                 if cancel is not None and cancel.is_set():
                     # The user stopped the run before this call started (most
@@ -950,6 +972,28 @@ class AgentLoop:
                 exchange = _exchange_key(call.name, call.arguments, feedback)
                 progressed = progressed or exchange not in seen
                 seen.add(exchange)
+                if record.tool == clarification.ASK_TOOL and record.result is not None:
+                    # A landed ask ends the run on the question (#420); the
+                    # rest of the turn never starts.
+                    asked = clarification.candidates_of(record.result)
+                    self._skip_remaining(
+                        result.tool_calls[index + 1 :],
+                        records,
+                        messages,
+                        error=_ASKED_ERROR,
+                        reason="asked",
+                    )
+                    break
+            if asked:
+                trace.asked = [candidate.id for candidate in asked]
+                return self._narrated_finish(
+                    "completed",
+                    replace(ctx, asked=asked),
+                    records,
+                    iteration,
+                    messages,
+                    note=None,
+                )
             if over_cap:
                 # The next turn could only be refused more of the same.
                 return self._limit_stop(
@@ -1007,7 +1051,9 @@ class AgentLoop:
         before #399. The stop reason never changes.
         """
         reply = self._narrate(stop_reason, ctx, records, note)
-        if reply is None and stop_reason == "completed":
+        if reply is None and ctx.asked:
+            reply = clarification.ask_text(ctx.asked)
+        elif reply is None and stop_reason == "completed":
             reply = note
         result = self._finish(stop_reason, reply, records, iterations, messages)
         result.note = note
@@ -1049,6 +1095,7 @@ class AgentLoop:
                 gathered=ctx.gathered,
                 stop_reason=stop_reason,
                 state=ctx.state,
+                asked=ctx.asked,
             ),
         )
         try:

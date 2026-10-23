@@ -674,7 +674,9 @@ tasks and Focus commitments a hybrid keyword + embedding search of the user's wo
 A run is two model phases: a persona-free planner that calls the tools, then a
 tool-free narrator, in Glitch's voice, that speaks from a code-built record of
 what ran. Neither phase reads earlier turns as chat: they get a capped record
-of earlier writes, the user's earlier words, and the last exchange. What's next lives in
+of earlier writes, the user's earlier words, and the last exchange. When the user's
+words fit several tasks, the planner calls `ask_user` with their ids, the run ends
+on the question, and the next run's state block carries it until it's answered. What's next lives in
 [GitHub issues](https://github.com/ryanskarnulis/project-command-center/issues);
 merged PRs and git history are the changelog.
 

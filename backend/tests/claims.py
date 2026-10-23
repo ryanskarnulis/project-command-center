@@ -279,6 +279,7 @@ READ_TOOLS = frozenset(
         "get_focus_plan",
         "list_trash",
         "list_activity",
+        "ask_user",
     }
 )
 

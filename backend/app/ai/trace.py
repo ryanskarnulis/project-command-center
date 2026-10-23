@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 # The record layout's version. A reader keys off it rather than off which
 # fields happen to be present; bump it on any change a reader must branch on.
-TRACE_SCHEMA = 4
+TRACE_SCHEMA = 5
 # Schema 2 (#412) adds ``state_block`` (the text the run's user turn opened
 # with) and ``lookup_turns`` (model turns of only reads before the first turn
 # asking for anything else). Schema 1 records have neither; a reader rebuilds
@@ -49,6 +49,10 @@ TRACE_SCHEMA = 4
 # were found (``hybrid``, ``keyword``, ``none``), the embedding model, the
 # milliseconds it took, each match's task id, fused score, lift over the
 # median cosine and BM25 score, and ``rows``: the task rows the model read.
+# Schema 5 (#420) adds ``clarification``: the question an earlier run left
+# open as this run's state block carried it (``open``), why the newest one no
+# longer stood (``closed``), and the task ids this run's ``ask_user`` offered
+# (``asked``).
 # What a record in the trace file is: one agent run. On every record so a
 # later kind (#401's context captures, a serving manifest) is never mistaken
 # for one.
@@ -176,6 +180,12 @@ class RunTrace:
     # The gather's rows as the model read them (also under ``gather["rows"]``).
     gathered: list[dict[str, Any]] = field(default_factory=list)
     lookup_turns: int = 0
+    # The question an earlier run left open, as the state block carried it,
+    # or why the newest one no longer stood; the candidates this run asked
+    # about (#420).
+    open_question: dict[str, Any] | None = None
+    question_closed: str = ""
+    asked: list[int] = field(default_factory=list)
     # Set at the first turn that asked for more than reads; ends the count.
     wrote: bool = False
     started: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -218,6 +228,11 @@ class RunTrace:
             "state_block": self.state_block,
             "gather": self.gather,
             "lookup_turns": self.lookup_turns,
+            "clarification": {
+                "open": self.open_question,
+                "closed": self.question_closed,
+                "asked": self.asked,
+            },
             # What the run was handed (the service already windowed it,
             # #244) and what the planner read of it (#418, capped parts).
             # Schema 3 had ``kept``/``dropped``: the loop windowed turns then.

@@ -724,12 +724,15 @@ def test_global_personality_is_the_vendored_glitch_without_its_header() -> None:
 
 
 def test_registry_and_mcp_expose_identical_tools() -> None:
-    """The registry is the single source of truth: same names, same schemas."""
+    """The registry is the single source of truth: same names, same schemas —
+    but for the loop's own ``ask_user`` (#420), which MCP leaves out."""
     # _tool_manager is FastMCP-internal, but this is exactly the parity the
     # refactor must guarantee, so the test reaches in.
     mcp_tools = {tool.name: tool for tool in mcp._tool_manager.list_tools()}
     specs = {spec.name: spec for spec in registry.tool_specs()}
 
+    assert set(specs) - set(mcp_tools) == {"ask_user"}
+    specs.pop("ask_user")
     assert set(specs) == set(mcp_tools)
     for name, spec in specs.items():
         assert spec.parameters == mcp_tools[name].parameters, name
@@ -767,7 +770,7 @@ def test_the_state_block_is_built_once_per_run_as_of_its_start(
     built: list[date] = []
     real_build = state_block.build
 
-    def counting(today: date) -> str:
+    def counting(today: date, question: object = None) -> str:
         built.append(today)
         return real_build(today)
 

@@ -27,11 +27,11 @@ from pathlib import Path
 from typing import Any
 
 # The record layouts this reader understands (``TRACE_SCHEMA`` in trace.py).
-KNOWN_SCHEMAS = {1, 2, 3}
+KNOWN_SCHEMAS = {1, 2, 3, 4, 5}
 # The registry's read-only tools (``registry.read_only_tool_names()``), by the
 # naming they all follow — this reader imports nothing from the app.
 _READ_PREFIXES = ("list_", "get_")
-_READ_NAMES = {"search"}
+_READ_NAMES = {"search", "ask_user"}
 KIND_RUN = "run"
 _CLIP = 100
 
