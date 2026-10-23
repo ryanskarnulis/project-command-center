@@ -505,7 +505,9 @@ n=5 and *less* often (63%) at n=20. `tests/evalstats.py` is a copy of chess's
   title or a word only that candidate has): that reply is both the list the
   user saw and the list the model has in front of it. "Friday" is the next
   Friday strictly after today, or today too when today is one
-  (`weekday_targets`). Both helpers are unit-tested in CI
+  (`weekday_targets`); tasks that move to it are seeded due yesterday
+  (`seed_due`, #481), off every target, so a Friday's "today" reading is a
+  real move rather than a no-op. Both helpers are unit-tested in CI
   (`test_eval_threads.py`).
 
 - **Compositions, dates and speech (#406).** Single-turn, checked against a

@@ -10,6 +10,7 @@ from tests.eval_threads import (
     mention_order,
     next_friday_targets,
     next_month_bounds,
+    seed_due,
     weekday_targets,
     weekend_targets,
 )
@@ -68,6 +69,14 @@ def test_weekday_targets_is_the_next_one_strictly_ahead() -> None:
 def test_weekday_targets_on_that_weekday_accepts_today_or_next_week() -> None:
     friday = date(2026, 10, 23)
     assert weekday_targets(friday, 4) == {friday, friday + timedelta(days=7)}
+
+
+def test_seed_due_is_never_a_friday_target() -> None:
+    start = date(2026, 10, 19)
+    for offset in range(14):
+        today = start + timedelta(days=offset)
+        assert seed_due(today) not in weekday_targets(today, 4)
+        assert seed_due(today) not in next_friday_targets(today)
 
 
 def test_changed_keys_sees_edits_additions_and_removals() -> None:
