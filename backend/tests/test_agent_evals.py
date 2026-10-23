@@ -152,6 +152,7 @@ from tests.eval_threads import (
     mention_order,
     next_friday_targets,
     next_month_bounds,
+    seed_due,
     weekday_targets,
     weekend_targets,
 )
@@ -2556,14 +2557,17 @@ def _reference_first_to_friday(sample: Sample) -> None:
     "First" is the first task the agent's list reply names (``mention_order``,
     the same rule as "the second one"). "Friday" is computed from today's real
     date: the next Friday strictly ahead, or today as well when today is one
-    (``weekday_targets``). The model is told only today's ISO date, so the
-    weekday arithmetic is its own.
+    (``weekday_targets``). The tasks are seeded due yesterday (``seed_due``,
+    #481), so every reading is a real move. The model is told only today's ISO
+    date, so the weekday arithmetic is its own.
     """
     today = date.today()
     with sample.db() as db:
         work = projects_service.create_project(db, name="Work")
         for title in _WORK_CANDIDATES:
-            tasks_service.create_task(db, project_id=work.id, title=title, due_date=today)
+            tasks_service.create_task(
+                db, project_id=work.id, title=title, due_date=seed_due(today)
+            )
         home = projects_service.create_project(db, name="Home")
         tasks_service.create_task(db, project_id=home.id, title="Rake the leaves")
         db.commit()
@@ -2925,16 +2929,18 @@ def _date_this_weekend(sample: Sample) -> None:
 
 def _seed_errands(sample: Sample) -> None:
     """The world the misheard-speech asks refer to: groceries and the dentist
-    beside look-alikes ("appointment", "Buy ..."), in two projects."""
-    today = date.today()
+    beside look-alikes ("appointment", "Buy ..."), in two projects. The
+    appointments are due yesterday (``seed_due``, #481): ``misheard_push``
+    moves the dentist one to Friday, and on a Friday "today" is a reading."""
+    due = seed_due(date.today())
     with sample.db() as db:
         ids = _seed_projects(db, "Home", "Errands")
         home, errands = ids["Home"], ids["Errands"]
         tasks_service.create_task(db, project_id=errands, title="Buy groceries")
         tasks_service.create_task(db, project_id=errands, title="Buy a birthday card")
-        tasks_service.create_task(db, project_id=home, title="Dentist appointment", due_date=today)
+        tasks_service.create_task(db, project_id=home, title="Dentist appointment", due_date=due)
         tasks_service.create_task(
-            db, project_id=home, title="Car service appointment", due_date=today
+            db, project_id=home, title="Car service appointment", due_date=due
         )
         tasks_service.create_task(db, project_id=home, title="Rake the leaves")
         db.commit()

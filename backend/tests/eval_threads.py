@@ -70,12 +70,25 @@ def weekday_targets(today: date, weekday: int) -> frozenset[date]:
     ``weekday`` is ``date.weekday()``'s (Monday 0 … Sunday 6). Always the next
     such day strictly after today (1–7 days ahead). Said *on* that weekday the
     words are ambiguous ("Friday" on a Friday), so today is accepted as well.
+
+    A scenario that moves a task to one of these dates must seed its due date
+    off every target, which :func:`seed_due` (yesterday) always is. Seeded due
+    today, a Friday's "today" reading leaves the date unchanged and the
+    scenario scores the calendar, not the agent (#481). The same holds for
+    :func:`next_friday_targets`, which never includes yesterday either.
     """
     ahead = (weekday - today.weekday()) % 7 or 7
     targets = {today + timedelta(days=ahead)}
     if today.weekday() == weekday:
         targets.add(today)
     return frozenset(targets)
+
+
+def seed_due(today: date) -> date:
+    """The due date a scenario seeds on a task it will move to a weekday:
+    yesterday, which no :func:`weekday_targets` or :func:`next_friday_targets`
+    reading ever names (#481)."""
+    return today - timedelta(days=1)
 
 
 def changed_keys(before: Mapping[K, object], after: Mapping[K, object]) -> set[K]:
