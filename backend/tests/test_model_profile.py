@@ -213,6 +213,11 @@ class _ProfiledProvider(ScriptedProvider):
         super().__init__(turns)
         self.profile = profile
         self.model = profile.name
+        self.thinking: list[bool] = []
+
+    def chat(self, messages: Any, *, enable_thinking: bool = False, **kwargs: Any) -> Any:
+        self.thinking.append(enable_thinking)
+        return super().chat(messages, **kwargs)
 
 
 class _Records:
@@ -252,3 +257,24 @@ def test_an_explicit_cap_overrides_the_profile_and_bounds_the_summary(
     )
     AgentLoop(provider, max_iterations=1, max_tokens=64, tracer=_Records()).run("What projects?")
     assert [request["max_tokens"] for request in provider.requests] == [64, 64]
+
+
+def test_a_thinking_profile_thinks_on_turns_and_never_on_the_summary(
+    tool_db: sessionmaker[Session],
+) -> None:
+    # #417: `[phases.turn] thinking = true` opens the turns' thinking channel;
+    # the limit summary stays a plain call.
+    thinking = parse_profile("thinker", "[phases.turn]\nthinking = true\n", "test")
+    assert thinking.turn_thinking and thinking.describe()["turn_thinking"] is True
+    provider = _ProfiledProvider(
+        [_calls(("list_projects", {})), _text("I looked; nothing there.")], thinking
+    )
+    AgentLoop(provider, max_iterations=1, tracer=_Records()).run("What projects?")
+    assert provider.thinking == [True, False]
+
+
+def test_the_default_and_gemma_profiles_never_think(tool_db: sessionmaker[Session]) -> None:
+    assert not DEFAULT_PROFILE.turn_thinking
+    provider = _ProfiledProvider([_text("Hi.")], load_profile("gemma-4-12b"))
+    AgentLoop(provider, tracer=_Records()).run("hi")
+    assert provider.thinking == [False]

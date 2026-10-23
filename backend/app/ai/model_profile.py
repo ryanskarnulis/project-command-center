@@ -14,7 +14,9 @@ with the model and nothing else:
   (#397) for the loop's tool-calling turns and for the limit summary (#399).
   Each cap must fit the completion reserve the context budget keeps free
   (``context_budget.COMPLETION_RESERVE_TOKENS``), or a capped call could
-  overflow the window.
+  overflow the window. ``[phases.turn]`` may also set ``thinking = true``: the
+  loop's turns then open the thinking channel (#417). Its tokens count against
+  the same cap. The summary never thinks.
 
 Loading is strict: an unknown key, a misspelt phase or a value of the wrong
 type is a :class:`ProfileError`, because a typo in a profile is a model quietly
@@ -84,6 +86,8 @@ class TurnPhase(_Strict):
     max_tokens: int = Field(
         default=DEFAULT_TURN_MAX_TOKENS, ge=1, le=context_budget.COMPLETION_RESERVE_TOKENS
     )
+    # The turn reasons before it answers (#417). Off unless a profile says so.
+    thinking: bool = False
 
 
 class SummaryPhase(_Strict):
@@ -117,6 +121,7 @@ class ModelProfile(BaseModel):
     thinking_kwarg: str | None = "enable_thinking"
     sampling: Sampling = Sampling()
     turn_max_tokens: int = DEFAULT_TURN_MAX_TOKENS
+    turn_thinking: bool = False
     summary_max_tokens: int = DEFAULT_SUMMARY_MAX_TOKENS
 
     def describe(self) -> dict[str, Any]:
@@ -127,6 +132,7 @@ class ModelProfile(BaseModel):
             "thinking_kwarg": self.thinking_kwarg,
             "sampling": self.sampling.wire(),
             "turn_max_tokens": self.turn_max_tokens,
+            "turn_thinking": self.turn_thinking,
             "summary_max_tokens": self.summary_max_tokens,
         }
 
@@ -150,6 +156,7 @@ def parse_profile(name: str, text: str, source: str) -> ModelProfile:
         thinking_kwarg=parsed.thinking_kwarg or None,
         sampling=parsed.sampling,
         turn_max_tokens=parsed.phases.turn.max_tokens,
+        turn_thinking=parsed.phases.turn.thinking,
         summary_max_tokens=parsed.phases.summary.max_tokens,
     )
 

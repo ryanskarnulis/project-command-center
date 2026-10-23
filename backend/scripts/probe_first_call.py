@@ -227,11 +227,12 @@ def arm_profile(arm: Arm, default_model: str) -> ModelProfile:
 
 @dataclass(frozen=True)
 class FirstCall:
-    """What the loop would send first: messages, tool offer, per-call cap."""
+    """What the loop would send first: messages, tool offer, per-call cap, thinking."""
 
     messages: tuple[dict[str, Any], ...]
     tools: tuple[ToolSpec, ...]
     max_tokens: int
+    enable_thinking: bool = False
 
 
 class _Recorder:
@@ -255,7 +256,10 @@ class _Recorder:
         if self.first is None:
             assert max_tokens is not None
             self.first = FirstCall(
-                tuple(copy.deepcopy(list(messages))), tuple(tools or ()), max_tokens
+                tuple(copy.deepcopy(list(messages))),
+                tuple(tools or ()),
+                max_tokens,
+                enable_thinking,
             )
         return ChatResult(content="ok", tool_calls=[], finish_reason="stop", usage=None)
 
@@ -294,7 +298,11 @@ def build_arm_call(
         ):
             raise ValueError(f"{arm.tools}: expected a JSON object of text overrides")
         tools = apply_tool_overrides(tools, overrides)
-    return FirstCall(tuple(messages), tuple(tools), call.max_tokens), profile, model
+    return (
+        FirstCall(tuple(messages), tuple(tools), call.max_tokens, call.enable_thinking),
+        profile,
+        model,
+    )
 
 
 # --- classification -----------------------------------------------------------
@@ -379,7 +387,12 @@ def take_sample(
     tokens: int | None = None
     provider = LlamaCppProvider(base_url, model, client=client, profile=profile, seed=seed)
     try:
-        result = provider.chat(call.messages, tools=call.tools, max_tokens=call.max_tokens)
+        result = provider.chat(
+            call.messages,
+            tools=call.tools,
+            enable_thinking=call.enable_thinking,
+            max_tokens=call.max_tokens,
+        )
         klass = label(classify(result))
         finish = result.finish_reason
         tokens = result.usage.completion_tokens if result.usage else None
@@ -486,7 +499,12 @@ def dry_run_payload(arm: Arm, item: Item, default_model: str, seed: int | None) 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         LlamaCppProvider(
             "http://dry.run/v1", model, client=client, profile=profile, seed=seed
-        ).chat(call.messages, tools=call.tools, max_tokens=call.max_tokens)
+        ).chat(
+            call.messages,
+            tools=call.tools,
+            enable_thinking=call.enable_thinking,
+            max_tokens=call.max_tokens,
+        )
     payload: dict[str, Any] = json.loads(captured[0])
     return payload
 

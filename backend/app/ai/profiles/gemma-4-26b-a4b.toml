@@ -1,0 +1,22 @@
+# gemma-4-26b-a4b: #417 bake-off candidate. The 26B-A4B MoE sibling of
+# gemma-4-12b (same family, chat template and thinking toggle), served by
+# ../llama-swap/config.yaml's entry of the same name (QAT UD-Q4_K_XL,
+# -ncmoe 17 + MTP drafter, ~60 tok/s) and chess's brain since chess#433.
+# Starting values from ../chess/backend/src/chessapp/data/profiles/; replace
+# each with what the bake-off measures.
+thinking_kwarg = "enable_thinking"
+
+# Gemma 4's published sampling, as the GGUF carries it and gemma-4-12b uses.
+[sampling]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+
+# Thinking off, as gemma-4-12b ships. Chess's planner screen scored the 26B
+# 50/52 thinking against 44/52 for the 12B without (chess#298); its thoughts
+# ran a median 418 tokens and 1,772 at the longest, inside this cap.
+[phases.turn]
+max_tokens = 2048
+
+[phases.summary]
+max_tokens = 512

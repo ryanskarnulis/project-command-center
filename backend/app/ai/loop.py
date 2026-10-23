@@ -453,6 +453,7 @@ class AgentLoop:
         self._max_corrections = max_corrections
         self._max_tokens = max_tokens
         self._summary_max_tokens = min(max_tokens, summary_cap)
+        self._turn_thinking = self._profile is not None and self._profile.turn_thinking
         self._max_tool_calls = max_tool_calls
         self._tracer = tracer if tracer is not None else run_trace.tracer_from_settings()
         self._searcher = searcher if searcher is not None else gather.default_searcher()
@@ -597,6 +598,7 @@ class AgentLoop:
         tools: Sequence[ToolSpec] | None,
         max_tokens: int,
         timeout: float | None,
+        enable_thinking: bool = False,
     ) -> ChatResult:
         """One provider call, metered into the run's trace however it ends.
 
@@ -611,7 +613,11 @@ class AgentLoop:
             # (#401), which keys each captured call to this trace entry.
             with model_phase(phase):
                 result = self._provider.chat(
-                    messages, tools=tools, max_tokens=max_tokens, timeout=timeout
+                    messages,
+                    tools=tools,
+                    enable_thinking=enable_thinking,
+                    max_tokens=max_tokens,
+                    timeout=timeout,
                 )
         except ToolCallArgumentsError as exc:
             call.status = "bad_args"
@@ -725,6 +731,7 @@ class AgentLoop:
                     tools=specs,
                     max_tokens=self._max_tokens,
                     timeout=call_timeout,
+                    enable_thinking=self._turn_thinking,
                 )
             except ToolCallArgumentsError as exc:
                 # The turn is unusable — its tool calls can't round-trip into
