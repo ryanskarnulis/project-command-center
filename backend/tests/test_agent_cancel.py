@@ -63,6 +63,7 @@ class _StopDuringChat(ScriptedProvider):
         enable_thinking: bool = False,
         max_tokens: int | None = None,
         timeout: float | None = None,
+        temperature: float | None = None,
     ) -> ChatResult:
         result = super().chat(messages, tools=tools, timeout=timeout)
         if len(self.requests) == self._on_call:
@@ -203,6 +204,7 @@ class _GatedProvider(ScriptedProvider):
         enable_thinking: bool = False,
         max_tokens: int | None = None,
         timeout: float | None = None,
+        temperature: float | None = None,
     ) -> ChatResult:
         if not self.requests:
             self.in_call.set()

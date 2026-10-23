@@ -214,9 +214,11 @@ class _ProfiledProvider(ScriptedProvider):
         self.profile = profile
         self.model = profile.name
         self.thinking: list[bool] = []
+        self.temperatures: list[float | None] = []
 
     def chat(self, messages: Any, *, enable_thinking: bool = False, **kwargs: Any) -> Any:
         self.thinking.append(enable_thinking)
+        self.temperatures.append(kwargs.get("temperature"))
         return super().chat(messages, **kwargs)
 
 
@@ -278,3 +280,16 @@ def test_the_default_and_gemma_profiles_never_think(tool_db: sessionmaker[Sessio
     provider = _ProfiledProvider([_text("Hi."), _text("Hey.")], load_profile("gemma-4-12b"))
     AgentLoop(provider, tracer=_Records()).run("hi")
     assert provider.thinking == [False, False]
+
+
+def test_a_planner_temperature_is_sent_on_planner_calls_only(
+    tool_db: sessionmaker[Session],
+) -> None:
+    # #418: `[phases.turn] temperature` cools the planner; the narrator keeps
+    # `[sampling]`'s, which the provider sends when no override is given.
+    cool = parse_profile("cool", "[phases.turn]\ntemperature = 0.3\n", "test")
+    assert cool.describe()["turn_temperature"] == 0.3
+    provider = _ProfiledProvider([_calls(("list_projects", {})), _text("None.")], cool)
+    AgentLoop(provider, tracer=_Records()).run("What projects?")
+    assert provider.temperatures == [0.3, 0.3, None]
+    assert load_profile("gemma-4-12b").turn_temperature is None

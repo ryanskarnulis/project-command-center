@@ -363,6 +363,7 @@ class ChatProvider(Protocol):
         enable_thinking: bool = False,
         max_tokens: int | None = None,
         timeout: float | None = None,
+        temperature: float | None = None,
     ) -> ChatResult: ...
 
 
@@ -496,6 +497,9 @@ class AgentLoop:
         self._max_tokens = max_tokens
         self._narrator_max_tokens = min(max_tokens, narrator_cap)
         self._turn_thinking = self._profile is not None and self._profile.turn_thinking
+        self._turn_temperature = (
+            None if self._profile is None else self._profile.turn_temperature
+        )
         self._max_tool_calls = max_tool_calls
         self._tracer = tracer if tracer is not None else run_trace.tracer_from_settings()
         self._searcher = searcher if searcher is not None else gather.default_searcher()
@@ -641,6 +645,7 @@ class AgentLoop:
         max_tokens: int,
         timeout: float | None,
         enable_thinking: bool = False,
+        temperature: float | None = None,
     ) -> ChatResult:
         """One provider call, metered into the run's trace however it ends.
 
@@ -660,6 +665,7 @@ class AgentLoop:
                     enable_thinking=enable_thinking,
                     max_tokens=max_tokens,
                     timeout=timeout,
+                    temperature=temperature,
                 )
         except ToolCallArgumentsError as exc:
             call.status = "bad_args"
@@ -769,6 +775,7 @@ class AgentLoop:
                     max_tokens=self._max_tokens,
                     timeout=call_timeout,
                     enable_thinking=self._turn_thinking,
+                    temperature=self._turn_temperature,
                 )
             except ToolCallArgumentsError as exc:
                 # The turn is unusable — its tool calls can't round-trip into

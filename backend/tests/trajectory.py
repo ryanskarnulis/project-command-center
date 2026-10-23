@@ -699,6 +699,7 @@ class WalkProvider:
         enable_thinking: bool = False,
         max_tokens: int | None = None,
         timeout: float | None = None,
+        temperature: float | None = None,
     ) -> ChatResult:
         run = self._harness.run
         assert run is not None, "the provider was called outside a step"

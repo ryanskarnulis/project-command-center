@@ -114,12 +114,15 @@ def test_seed_is_paired_across_arms_and_optional() -> None:
     assert probe.seed_for(None, 3) is None
 
 
-def test_arm_profile_lays_temperature_over_the_profile() -> None:
+def test_arm_temperature_is_the_planner_s_and_reaches_the_wire() -> None:
     base = load_profile(MODEL)
     arm = probe.arm_profile(probe.Arm("t", temperature=0.1), MODEL)
-    assert arm.sampling.temperature == 0.1
-    assert arm.sampling.top_p == base.sampling.top_p
+    assert arm.turn_temperature == 0.1
+    assert arm.sampling == base.sampling
     assert probe.arm_profile(probe.Arm("c"), MODEL) == base
+    item = probe.Item("i", "add a task to buy milk")
+    payload = probe.dry_run_payload(probe.Arm("t", temperature=0.1), item, MODEL, seed=None)
+    assert payload["temperature"] == 0.1 and payload["top_p"] == base.sampling.top_p
 
 
 # --- overrides ----------------------------------------------------------------

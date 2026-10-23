@@ -17,7 +17,9 @@ with the model and nothing else:
   (``context_budget.COMPLETION_RESERVE_TOKENS``), or a capped call could
   overflow the window. ``[phases.turn]`` may also set ``thinking = true``: the
   loop's turns then open the thinking channel (#417). Its tokens count against
-  the same cap. The narrator never thinks.
+  the same cap. The narrator never thinks. ``[phases.turn] temperature``
+  (#418) sets the planner's calls apart from ``[sampling]``'s, which the
+  narrator keeps.
 
 Loading is strict: an unknown key, a misspelt phase or a value of the wrong
 type is a :class:`ProfileError`, because a typo in a profile is a model quietly
@@ -90,6 +92,9 @@ class TurnPhase(_Strict):
     )
     # The turn reasons before it answers (#417). Off unless a profile says so.
     thinking: bool = False
+    # The planner's own temperature (#418), over ``[sampling]``'s for its
+    # calls only; the narrator keeps ``[sampling]``'s. Unset: the same.
+    temperature: float | None = Field(default=None, ge=0)
 
 
 class NarratorPhase(_Strict):
@@ -124,6 +129,7 @@ class ModelProfile(BaseModel):
     sampling: Sampling = Sampling()
     turn_max_tokens: int = DEFAULT_TURN_MAX_TOKENS
     turn_thinking: bool = False
+    turn_temperature: float | None = None
     narrator_max_tokens: int = DEFAULT_NARRATOR_MAX_TOKENS
 
     def describe(self) -> dict[str, Any]:
@@ -135,6 +141,7 @@ class ModelProfile(BaseModel):
             "sampling": self.sampling.wire(),
             "turn_max_tokens": self.turn_max_tokens,
             "turn_thinking": self.turn_thinking,
+            "turn_temperature": self.turn_temperature,
             "narrator_max_tokens": self.narrator_max_tokens,
         }
 
@@ -159,6 +166,7 @@ def parse_profile(name: str, text: str, source: str) -> ModelProfile:
         sampling=parsed.sampling,
         turn_max_tokens=parsed.phases.turn.max_tokens,
         turn_thinking=parsed.phases.turn.thinking,
+        turn_temperature=parsed.phases.turn.temperature,
         narrator_max_tokens=parsed.phases.narrator.max_tokens,
     )
 

@@ -55,6 +55,7 @@ class ScriptedProvider:
         enable_thinking: bool = False,
         max_tokens: int | None = None,
         timeout: float | None = None,
+        temperature: float | None = None,
     ) -> ChatResult:
         self.requests.append(
             {
