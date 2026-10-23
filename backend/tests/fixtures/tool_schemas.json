@@ -367,6 +367,7 @@
                 }
               ],
               "default": null,
+              "description": "Hide the task from the Focus day plan until this date. Not its due date: to reschedule or push a task, set due_date.",
               "title": "Deferred Until"
             },
             "project_id": {
@@ -2547,6 +2548,7 @@
               }
             ],
             "default": null,
+            "description": "Hide the task from the Focus day plan until this date. Not its due date: to reschedule or push a task, set due_date.",
             "title": "Deferred Until"
           },
           "project_id": {

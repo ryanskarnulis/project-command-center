@@ -122,7 +122,9 @@ class Evidence:
     ``action_counts`` the numbers of writes (per tool, and in all) and the
     counts a write's own result carries (#471: ``restored_task_count``, the
     length of a list it returned), never its ids;
-    ``read_tools`` the read tools that answered.
+    ``read_tools`` the read tools that answered; ``noop_moves`` the
+    successful ``update_task`` calls that changed nothing but set the due
+    date the task already had (#484), as far as the run saw it.
     """
 
     calls: tuple[ToolCall, ...]
@@ -136,6 +138,7 @@ class Evidence:
     action_counts: frozenset[int] = frozenset()
     read_tools: frozenset[str] = frozenset()
     closed_seen: bool = False
+    noop_moves: int = 0
 
     @classmethod
     def of(
@@ -154,7 +157,17 @@ class Evidence:
         result_counts: set[int] = set()
         read_tools: set[str] = set()
         closed_seen = False
+        # Each task's due date as the run last saw it: shown rows first, then
+        # every result in call order.
+        due_seen: dict[int, Any] = {
+            row["task_id"]: row.get("due")
+            for row in shown
+            if isinstance(row.get("task_id"), int) and "due" in row
+        }
+        noop_moves = 0
         for call in calls:
+            if call.ok and _is_noop_move(call, due_seen):
+                noop_moves += 1
             if not call.ok:
                 for node in _walk(dict(call.refusal or {})):
                     if isinstance(node, Mapping):
@@ -180,6 +193,8 @@ class Evidence:
                     counts.add(len(node))
                     counts.update(_group_counts(node))
                 elif isinstance(node, Mapping):
+                    if isinstance(node.get("id"), int) and "due_date" in node:
+                        due_seen[node["id"]] = node["due_date"]
                     name = node.get("title") or node.get("name")
                     if isinstance(name, str):
                         titles.add(_norm(name))
@@ -206,7 +221,15 @@ class Evidence:
             action_counts=frozenset(action_counts),
             read_tools=frozenset(read_tools),
             closed_seen=closed_seen,
+            noop_moves=noop_moves,
         )
+
+    def moved(self) -> bool:
+        """A move tool wrote, not counting an ``update_task`` that left the
+        due date where it was."""
+        if self.writes["update_task"] > self.noop_moves:
+            return True
+        return self.wrote(MOVE_TOOLS - {"update_task"})
 
     def wrote(self, tools: Iterable[str]) -> bool:
         return any(self.writes[tool] for tool in tools)
@@ -234,6 +257,21 @@ class Evidence:
         return any(
             said == text or said in text or (len(text) >= 4 and text in said) for text in self.texts
         )
+
+
+def _is_noop_move(call: ToolCall, due_seen: Mapping[int, Any]) -> bool:
+    """An ``update_task`` whose only change sets the due date the run last saw
+    the task carry. A task the run never saw is never a no-op (lenient)."""
+    if call.name != "update_task":
+        return False
+    # Flat since #411; a run recorded before it nests them in ``changes``.
+    nested = call.args.get("changes")
+    changes = dict(nested if isinstance(nested, Mapping) else call.args)
+    task_id = call.args.get("task_id")
+    changes.pop("task_id", None)
+    if set(changes) != {"due_date"} or not isinstance(task_id, int) or task_id not in due_seen:
+        return False
+    return bool(changes["due_date"] == due_seen[task_id])
 
 
 def _result_counts(value: Any) -> set[int]:
@@ -455,6 +493,12 @@ def _set_on_create(tools: frozenset[str]) -> Check:
     return check
 
 
+def _moved(match: re.Match[str], evidence: Evidence, sentence: str) -> bool:
+    if evidence.moved():
+        return True
+    return match[0].lower().startswith(("set", "is", "are")) and evidence.wrote(CREATE_TOOLS)
+
+
 def _trashed(match: re.Match[str], evidence: Evidence, sentence: str) -> bool:
     word = match[0].lower()
     if match["state"] is not None:
@@ -583,7 +627,7 @@ _FAMILIES: tuple[_Family, ...] = (
                   | (?: changed | set | updated ) \s+ (?: the | its | their ) \s+ due \s+ dates?
                   | (?: is | are ) \s+ now \s+ due )\b"""
         ),
-        _set_on_create(MOVE_TOOLS),
+        _moved,
     ),
     _Family(
         "updated",

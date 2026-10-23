@@ -83,7 +83,12 @@ class TaskUpdate(MutationModel):
     due_date: date | None = None
     # Day-plan snooze (Focus page "defer"): the scheduler skips the task while
     # this is after the plan's target date. Explicit null clears the deferral.
-    deferred_until: date | None = None
+    # Described for the agent, which read "push it to Friday" as a deferral (#484).
+    deferred_until: date | None = Field(
+        default=None,
+        description="Hide the task from the Focus day plan until this date. Not its due "
+        "date: to reschedule or push a task, set due_date.",
+    )
     project_id: EntityId | None = None
     parent_task_id: EntityId | None = None
     estimated_minutes: PositiveMinutes | None = None
