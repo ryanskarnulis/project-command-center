@@ -126,6 +126,28 @@ tok/s shallow → ~41 tok/s at depth; prefill ~446–680 tok/s; cold load ~100 s
 worst case (the provider timeout tolerates it). Containers reach it via
 `host.docker.internal:8200`.
 
+**Model choice: gemma-4-12b stays (#417, 2026-10-23).** Bake-off on one
+server, paired seeds (417), alternating blocks, each arm against the shipped
+12B in the same campaign (`eval_campaign.sh`): the gate at 2 blocks x 5, the
+frontier's held-out split at 2 blocks (80 samples).
+
+| arm | gate | frontier vs 12B | frontier run, median / p90 |
+| --- | --- | --- | --- |
+| gemma-4-12b, thinking off (shipped) | 475–478/480 | — | 2.9 s / 6.0 s |
+| gemma-4-12b, thinking on | 466/480 | 44 vs 54 | 15.5 s / 42.5 s |
+| gemma-4-26b-a4b, thinking off | 461/480; `followup_high_priority[live_like]` 2/10 (p=0.008) | — | — |
+| gemma-4-26b-a4b, thinking on | 470/480, nothing significant | **62 vs 51**; `plan_week` 6/10 vs 0/10 (p=0.03) | 17.8 s / 37.1 s |
+| qwen38-27b, thinking off | not run | 39 vs 49; `plan_week` 10/10, the three `poisoned_*` 2/30 vs 28/30 (`answered_from_memory`) | 17.9 s / 90.9 s |
+
+The 12B holds the gate at its ceiling, so only the frontier can show a
+stronger model, and only the thinking 26B did, on one scenario, at ~6x the
+time on hard asks (~4x per gate block). Thinking does nothing for the 12B's
+gaps (`plan_week` 0/10 either way). A PCC-only switch would also trade the
+chess swap for one with conductor and music (both on the 12B), twice per
+conductor-delegated request. Revisit as a fleet move, or when the frontier
+gap grows: `[phases.turn] thinking` and both candidates' profiles are kept for
+that.
+
 ## Shipped architecture (pointers)
 
 - **Provider** `app/ai/providers/llamacpp.py`: OpenAI wire over httpx,
@@ -140,7 +162,9 @@ worst case (the provider timeout tolerates it). Containers reach it via
   out is left to the server), `thinking_kwarg` (the `chat_template_kwargs`
   key; empty sends no kwargs), and the per-call caps `[phases.turn]
   max_tokens` / `[phases.summary] max_tokens` (each at most the completion
-  reserve). Loading is strict — an unknown key, phase or mistyped value fails
+  reserve). `[phases.turn] thinking = true` (#417) opens the thinking channel
+  on the loop's turns, its tokens inside the same cap; the summary never
+  thinks, and no shipped profile sets it. Loading is strict — an unknown key, phase or mistyped value fails
   — and a model with no file runs on the built-in default (no sampling
   opinion, today's caps) with a `model_profile_missing` warning. The provider
   builds every request from its profile, the loop takes its caps from it, the

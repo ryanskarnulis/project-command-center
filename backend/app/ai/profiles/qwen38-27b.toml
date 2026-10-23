@@ -1,7 +1,11 @@
 # qwen38-27b: #417 bake-off candidate. Qwen3.8-27B, dense, served by
 # ../llama-swap/config.yaml's entry of the same name (GSQ-RCO IQ3_S, -ngl 48,
 # ~8 tok/s, prefill ~400 tok/s, one slot). Chess's "Deep" brain (chess#436).
-# Starting values from ../chess/backend/src/chessapp/data/profiles/.
+# Starting values from ../chess/backend/src/chessapp/data/profiles/. Not
+# shipped (#417): frontier held-out 39/80 vs the 12B's 49/80. Best of every arm
+# on plan_week (10/10) but 2/30 on the poisoned_* scenarios, where it trusts
+# a stale chat history and answers without a tool (`answered_from_memory`),
+# at ~6x the 12B's time per hard ask (p90 91 s).
 #
 # The llama-swap entry serves -c 32768, not the 131072 that
 # context_budget.MODEL_CONTEXT_TOKENS assumes. PCC's prefill budget (24,576)
