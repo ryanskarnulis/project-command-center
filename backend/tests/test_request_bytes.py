@@ -208,7 +208,9 @@ def test_the_canonical_run_covers_both_phases_tools_and_recall() -> None:
     assert [message["role"] for message in turns[3]["messages"]] == ["system", "user"]
     follow_up = turns[3]["messages"][1]["content"]
     assert 'The user said: "What projects do I have, and what is task 999?"' in follow_up
-    assert "The app's record of earlier runs" not in follow_up  # reads only
+    # The first run's read is remembered by what it found; its failed read not.
+    assert 'looked up then: list_projects {} -> found nothing' in follow_up
+    assert "get_task" not in follow_up
     assert follow_up.endswith("Check my projects again.")
     # The second narrator brief is a limit stop's, with the recall at its head.
     assert narrations[1]["messages"][1]["content"].startswith("Before this run:")

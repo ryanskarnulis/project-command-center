@@ -73,16 +73,37 @@ def test_a_run_with_no_reply_is_remembered_by_what_it_did() -> None:
     assert "The assistant said then (its words, not a record): nothing." in text
 
 
-def test_reads_are_left_out_of_the_record_found_or_not() -> None:
+def test_a_read_is_remembered_by_the_rows_it_found_and_a_failed_one_not_at_all() -> None:
+    """What a read found is what "the first one" and "undo that" point back at
+    (the rename/undo thread lost the old title without it)."""
     history = [
-        _user("What's task 9?"),
+        _user("Find the furnace filters task"),
         _assistant(
-            "No such task.",
-            ToolCallRecord(tool="list_tasks", arguments={}, result="[]"),
+            "Found it.",
+            ToolCallRecord(
+                tool="search",
+                arguments={"query": "furnace filters"},
+                result=(
+                    '{"projects": [], "tasks": [{"kind": "task", "id": 1, '
+                    '"title": "Order new furnace filters", "project_id": 2}]}'
+                ),
+            ),
             ToolCallRecord(tool="get_task", arguments={"task_id": 9}, error="Task 9 not found"),
         ),
     ]
-    assert _record(history) == ()
+    (line,) = _record(history)
+    assert line == (
+        'looked up then: search {"query":"furnace filters"} -> '
+        'found 1: id 1 "Order new furnace filters" (asked: "Find the furnace filters task")'
+    )
+
+
+def test_an_empty_read_says_it_found_nothing() -> None:
+    history = [
+        _user("Anything in trash?"),
+        _assistant("Nope.", ToolCallRecord(tool="list_trash", arguments={}, result='{"tasks": []}')),
+    ]
+    assert _record(history)[0].startswith("looked up then: list_trash {} -> found nothing")
 
 
 def test_a_refused_write_is_in_the_record() -> None:

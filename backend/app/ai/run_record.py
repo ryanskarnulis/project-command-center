@@ -177,6 +177,38 @@ def answer_brief(result: str) -> str:
     return clip(result)
 
 
+def found_brief(result: str, *, limit: int = 8) -> str:
+    """What a read answered, as the rows it named: ``found 2: id 1 "A", id 4
+    "B"``, in the order it listed them, at most ``limit`` named. Reads answer
+    envelopes (``{"items": [...]}``, ``{"tasks": [...], "projects": [...]}``)
+    or a single row, so every object with an id and a title or name counts.
+    ``found nothing`` for an answer that names no row."""
+    try:
+        value = json.loads(result)
+    except ValueError:
+        return clip(result)
+    labels: list[str] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            label = _label(node) if "id" in node else ""
+            if label and ('"' in label):
+                labels.append(label)
+                return
+            for child in node.values():
+                walk(child)
+        elif isinstance(node, list):
+            for child in node:
+                walk(child)
+
+    walk(value)
+    if not labels:
+        return "found nothing"
+    shown = ", ".join(labels[:limit])
+    more = f" (+{len(labels) - limit} more)" if len(labels) > limit else ""
+    return f"found {len(labels)}: {shown}{more}"
+
+
 def _label(value: dict[str, Any]) -> str:
     """``id 12 "Buy milk"`` for a read model; a nested ``project`` is followed."""
     if "id" not in value and isinstance(value.get("project"), dict):

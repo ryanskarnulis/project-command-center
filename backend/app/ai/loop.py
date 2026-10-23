@@ -379,6 +379,8 @@ class _RunContext:
     earlier: str | None
     # The gather's section as the planner read it, or ``None``.
     gathered: str | None
+    # The state block the planner's run opened with (#412).
+    state: str
 
 
 class ToolCallRecord(BaseModel):
@@ -727,6 +729,7 @@ class AgentLoop:
             trace=trace,
             earlier=recall.section(earlier, recall.NARRATOR_REPLY_LABEL),
             gathered=matches,
+            state=block,
         )
         corrections = 0
         iterations = 0
@@ -1014,7 +1017,7 @@ class AgentLoop:
                 note=note,
                 gathered=ctx.gathered,
                 stop_reason=stop_reason,
-                today=date.today(),
+                state=ctx.state,
             ),
         )
         try:

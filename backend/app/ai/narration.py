@@ -10,7 +10,7 @@ narrator"), ported from chess's planner/narrator split (chess
 - **the narrator** is one further call, on :data:`NARRATOR_PROMPT` (a
   speaking contract plus global Glitch), offered **no tools**, and handed a
   brief (:func:`messages`): what came before the run (:mod:`app.ai.recall`),
-  the user's words, the run's record sorted by code (:mod:`app.ai.run_record`)
+  the state block, the user's words, the run's record sorted by code (:mod:`app.ai.run_record`)
   with what each call answered, the gathered matches, and the planner's note
   labelled as a reading. Its text is the reply. Being unable to act is what
   enforces "say only what the record shows".
@@ -26,10 +26,9 @@ Pure: builds the request, makes no call.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date
 from typing import TYPE_CHECKING, Any
 
-from app.ai import run_record, state_block
+from app.ai import run_record
 
 if TYPE_CHECKING:
     from app.ai.loop import ToolCallRecord
@@ -50,7 +49,8 @@ Rules:
 record does not list under "Done", and never invent one.
 - Something the user asked for that the record does not show as done was not \
 done: say so plainly.
-- Answer a question from what the record looked up, and from nothing else.
+- Answer a question from what the record looked up or the state block shows, \
+and from nothing else.
 - When the user has to choose or answer something, ask, and name the options.
 - Plain text. No tool-call syntax, no JSON."""
 
@@ -74,11 +74,14 @@ def brief(
     note: str | None,
     gathered: str | None,
     stop_reason: str,
-    today: date,
+    state: str,
 ) -> str:
-    """The narrator's one user message: the run handed over as data."""
+    """The narrator's one user message: the run handed over as data. ``state``
+    is the state block the planner's run opened with (#412): the app's facts
+    as of the run's start — the calendar, the projects' open counts — which
+    the planner may have answered from without a tool."""
     parts = [earlier] if earlier else []
-    parts.append(f"Today is {state_block.day(today)}.")
+    parts.append(state)
     parts.append(f"The user said:\n{user_message}")
     parts.append(
         "The record of this run (built by the app from the tool results):\n"

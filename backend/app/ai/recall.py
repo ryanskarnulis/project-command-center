@@ -7,9 +7,12 @@ narrator's brief. Ported from chess's ``conversation.Recall`` (chess#372,
 ``docs/turn-memory.md``), in the same three parts:
 
 1. **The app's record of earlier runs** — every write an earlier run made
-   (done) or had refused, from the tool calls stored with each assistant turn
-   (:mod:`app.ai.run_record` sorts them). Reads are left out, found or not:
-   what they answered is stale by now, and the tools re-read live state.
+   (done) or had refused, and the rows each read found (by id and title,
+   "as of then"), from the tool calls stored with each assistant turn
+   (:mod:`app.ai.run_record` sorts them). A read's rows are what a reference
+   points back at — "the first one", "undo that" after a rename — and they
+   used to live only in the replies; their fields are stale, and the tools
+   re-read live state. A read that failed is left out.
 2. **What the user asked earlier, in their own words** — every user turn but
    the last exchange's, newest kept under a size cap with a count of what went.
 3. **The last exchange, whole** — what "it", "the first one" and "the second
@@ -71,10 +74,13 @@ class Recall:
         assistant turn, the run's ``tool_calls`` as stored
         (``ToolCallRecord.model_dump()``). ``content`` may be ``None`` — a run
         that ended without a reply still did what its record shows."""
-        last = _last_exchange(history)
+        at = _last_exchange_at(history)
+        last = None
+        if at is not None:
+            last = (str(history[at - 1]["content"] or ""), history[at].get("content"))
         return cls(
             record=tuple(_earlier_record(history)),
-            requests=tuple(_requests(history, skip_last=last is not None)),
+            requests=tuple(_requests(history, skip=None if at is None else at - 1)),
             last=last,
         )
 
@@ -125,32 +131,32 @@ def _truncate(text: str, limit: int) -> str:
     return f"{text[:cut].rstrip() if cut > 0 else text[:limit]}…"
 
 
-def _last_exchange(history: Sequence[dict[str, Any]]) -> tuple[str, str | None] | None:
-    """The newest (user words, reply) pair; ``None`` before there is one."""
+def _last_exchange_at(history: Sequence[dict[str, Any]]) -> int | None:
+    """Where the newest reply that answers a user turn sits; ``None`` before
+    there is one."""
     for index in range(len(history) - 1, 0, -1):
         if history[index]["role"] == "assistant" and history[index - 1]["role"] == "user":
-            return str(history[index - 1]["content"] or ""), history[index].get("content")
+            return index
     return None
 
 
-def _requests(history: Sequence[dict[str, Any]], *, skip_last: bool) -> list[str]:
-    """The user's words from every turn but the last exchange's, oldest first.
-    Past the cap the oldest go, and the first line says how many, because a
-    memory that quietly forgets reads like one that never heard."""
+def _requests(history: Sequence[dict[str, Any]], *, skip: int | None) -> list[str]:
+    """The user's words from every turn but the last exchange's (``skip``),
+    oldest first. Past the cap the oldest go, and the first line says how
+    many, because a memory that quietly forgets reads like one that never
+    heard."""
     users = [
         index
         for index, message in enumerate(history)
-        if message["role"] == "user" and message.get("content")
+        if message["role"] == "user" and message.get("content") and index != skip
     ]
-    if skip_last:
-        last_reply = max(i for i, m in enumerate(history) if m["role"] == "assistant")
-        users = [index for index in users if index != last_reply - 1]
     requests = [_truncate(_flat(str(history[index]["content"])), REQUEST_CHARS) for index in users]
     return _newest_within(requests, REQUESTS_MAX_CHARS, "earlier requests")
 
 
 def _earlier_record(history: Sequence[dict[str, Any]]) -> list[str]:
-    """One line per write an earlier run made or had refused, oldest first."""
+    """One line per write an earlier run made or had refused, and per read
+    that found something, oldest first."""
     from app.ai.loop import ToolCallRecord
 
     lines: list[str] = []
@@ -162,14 +168,17 @@ def _earlier_record(history: Sequence[dict[str, Any]]) -> list[str]:
         for stored in message.get("tool_calls") or []:
             record = ToolCallRecord.model_validate(stored)
             outcome = run_record.classify(record)
-            # Writes only: a read's answer (or its "not found") is stale now.
-            if outcome not in ("done", "refused") or record.tool in run_record.READ_TOOLS:
-                continue
             call = f"{record.tool} {run_record.clip(_compact(record.arguments))}"
-            if outcome == "done":
+            if outcome == "looked_up":
+                found = run_record.found_brief(record.result or "")
+                line = f"looked up then: {call} -> {run_record.clip(found, 300)}"
+            elif outcome == "done":
                 line = f"{call} -> {run_record.answer_brief(record.result or '')}"
-            else:
+            elif outcome == "refused" and record.tool not in run_record.READ_TOOLS:
                 line = f"refused: {call} -> {run_record.clip(record.error or '')}"
+            else:
+                # Never ran, or a read that failed: nothing to point back at.
+                continue
             lines.append(f'{line} (asked: "{_truncate(_flat(asked), 80)}")')
     return _newest_within(lines, RECORD_MAX_CHARS, "earlier lines")
 
