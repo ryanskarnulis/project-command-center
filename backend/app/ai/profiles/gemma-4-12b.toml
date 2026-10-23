@@ -19,6 +19,11 @@ top_k = 64
 # cap is the completion reserve the context budget keeps free.
 [phases.turn]
 max_tokens = 2048
+# The planner picks tools cooler than Glitch speaks (#418, as chess's planner
+# does: wrong picks 6/40 at 1.0, 0/40 at 0.3). Full gate, 2 paired blocks,
+# 2026-10-23: 470/480 at 0.3 vs 466/480 at 1.0, every discordant pair (4)
+# 0.3's; no single scenario significant. The narrator keeps [sampling]'s 1.0.
+temperature = 0.3
 
 # The narrator writes the reply the single-phase turn used to (#418), at the
 # turn's cap.

@@ -192,8 +192,12 @@ def test_the_canonical_run_covers_both_phases_tools_and_recall() -> None:
     assert all(body["tool_choice"] == "auto" for body in turns)
     # Every request carries the model profile's settings (#402).
     profile = load_profile(_MODEL)
+    # The planner's calls at its own temperature (#418), the narrator's at
+    # the sampling's.
+    planner_sampling = {**profile.sampling.wire(), "temperature": profile.turn_temperature}
     for body in bodies:
-        assert {key: body[key] for key in profile.sampling.wire()} == profile.sampling.wire()
+        expected = planner_sampling if "tools" in body else profile.sampling.wire()
+        assert {key: body[key] for key in expected} == expected
         assert body["chat_template_kwargs"] == {profile.thinking_kwarg: False}
     assert {body["max_tokens"] for body in turns} == {profile.turn_max_tokens}
     assert {body["max_tokens"] for body in narrations} == {profile.narrator_max_tokens}

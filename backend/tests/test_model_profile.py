@@ -292,4 +292,4 @@ def test_a_planner_temperature_is_sent_on_planner_calls_only(
     provider = _ProfiledProvider([_calls(("list_projects", {})), _text("None.")], cool)
     AgentLoop(provider, tracer=_Records()).run("What projects?")
     assert provider.temperatures == [0.3, 0.3, None]
-    assert load_profile("gemma-4-12b").turn_temperature is None
+    assert load_profile("gemma-4-12b").turn_temperature == 0.3
