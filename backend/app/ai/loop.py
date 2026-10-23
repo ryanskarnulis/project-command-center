@@ -199,9 +199,33 @@ def resolve_actor(header_value: str | None) -> str:
 
 # The planner's contract. Upholds the standard's invariants: tools-only
 # action, no invented results, deterministic truth. Clarify-on-ambiguity is
-# not a prompt line (see below; #420). Until #418's re-screen it is #416's
-# single-phase prompt with its last line turned from a reply into a handoff
-# note: the planner never speaks to the user.
+# not a prompt line (see below; #420). It is #416's single-phase prompt minus
+# Glitch, with its last line turned from a reply into a handoff note: the
+# planner never speaks to the user.
+#
+# #418 re-screened each line in operational voice once the split had made
+# this prompt tools-only, the condition under which chess's operational rules
+# held (paired campaigns vs this wording, gemma-4-12b, planner at 0.3, 2
+# blocks of 5, seed 418, 2026-10-23; docs/agent-design.md). No rewording beat
+# it, so every line stays:
+# - opening → "You turn the user's words into tool calls … You never speak to
+#   the user": flat (read_only_count, honest_about_missing,
+#   create_task_with_fields, find_and_complete, 10/10 on both);
+# - ids/dates → "Use an id only when the state block, a possible match or a
+#   tool result in this run showed it … Take every date from its calendar":
+#   date_next_friday 10/10 → 0/10 (p=0.002), the rest flat. #416's
+#   regression again, split or not;
+# - matches → "One clearly the task meant → act on it … None clearly meant →
+#   search": flat (find_and_complete, misfire_edit_among_similar,
+#   focus_skip_series, dependency_add);
+# - specific tool → "To finish a task → complete_task. To change its fields →
+#   update_task": flat on six scenarios (#416's probe found it 5/10 on
+#   "make the quarterly report due next Friday", which no gate scenario asks);
+# - refusal → "\"retry\": \"different_args\" → fix the arguments …": flat
+#   (misfire_complete_parent, honest_about_missing,
+#   misfire_subtask_under_parent, dependency_remove).
+# The gate holds these scenarios at their ceiling either way, so "flat" means
+# no evidence for a change, not evidence against one.
 #
 # What survived, and why (#416: probe screens, then paired campaigns vs main
 # on gemma-4-12b, 2026-10-22; numbers in docs/agent-design.md). Each line

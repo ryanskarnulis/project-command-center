@@ -192,7 +192,9 @@ def test_control_arm_request_is_what_the_loop_sends() -> None:
     assert payload["tools"] == [spec.to_wire() for spec in registry.tool_specs()]
     assert payload["max_tokens"] == profile.turn_max_tokens
     assert payload["model"] == MODEL and payload["seed"] == 7
-    for key, value in profile.sampling.wire().items():
+    # The first call is the planner's, at its own temperature (#418).
+    planner = {**profile.sampling.wire(), "temperature": profile.turn_temperature}
+    for key, value in planner.items():
         assert payload[key] == value
 
 

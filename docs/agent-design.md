@@ -217,7 +217,47 @@ that.
   chars), the user's earlier words (1,500), and the last exchange whole
   (1,200 each side), its reply labelled "its words, not a record" (to the
   narrator, "your words"). This is aimed at the frontier's `poisoned_*`
-  family: a false "it's done" is no longer the model's own past turn.
+  family: a false "it's done" is no longer the model's own past turn. The
+  record keeps what earlier reads *found* too, by id and title ("looked up
+  then"): that is what "undo that" after a rename and "the first one" point
+  back at, and with chat turns gone it lived nowhere else. Leaving reads
+  out took `reference_rename_then_undo` to 0/5, since the old title was in a
+  reply two turns back. The narrator's brief carries the state block, because
+  the planner may answer from it without a tool (`read_only_count` 0/5 without
+  it).
+
+  **Planner temperature** (`[phases.turn] temperature`): the planner's calls
+  run at 0.3, the narrator's at the profile's 1.0, as in chess (wrong picks
+  6/40 at 1.0, 0/40 at 0.3).
+
+  **Measured** (2026-10-23, gemma-4-12b, paired campaigns, seed 418, 2 blocks
+  of 5):
+  - Split vs main, on 13 history and reply-graded gate scenarios: flat, with
+    no scenario significant either way. `read_only_count` 10/10 vs 10/10,
+    `reference_rename_then_undo` 9/10 vs 10/10, `long_reschedule[live_like]`
+    10/10 vs 9/10, `date_next_friday` 9/10 vs 8/10.
+  - Split vs main, frontier held-out: `poisoned_reschedule` 10/10 vs 9/10,
+    `poisoned_followup` 9/10 vs 8/10, `poisoned_complete` 10/10 on both;
+    `ambiguous_then_pick` and `misheard_push` 0/10 on both. Main had already
+    climbed from the #408 baseline (0–3/5) on the poisoned family, so the
+    split had little room to show there.
+  - Planner at 0.3 vs 1.0, full gate: 470/480 vs 466/480. Every discordant
+    pair (4) went to 0.3, and no single scenario was significant.
+  - `reference_first_to_friday` was 0/10 on every arm, main included: the
+    run was on a Friday (#481).
+  - Cost: one more call per run, about 0.6 s. Both system prompts stay
+    cached (traced: the planner's ~3,570-token prefix is a cache hit right
+    after a narrator call, and so is the narrator's own system prompt).
+
+  - Per-line re-screen of the planner prompt in operational voice, each
+    rewording against this wording on the scenarios its line governs. Four
+    were flat at the gate's ceiling. The ids/dates rewording took
+    `date_next_friday` 10/10 → 0/10 (p=0.002), #416's regression again. So
+    every line keeps #416's wording; per-line numbers are beside
+    `PLANNER_PROMPT` in `app/ai/loop.py`.
+
+  Adopted for structural honesty (the phase that speaks cannot act) and as
+  the base for #420's clarification tool, not for a measured gain.
 
   **Limit stops say what they did** (#399): when a run ends `max_iterations`,
   `correction_limit`, `truncated`, `no_progress` or `tool_call_limit` and at
