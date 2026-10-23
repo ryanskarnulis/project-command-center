@@ -2,7 +2,7 @@
 """Follow every model call's exact context while the agent runs (#401).
 
     python backend/scripts/watch_context.py CONTEXT.jsonl [--trace AGENT.jsonl]
-        [--phase turn] [--json] [--from-start]
+        [--phase planner] [--json] [--from-start]
 
 Tails the file ``PCC_CONTEXT_PATH`` writes (``app/ai/context_capture.py``;
 layout in ``docs/agent-context-capture.md``) and prints each model call as it
@@ -17,7 +17,7 @@ pretty-printing. Separators and headers are the only additions, and the
 outcome block (read from the trace, already a summary) is the only formatted
 part. Standard library only: it needs no venv and does not import the app.
 
-``--phase`` follows one phase (``turn`` or ``summary``); ``--json`` prints the
+``--phase`` follows one phase (``planner`` or ``narrator``); ``--json`` prints the
 request body instead of the rendered prompt; ``--from-start`` replays the
 files from the top instead of waiting for new lines.
 """
@@ -134,9 +134,16 @@ def render_run(record: dict[str, Any]) -> str:
         lines.append(f"tool {tool.get('name')} {args} → {_clip(answer_text)}\n")
     if record.get("error"):
         lines.append(f"error: {record['error']}\n")
+    if record.get("note") is not None:
+        lines.append(f"note: {record['note']}\n")
     reply = record.get("reply")
-    summarised = " (limit summary)" if record.get("summarised") else ""
-    lines.append(f"reply{summarised}: {reply if reply is not None else '—'}\n")
+    if record.get("summarised"):  # schema <= 3
+        source = " (limit summary)"
+    elif "narrated" in record and not record["narrated"] and reply is not None:
+        source = " (the planner's note)"
+    else:
+        source = ""
+    lines.append(f"reply{source}: {reply if reply is not None else '—'}\n")
     return "".join(lines)
 
 
@@ -205,7 +212,7 @@ def main(argv: list[str] | None = None, out: TextIO = sys.stdout) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     parser.add_argument("context", type=Path, help="the PCC_CONTEXT_PATH file")
     parser.add_argument("--trace", type=Path, help="the PCC_TRACE_PATH file")
-    parser.add_argument("--phase", help="follow one phase only (turn or summary)")
+    parser.add_argument("--phase", help="follow one phase only (planner or narrator)")
     parser.add_argument(
         "--json", action="store_true", help="print the request JSON, not the prompt"
     )

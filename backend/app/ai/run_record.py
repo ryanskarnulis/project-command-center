@@ -1,11 +1,9 @@
-"""The run record: what a stopped run did, built by code from its tool calls.
+"""The run record: what a run did, built by code from its tool calls.
 
-When the loop stops at a limit (#399) — out of turns, out of corrections, a
-cut-off reply, a stall, the tool-call cap — the model never got to write its
-closing reply. Rather than leave the user (or a spoken reply, or a conductor
-delegate) with nothing, the loop makes one tool-free call that reads *this*
-record and says what the run did. The record is the source of the claims, not
-the model's earlier words: every :class:`ToolCallRecord` is sorted here into
+The narrator (#418, :mod:`app.ai.narration`) speaks from this record, not from
+the planner's words, and so does a limit stop (#399): out of turns, out of
+corrections, a cut-off reply, a stall, the tool-call cap. Every
+:class:`ToolCallRecord` is sorted here into
 
 - **done** — a write that came back with a result;
 - **refused** — a call the service layer rejected (its reason attached);
@@ -14,8 +12,10 @@ the model's earlier words: every :class:`ToolCallRecord` is sorted here into
   arguments, an unknown tool, or one the deadline, a Stop or the tool-call
   cap kept from starting.
 
-and rendered with an explicit "Done: nothing." when nothing was, followed by
-:data:`LIMIT_NOTE`: whatever the record does not show as done was not done.
+and rendered with an explicit "Done: nothing." when nothing was. A limit stop
+adds :data:`LIMIT_NOTE`: whatever the record does not show as done was not
+done. Earlier runs' records reach the next run's prompts through
+:mod:`app.ai.recall`.
 
 Borrowed from chess's typed handoff (``chessapp/handoff.py``) and its budget
 stop (``_BUDGET_NOTE`` / ``_budget_stop`` in ``llama_brain.py``). Pure: no
@@ -26,10 +26,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from datetime import date
 from typing import TYPE_CHECKING, Any, Literal
 
-from app.ai import state_block
 from app.tools import registry
 from app.tools.registry import UnknownToolError
 
@@ -38,8 +36,8 @@ if TYPE_CHECKING:
 
 # The tools that only read, from the registry's ``read_only`` marking. A tool
 # added without the marking counts as a write, so it fails towards "done",
-# which the user can see and undo, rather than towards "looked up", which the
-# summary would then leave out.
+# which the user can see and undo, rather than towards "looked up", which
+# would then read as nothing changed.
 READ_TOOLS = registry.read_only_tool_names()
 
 Outcome = Literal["done", "refused", "looked_up", "not_run"]
@@ -52,8 +50,14 @@ NOT_RUN_PREFIX = "not run: "
 INVALID_ARGUMENTS_PREFIX = "Invalid arguments: "
 
 # How much of one call's arguments or answer the record carries. The record is
-# a summary input, not a transcript: enough to name what was touched.
+# a brief, not a transcript: enough to name what was touched.
 _MAX_FIELD_CHARS = 160
+
+# What the narrator is shown of a write's answer (the row it changed, trimmed)
+# and of every read's answers together: enough to answer "what's due this
+# week?" from, bounded so 24 reads cannot fill the window.
+WRITE_ANSWER_CHARS = 400
+READ_ANSWERS_MAX_CHARS = 8000
 
 # The note under the record — chess's ``_BUDGET_NOTE``, worded for PCC.
 LIMIT_NOTE = (
@@ -61,8 +65,8 @@ LIMIT_NOTE = (
     "Whatever the record above does not show as done was not done."
 )
 
-# Why the run stopped, in words the summary can pass on. Keyed by stop reason;
-# these are exactly the limit stops the loop summarises.
+# Why the run stopped, in words the narrator can pass on. Keyed by stop reason;
+# these are exactly the limit stops the narrator speaks after.
 LIMIT_REASONS: dict[str, str] = {
     "max_iterations": "it ran out of steps",
     "correction_limit": "it kept making malformed tool calls",
@@ -70,21 +74,6 @@ LIMIT_REASONS: dict[str, str] = {
     "no_progress": "it kept repeating the same lookups",
     "tool_call_limit": "it reached its limit of tool calls for one request",
 }
-
-# The summary call's own system prompt. Not the loop's: that one says "you act
-# only by calling the provided tools", and this call is offered none.
-SUMMARY_RULES = """\
-You are the assistant for Project Command Center (PCC), the user's project and \
-task manager. Your run just stopped at a limit before it finished, and you now \
-tell the user what happened. You cannot call tools now.
-
-Rules:
-- Say what was done, using only the record you are given. Never claim a task, \
-project, change or id the record does not list under "Done".
-- Say plainly that the rest was not done, and what is left, if the request makes \
-that clear. The user can ask again to finish it.
-- Plain text, short: one to three sentences. No tool-call syntax, no JSON."""
-
 
 def classify(record: ToolCallRecord) -> Outcome:
     """Sort one call by what its record shows happened."""
@@ -109,11 +98,18 @@ def any_ran(records: Sequence[ToolCallRecord]) -> bool:
     return any(classify(record) != "not_run" for record in records)
 
 
-def render(records: Sequence[ToolCallRecord]) -> str:
-    """The record as the summary call reads it, grouped, one line per call.
+def render(
+    records: Sequence[ToolCallRecord], answers: Sequence[str | None] | None = None
+) -> str:
+    """The record as the narrator reads it, grouped, one line per call.
 
     ``#n`` is the call's 1-based position in the run, so lines in different
-    groups still read in order.
+    groups still read in order. ``answers``, aligned with ``records``, is what
+    each call answered as the planner read it (the trimmed view, #414): given,
+    a write shows its answer and a read shows what it found — the narrator
+    answers a question from it — under :data:`READ_ANSWERS_MAX_CHARS` for all
+    reads together; past that a read shows only how many rows it found.
+    Without it a write shows its id and title and a read nothing.
     """
     groups: dict[Outcome, list[str]] = {
         "done": [],
@@ -121,13 +117,21 @@ def render(records: Sequence[ToolCallRecord]) -> str:
         "looked_up": [],
         "not_run": [],
     }
+    read_budget = READ_ANSWERS_MAX_CHARS
     for ref, record in enumerate(records, start=1):
         outcome = classify(record)
-        line = f"#{ref} {record.tool} {_clip(_compact(record.arguments))}"
+        answer = answers[ref - 1] if answers is not None else None
+        line = f"#{ref} {record.tool} {clip(_compact(record.arguments))}"
         if outcome == "done":
-            line += f" -> {_answer_brief(record.result or '')}"
+            line += f" -> {answer_brief(record.result or '') if answer is None else clip(answer, WRITE_ANSWER_CHARS)}"
+        elif outcome == "looked_up" and answer is not None:
+            if len(answer) <= read_budget:
+                line += f" -> {answer}"
+                read_budget -= len(answer)
+            else:
+                line += f" -> {answer_brief(answer)} (not shown in full)"
         elif outcome in ("refused", "not_run"):
-            line += f" -> {_clip(record.error or '')}"
+            line += f" -> {clip(record.error or '')}"
         groups[outcome].append(line)
     lines = ["Done:"]
     lines += [f"- {line}" for line in groups["done"]] or ["- nothing"]
@@ -142,51 +146,18 @@ def render(records: Sequence[ToolCallRecord]) -> str:
     return "\n".join(lines)
 
 
-def summary_messages(
-    user_message: str,
-    records: Sequence[ToolCallRecord],
-    stop_reason: str,
-    personality: str,
-    today: date,
-) -> list[dict[str, Any]]:
-    """The whole request for the tool-free summary call: a fresh brief.
-
-    Not the run's transcript: that is what ran out (of turns, corrections,
-    room), and a model reading its own tool chatter is the one that might
-    claim a write it only proposed. It reads the ask, the record and the note.
-    """
-    why = LIMIT_REASONS.get(stop_reason, "it hit a limit")
-    brief = (
-        f"The user asked:\n{user_message}\n\n"
-        "The record of this run (built by the app from the tool results):\n"
-        f"{render(records)}\n\n"
-        f"The run stopped because {why}. {LIMIT_NOTE}\n\n"
-        "Now tell the user what was done and that the rest was not."
-    )
-    return [
-        {
-            "role": "system",
-            "content": (
-                f"{SUMMARY_RULES}\n\n{personality}\n\n"
-                f"Today is {state_block.day(today)}."
-            ),
-        },
-        {"role": "user", "content": brief},
-    ]
-
-
 def _compact(arguments: dict[str, Any]) -> str:
     return json.dumps(arguments, separators=(",", ":"), sort_keys=True, default=str)
 
 
-def _clip(text: str) -> str:
+def clip(text: str, limit: int = _MAX_FIELD_CHARS) -> str:
     text = " ".join(text.split())
-    if len(text) <= _MAX_FIELD_CHARS:
+    if len(text) <= limit:
         return text
-    return text[: _MAX_FIELD_CHARS - 1] + "…"
+    return text[: limit - 1] + "…"
 
 
-def _answer_brief(result: str) -> str:
+def answer_brief(result: str) -> str:
     """What a write answered, cut to what names it: id plus title or name.
 
     Tool answers are the API read models (or a sentence for trash/remove), so
@@ -196,14 +167,46 @@ def _answer_brief(result: str) -> str:
     try:
         value = json.loads(result)
     except ValueError:
-        return _clip(result)
+        return clip(result)
     if isinstance(value, dict):
-        return _clip(_label(value) or json.dumps(value, default=str))
+        return clip(_label(value) or json.dumps(value, default=str))
     if isinstance(value, list):
         labels = [_label(item) for item in value if isinstance(item, dict)]
         named = [label for label in labels if label]
-        return _clip(f"{len(value)} items" + (f": {', '.join(named)}" if named else ""))
-    return _clip(result)
+        return clip(f"{len(value)} items" + (f": {', '.join(named)}" if named else ""))
+    return clip(result)
+
+
+def found_brief(result: str, *, limit: int = 8) -> str:
+    """What a read answered, as the rows it named: ``found 2: id 1 "A", id 4
+    "B"``, in the order it listed them, at most ``limit`` named. Reads answer
+    envelopes (``{"items": [...]}``, ``{"tasks": [...], "projects": [...]}``)
+    or a single row, so every object with an id and a title or name counts.
+    ``found nothing`` for an answer that names no row."""
+    try:
+        value = json.loads(result)
+    except ValueError:
+        return clip(result)
+    labels: list[str] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            label = _label(node) if "id" in node else ""
+            if label and ('"' in label):
+                labels.append(label)
+                return
+            for child in node.values():
+                walk(child)
+        elif isinstance(node, list):
+            for child in node:
+                walk(child)
+
+    walk(value)
+    if not labels:
+        return "found nothing"
+    shown = ", ".join(labels[:limit])
+    more = f" (+{len(labels) - limit} more)" if len(labels) > limit else ""
+    return f"found {len(labels)}: {shown}{more}"
 
 
 def _label(value: dict[str, Any]) -> str:

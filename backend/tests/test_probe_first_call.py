@@ -114,12 +114,15 @@ def test_seed_is_paired_across_arms_and_optional() -> None:
     assert probe.seed_for(None, 3) is None
 
 
-def test_arm_profile_lays_temperature_over_the_profile() -> None:
+def test_arm_temperature_is_the_planner_s_and_reaches_the_wire() -> None:
     base = load_profile(MODEL)
     arm = probe.arm_profile(probe.Arm("t", temperature=0.1), MODEL)
-    assert arm.sampling.temperature == 0.1
-    assert arm.sampling.top_p == base.sampling.top_p
+    assert arm.turn_temperature == 0.1
+    assert arm.sampling == base.sampling
     assert probe.arm_profile(probe.Arm("c"), MODEL) == base
+    item = probe.Item("i", "add a task to buy milk")
+    payload = probe.dry_run_payload(probe.Arm("t", temperature=0.1), item, MODEL, seed=None)
+    assert payload["temperature"] == 0.1 and payload["top_p"] == base.sampling.top_p
 
 
 # --- overrides ----------------------------------------------------------------
@@ -178,7 +181,7 @@ def test_control_arm_request_is_what_the_loop_sends() -> None:
     payload = probe.dry_run_payload(probe.Arm("control"), item, MODEL, seed=7)
     profile = load_profile(MODEL)
     assert payload["messages"] == [
-        {"role": "system", "content": agent_loop.SYSTEM_PROMPT},
+        {"role": "system", "content": agent_loop.PLANNER_PROMPT},
         {
             "role": "user",
             "content": state_block.with_state(
@@ -189,17 +192,19 @@ def test_control_arm_request_is_what_the_loop_sends() -> None:
     assert payload["tools"] == [spec.to_wire() for spec in registry.tool_specs()]
     assert payload["max_tokens"] == profile.turn_max_tokens
     assert payload["model"] == MODEL and payload["seed"] == 7
-    for key, value in profile.sampling.wire().items():
+    # The first call is the planner's, at its own temperature (#418).
+    planner = {**profile.sampling.wire(), "temperature": profile.turn_temperature}
+    for key, value in planner.items():
         assert payload[key] == value
 
 
-def test_history_goes_through_the_loops_own_window() -> None:
+def test_history_goes_through_the_loops_own_recall() -> None:
     history = [{"role": "user", "content": "earlier"}, {"role": "assistant", "content": "ok"}]
     item = probe.Item("i", "and now", history=tuple(history))
     payload = probe.dry_run_payload(probe.Arm("control"), item, MODEL, seed=None)
-    contents = [m["content"] for m in payload["messages"][1:]]
-    assert contents[:2] == ["earlier", "ok"]
-    assert contents[2].endswith("\n\nand now")
+    [user] = payload["messages"][1:]
+    assert 'The user said: "earlier"' in user["content"]
+    assert user["content"].endswith("\n\nand now")
     assert "seed" not in payload
 
 

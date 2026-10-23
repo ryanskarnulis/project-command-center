@@ -111,9 +111,8 @@ def build(today: date) -> str:
     return render(today, snapshot)
 
 
-def with_state(block: str, user_message: str, matches: str | None = None) -> str:
-    """The current user turn as the model sees it: the block, the gather's
-    possible matches when it found any (#415), then the ask."""
-    if matches:
-        return f"{block}\n\n{matches}\n\n{user_message}"
-    return f"{block}\n\n{user_message}"
+def with_state(block: str, user_message: str, *sections: str | None) -> str:
+    """The planner's opening user turn: the block, then each section that has
+    something — the gather's possible matches (#415), what came before the run
+    (#418) — then the ask, last, nearest the model's answer."""
+    return "\n\n".join([block, *(part for part in sections if part), user_message])

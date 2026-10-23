@@ -183,7 +183,8 @@ def test_a_loop_run_and_its_captures_share_the_run_id(
     run = _lines(trace_path)[0]
     captures = _lines(context_path)
     assert result.reply == "Done."
-    assert [c["run_id"] for c in captures] == [run["run_id"]] == [result.run_id]
+    # The planner's call and the narrator's (#418).
+    assert [c["run_id"] for c in captures] == [run["run_id"]] * 2 == [result.run_id] * 2
     # One capture per trace ``calls`` entry, joined on (run_id, seq) and phase.
     assert [(c["seq"], c["phase"]) for c in captures] == [
         (call["seq"], call["phase"]) for call in run["calls"]
@@ -357,7 +358,8 @@ def test_the_watcher_prints_calls_verbatim_then_the_runs_outcome(
     ).stdout
 
     assert f"run {run_id}" in watched
-    assert "turn · seq 0" in watched and "HTTP 200" in watched
+    assert "planner · seq 0" in watched and "narrator · seq 1" in watched
+    assert "HTTP 200" in watched
     assert _PROMPT in watched  # the rendered prompt, exactly as captured
     assert _TEXT_RESPONSE.decode("utf-8") in watched  # the raw response body
     assert "unreadable context line skipped" in watched
@@ -381,5 +383,5 @@ def test_the_watcher_can_show_request_json_and_filter_by_phase(
     assert f"▸ request\n{request}\n" in out.getvalue()
 
     out = io.StringIO()
-    watch_context.main([str(context_path), "--phase", "summary", "--from-start", "--once"], out=out)
+    watch_context.main([str(context_path), "--phase", "nobody", "--from-start", "--once"], out=out)
     assert out.getvalue() == ""

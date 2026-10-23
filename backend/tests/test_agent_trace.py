@@ -23,12 +23,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.ai import context_budget
 from app.ai import loop as loop_module
 from app.ai import trace as run_trace
 from app.ai.loop import (
-    SUMMARY_PROMPT_SHA256,
-    SYSTEM_PROMPT_SHA256,
+    NARRATOR_PROMPT_SHA256,
+    PLANNER_PROMPT_SHA256,
     AgentLoop,
     AgentRunFailed,
 )
@@ -67,7 +66,8 @@ RECORD_KEYS = {
     "limit",
     "error",
     "reply",
-    "summarised",
+    "note",
+    "narrated",
     "iterations",
     "corrections",
     "tools",
@@ -149,14 +149,15 @@ def test_a_traced_run_writes_one_well_formed_record(
         [
             _metered(_calls(("create_task", {"title": "Alpha"}))),
             _metered(_text("Made Alpha."), prompt=150, completion=5),
-        ]
+        ],
+        narrations=[_metered(_text("Alpha's on the list."), prompt=200, completion=8)],
     )
     with structlog.contextvars.bound_contextvars(conversation_id=7):
         result = _loop(provider, trace_path).run("Make Alpha.", history=history)
 
     record = _only_record(trace_path)
     assert result.run_id and record["run_id"] == result.run_id
-    assert record["schema"] == run_trace.TRACE_SCHEMA == 3
+    assert record["schema"] == run_trace.TRACE_SCHEMA == 4
     assert record["kind"] == "run"
     assert record["conversation_id"] == 7
     assert record["actor"] == "agent:loop"
@@ -164,12 +165,16 @@ def test_a_traced_run_writes_one_well_formed_record(
     assert record["utterance"] == "Make Alpha."
     assert record["state_block"].startswith("[State at the start of this run")
     assert record["lookup_turns"] == 0
-    assert record["history"] == {"given": 2, "kept": 2, "dropped": 0, "messages": history}
+    assert record["history"]["given"] == 2
+    assert record["history"]["messages"] == history
+    assert 'The user said: "earlier ask"' in record["history"]["recall"]
+    assert record["history"]["recall"] in provider.requests[0]["messages"][1]["content"]
     assert record["stop_reason"] == "completed"
     assert record["limit"] is None
     assert record["error"] == ""
-    assert record["reply"] == "Made Alpha."
-    assert record["summarised"] is False
+    assert record["reply"] == "Alpha's on the list."
+    assert record["note"] == "Made Alpha."
+    assert record["narrated"] is True
     assert record["iterations"] == 2
 
     [tool] = record["tools"]
@@ -178,8 +183,9 @@ def test_a_traced_run_writes_one_well_formed_record(
     assert json.loads(tool["result"])["title"] == "Alpha"
     assert tool["error"] is None
 
-    first, second = record["calls"]
-    assert first["seq"] == 0 and first["phase"] == "turn" and first["status"] == "ok"
+    first, second, narrator = record["calls"]
+    assert first["seq"] == 0 and first["phase"] == "planner" and first["status"] == "ok"
+    assert second["phase"] == "planner" and narrator["phase"] == "narrator"
     assert first["tool_calls"] == 1 and first["finish_reason"] == "tool_calls"
     assert (first["prompt_tokens"], first["completion_tokens"], first["cached_tokens"]) == (
         100,
@@ -189,9 +195,9 @@ def test_a_traced_run_writes_one_well_formed_record(
     assert first["server_ms"] == 40 and first["served_model"] == "gemma-weights"
     assert isinstance(first["ms"], int) and first["ms"] >= 0
     assert second["status"] == "ok" and second["tool_calls"] == 0
-    assert record["model_calls"] == 2 and record["unmetered_calls"] == 0
-    assert (record["prompt_tokens"], record["completion_tokens"]) == (250, 15)
-    assert record["cached_tokens"] == 125
+    assert record["model_calls"] == 3 and record["unmetered_calls"] == 0
+    assert (record["prompt_tokens"], record["completion_tokens"]) == (450, 23)
+    assert record["cached_tokens"] == 225
 
     assert record["limits"]["max_iterations"] == 10
     assert record["limits"]["max_tool_calls"] == loop_module.DEFAULT_MAX_TOOL_CALLS
@@ -199,28 +205,12 @@ def test_a_traced_run_writes_one_well_formed_record(
     serving = record["serving"]
     assert serving["model"] == "gemma-4-12b"
     assert serving["profile"] is None
-    assert serving["system_prompt_sha256"] == SYSTEM_PROMPT_SHA256
-    assert serving["summary_prompt_sha256"] == SUMMARY_PROMPT_SHA256
+    assert serving["system_prompt_sha256"] == PLANNER_PROMPT_SHA256
+    assert serving["narrator_prompt_sha256"] == NARRATOR_PROMPT_SHA256
     specs = registry.tool_specs()
     assert serving["tool_schemas_sha256"] == run_trace.tool_schemas_sha256(specs)
     assert serving["tools_offered"] == len(specs)
-    assert len(SYSTEM_PROMPT_SHA256) == 64
-
-
-def test_history_the_budget_dropped_is_counted(
-    tool_db: sessionmaker[Session], trace_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        context_budget, "history_token_budget", lambda **_: 1
-    )
-    history = [{"role": "user", "content": "x" * 400}, {"role": "assistant", "content": "y"}]
-    _loop(ScriptedProvider([_text("Hi.")]), trace_path).run("Hi", history=history)
-
-    record = _only_record(trace_path)
-    assert record["history"]["given"] == 2
-    assert record["history"]["kept"] + record["history"]["dropped"] == 2
-    assert record["history"]["dropped"] >= 1
-    assert len(record["history"]["messages"]) == record["history"]["kept"]
+    assert len(PLANNER_PROMPT_SHA256) == 64
 
 
 def test_a_caller_bound_run_id_is_reused(
@@ -235,11 +225,11 @@ def test_a_caller_bound_run_id_is_reused(
 def test_unmetered_calls_record_null_tokens(
     tool_db: sessionmaker[Session], trace_path: Path
 ) -> None:
-    _loop(ScriptedProvider([_text("Hi.")]), trace_path).run("Hi")
+    _loop(ScriptedProvider([_text("Hi.")], [_text("Hey.")]), trace_path).run("Hi")
     record = _only_record(trace_path)
-    [call] = record["calls"]
-    assert call["prompt_tokens"] is None and call["completion_tokens"] is None
-    assert record["unmetered_calls"] == 1 and record["prompt_tokens"] == 0
+    planner, narrator = record["calls"]
+    assert planner["prompt_tokens"] is None and narrator["completion_tokens"] is None
+    assert record["unmetered_calls"] == 2 and record["prompt_tokens"] == 0
     assert record["serving"]["model"] is None
 
 
@@ -254,7 +244,7 @@ def _cut_off() -> ChatResult:
     return ChatResult(content="and then", tool_calls=[], finish_reason="length", usage=None)
 
 
-# Each limit stop, scripted so one write runs first; then the summary call.
+# Each limit stop, scripted so one write runs first; then the narrator call.
 _LIMIT_RUNS: dict[str, tuple[list[ChatResult], dict[str, int], str]] = {
     "max_iterations": ([_calls(_alpha())], {"max_iterations": 1}, "max_iterations"),
     "correction_limit": (
@@ -277,19 +267,19 @@ _LIMIT_RUNS: dict[str, tuple[list[ChatResult], dict[str, int], str]] = {
 
 
 @pytest.mark.parametrize("stop_reason", sorted(_LIMIT_RUNS))
-def test_a_limit_stop_records_the_limit_and_the_summary_call(
+def test_a_limit_stop_records_the_limit_and_the_narrator_call(
     tool_db: sessionmaker[Session], trace_path: Path, stop_reason: str
 ) -> None:
     turns, options, limit = _LIMIT_RUNS[stop_reason]
-    provider = ScriptedProvider([*turns, _text("Made Alpha; the rest wasn't done.")])
+    provider = ScriptedProvider(turns, narrations=[_text("Made Alpha; the rest wasn't done.")])
     result = _loop(provider, trace_path, **options).run("Make Alpha and Beta.")
 
     record = _only_record(trace_path)
     assert record["stop_reason"] == result.stop_reason == stop_reason
     assert record["limit"] == limit
-    assert record["summarised"] is True
+    assert record["narrated"] is True and record["note"] is None
     assert record["reply"] == "Made Alpha; the rest wasn't done."
-    assert [call["phase"] for call in record["calls"]] == ["turn"] * len(turns) + ["summary"]
+    assert [call["phase"] for call in record["calls"]] == ["planner"] * len(turns) + ["narrator"]
     if limit != "no_progress":
         # The limit's configured value is in the record beside its name.
         expected = options.get(limit, loop_module.DEFAULT_MAX_TOKENS)
@@ -308,12 +298,12 @@ def test_bad_tool_call_arguments_are_a_bad_args_call(
         "arguments are not valid JSON",
         usage=Usage(prompt_tokens=80, completion_tokens=7, total_tokens=87),
     )
-    provider = ScriptedProvider([bad, _text("Sorry.")])
+    provider = ScriptedProvider([bad, _text("Sorry.")], [_text("Sorry!")])
     _loop(provider, trace_path).run("Make a task")
 
     record = _only_record(trace_path)
     assert record["stop_reason"] == "completed"
-    first, second = record["calls"]
+    first, second, _narrator = record["calls"]
     assert first["status"] == "bad_args"
     assert "not valid JSON" in first["failure"]
     assert (first["prompt_tokens"], first["completion_tokens"]) == (80, 7)
@@ -435,10 +425,10 @@ def test_an_unwritable_trace_path_does_not_fail_the_run(
     monkeypatch.setattr(loop_module, "logger", spy)
     blocker = tmp_path / "not-a-dir"
     blocker.write_text("")
-    provider = ScriptedProvider([_text("Hi.")])
+    provider = ScriptedProvider([_text("Hi.")], [_text("Hey.")])
     result = _loop(provider, blocker / "agent.jsonl").run("Hi")
 
-    assert result.stop_reason == "completed" and result.reply == "Hi."
+    assert result.stop_reason == "completed" and result.reply == "Hey."
     assert spy.warnings == ["agent_trace_write_failed"]
 
 
@@ -531,7 +521,8 @@ def test_the_reader_summarises_and_prints_records(
     detail = read("--run", run_id[:8]).stdout
     assert f"run {run_id}" in detail
     assert "create_task" in detail and "Made Alpha." in detail
-    assert "#0 turn" in detail
+    assert "#0 planner" in detail and "#2 narrator" in detail
+    assert "note:    'Made Alpha.'" in detail
 
     as_json = json.loads(read("--run", run_id, "--json").stdout)
     assert as_json["run_id"] == run_id

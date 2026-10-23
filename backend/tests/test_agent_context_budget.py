@@ -5,8 +5,9 @@ A per-turn cap does not bound a conversation: 200 individually valid
 overflows the runtime's 131,072-token window or spends the whole run budget
 prefilling it. These cover the windowing policy
 (``app/ai/context_budget.py``), the service layer that applies it, the loop's
-last-gate re-application, and the bounded conversation-detail contract that
-keeps the *persisted* transcript reachable regardless.
+recall (#418: history reaches the planner as capped data, never as turns),
+and the bounded conversation-detail contract that keeps the *persisted*
+transcript reachable regardless.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.ai import context_budget, state_block
-from app.ai.loop import SYSTEM_PROMPT, AgentLoop, AgentRunResult
+from app.ai.loop import PLANNER_PROMPT, AgentLoop, AgentRunResult
 from app.api import routes_agent
 from app.schemas.conversations import MAX_AGENT_MESSAGE_LENGTH
 from app.services import conversations as conversations_service
@@ -70,7 +71,7 @@ def _largest_state_block() -> str:
 
 def test_reserves_leave_a_positive_budget_and_fit_the_real_prompt() -> None:
     """The static reserve really does cover the prompt the loop sends."""
-    overhead = context_budget.estimate_tokens(SYSTEM_PROMPT) + sum(
+    overhead = context_budget.estimate_tokens(PLANNER_PROMPT) + sum(
         context_budget.estimate_tokens(spec.model_dump_json())
         for spec in registry.tool_specs()
     )
@@ -197,36 +198,34 @@ def test_history_for_loop_keeps_a_short_conversation_whole(
 # --- Loop ---------------------------------------------------------------------
 
 
-def test_loop_windows_history_before_the_provider_request() -> None:
-    """An over-budget history handed straight to the loop is trimmed, not sent."""
+def test_loop_bounds_an_over_budget_history_to_its_recall() -> None:
+    """An over-budget history handed straight to the loop is never sent as
+    turns (#418): it reaches the planner as recall, whose parts are capped."""
     provider = ScriptedProvider([text_turn("done")])
-    loop = AgentLoop(provider)
     history = [
         {"role": "user" if index % 2 == 0 else "assistant", "content": _MAX_TURN}
         for index in range(200)
     ]
 
-    loop.run("what now?", history=history)
+    AgentLoop(provider).run("what now?", history=history)
 
     sent = provider.requests[0]["messages"]
-    assert sent[0]["role"] == "system"
-    # The current turn, behind its state block (#412).
-    assert sent[-1]["role"] == "user"
+    assert [m["role"] for m in sent] == ["system", "user"]
     assert sent[-1]["content"].endswith("\n\nwhat now?")
-    # The system prompt and the current turn always survive; history does not.
-    assert len(sent) < len(history) + 2
-    total = sum(context_budget.estimate_tokens(str(m["content"])) for m in sent)
-    assert total < context_budget.MODEL_CONTEXT_TOKENS
+    # Capped parts: requests, the last exchange (twice) and the record.
+    assert len(sent[-1]["content"]) < 10_000
 
 
-def test_loop_leaves_an_in_budget_history_alone() -> None:
+def test_loop_reads_an_in_budget_history_as_recall() -> None:
     provider = ScriptedProvider([text_turn("done")])
     history = [
         {"role": "user", "content": "earlier"},
         {"role": "assistant", "content": "answered"},
     ]
     AgentLoop(provider).run("follow up", history=history)
-    assert provider.requests[0]["messages"][1:-1] == history
+    opening = provider.requests[0]["messages"][1]["content"]
+    assert 'The user said: "earlier"' in opening
+    assert 'The assistant said then (its words, not a record): "answered"' in opening
 
 
 # --- Bounded conversation detail ----------------------------------------------

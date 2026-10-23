@@ -670,7 +670,11 @@ and the fleet agent-standard alignment (layered personality, `app.yaml`
 agent block, delegate attribution). Every run opens with a code-built state
 block (today's calendar, the open projects with their ids, today's counts) at
 the head of the user's message, never saved into the conversation, followed by the
-tasks and Focus commitments a hybrid keyword + embedding search of the user's words found. What's next lives in
+tasks and Focus commitments a hybrid keyword + embedding search of the user's words found.
+A run is two model phases: a persona-free planner that calls the tools, then a
+tool-free narrator, in Glitch's voice, that speaks from a code-built record of
+what ran. Neither phase reads earlier turns as chat: they get a capped record
+of earlier writes, the user's earlier words, and the last exchange. What's next lives in
 [GitHub issues](https://github.com/ryanskarnulis/project-command-center/issues);
 merged PRs and git history are the changelog.
 

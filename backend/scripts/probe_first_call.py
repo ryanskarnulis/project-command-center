@@ -11,7 +11,7 @@ What it sends is the shipped first call, not a copy of it. The messages, the
 tool offer and the token cap come out of the real :class:`app.ai.loop.AgentLoop`
 (a recording provider takes its first ``chat`` call and ends the run), and the
 request goes out through the real :class:`LlamaCppProvider` at the model's
-profile (#402) — so the system prompt, the tool schemas, the history window
+profile (#402) — so the system prompt, the tool schemas, the recall section
 and the request bytes cannot drift from production. An arm changes exactly the
 knobs it names:
 
@@ -214,11 +214,11 @@ def override_system_prompt(
 
 def arm_profile(arm: Arm, default_model: str) -> ModelProfile:
     """The profile an arm runs at: its ``profile=``/``model=``, else the app's,
-    with ``temperature=`` laid over the sampling."""
+    with ``temperature=`` as the planner's (the first call is the planner's,
+    #418)."""
     profile = load_profile(arm.profile or arm.model or default_model)
     if arm.temperature is not None:
-        sampling = profile.sampling.model_copy(update={"temperature": arm.temperature})
-        profile = profile.model_copy(update={"sampling": sampling})
+        profile = profile.model_copy(update={"turn_temperature": arm.temperature})
     return profile
 
 
@@ -233,6 +233,8 @@ class FirstCall:
     tools: tuple[ToolSpec, ...]
     max_tokens: int
     enable_thinking: bool = False
+    # The planner's own temperature (#418), when its profile sets one.
+    temperature: float | None = None
 
 
 class _Recorder:
@@ -252,6 +254,7 @@ class _Recorder:
         enable_thinking: bool = False,
         max_tokens: int | None = None,
         timeout: float | None = None,
+        temperature: float | None = None,
     ) -> ChatResult:
         if self.first is None:
             assert max_tokens is not None
@@ -260,6 +263,7 @@ class _Recorder:
                 tuple(tools or ()),
                 max_tokens,
                 enable_thinking,
+                temperature,
             )
         return ChatResult(content="ok", tool_calls=[], finish_reason="stop", usage=None)
 
@@ -299,7 +303,9 @@ def build_arm_call(
             raise ValueError(f"{arm.tools}: expected a JSON object of text overrides")
         tools = apply_tool_overrides(tools, overrides)
     return (
-        FirstCall(tuple(messages), tuple(tools), call.max_tokens, call.enable_thinking),
+        FirstCall(
+            tuple(messages), tuple(tools), call.max_tokens, call.enable_thinking, call.temperature
+        ),
         profile,
         model,
     )
@@ -392,6 +398,7 @@ def take_sample(
             tools=call.tools,
             enable_thinking=call.enable_thinking,
             max_tokens=call.max_tokens,
+            temperature=call.temperature,
         )
         klass = label(classify(result))
         finish = result.finish_reason
@@ -504,6 +511,7 @@ def dry_run_payload(arm: Arm, item: Item, default_model: str, seed: int | None) 
             tools=call.tools,
             enable_thinking=call.enable_thinking,
             max_tokens=call.max_tokens,
+            temperature=call.temperature,
         )
     payload: dict[str, Any] = json.loads(captured[0])
     return payload

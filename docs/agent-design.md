@@ -161,10 +161,10 @@ that.
   `LLAMACPP_MODEL`: `[sampling]` (`temperature`/`top_p`/`top_k`; a key left
   out is left to the server), `thinking_kwarg` (the `chat_template_kwargs`
   key; empty sends no kwargs), and the per-call caps `[phases.turn]
-  max_tokens` / `[phases.summary] max_tokens` (each at most the completion
-  reserve). `[phases.turn] thinking = true` (#417) opens the thinking channel
-  on the loop's turns, its tokens inside the same cap; the summary never
-  thinks, and no shipped profile sets it. Loading is strict — an unknown key, phase or mistyped value fails
+  max_tokens` (the planner's) / `[phases.narrator] max_tokens` (each at most
+  the completion reserve). `[phases.turn] thinking = true` (#417) opens the
+  thinking channel on the planner's turns, its tokens inside the same cap; the
+  narrator never thinks, and no shipped profile sets it. Loading is strict — an unknown key, phase or mistyped value fails
   — and a model with no file runs on the built-in default (no sampling
   opinion, today's caps) with a `model_profile_missing` warning. The provider
   builds every request from its profile, the loop takes its caps from it, the
@@ -192,23 +192,86 @@ that.
   an 8-task batch made twice after schema errors; schema-invalid calls
   count); a call past it is answered "not run" (one tool answer per call),
   never dispatched, and the run ends `tool_call_limit` after that turn.
-- **Limit stops say what they did** (#399): when a run ends `max_iterations`,
+- **Planner and narrator** (#418, ported from chess's split,
+  `../chess/docs/planner-narrator.md`): a run is two model phases. The
+  **planner** is the bounded loop above on `PLANNER_PROMPT` (`app/ai/loop.py`)
+  — #416's base prompt with no Glitch, its closing line turned into a handoff
+  note ("one short factual line … A separate voice phrases what the user
+  sees"). Its last, tool-free turn is that note, never shown to the user. The
+  **narrator** (`app/ai/narration.py`) is one more call, offered no tools, on
+  a speaking contract plus global Glitch, reading a fresh brief rather than
+  the planner's transcript: what came before the run, the date, the user's
+  words, the code-built record of the run (`app/ai/run_record.py`: Done /
+  Refused / Looked up / Not run, one line per call, "Done: nothing" said
+  outright) with what each call answered (a write's trimmed row; reads'
+  answers up to 8,000 chars in all), the gathered matches, and the planner's
+  note labelled as a reading. Its text is the reply. The trace and the eval
+  report keep the note beside it.
+
+  **History is recall, never chat turns** (`app/ai/recall.py`, chess#372):
+  `history_for_loop` hands the loop each stored turn's text and tool records,
+  and each phase reads them as a "Before this run" section — the planner's
+  after the state block and matches, just before the ask; the narrator's at
+  the head of its brief. Three capped parts: the app's record of earlier
+  runs' *writes*, done or refused (reads are stale, so left out; 2,000
+  chars), the user's earlier words (1,500), and the last exchange whole
+  (1,200 each side), its reply labelled "its words, not a record" (to the
+  narrator, "your words"). This is aimed at the frontier's `poisoned_*`
+  family: a false "it's done" is no longer the model's own past turn. The
+  record keeps what earlier reads *found* too, by id and title ("looked up
+  then"): that is what "undo that" after a rename and "the first one" point
+  back at, and with chat turns gone it lived nowhere else. Leaving reads
+  out took `reference_rename_then_undo` to 0/5, since the old title was in a
+  reply two turns back. The narrator's brief carries the state block, because
+  the planner may answer from it without a tool (`read_only_count` 0/5 without
+  it).
+
+  **Planner temperature** (`[phases.turn] temperature`): the planner's calls
+  run at 0.3, the narrator's at the profile's 1.0, as in chess (wrong picks
+  6/40 at 1.0, 0/40 at 0.3).
+
+  **Measured** (2026-10-23, gemma-4-12b, paired campaigns, seed 418, 2 blocks
+  of 5):
+  - Split vs main, on 13 history and reply-graded gate scenarios: flat, with
+    no scenario significant either way. `read_only_count` 10/10 vs 10/10,
+    `reference_rename_then_undo` 9/10 vs 10/10, `long_reschedule[live_like]`
+    10/10 vs 9/10, `date_next_friday` 9/10 vs 8/10.
+  - Split vs main, frontier held-out: `poisoned_reschedule` 10/10 vs 9/10,
+    `poisoned_followup` 9/10 vs 8/10, `poisoned_complete` 10/10 on both;
+    `ambiguous_then_pick` and `misheard_push` 0/10 on both. Main had already
+    climbed from the #408 baseline (0–3/5) on the poisoned family, so the
+    split had little room to show there.
+  - Planner at 0.3 vs 1.0, full gate: 470/480 vs 466/480. Every discordant
+    pair (4) went to 0.3, and no single scenario was significant.
+  - `reference_first_to_friday` was 0/10 on every arm, main included: the
+    run was on a Friday (#481).
+  - Cost: one more call per run, about 0.6 s. Both system prompts stay
+    cached (traced: the planner's ~3,570-token prefix is a cache hit right
+    after a narrator call, and so is the narrator's own system prompt).
+
+  - Per-line re-screen of the planner prompt in operational voice, each
+    rewording against this wording on the scenarios its line governs. Four
+    were flat at the gate's ceiling. The ids/dates rewording took
+    `date_next_friday` 10/10 → 0/10 (p=0.002), #416's regression again. So
+    every line keeps #416's wording; per-line numbers are beside
+    `PLANNER_PROMPT` in `app/ai/loop.py`.
+
+  Adopted for structural honesty (the phase that speaks cannot act) and as
+  the base for #420's clarification tool, not for a measured gain.
+
+  **Limit stops say what they did** (#399): when a run ends `max_iterations`,
   `correction_limit`, `truncated`, `no_progress` or `tool_call_limit` and at
-  least one call reached the service layer (done, refused or looked up), the
-  loop makes one more model call — offered no tools, capped at the
-  profile's summary cap (512), bounded by the time left on the run deadline —
-  that reads a fresh brief, not the run's transcript: the user's message, a
-  code-built record of the run (`app/ai/run_record.py`, sorted from the
-  `ToolCallRecord`s into Done / Refused / Looked up / Not run, one compact line
-  per call, "Done: nothing" said outright) and the note "Whatever the record
-  above does not show as done was not done." Its text is saved as the reply
-  (and so enters the next turn's history); the stop reason is unchanged, so
-  the UI still shows its stop line and delegates still read the limit. Reads
-  are `READ_TOOLS` — exactly the registry bodies opened with
+  least one call reached the service layer, the narrator speaks with the
+  limit's reason and "Whatever the record above does not show as done was
+  not done." added to its brief; the stop reason is unchanged, so the UI
+  still shows its stop line and delegates still read the limit. Nothing ran:
+  no narrator call and no reply, as before. When the narrator cannot speak
+  (a Stop or the deadline before its call, a provider failure, a cut-off,
+  empty or tool-calling reply), a completed run replies with the planner's
+  note and a limit stop with none. `cancelled` and the failure stops never
+  narrate. Reads are `READ_TOOLS` — exactly the registry bodies opened with
   `tool_session(..., write=False)`, pinned by a test; any other tool that
-  answers is "done". No call ran, a Stop, or a summary that fails, times out,
-  is cut off (`finish_reason: "length"`) or comes back empty or as a tool call:
-  no reply, as before. `cancelled` and the failure stops never summarise.
+  answers is "done".
 - **Stop reasons**: `completed`, `max_iterations`, `correction_limit`,
   `truncated`, `no_progress`, `tool_call_limit` and `cancelled` return 200; `provider_error` (502), `timed_out` (504) and
   `internal_error` (500) are failures. Every one persists a truthful assistant
@@ -218,11 +281,12 @@ that.
   an in-flight provider call finishes first, and calls it proposed after Stop
   are recorded as not run. The cancel event is per run (registered inside the
   run lock), so a late Stop never leaks into the next run.
-- **Prompt**: app base contract + vendored global Glitch
-  (`app/ai/personality-global.md`, canonical in `../agent-standard/`; fix
-  drift by re-copying). PCC ships no app-flavor layer, and the system prompt
-  carries nothing dynamic: it and the tool schemas are byte-identical across
-  runs and days, so llama-server's prompt cache keeps the prefix.
+- **Prompts**: the planner's is its contract alone; the narrator's is its
+  speaking contract + vendored global Glitch (`app/ai/personality-global.md`,
+  canonical in `../agent-standard/`; fix drift by re-copying). PCC ships no
+  app-flavor layer, and neither system prompt carries anything dynamic: both
+  (the planner's with the tool schemas) are byte-identical across runs and
+  days, so llama-server's prompt cache keeps each prefix.
 - **State block** (#412) `app/ai/state_block.py`: code builds one block per
   run and puts it at the head of the current user message: today with its
   weekday, tomorrow, the rest of this week, next Monday, the end of the month,
@@ -293,7 +357,8 @@ that.
   among the matches in place of a read. The frontier A/B was flat:
   `misheard_push` 10/10 on both arms (already fixed by #412–#414),
   `ambiguous_then_pick` 0/10 on both (#420's).
-- **Base prompt** (#416) `_APP_BASE_PROMPT` in `app/ai/loop.py`: every line
+- **Base prompt** (#416; the planner's since #418, `PLANNER_PROMPT` in
+  `app/ai/loop.py`): every line
   carries a comment with what it fixes and its measurement. The fleet's
   finding (chess, the conductor) is that descriptive rules hold about half
   the time on a 12B and operational voice binds. Here it didn't: main's lines
@@ -343,9 +408,9 @@ window: system prompt + schemas 8,192; the state block 1,024; current turn 2,667
 16,384; completion 2,048. The binding constraint is prefill *time*, not the
 window: `PREFILL_BUDGET_TOKENS = 24_576` (~55 s pessimistic against the 240 s
 run budget) is the effective history ceiling.
-`services/conversations.py::history_for_loop` is the source of truth; the
-loop re-applies the same function with measured overhead before every
-request. Conversation GET is paginated (`before_id`, default 100/max 500).
+`services/conversations.py::history_for_loop` is the source of truth. Since
+#418 the loop sends no turns at all: it reads the window as recall, whose
+parts are capped again (`app/ai/recall.py`). Conversation GET is paginated (`before_id`, default 100/max 500).
 
 ## Eval harness + baseline
 
@@ -398,7 +463,7 @@ n=5 and *less* often (63%) at n=20. `tests/evalstats.py` is a copy of chess's
   instead of them. Pairing is approximate (llama.cpp is not bit-reproducible
   across batch sizes or slots) but never worse than unpaired.
 - **The report.** `PCC_AGENT_EVALS_REPORT=<path>` appends JSONL: a header
-  (git sha and dirty flag, model, profile, system/summary prompt and
+  (git sha and dirty flag, model, profile, planner/narrator prompt and
   tool-schema sha256 — the run trace's hashes, #400 — knobs, floors), one line
   per scenario as it finishes (verdict, interval, blocks, failure modes,
   schema corrections, and every sample with its seed, outcome, stop reason,
@@ -686,10 +751,11 @@ model-facing change can't slip in unnoticed:
   (`tests/test_tool_schema_snapshot.py`).
 - `backend/tests/fixtures/canonical_run_requests.jsonl` — the exact request
   bodies of one canonical run (a real provider over a faked llama-server:
-  two lookups, a refusal, a follow-up with history that stops at a limit and
-  makes the summary call), one body per line, with the date fixed
-  (`tests/test_request_bytes.py`). The system prompt, personality, summary
-  rules, tool schemas, sampling, caps and thinking kwarg all land here.
+  two lookups, a refusal and a narration, then a follow-up with history that
+  stops at a limit and is narrated), one body per line, with the date fixed
+  (`tests/test_request_bytes.py`). Both phases' prompts, the personality, the
+  recall, the narrator's brief, tool schemas, sampling, caps and thinking
+  kwarg all land here.
 
 **A diff to either fixture is a prompt or tool-schema change, so the eval
 gate applies:** run the harness above before merging, and say in the PR that

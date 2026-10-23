@@ -1,4 +1,13 @@
-"""The in-app agent loop: plan → call tools → observe → respond.
+"""The in-app agent loop: plan → call tools → observe → narrate.
+
+A run has two model phases (#418, ``docs/agent-design.md`` "Planner and
+narrator"). The **planner** is the bounded tool loop below, on
+:data:`PLANNER_PROMPT` — persona-free — and its last, tool-free turn is a
+handoff note, never shown to the user. The **narrator** is one further call
+with no tools, on the speaking contract plus global Glitch
+(:mod:`app.ai.narration`): it reads the run's record, sorted by code, and its
+text is the reply. Neither phase reads the conversation as chat turns: what
+came before the run is a section of each one's prompt (:mod:`app.ai.recall`).
 
 Drives the local model (through the llama.cpp provider) against the shared
 tool registry (``app/tools/registry.py``) — the same tool surface, Pydantic
@@ -61,17 +70,18 @@ never reaches the registry, and the run ends ``tool_call_limit`` after that
 turn — the next one could only be refused more of the same. Both are limits
 like ``max_iterations``, not failures.
 
-A run that stops at a limit — ``max_iterations``, ``correction_limit``,
-``truncated``, ``no_progress`` or ``tool_call_limit`` — still says what it did
-(#399). If any call reached the service layer, the loop makes one tool-free
-model call that reads a code-built record of the run (:mod:`app.ai.run_record`:
-done / refused / looked up / not run, from the :class:`ToolCallRecord` list,
-never from the model's words) under the note that whatever the record does not
-show as done was not done, and saves its text as the reply. The stop reason is
-unchanged. When nothing ran, or the summary call fails, runs out of time, is
-cut off, or comes back empty, the reply stays ``None`` as before. ``cancelled``
-and the failure stops never summarise: the user asked it to stop, or the run
-broke.
+The narrator speaks for a completed run, and for a run that stops at a limit
+— ``max_iterations``, ``correction_limit``, ``truncated``, ``no_progress`` or
+``tool_call_limit`` — when any call reached the service layer (#399). It reads
+a code-built record of the run (:mod:`app.ai.run_record`: done / refused /
+looked up / not run, from the :class:`ToolCallRecord` list, never from the
+model's words), with what each call answered; a limit stop's brief adds that
+whatever the record does not show as done was not done. The stop reason is
+unchanged. When the narrator cannot speak — a Stop or the deadline before its
+call, a provider failure, a cut-off or empty reply — a completed run replies
+with the planner's note and a limit stop with ``None``; a limit stop where
+nothing ran never calls it. ``cancelled`` and the failure stops never narrate:
+the user asked it to stop, or the run broke.
 
 Every run can leave a trace (#400): with ``PCC_TRACE_PATH`` set, the loop
 appends one JSONL record per run (:mod:`app.ai.trace`) — the utterance, the
@@ -105,9 +115,16 @@ from time import perf_counter
 from typing import Any, Literal, Protocol
 
 import structlog
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError
 
-from app.ai import context_budget, gather, model_profile, run_record, state_block
+from app.ai import (
+    gather,
+    model_profile,
+    narration,
+    recall,
+    run_record,
+    state_block,
+)
 from app.ai import trace as run_trace
 from app.ai.context_capture import model_phase
 from app.ai.providers.llamacpp import (
@@ -162,21 +179,53 @@ def resolve_actor(header_value: str | None) -> str:
         return header_value
     return LOOP_ACTOR
 
-# The system prompt is composed in layers (agent-standard/STANDARD.md §5):
-#   1. app base prompt — PCC's behavioral contract and tool guidance (below);
+# Two model phases, two prompts (#418; docs/agent-design.md "Planner and
+# narrator", ported from chess's split). PLANNER_PROMPT is the **planner's**:
+# the bounded tool loop below runs on it, persona-free, because on a 12B a
+# page of tone competes with the tool decision for attention. The narrator's
+# prompt (app/ai/narration.py) is a speaking contract plus global Glitch, the
+# layered prompt of agent-standard/STANDARD.md §5:
+#   1. app base prompt — the narrator's contract (narration.NARRATOR_RULES);
 #   2. global Glitch — the vendored house personality (verbatim canonical
 #      text, see personality-global.md); PCC adds no app flavor on top;
-#   3. no dynamic layer: the system prompt is byte-identical across runs and
-#      days, so the server's prompt cache keeps it with the tool schemas. What
-#      changes per run — today, the calendar, the projects and today's counts
-#      — is the state block at the head of the current user message (#412,
-#      ``app/ai/state_block.py``), never saved into history.
+#   3. no dynamic layer: both system prompts are byte-identical across runs
+#      and days, so the server's prompt cache keeps them (the planner's with
+#      the tool schemas). What changes per run — today, the calendar, the
+#      projects and today's counts — is the state block at the head of the
+#      planner's user message (#412, ``app/ai/state_block.py``), and what came
+#      before the run is a section ahead of it (``app/ai/recall.py``).
 # The vendored Glitch body is never edited here: fix drift by re-copying from
 # agent-standard/ (../agent-standard/check-sync.sh).
 
-# Layer 1 — app base prompt (app-owned behavioral contract). Upholds the
-# standard's invariants: tools-only action, no invented results, deterministic
-# truth. Clarify-on-ambiguity is not a prompt line (see below; #420).
+# The planner's contract. Upholds the standard's invariants: tools-only
+# action, no invented results, deterministic truth. Clarify-on-ambiguity is
+# not a prompt line (see below; #420). It is #416's single-phase prompt minus
+# Glitch, with its last line turned from a reply into a handoff note: the
+# planner never speaks to the user.
+#
+# #418 re-screened each line in operational voice once the split had made
+# this prompt tools-only, the condition under which chess's operational rules
+# held (paired campaigns vs this wording, gemma-4-12b, planner at 0.3, 2
+# blocks of 5, seed 418, 2026-10-23; docs/agent-design.md). No rewording beat
+# it, so every line stays:
+# - opening → "You turn the user's words into tool calls … You never speak to
+#   the user": flat (read_only_count, honest_about_missing,
+#   create_task_with_fields, find_and_complete, 10/10 on both);
+# - ids/dates → "Use an id only when the state block, a possible match or a
+#   tool result in this run showed it … Take every date from its calendar":
+#   date_next_friday 10/10 → 0/10 (p=0.002), the rest flat. #416's
+#   regression again, split or not;
+# - matches → "One clearly the task meant → act on it … None clearly meant →
+#   search": flat (find_and_complete, misfire_edit_among_similar,
+#   focus_skip_series, dependency_add);
+# - specific tool → "To finish a task → complete_task. To change its fields →
+#   update_task": flat on six scenarios (#416's probe found it 5/10 on
+#   "make the quarterly report due next Friday", which no gate scenario asks);
+# - refusal → "\"retry\": \"different_args\" → fix the arguments …": flat
+#   (misfire_complete_parent, honest_about_missing,
+#   misfire_subtask_under_parent, dependency_remove).
+# The gate holds these scenarios at their ceiling either way, so "flat" means
+# no evidence for a change, not evidence against one.
 #
 # What survived, and why (#416: probe screens, then paired campaigns vs main
 # on gemma-4-12b, 2026-10-22; numbers in docs/agent-design.md). Each line
@@ -197,7 +246,8 @@ def resolve_actor(header_value: str | None) -> str:
 #   "To finish a task, call complete_task; to change …, call update_task",
 #   5/10. This wording: 10/10;
 # - the refusal line: #413's (misfire_complete_parent 19/20 → 20/20);
-# - the closing reply line: no invented ids, tasks or outcomes (#407 scores it).
+# - the closing line: no invented ids, tasks or outcomes (#407 scores it). It
+#   was the reply; since #418 it is the note the narrator reads.
 # Dropped: "Every delete is a soft delete into a restorable trash" — a no-op
 # (delete_is_soft, project_trash, reference_trash_then_undo 20/20 without it;
 # MCP clients still read it in the server instructions).
@@ -205,7 +255,7 @@ def resolve_actor(header_value: str | None) -> str:
 # with a worked example. ambiguous_then_pick (frontier) 0/20 → 4/20, p=0.125,
 # but it made "the first one" and "it" in follow-ups look ambiguous: the
 # three scenarios above 30/30 without it, 26/30 with. Ambiguity is #420's.
-_APP_BASE_PROMPT = """\
+PLANNER_PROMPT = """\
 You are the assistant for Project Command Center (PCC), the user's project and \
 task manager. You act only by calling the provided tools.
 
@@ -220,11 +270,13 @@ up again; they are only candidates, and nothing has been done to them.
 - Prefer the specific tool: complete_task to finish a task, update_task to edit its fields.
 - If a tool call is rejected, read the error and correct your next call. Never repeat a \
 call rejected with "retry": "never"; follow its "next" instead.
-- When the work is done (or turns out to be impossible), reply with plain text: a short \
-summary of what you did or found. State only what the tool results confirm — never invent \
-an id, a task, or an outcome the tools didn't return."""
+- When the work is done (or turns out to be impossible), or no tool is needed, reply with \
+one short factual line: what you did or found, or what the user should be asked or told. \
+A separate voice phrases what the user sees. State only what the tool results confirm — \
+never invent an id, a task, or an outcome the tools didn't return."""
 
-# Layer 2 — global Glitch, the vendored house personality (STANDARD.md §5).
+# Global Glitch, the vendored house personality (STANDARD.md §5): the
+# narrator's second layer.
 _PERSONALITY_PATH = Path(__file__).with_name("personality-global.md")
 
 
@@ -243,15 +295,11 @@ def _load_global_personality() -> str:
 _GLOBAL_PERSONALITY = _load_global_personality()
 
 
-# The layered system prompt: app base → global Glitch. PCC ships no app-flavor
-# layer (nothing has earned it) and no dynamic one (#412). The run trace hashes
-# it (#400), so its hash changes with its wording and never with the calendar.
-SYSTEM_PROMPT = f"{_APP_BASE_PROMPT}\n\n{_GLOBAL_PERSONALITY}"
-SYSTEM_PROMPT_SHA256 = run_trace.sha256(SYSTEM_PROMPT)
-# The limit summary's prompt (#399), hashed the same way.
-SUMMARY_PROMPT_SHA256 = run_trace.sha256(
-    f"{run_record.SUMMARY_RULES}\n\n{_GLOBAL_PERSONALITY}"
-)
+# The run trace hashes both phases' prompts (#400), so a hash changes with
+# its wording and never with the calendar.
+PLANNER_PROMPT_SHA256 = run_trace.sha256(PLANNER_PROMPT)
+NARRATOR_PROMPT = narration.prompt(_GLOBAL_PERSONALITY)
+NARRATOR_PROMPT_SHA256 = run_trace.sha256(NARRATOR_PROMPT)
 
 # The per-call completion cap (#397) for a provider with no model profile (a
 # scripted one). It is the completion reserve the context budget already sets
@@ -266,11 +314,10 @@ DEFAULT_MAX_TOKENS = model_profile.DEFAULT_TURN_MAX_TOKENS
 # included — that is how the 18 was counted.
 DEFAULT_MAX_TOOL_CALLS = 24
 
-# The summary call's completion cap (#399): a few sentences of what the run
-# did. Far under the turn cap, so a runaway summary is cut off — and dropped —
-# long before it can eat the run's time budget. As above, the profile's own
-# summary cap wins when the provider has one.
-SUMMARY_MAX_TOKENS = model_profile.DEFAULT_SUMMARY_MAX_TOKENS
+# The narrator's completion cap (#418): the reply's cap from before the split,
+# since the narrator writes what the single phase used to. As above, the
+# profile's own narrator cap wins when the provider has one.
+NARRATOR_MAX_TOKENS = model_profile.DEFAULT_NARRATOR_MAX_TOKENS
 
 # ``finish_reason`` of a call the ``max_tokens`` cap cut off.
 _FINISH_LENGTH = "length"
@@ -340,18 +387,25 @@ class ChatProvider(Protocol):
         enable_thinking: bool = False,
         max_tokens: int | None = None,
         timeout: float | None = None,
+        temperature: float | None = None,
     ) -> ChatResult: ...
 
 
 @dataclass(frozen=True)
 class _RunContext:
-    """What a limit stop needs from the run to summarise it (#399), and the
+    """What the narrator needs from the run to speak for it (#418), and the
     trace the run fills in as it goes (#400)."""
 
     user_message: str
     deadline: float | None
     cancel: threading.Event | None
     trace: run_trace.RunTrace
+    # What came before the run, rendered for the narrator (``recall``).
+    earlier: str | None
+    # The gather's section as the planner read it, or ``None``.
+    gathered: str | None
+    # The state block the planner's run opened with (#412).
+    state: str
 
 
 class ToolCallRecord(BaseModel):
@@ -369,6 +423,13 @@ class ToolCallRecord(BaseModel):
     # A refused call's ``retry`` and the way forward it named (#413) — the ids
     # and titles the model was shown beside ``error``.
     refusal: dict[str, Any] | None = None
+    # What the planner was shown for a call that ran (the trimmed view, #414),
+    # which is what the narrator's record quotes. Never persisted.
+    _answer: str | None = PrivateAttr(default=None)
+
+    @property
+    def answer(self) -> str | None:
+        return self._answer
 
 
 class AgentRunResult(BaseModel):
@@ -388,6 +449,10 @@ class AgentRunResult(BaseModel):
     # (#415), as the task rows the model read: what the run knew without a
     # tool call. Not persisted with the conversation.
     gathered: list[dict[str, Any]] = Field(default_factory=list)
+    # The planner's handoff note (#418): its last, tool-free turn, which the
+    # narrator reads as a reading. ``None`` when the planner stopped at a
+    # limit or failed. Not persisted; the trace keeps it.
+    note: str | None = None
 
 
 class AgentRunFailed(Exception):
@@ -428,8 +493,8 @@ class AgentLoop:
 
         The per-call caps are the provider's model profile's (#402) when it
         carries one, else :data:`DEFAULT_MAX_TOKENS` and
-        :data:`SUMMARY_MAX_TOKENS`. ``max_tokens`` overrides the turn cap; the
-        summary's is never above it.
+        :data:`NARRATOR_MAX_TOKENS`. ``max_tokens`` overrides the planner's
+        turn cap; the narrator's is never above it.
 
         ``searcher`` finds the possible matches shown before the first model
         call (#415); ``None`` uses the process's shared one."""
@@ -439,8 +504,10 @@ class AgentLoop:
             max_tokens = (
                 self._profile.turn_max_tokens if self._profile is not None else DEFAULT_MAX_TOKENS
             )
-        summary_cap = (
-            self._profile.summary_max_tokens if self._profile is not None else SUMMARY_MAX_TOKENS
+        narrator_cap = (
+            self._profile.narrator_max_tokens
+            if self._profile is not None
+            else NARRATOR_MAX_TOKENS
         )
         if max_iterations < 1:
             raise ValueError("max_iterations must be >= 1")
@@ -452,8 +519,11 @@ class AgentLoop:
         self._max_iterations = max_iterations
         self._max_corrections = max_corrections
         self._max_tokens = max_tokens
-        self._summary_max_tokens = min(max_tokens, summary_cap)
+        self._narrator_max_tokens = min(max_tokens, narrator_cap)
         self._turn_thinking = self._profile is not None and self._profile.turn_thinking
+        self._turn_temperature = (
+            None if self._profile is None else self._profile.turn_temperature
+        )
         self._max_tool_calls = max_tool_calls
         self._tracer = tracer if tracer is not None else run_trace.tracer_from_settings()
         self._searcher = searcher if searcher is not None else gather.default_searcher()
@@ -521,7 +591,7 @@ class AgentLoop:
                 "max_iterations": self._max_iterations,
                 "max_corrections": self._max_corrections,
                 "max_tokens": self._max_tokens,
-                "summary_max_tokens": self._summary_max_tokens,
+                "narrator_max_tokens": self._narrator_max_tokens,
                 "max_tool_calls": self._max_tool_calls,
                 # Filled from the first turn's own clock reading (``_run``).
                 "deadline_s": None,
@@ -599,6 +669,7 @@ class AgentLoop:
         max_tokens: int,
         timeout: float | None,
         enable_thinking: bool = False,
+        temperature: float | None = None,
     ) -> ChatResult:
         """One provider call, metered into the run's trace however it ends.
 
@@ -618,6 +689,7 @@ class AgentLoop:
                     enable_thinking=enable_thinking,
                     max_tokens=max_tokens,
                     timeout=timeout,
+                    temperature=temperature,
                 )
         except ToolCallArgumentsError as exc:
             call.status = "bad_args"
@@ -646,7 +718,6 @@ class AgentLoop:
         trace: run_trace.RunTrace,
     ) -> AgentRunResult:
         specs = registry.tool_specs()
-        system_prompt = SYSTEM_PROMPT
         # Built once, as of the run's start (#412): the agent's own writes
         # after this are in its tool results, not here.
         block = state_block.build(date.today())
@@ -656,42 +727,39 @@ class AgentLoop:
         gathered = self._searcher.gather(user_message)
         trace.gathered = gather.rows(gathered)
         trace.gather = {**gathered.as_trace(), "rows": trace.gathered}
-        user_turn = state_block.with_state(block, user_message, gather.section(trace.gathered))
+        matches = gather.section(trace.gathered)
+        # What came before the run, as data and never as chat turns (#418):
+        # the planner reads the last reply as words, beside the record of what
+        # earlier runs' tools did. Its parts are capped (``recall``), so a long
+        # thread costs a bounded section, not a growing transcript.
+        earlier = recall.Recall.of(history or [])
+        user_turn = state_block.with_state(
+            block,
+            user_message,
+            matches,
+            recall.section(earlier, recall.PLANNER_REPLY_LABEL),
+        )
         read_only = registry.read_only_tool_names()
-        trace.system_prompt_sha256 = SYSTEM_PROMPT_SHA256
-        trace.summary_prompt_sha256 = SUMMARY_PROMPT_SHA256
+        trace.system_prompt_sha256 = PLANNER_PROMPT_SHA256
+        trace.narrator_prompt_sha256 = NARRATOR_PROMPT_SHA256
         trace.tool_schemas_sha256 = run_trace.tool_schemas_sha256(specs)
         trace.tools_offered = len(specs)
-        # Last gate before any provider request (#244). The service layer
-        # already applied this policy when it built the history, but the loop
-        # is the only place that can measure the request's real overhead —
-        # system prompt, tool schemas, and this turn — so it re-applies the
-        # same function with those figures. History reaching here over budget
-        # (a delegate caller, a grown tool registry) is trimmed deterministically
-        # rather than turned into an impossible request.
-        windowed = context_budget.fit_history(
-            history or [],
-            budget_tokens=context_budget.history_token_budget(
-                prompt_overhead_tokens=(
-                    context_budget.estimate_tokens(system_prompt)
-                    + sum(
-                        context_budget.estimate_tokens(spec.model_dump_json())
-                        for spec in specs
-                    )
-                    + context_budget.estimate_tokens(user_turn)
-                )
-            ),
-        )
         trace.history_given = len(history or [])
-        trace.history_kept = list(windowed)
+        trace.history_kept = list(history or [])
+        trace.recall = recall.section(earlier, recall.PLANNER_REPLY_LABEL)
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system_prompt},
-            *windowed,
+            {"role": "system", "content": PLANNER_PROMPT},
             {"role": "user", "content": user_turn},
         ]
         records: list[ToolCallRecord] = []
         ctx = _RunContext(
-            user_message=user_message, deadline=deadline, cancel=cancel, trace=trace
+            user_message=user_message,
+            deadline=deadline,
+            cancel=cancel,
+            trace=trace,
+            earlier=recall.section(earlier, recall.NARRATOR_REPLY_LABEL),
+            gathered=matches,
+            state=block,
         )
         corrections = 0
         iterations = 0
@@ -702,8 +770,7 @@ class AgentLoop:
         logger.info(
             "agent_run_started",
             tools=len(specs),
-            history_messages=len(windowed),
-            history_dropped=len(history or []) - len(windowed),
+            history_messages=len(history or []),
         )
         for iteration in range(1, self._max_iterations + 1):
             iterations = iteration
@@ -726,12 +793,13 @@ class AgentLoop:
             try:
                 result = self._chat(
                     trace,
-                    "turn",
+                    "planner",
                     messages,
                     tools=specs,
                     max_tokens=self._max_tokens,
                     timeout=call_timeout,
                     enable_thinking=self._turn_thinking,
+                    temperature=self._turn_temperature,
                 )
             except ToolCallArgumentsError as exc:
                 # The turn is unusable — its tool calls can't round-trip into
@@ -788,9 +856,12 @@ class AgentLoop:
                     # (never returned, never in the transcript) and end the
                     # run under its own stop reason.
                     return self._limit_stop("truncated", ctx, records, iteration, messages)
-                # A text turn terminates the loop, even when content is empty.
+                # A text turn ends the planner, even when content is empty: it
+                # is the handoff note, and the narrator speaks (#418).
                 messages.append(result.to_message())
-                return self._finish("completed", result.content, records, iteration, messages)
+                return self._narrated_finish(
+                    "completed", ctx, records, iteration, messages, note=result.content
+                )
             if truncated:
                 # The calls arrived whole and run; only the cut-off text beside
                 # them is dropped from history.
@@ -870,6 +941,8 @@ class AgentLoop:
                         exc, records, iteration, messages
                     ) from exc
                 records.append(record)
+                if record.error is None:
+                    record._answer = feedback
                 messages.append(tool_result_message(call.id, feedback))
                 schema_error_this_turn = schema_error_this_turn or schema_error
                 # Judged on what came back, not the call alone: a repeat that
@@ -904,84 +977,113 @@ class AgentLoop:
         iterations: int,
         messages: list[dict[str, Any]],
     ) -> AgentRunResult:
-        """End the run at a limit — with a reply from what ran, when anything did (#399).
+        """End the planner at a limit — with a reply from what ran, when anything did (#399).
 
         The stop reason is kept as is (delegates and the UI read it); only the
         reply changes. When no call reached the service layer there is nothing
-        verified to say, so the reply stays ``None`` and the client shows its
-        stop line, exactly as before.
+        verified to say, so the narrator is not called, the reply stays
+        ``None`` and the client shows its stop line.
         """
-        reply = self._summarise(stop_reason, ctx, records)
-        if reply is not None:
-            messages.append({"role": "assistant", "content": reply})
-        return self._finish(stop_reason, reply, records, iterations, messages)
+        if not run_record.any_ran(records):
+            return self._finish(stop_reason, None, records, iterations, messages)
+        return self._narrated_finish(stop_reason, ctx, records, iterations, messages, note=None)
 
-    def _summarise(
+    def _narrated_finish(
         self,
         stop_reason: _StopReason,
         ctx: _RunContext,
         records: list[ToolCallRecord],
-    ) -> str | None:
-        """One tool-free model call that says what a limit-stopped run did.
+        iterations: int,
+        messages: list[dict[str, Any]],
+        *,
+        note: str | None,
+    ) -> AgentRunResult:
+        """Finish the run with the narrator's reply (#418).
 
-        It reads the code-built record (:mod:`app.ai.run_record`), never the
-        run's transcript, under the note that whatever the record does not show
-        as done was not done. Bounded like every call: ``max_tokens`` and the
-        time left before the run's deadline. Anything short of a whole answer —
-        no time left, a Stop, a provider failure, a reply the cap cut off, an
-        empty one — returns ``None``: the run keeps today's stop line rather
-        than a fragment or an error.
+        When the narrator cannot speak — a Stop or the deadline before its
+        call, a provider failure, a reply cut off or empty — a completed run
+        falls back to the planner's note, which is what the single-phase loop
+        replied with, and a limit stop to no reply, which is what it had
+        before #399. The stop reason never changes.
         """
-        if not run_record.any_ran(records):
-            return None
+        reply = self._narrate(stop_reason, ctx, records, note)
+        if reply is None and stop_reason == "completed":
+            reply = note
+        result = self._finish(stop_reason, reply, records, iterations, messages)
+        result.note = note
+        return result
+
+    def _narrate(
+        self,
+        stop_reason: _StopReason,
+        ctx: _RunContext,
+        records: list[ToolCallRecord],
+        note: str | None,
+    ) -> str | None:
+        """One tool-free model call that tells the user what the run did.
+
+        It reads a fresh brief (:mod:`app.ai.narration`), never the planner's
+        transcript: the run's record sorted by code, what each call answered,
+        what came before the run, and the planner's note labelled as a reading.
+        Bounded like every call: ``max_tokens`` and the time left before the
+        run's deadline. Anything short of a whole answer — no time left, a
+        Stop, a provider failure, a reply the cap cut off, an empty one —
+        returns ``None``, and the caller falls back.
+        """
         if ctx.cancel is not None and ctx.cancel.is_set():
             return None
         timeout: float | None = None
         if ctx.deadline is not None:
             timeout = ctx.deadline - time.monotonic()
             if timeout <= 0:
-                logger.warning("agent_summary_skipped", reason="deadline_exceeded")
+                logger.warning("agent_narrator_skipped", reason="deadline_exceeded")
                 return None
-        request = run_record.summary_messages(
-            ctx.user_message,
-            records,
-            stop_reason,
-            _GLOBAL_PERSONALITY,
-            date.today(),
+        request = narration.messages(
+            NARRATOR_PROMPT,
+            narration.brief(
+                user_message=ctx.user_message,
+                earlier=ctx.earlier,
+                records=records,
+                answers=[record.answer for record in records],
+                note=note,
+                gathered=ctx.gathered,
+                stop_reason=stop_reason,
+                state=ctx.state,
+            ),
         )
         try:
             result = self._chat(
                 ctx.trace,
-                "summary",
+                "narrator",
                 request,
                 tools=None,
-                max_tokens=self._summary_max_tokens,
+                max_tokens=self._narrator_max_tokens,
                 timeout=timeout,
             )
         except Exception as exc:
             # A provider fault, a timeout or a bug: the run's work is already
-            # committed and its record stands, so the summary is dropped, never
-            # the run.
+            # committed and its record stands, so the narration is dropped,
+            # never the run.
             logger.warning(
-                "agent_summary_failed",
+                "agent_narrator_failed",
                 stop_reason=stop_reason,
                 error=str(exc),
                 error_type=type(exc).__name__,
             )
             return None
         if result.finish_reason == _FINISH_LENGTH:
-            logger.warning("agent_summary_truncated", stop_reason=stop_reason)
+            logger.warning("agent_narrator_truncated", stop_reason=stop_reason)
             return None
         reply = (result.content or "").strip()
         if result.tool_calls or not reply:
             logger.warning(
-                "agent_summary_unusable",
+                "agent_narrator_unusable",
                 stop_reason=stop_reason,
                 tool_calls=len(result.tool_calls),
             )
             return None
-        logger.info("agent_summary", stop_reason=stop_reason, chars=len(reply))
-        ctx.trace.summarised = True
+        logger.info("agent_narrated", stop_reason=stop_reason, chars=len(reply))
+        ctx.trace.narrated = True
         return reply
 
     @staticmethod

@@ -309,15 +309,21 @@ class LlamaCppProvider:
         enable_thinking: bool = False,
         max_tokens: int | None = None,
         timeout: float | None = None,
+        temperature: float | None = None,
     ) -> ChatResult:
         """One completion turn, optionally offering tools.
 
         ``timeout`` overrides the client's default read timeout for this one
         call (the agent loop passes the time left in its run budget), so a
-        single call can never outlive the caller's deadline.
+        single call can never outlive the caller's deadline. ``temperature``
+        overrides the profile's for this one call (the planner's, #418).
         """
         payload = self._payload(
-            messages, tools=tools, enable_thinking=enable_thinking, max_tokens=max_tokens
+            messages,
+            tools=tools,
+            enable_thinking=enable_thinking,
+            max_tokens=max_tokens,
+            temperature=temperature,
         )
         return self._post(payload, self._result, timeout=timeout)
 
@@ -365,6 +371,7 @@ class LlamaCppProvider:
         tools: Sequence[ToolSpec] | None,
         enable_thinking: bool,
         max_tokens: int | None,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self._model,
@@ -375,6 +382,8 @@ class LlamaCppProvider:
             # extra_body indirection needed).
             **self._profile.sampling.wire(),
         }
+        if temperature is not None:
+            payload["temperature"] = temperature
         kwarg = self._profile.thinking_kwarg
         if kwarg is not None:
             payload["chat_template_kwargs"] = {kwarg: enable_thinking}

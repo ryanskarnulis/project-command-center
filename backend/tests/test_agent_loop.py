@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai import loop as loop_module
 from app.ai import state_block
-from app.ai.loop import LOOP_ACTOR, SYSTEM_PROMPT, AgentLoop, AgentRunFailed
+from app.ai.loop import LOOP_ACTOR, PLANNER_PROMPT, AgentLoop, AgentRunFailed
 from app.ai.providers.llamacpp import (
     ChatResult,
     ProviderRequestError,
@@ -200,14 +200,14 @@ def test_max_iterations_terminates_the_loop(tool_db: sessionmaker[Session]) -> N
         [
             _calls(("list_projects", {})),
             _calls(("list_tasks", {})),
-            _text("Looked through your projects and tasks; ran out of steps there."),
-        ]
+        ],
+        narrations=[_text("Looked through your projects and tasks; ran out of steps there.")],
     )
     result = AgentLoop(provider, max_iterations=2).run("Browse forever.")
 
     assert result.stop_reason == "max_iterations"
     assert result.iterations == 2
-    # Two loop turns, then the tool-free summary of what ran (#399).
+    # Two planner turns, then the narrator says what ran (#399, #418).
     assert len(provider.requests) == 3
     assert provider.requests[2]["tools"] == []
     assert result.reply == "Looked through your projects and tasks; ran out of steps there."
@@ -224,9 +224,9 @@ def test_a_turn_that_only_repeats_itself_ends_the_run_no_progress(
             _calls(("list_projects", {}), ("search", {"query": "garage"})),
             # An exchange the run has already seen, answered the same way.
             _calls(("search", {"query": "garage"})),
-            # The run ended: the next request is the tool-free summary (#399).
-            _text("Searched for garage and found nothing new."),
-        ]
+        ],
+        # The run ended: the next request is the tool-free narrator (#399).
+        narrations=[_text("Searched for garage and found nothing new.")],
     )
     result = AgentLoop(provider).run("What's in my garage project?")
 
@@ -240,13 +240,10 @@ def test_a_turn_that_only_repeats_itself_ends_the_run_no_progress(
         "search",
         "search",
     ]
-    # The transcript stays well-formed: the repeated call's answer, then the
-    # summary as the closing assistant turn.
-    assert result.messages[-2]["role"] == "tool"
-    assert result.messages[-1] == {
-        "role": "assistant",
-        "content": "Searched for garage and found nothing new.",
-    }
+    # The transcript is the planner's and stays well-formed: it ends on the
+    # repeated call's answer. The narrator's words are the reply, not a turn.
+    assert result.messages[-1]["role"] == "tool"
+    assert result.note is None
 
 
 def test_exchange_key_ignores_argument_order() -> None:
@@ -310,8 +307,8 @@ def test_tool_call_cap_answers_excess_calls_not_run_and_never_dispatches_them(
                 ("create_project", {"name": "P3"}),
                 ("create_project", {"name": "P4"}),
             ),
-            _text("Made P1 and P2; P3 and P4 weren't made."),  # the summary
-        ]
+        ],
+        narrations=[_text("Made P1 and P2; P3 and P4 weren't made.")],
     )
     result = AgentLoop(provider, max_tool_calls=2).run("Make four projects.")
 
@@ -331,7 +328,7 @@ def test_tool_call_cap_answers_excess_calls_not_run_and_never_dispatches_them(
     turn = next(
         m for m in reversed(result.messages) if m.get("tool_calls")
     )
-    answers = result.messages[result.messages.index(turn) + 1 : -1]
+    answers = result.messages[result.messages.index(turn) + 1 :]
     assert [m["tool_call_id"] for m in answers] == [
         c["id"] for c in turn["tool_calls"]
     ]
@@ -353,9 +350,11 @@ def test_default_tool_call_cap_fits_the_largest_deployed_batch() -> None:
 
 
 def test_every_model_call_is_capped(tool_db: sessionmaker[Session]) -> None:
-    """``max_tokens`` goes out on every provider call (#397)."""
+    """``max_tokens`` goes out on every provider call (#397), the
+    narrator's included (#418)."""
     provider = ScriptedProvider(
-        [_calls(("list_projects", {})), _text("No projects yet.")]
+        [_calls(("list_projects", {})), _text("No projects yet.")],
+        narrations=[_text("Nothing there yet.")],
     )
     AgentLoop(provider).run("What projects do I have?")
     AgentLoop(provider_capped := ScriptedProvider([_text("Hi.")]), max_tokens=64).run(
@@ -365,9 +364,11 @@ def test_every_model_call_is_capped(tool_db: sessionmaker[Session]) -> None:
     assert [request["max_tokens"] for request in provider.requests] == [
         loop_module.DEFAULT_MAX_TOKENS,
         loop_module.DEFAULT_MAX_TOKENS,
+        loop_module.NARRATOR_MAX_TOKENS,
     ]
     assert loop_module.DEFAULT_MAX_TOKENS == 2048
-    assert provider_capped.requests[0]["max_tokens"] == 64
+    # The narrator's cap is never above an explicit turn cap.
+    assert [request["max_tokens"] for request in provider_capped.requests] == [64, 64]
 
 
 def test_cut_off_text_turn_is_dropped_and_ends_truncated(
@@ -690,22 +691,25 @@ def test_tool_session_reuses_a_bound_request_id(
         structlog.contextvars.unbind_contextvars("request_id")
 
 
-def test_system_prompt_layers_compose_in_order() -> None:
-    """app base → global Glitch, in that order, and nothing dated (#412)."""
-    prompt = SYSTEM_PROMPT
+def test_the_planner_prompt_has_no_persona_and_nothing_dated() -> None:
+    """The planner's contract alone (#418): no Glitch, nothing dated (#412)."""
+    prompt = PLANNER_PROMPT
 
-    # Layer 1: the app behavioral contract.
     assert "Project Command Center (PCC)" in prompt
     assert "never guess an id" in prompt
     assert "never invent" in prompt
-    # Layer 2: the vendored house personality.
-    assert "you are Glitch" in prompt
-    # No dynamic layer: the date lives in the per-run state block.
+    assert "Glitch" not in prompt
     assert "Today's date" not in prompt
 
-    base_at = prompt.index("You act only by calling the provided tools.")
-    glitch_at = prompt.index("you are Glitch")
-    assert base_at < glitch_at
+
+def test_narrator_prompt_layers_compose_in_order() -> None:
+    """Speaking contract → global Glitch, in that order, nothing dated (#418)."""
+    prompt = loop_module.NARRATOR_PROMPT
+
+    assert "You cannot call tools." in prompt
+    assert "you are Glitch" in prompt
+    assert "Today" not in prompt
+    assert prompt.index("You cannot call tools.") < prompt.index("you are Glitch")
 
 
 def test_global_personality_is_the_vendored_glitch_without_its_header() -> None:
@@ -744,9 +748,9 @@ def test_the_state_block_opens_the_user_turn_and_the_system_prompt_is_static(
     provider = ScriptedProvider([_text("You have Garage.")])
     AgentLoop(provider).run("What projects do I have?")
 
-    [request] = provider.requests
+    request = provider.requests[0]
     system, user = request["messages"]
-    assert system == {"role": "system", "content": SYSTEM_PROMPT}
+    assert system == {"role": "system", "content": PLANNER_PROMPT}
     assert user["role"] == "user"
     block, ask = user["content"].split("\n\n", 1)
     assert ask == "What projects do I have?"
@@ -777,7 +781,7 @@ def test_the_state_block_is_built_once_per_run_as_of_its_start(
     AgentLoop(provider).run("Make a Garage project.")
 
     assert len(built) == 1
-    first, second = (request["messages"] for request in provider.requests)
+    first, second = (request["messages"] for request in provider.requests if request["tools"])
     assert first[1]["content"] == second[1]["content"]
     assert "Open projects: none yet." in second[1]["content"]
 

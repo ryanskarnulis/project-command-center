@@ -76,11 +76,16 @@ def test_conversation_service_happy_path(db_session: Session) -> None:
     assert messages[1].tool_calls is not None
     assert messages[1].tool_calls[0]["tool"] == "get_focus_plan"
 
-    # History for the next run: text turns only, no tool transcripts.
+    # History for the next run: each turn's text, and an assistant turn's
+    # stored tool records beside it — the next run's recall (#418).
     history = conversations_service.history_for_loop(db_session, conversation.id)
     assert history == [
         {"role": "user", "content": "Plan my week around the garage cleanup"},
-        {"role": "assistant", "content": "Here is the plan."},
+        {
+            "role": "assistant",
+            "content": "Here is the plan.",
+            "tool_calls": [run.tool_calls[0].model_dump()],
+        },
     ]
 
     conversations_service.soft_delete_conversation(db_session, conversation)
@@ -276,7 +281,7 @@ def test_post_message_runs_loop_and_persists_exchange(
     )
     assert task_events and all(e.actor == LOOP_ACTOR for e in task_events)
 
-    # History survives a "reload" and feeds the next run as text turns.
+    # History survives a "reload" and feeds the next run as recall (#418).
     detail = client.get(f"/api/agent/conversations/{conversation_id}").json()
     assert detail["title"] == "Create a task called Ship slice 2"
     assert [m["role"] for m in detail["messages"]] == ["user", "assistant"]
@@ -286,17 +291,18 @@ def test_post_message_runs_loop_and_persists_exchange(
         json={"content": "What did I ask you to do?"},
     )
     assert followup.status_code == 200
-    prior_turns = provider.requests[-1]["messages"]
-    assert [m["role"] for m in prior_turns] == ["system", "user", "assistant", "user"]
-    assert prior_turns[1]["content"] == "Create a task called Ship slice 2"
-    assert not any("tool" in (m.get("role") or "") for m in prior_turns)
-    # The state block (#412) opens only the current turn, fresh: it is never
-    # stored, so neither the transcript nor the next run's history has it.
-    current = prior_turns[-1]["content"]
+    planner = next(r for r in reversed(provider.requests) if r["tools"])["messages"]
+    # Earlier turns are data in the opening message, never chat turns.
+    assert [m["role"] for m in planner] == ["system", "user"]
+    # The state block (#412) opens the current turn, fresh: it is never
+    # stored, so the next run's recall does not carry an old one.
+    current = planner[1]["content"]
     assert current.startswith("[State at the start of this run")
-    assert current.endswith("\n\nWhat did I ask you to do?")
+    assert current.count("[State at the start") == 1
     assert "1 open" in current
-    assert sum("[State at the start" in m["content"] for m in prior_turns) == 1
+    assert 'The user said: "Create a task called Ship slice 2"' in current
+    assert 'create_task {"title":"Ship slice 2"} -> id 1 "Ship slice 2"' in current
+    assert current.endswith("\n\nWhat did I ask you to do?")
     detail = client.get(f"/api/agent/conversations/{conversation_id}").json()
     assert [m["content"] for m in detail["messages"] if m["role"] == "user"] == [
         "Create a task called Ship slice 2",
