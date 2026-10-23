@@ -90,6 +90,10 @@ class RegisteredTool:
     # True for a tool that only reads. Registry metadata only: never part of
     # ``parameters``, ``tool_specs`` or the MCP schema.
     read_only: bool = False
+    # True for a tool only the in-app loop is offered (``ask_user``, #420):
+    # the MCP server leaves it out, since an external agent asks in its own
+    # voice.
+    agent_only: bool = False
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -102,7 +106,13 @@ _REGISTRY: dict[str, RegisteredTool] = {}
 _F = TypeVar("_F", bound=Callable[..., Any])
 
 
-def _register(fn: _F, *, read_only: bool, args: type[FlatArgs] | None = None) -> _F:
+def _register(
+    fn: _F,
+    *,
+    read_only: bool,
+    args: type[FlatArgs] | None = None,
+    agent_only: bool = False,
+) -> _F:
     description = inspect.getdoc(fn)
     if not description:
         raise ValueError(f"tool {fn.__name__} must have a docstring")
@@ -116,6 +126,7 @@ def _register(fn: _F, *, read_only: bool, args: type[FlatArgs] | None = None) ->
         fn=fn,
         metadata=metadata,
         read_only=read_only,
+        agent_only=agent_only,
     )
     return fn
 
@@ -179,6 +190,11 @@ def _flat_tool(
     return register
 
 
+def _agent_tool(fn: _F) -> _F:
+    """Register a read-only tool offered to the in-app loop and not over MCP."""
+    return _register(fn, read_only=True, agent_only=True)
+
+
 def read_only_tool_names() -> frozenset[str]:
     """Names of the registered tools that only read."""
     return frozenset(tool.name for tool in all_tools() if tool.read_only)
@@ -187,6 +203,11 @@ def read_only_tool_names() -> frozenset[str]:
 def all_tools() -> tuple[RegisteredTool, ...]:
     """Every registered tool, in registration order."""
     return tuple(_REGISTRY.values())
+
+
+def mcp_tools() -> tuple[RegisteredTool, ...]:
+    """The tools the MCP server offers: all but the loop's own."""
+    return tuple(tool for tool in all_tools() if not tool.agent_only)
 
 
 def get_tool(name: str) -> RegisteredTool:
@@ -227,6 +248,7 @@ def call_tool(name: str, arguments: dict[str, Any], *, actor: str) -> Any:
 # window is expressed explicitly via offset paging.
 _ListLimit = Annotated[int, Field(ge=1, le=200)]
 _PerKind = Annotated[int, Field(ge=1, le=25)]
+_AskCandidates = Annotated[list[EntityId], Field(min_length=2, max_length=8)]
 _StartTime = Annotated[str, Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")]
 _AvailableMinutes = Annotated[int, Field(ge=15, le=1440)]
 
@@ -659,6 +681,22 @@ def search(query: str, per_kind: _PerKind = 8) -> SearchResults:
     """Full-text search over active projects and tasks (title, description)."""
     with tool_session("search", write=False) as db:
         return search_service.search(db, query, per_kind=per_kind)
+
+
+@_agent_tool
+def ask_user(task_ids: _AskCandidates) -> list[TaskRead]:
+    """Ask the user which task they meant, instead of acting, when two or more tasks fit their words and nothing tells them apart.
+
+    task_ids: the tasks that fit (2-8), in the order the user will hear them.
+    Ends the run: change nothing first. Their next message answers it.
+    """
+    if len(set(task_ids)) != len(task_ids):
+        raise ToolRefusal(
+            "task_ids repeats a task; name each candidate once",
+            retry=refusals.RETRY_DIFFERENT_ARGS,
+        )
+    with tool_session("ask_user", write=False) as db:
+        return [TaskRead.model_validate(_task_or_error(db, task_id)) for task_id in task_ids]
 
 
 @_read_tool

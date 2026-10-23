@@ -16,6 +16,10 @@ so a reader knows the agent's own writes after that are not in it.
 
 Building it never costs the run: a snapshot query that fails is logged and the
 block falls back to the calendar alone.
+
+A question the user was asked and has not answered (#420,
+:mod:`app.ai.clarification`) closes the block, after its candidates are
+checked against live rows (:func:`still_open`).
 """
 
 from __future__ import annotations
@@ -25,6 +29,12 @@ from datetime import date, timedelta
 
 import structlog
 
+from sqlalchemy import select
+
+from app.ai import clarification
+from app.ai.clarification import OpenQuestion
+from app.db.models import Task
+from app.schemas.tasks import TaskRead
 from app.services import dashboard
 from app.services.dashboard import AgentSnapshot
 from app.tools import runtime
@@ -67,9 +77,12 @@ def calendar_lines(today: date) -> list[str]:
     return lines
 
 
-def render(today: date, snapshot: AgentSnapshot | None) -> str:
+def render(
+    today: date, snapshot: AgentSnapshot | None, question: OpenQuestion | None = None
+) -> str:
     """The block's text. ``snapshot`` ``None`` (the query failed) leaves the
-    calendar alone, rather than a roster that reads as "no projects"."""
+    calendar alone, rather than a roster that reads as "no projects".
+    ``question`` is an open question already checked live."""
     lines = [_HEADER, *calendar_lines(today)]
     if snapshot is not None:
         if snapshot.roster:
@@ -88,6 +101,8 @@ def render(today: date, snapshot: AgentSnapshot | None) -> str:
             f"Open tasks: {snapshot.overdue} overdue, {snapshot.due_today} due today, "
             f"{snapshot.blocked} blocked."
         )
+    if question is not None:
+        lines += clarification.render(question)
     lines.append(_FOOTER)
     return "\n".join(lines)
 
@@ -97,9 +112,10 @@ def _clip(name: str) -> str:
     return flat if len(flat) <= MAX_NAME_CHARS else flat[: MAX_NAME_CHARS - 1] + "…"
 
 
-def build(today: date) -> str:
+def build(today: date, question: OpenQuestion | None = None) -> str:
     """The block for a run starting ``today``, read on its own read-only session
-    (the tools' factory, so tests' and evals' databases apply)."""
+    (the tools' factory, so tests' and evals' databases apply). ``question``
+    must already have passed :func:`still_open`."""
     snapshot: AgentSnapshot | None = None
     try:
         with runtime.session_factory() as db:
@@ -108,7 +124,34 @@ def build(today: date) -> str:
         logger.warning(
             "agent_state_block_failed", error=str(exc), error_type=type(exc).__name__
         )
-    return render(today, snapshot)
+    return render(today, snapshot, question)
+
+
+def still_open(found: tuple[OpenQuestion | None, str]) -> tuple[OpenQuestion | None, str]:
+    """``found`` (:func:`clarification.from_history`) if its question's
+    candidates are all still active and unchanged, else ``None`` and why
+    (:func:`clarification.staleness`). A query that fails drops the question:
+    an unchecked choice could be one that is gone."""
+    question, closed = found
+    if question is None:
+        return None, closed
+    ids = [candidate.id for candidate in question.candidates]
+    try:
+        with runtime.session_factory() as db:
+            tasks = db.scalars(
+                select(Task).where(Task.id.in_(ids), Task.deleted_at.is_(None))
+            ).all()
+            live = {
+                task.id: TaskRead.model_validate(task).model_dump(mode="json")["updated_at"]
+                for task in tasks
+            }
+    except Exception as exc:
+        logger.warning(
+            "agent_open_question_check_failed", error=str(exc), error_type=type(exc).__name__
+        )
+        return None, "check_failed"
+    reason = clarification.staleness(question, live)
+    return (None, reason) if reason else (question, "")
 
 
 def with_state(block: str, user_message: str, *sections: str | None) -> str:

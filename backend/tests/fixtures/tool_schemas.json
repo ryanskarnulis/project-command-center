@@ -917,6 +917,34 @@
     {
       "type": "function",
       "function": {
+        "name": "ask_user",
+        "description": "Ask the user which task they meant, instead of acting, when two or more tasks fit their words and nothing tells them apart.\n\ntask_ids: the tasks that fit (2-8), in the order the user will hear them.\nEnds the run: change nothing first. Their next message answers it.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "task_ids": {
+              "items": {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "maxItems": 8,
+              "minItems": 2,
+              "title": "Task Ids",
+              "type": "array"
+            }
+          },
+          "required": [
+            "task_ids"
+          ],
+          "title": "ask_userArguments",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
         "name": "get_focus_plan",
         "description": "Deterministic day plan: what to work on for `date` (default: today).",
         "parameters": {

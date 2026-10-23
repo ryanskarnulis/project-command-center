@@ -157,6 +157,8 @@ export function describeToolCall(record: ToolCallRecord): string {
       return 'Looked in the trash'
     case 'list_activity':
       return 'Looked at project activity'
+    case 'ask_user':
+      return 'Asked which task you meant'
     default:
       return record.tool.replaceAll('_', ' ')
   }
@@ -164,7 +166,7 @@ export function describeToolCall(record: ToolCallRecord): string {
 
 /** True for calls that changed something (and so deserve prominence). */
 export function isMutation(record: ToolCallRecord): boolean {
-  return !/^(list_|get_|search$)/.test(record.tool)
+  return !/^(list_|get_|search$|ask_user$)/.test(record.tool)
 }
 
 const taskPath = (id: number | null) => (id === null ? null : `/tasks/${id}`)

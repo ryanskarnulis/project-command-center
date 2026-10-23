@@ -65,6 +65,7 @@ describe('isMutation', () => {
     expect(isMutation(record({ tool: 'list_tasks' }))).toBe(false)
     expect(isMutation(record({ tool: 'search' }))).toBe(false)
     expect(isMutation(record({ tool: 'get_focus_plan' }))).toBe(false)
+    expect(isMutation(record({ tool: 'ask_user' }))).toBe(false)
   })
 
   it('treats writes as mutations', () => {

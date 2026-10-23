@@ -30,6 +30,10 @@ Tools map 1:1 onto service functions — (validate args) → (open session) →
 - **Dependencies/recurrence:** `list_dependencies`, `add_dependency`,
   `remove_dependency`, `skip_occurrence`, `stop_recurrence`. Recurrence
   creation/editing rides on `create_task`/`update_task`.
+- **Clarification (#420), in-app loop only:** `ask_user(task_ids)` — 2–8
+  candidate tasks, each checked to exist; it changes nothing. The MCP server
+  leaves it out (`registry.mcp_tools()`), since an external agent asks in its
+  own voice. See "The open question" below.
 
 **Argument shape (#411).** `create_task`, `update_task`, `create_project` and
 `update_project` take their payload's fields as top-level arguments
@@ -391,6 +395,51 @@ that.
   prompt-cache prefix. Past two arms, every call pays a full prefill (about
   6 s instead of 0.4 s), so screen many variants as separate pairs against
   the control.
+- **The open question** (#420, `app/ai/clarification.py`, ported from
+  chess's `clarification.py` / `ask_player`, chess#289 and chess#319): when
+  the user's words fit several tasks, the planner calls `ask_user` with their
+  ids. The registry checks that each exists; a refused ask goes back to the
+  planner like any refusal. A landed ask **ends the run**: any later calls in
+  the same turn are recorded "not run", and the narrator's brief says the run
+  ended on a question and lists the candidates' titles in the order given, to
+  be named in that order. If the narrator can't speak, the reply is code's
+  own "Which task did you mean?" with the numbered titles. The stop reason
+  stays `completed`.
+
+  The record needs no table: it is the landed `ask_user` call, stored with
+  its turn's tool calls like every other. At the start of each run,
+  `clarification.from_history` finds the newest landed ask that no later
+  write followed (`later_write` closes it, whether the write answered it or
+  moved on; reads and chat leave it standing).
+  `state_block.still_open` then checks every candidate against live rows:
+  one trashed (`candidate_gone`) or with a different `updated_at` from
+  anywhere (`candidate_changed`) closes it, as chess closes a question when
+  the board version moves. An open question closes the state block,
+  numbered with ids ("1. id 4 · Book dentist appointment"), so "the second
+  one" resolves without a search. The planner and the narrator both read
+  it. The trace records it under `clarification` (schema 5).
+
+  The possible-matches line in `PLANNER_PROMPT` ends with the ask: "If two
+  or more fit the user's words and nothing tells them apart, call ask_user
+  with their ids instead of acting." Without it the tool alone took
+  `ambiguous_then_pick` (held-out) from 0/20 to 2/10. The planner completed
+  the first dentist task straight from the matches, and every time it did
+  ask, the rest of the thread passed.
+
+  **Measured** (2026-10-23, gemma-4-12b, paired campaigns vs main, seed 420,
+  2 blocks of 5):
+  - Frontier held-out: `ambiguous_then_pick` 0/10 → 10/10 (p=0.002).
+    `reorganize_project` 3/10 → 6/10 and `long_composition` 10/10 → 8/10;
+    neither is significant. Both `long_composition` misses are one wording
+    with no ask in it: the planner looped on `search` for the data pull and
+    stopped. `misheard_push` and the `poisoned_*` family are 10/10 on both;
+    `plan_week` is 0/10 on both.
+  - Gate, on the 13 items an over-eager ask could break (`followup_*`,
+    `long_*`, the `reference_*` follow-ups, `find_and_complete`,
+    `misfire_edit_among_similar`, `focus_skip_series`, `dependency_add`,
+    `delegate_thread`): 10/10 on both arms, with no discordant pairs. #416's
+    prose rule had read "the first one" as ambiguous; with the tool behind
+    it, this clause doesn't.
 - **Persistence** (`conversations`, `conversation_messages`): assistant turns
   carry the tool trajectory + stop_reason; the user turn commits before the
   loop runs. `POST /api/agent/conversations/{id}/messages` is the one

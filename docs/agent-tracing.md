@@ -53,15 +53,16 @@ response and rendered prompt to the run: see
 [`agent-context-capture.md`](agent-context-capture.md). The agent
 route binds `conversation_id` the same way, and the record picks it up.
 
-## The record (schema 4)
+## The record (schema 5)
 
 | Field | Meaning |
 | --- | --- |
-| `schema`, `kind` | Layout version (`4`) and `"run"`. A reader keys off `schema`; bump it on any change a reader must branch on. Schema 2 (#412) added `state_block` and `lookup_turns`; schema 3 (#415) added `gather`; schema 4 (#418, the planner/narrator split) added `note`, `narrated` and `history.recall`, renamed the call phases and the narrator's cap and hash, and dropped `history.kept`/`dropped` and `summarised`. |
+| `schema`, `kind` | Layout version (`5`) and `"run"`. A reader keys off `schema`; bump it on any change a reader must branch on. Schema 2 (#412) added `state_block` and `lookup_turns`; schema 3 (#415) added `gather`; schema 4 (#418, the planner/narrator split) added `note`, `narrated` and `history.recall`, renamed the call phases and the narrator's cap and hash, and dropped `history.kept`/`dropped` and `summarised`; schema 5 (#420) added `clarification`. |
 | `ts`, `started` | When the record was written / the run began (UTC ISO). |
 | `run_id`, `conversation_id`, `actor` | Which run; the thread (`null` outside the route); who its writes are stamped as (`agent:loop`, `agent:conductor`). |
 | `utterance` | The user message, as typed — without the state block in front of it. |
 | `state_block` | The state block the run's user turn opened with (#412): the calendar, the open-project roster and today's counts, as of the run's start. With `utterance` it is exactly the turn the model saw. |
+| `clarification` | The open question (#420): `open` is the question an earlier run left open, as this run's state block carried it (`request`, candidate task ids in the order named), or `null`; `closed` is why the newest one no longer stood (`later_write`, `candidate_gone`, `candidate_changed`, `check_failed`) or `""`; `asked` is the task ids this run's landed `ask_user` offered, in order. |
 | `gather` | The possible matches shown before the first model call (#415): `source` (`hybrid` — keywords and meaning; `keyword` — the embeddings service was unset, down, slow or still warming; `none` — nothing searched), `model` (the embedding model, `null` unless hybrid), `ms` (the gather's wall clock, the query's embedding included), `matches`: each item's `kind` (`task` or `commitment`), `id`, fused `score`, `lift` over the median cosine (`null` without vectors) and `keyword` score (query words held, plus a BM25 fraction for tasks; `null` without a word hit), and `rows`: the matches exactly as the model read them, after `state_block` in its user turn. |
 | `lookup_turns` | Model turns that asked only for reads (`list_*`, `get_*`, `search`) before the first turn asking for anything else. The before/after measure for the state block; `read_trace.py` rebuilds it from `calls` + `tools` for schema-1 records, so old and new traces compare. |
 | `history` | `given`: how many stored messages the run was handed (the service already windowed them, #244); `messages`: those messages; `recall`: what the planner read of them (#418) — the "Before this run" section of its opening message. Schema ≤ 3 had `kept`/`dropped`, when the loop windowed chat turns. |
