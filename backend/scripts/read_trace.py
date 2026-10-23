@@ -81,7 +81,7 @@ def lookup_turns(record: dict[str, Any]) -> int:
     at = 0
     for call in record.get("calls") or []:
         count = int(call.get("tool_calls") or 0)
-        if call.get("phase") != "turn" or count == 0:
+        if call.get("phase") not in ("turn", "planner") or count == 0:
             continue
         names = tools[at : at + count]
         at += count
@@ -93,8 +93,10 @@ def lookup_turns(record: dict[str, Any]) -> int:
 
 def summary_line(record: dict[str, Any]) -> str:
     stop = str(record.get("stop_reason"))
-    if record.get("summarised"):
+    if record.get("summarised"):  # schema <= 3
         stop += "+summary"
+    elif "narrated" in record and not record["narrated"] and record.get("reply") is not None:
+        stop += "+note"
     conversation = record.get("conversation_id")
     return (
         f"{str(record.get('ts', ''))[:19]}  {str(record.get('run_id', ''))[:8]}  "
@@ -128,6 +130,13 @@ def totals(records: Sequence[dict[str, Any]]) -> str:
     )
 
 
+def _history_line(history: dict[str, Any]) -> str:
+    if "kept" in history:  # schema <= 3: the loop windowed turns
+        return f"  history: kept {history.get('kept', 0)}, dropped {history.get('dropped', 0)}"
+    recall = history.get("recall") or ""
+    return f"  history: {history.get('given', 0)} message(s), recall {len(recall)} chars"
+
+
 def detail(record: dict[str, Any]) -> str:
     serving = record.get("serving") or {}
     history = record.get("history") or {}
@@ -136,13 +145,15 @@ def detail(record: dict[str, Any]) -> str:
     stop = str(record.get("stop_reason"))
     if limit:
         stop += f" (limit {limit}" + (f"={limits[limit]})" if limit in limits else ")")
-    if record.get("summarised"):
+    if record.get("summarised"):  # schema <= 3
         stop += ", reply is the limit summary"
+    elif "narrated" in record and not record["narrated"] and record.get("reply") is not None:
+        stop += ", reply is the planner's note (the narrator could not speak)"
     lines = [
         f"run {record.get('run_id')}  conv {record.get('conversation_id')}  "
         f"{record.get('actor')}  {record.get('ts')}",
         f"  ask:     {clip(record.get('utterance', ''), 300)!r}",
-        f"  history: kept {history.get('kept', 0)}, dropped {history.get('dropped', 0)}",
+        _history_line(history),
         f"  lookups: {lookup_turns(record)} turn(s) of only reads before the first write",
         f"  stop:    {stop}",
     ]
@@ -150,6 +161,8 @@ def detail(record: dict[str, Any]) -> str:
         lines.append(f"  error:   {clip(record['error'], 300)}")
     reply = record.get("reply")
     lines.append(f"  reply:   {clip(reply, 300)!r}" if reply is not None else "  reply:   (none)")
+    if record.get("note") is not None:
+        lines.append(f"  note:    {clip(record['note'], 300)!r}")
     lines.append(
         f"  serving: {serving.get('model')} profile={serving.get('profile')} "
         f"prompt={str(serving.get('system_prompt_sha256'))[:12]} "
@@ -174,7 +187,7 @@ def detail(record: dict[str, Any]) -> str:
         cached = call.get("cached_tokens")
         server_ms = call.get("server_ms")
         line = (
-            f"    #{call.get('seq')} {call.get('phase'):<7} {call.get('status'):<9} "
+            f"    #{call.get('seq')} {call.get('phase'):<8} {call.get('status'):<9} "
             f"{call.get('ms')}ms"
             + (f" (server {server_ms}ms)" if server_ms is not None else "")
             + f"  prompt {call.get('prompt_tokens')}"

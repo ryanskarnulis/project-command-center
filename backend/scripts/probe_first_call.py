@@ -11,7 +11,7 @@ What it sends is the shipped first call, not a copy of it. The messages, the
 tool offer and the token cap come out of the real :class:`app.ai.loop.AgentLoop`
 (a recording provider takes its first ``chat`` call and ends the run), and the
 request goes out through the real :class:`LlamaCppProvider` at the model's
-profile (#402) — so the system prompt, the tool schemas, the history window
+profile (#402) — so the system prompt, the tool schemas, the recall section
 and the request bytes cannot drift from production. An arm changes exactly the
 knobs it names:
 

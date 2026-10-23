@@ -1,9 +1,11 @@
-"""When a run stops at a limit, it says what it did (#399).
+"""The narrator speaks for the run (#418), and for a limit stop says what it did (#399).
 
-Against the scripted provider: every limit stop with a call that ran gets one
-tool-free summary call that reads the code-built run record; a run where
-nothing ran, a Stop, and a summary that fails or is cut off all keep today's
-behavior (no reply, the client's stop line).
+Against the scripted provider: a completed run and every limit stop with a
+call that ran get one tool-free narrator call that reads a fresh brief — the
+code-built run record, what each call answered, what came before the run, and
+the planner's note. A limit stop where nothing ran and a Stop never call it; a
+narrator that fails or is cut off falls back to the planner's note on a
+completed run and to no reply (the client's stop line) on a limit stop.
 """
 
 from __future__ import annotations
@@ -81,31 +83,76 @@ _LIMIT_RUNS: dict[str, tuple[list[ChatResult], dict[str, Any]]] = {
 
 
 @pytest.mark.parametrize("stop_reason", sorted(_LIMIT_RUNS))
-def test_limit_stop_saves_a_summary_of_what_ran(
+def test_limit_stop_narrates_what_ran(
     tool_db: sessionmaker[Session], stop_reason: str
 ) -> None:
     turns, options = _LIMIT_RUNS[stop_reason]
-    provider = ScriptedProvider([*turns, _text(SUMMARY)])
+    provider = ScriptedProvider(turns, narrations=[_text(SUMMARY)])
     result = AgentLoop(provider, **options).run("Make tasks Alpha and Beta.")
 
     # The stop reason is unchanged — delegates and the UI read it.
     assert result.stop_reason == stop_reason
     assert result.reply == SUMMARY
-    assert result.messages[-1] == {"role": "assistant", "content": SUMMARY}
+    assert result.note is None
     # Exactly one extra call, offered no tools, capped, and a fresh brief.
     assert len(provider.requests) == len(turns) + 1
-    summary = provider.requests[-1]
-    assert summary["tools"] == []
-    assert summary["max_tokens"] == loop_module.SUMMARY_MAX_TOKENS
-    assert [m["role"] for m in summary["messages"]] == ["system", "user"]
-    brief = summary["messages"][1]["content"]
+    narrator = provider.requests[-1]
+    assert narrator["tools"] == []
+    assert narrator["max_tokens"] == loop_module.NARRATOR_MAX_TOKENS
+    assert narrator["messages"][0] == {"role": "system", "content": loop_module.NARRATOR_PROMPT}
+    assert [m["role"] for m in narrator["messages"]] == ["system", "user"]
+    brief = narrator["messages"][1]["content"]
     assert "Make tasks Alpha and Beta." in brief
-    assert 'Done:\n- #1 create_task {"title":"Alpha"} -> id 1 "Alpha"' in brief
+    # A write shows the row it made, as the planner was shown it (#414).
+    assert 'Done:\n- #1 create_task {"title":"Alpha"} -> {"id": 1, "title": "Alpha"' in brief
     assert run_record.LIMIT_NOTE in brief
     assert run_record.LIMIT_REASONS[stop_reason] in brief
-    # The write the summary describes is real.
+    # The write the narrator describes is real.
     with tool_db() as db:
         assert db.execute(select(Task.title)).scalars().all() == ["Alpha"]
+
+
+def test_a_completed_run_is_narrated_from_a_fresh_brief(
+    tool_db: sessionmaker[Session],
+) -> None:
+    """The planner's text is a handoff note; the narrator's is the reply. The
+    brief carries the ask, the record with what each call answered, and the
+    note labelled as a reading — never the planner's transcript."""
+    provider = ScriptedProvider(
+        [
+            _calls(_alpha()),
+            _calls(("list_tasks", {})),
+            _text("Created Alpha (id 1); it is the only task."),
+        ],
+        narrations=[_text("Done — Alpha's on your list, and it's all alone there.")],
+    )
+    result = AgentLoop(provider).run("Make Alpha, then tell me what I have.")
+
+    assert result.stop_reason == "completed"
+    assert result.reply == "Done — Alpha's on your list, and it's all alone there."
+    assert result.note == "Created Alpha (id 1); it is the only task."
+    narrator = provider.requests[-1]
+    assert narrator["tools"] == []
+    assert narrator["messages"][0]["content"] == loop_module.NARRATOR_PROMPT
+    brief = narrator["messages"][1]["content"]
+    assert "The user said:\nMake Alpha, then tell me what I have." in brief
+    assert '- #1 create_task {"title":"Alpha"} -> {' in brief
+    # A read shows what it found, for the narrator to answer from.
+    assert '- #2 list_tasks {} -> {"tasks": [{' in brief
+    assert (
+        "The planner's note (its reading of the results, not a record): "
+        '"Created Alpha (id 1); it is the only task."'
+    ) in brief
+    assert run_record.LIMIT_NOTE not in brief
+    assert brief.endswith("Now reply to the user.")
+
+
+def test_a_run_with_no_tool_call_is_still_narrated(tool_db: sessionmaker[Session]) -> None:
+    provider = ScriptedProvider([_text("Greeting; nothing to do.")], narrations=[_text("Hey!")])
+    result = AgentLoop(provider).run("hi")
+
+    assert result.reply == "Hey!"
+    assert "Done:\n- nothing" in provider.requests[-1]["messages"][1]["content"]
 
 
 def test_every_limit_stop_has_a_reason_line() -> None:
@@ -129,7 +176,7 @@ def test_every_limit_stop_has_a_reason_line() -> None:
         ([_cut_off()], {}, "truncated"),
     ],
 )
-def test_no_summary_call_when_nothing_ran(
+def test_no_narrator_call_when_nothing_ran_at_a_limit(
     tool_db: sessionmaker[Session],
     turns: list[ChatResult],
     options: dict[str, Any],
@@ -171,7 +218,7 @@ class _StopOnCall(ScriptedProvider):
 def test_cancelled_run_keeps_no_reply_even_after_writes(
     tool_db: sessionmaker[Session],
 ) -> None:
-    """The user asked it to stop: no summary call, as before."""
+    """The user asked it to stop: no narrator call, as before."""
     cancel = threading.Event()
     provider = _StopOnCall(
         [_calls(_alpha()), _calls(("create_task", {"title": "Beta"}))],
@@ -185,7 +232,7 @@ def test_cancelled_run_keeps_no_reply_even_after_writes(
     assert len(provider.requests) == 2
 
 
-def test_stop_during_the_last_tool_skips_the_summary(
+def test_stop_during_the_last_tool_skips_the_narrator(
     tool_db: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A Stop pressed while the run's last tool runs lands after the last
@@ -209,7 +256,7 @@ def test_stop_during_the_last_tool_skips_the_summary(
 
 
 @pytest.mark.parametrize(
-    "summary_turn",
+    "narration",
     [
         ProviderRequestError("connect timeout"),
         _cut_off("Made 'Alpha' and also 'Be"),
@@ -224,21 +271,39 @@ def test_stop_during_the_last_tool_skips_the_summary(
     ],
     ids=["provider_error", "cut_off", "tool_call", "empty", "unexpected"],
 )
-def test_a_summary_that_fails_falls_back_to_no_reply(
-    tool_db: sessionmaker[Session], summary_turn: ChatResult | Exception
+def test_a_narrator_that_fails_at_a_limit_falls_back_to_no_reply(
+    tool_db: sessionmaker[Session], narration: ChatResult | Exception
 ) -> None:
-    provider = ScriptedProvider([_calls(_alpha()), summary_turn])
+    provider = ScriptedProvider([_calls(_alpha())], narrations=[narration])
     result = AgentLoop(provider, max_iterations=1).run("Make Alpha and Beta.")
 
     assert result.stop_reason == "max_iterations"
     assert result.reply is None
-    # No fragment of a cut-off summary reaches the transcript.
     assert result.messages[-1]["role"] == "tool"
     assert [record.tool for record in result.tool_calls] == ["create_task"]
 
 
-def test_summary_is_bounded_by_the_run_deadline(tool_db: sessionmaker[Session]) -> None:
-    provider = ScriptedProvider([_calls(_alpha()), _text(SUMMARY)])
+@pytest.mark.parametrize(
+    "narration",
+    [ProviderRequestError("connect timeout"), _cut_off("Made 'Al"), _text("  ")],
+    ids=["provider_error", "cut_off", "empty"],
+)
+def test_a_narrator_that_fails_on_a_completed_run_falls_back_to_the_note(
+    tool_db: sessionmaker[Session], narration: ChatResult | Exception
+) -> None:
+    """The work is done and committed; the user still gets the planner's
+    line, which is what the single-phase loop replied with."""
+    provider = ScriptedProvider(
+        [_calls(_alpha()), _text("Created task Alpha (id 1).")], narrations=[narration]
+    )
+    result = AgentLoop(provider).run("Make Alpha.")
+
+    assert result.stop_reason == "completed"
+    assert result.reply == result.note == "Created task Alpha (id 1)."
+
+
+def test_narrator_is_bounded_by_the_run_deadline(tool_db: sessionmaker[Session]) -> None:
+    provider = ScriptedProvider([_calls(_alpha())], narrations=[_text(SUMMARY)])
     deadline = time.monotonic() + 60
     result = AgentLoop(provider, max_iterations=1).run("Make Alpha.", deadline=deadline)
 
@@ -247,10 +312,10 @@ def test_summary_is_bounded_by_the_run_deadline(tool_db: sessionmaker[Session]) 
     assert timeout is not None and 0 < timeout <= 60
 
 
-def test_no_summary_once_the_deadline_has_passed(
+def test_no_narrator_once_the_deadline_has_passed(
     tool_db: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Time ran out between the last tool and the summary: no call at all."""
+    """Time ran out between the last tool and the narrator: no call at all."""
     now = [0.0]
     monkeypatch.setattr(loop_module, "time", SimpleNamespace(monotonic=lambda: now[0]))
     original = registry.call_tool
@@ -363,19 +428,20 @@ def test_read_only_flag_is_not_in_any_emitted_schema() -> None:
 # --- Route --------------------------------------------------------------------
 
 
-def test_route_saves_the_summary_as_the_reply(
+def test_route_saves_the_narration_as_the_reply(
     client: TestClient, tool_db: sessionmaker[Session]
 ) -> None:
-    """The saved turn carries the summary as content, the limit as its stop
-    reason, and the next message's history includes it."""
+    """The saved turn carries the narration as content, the limit as its stop
+    reason, and the next run reads it as the last exchange's words — beside
+    the record of what that run's tools did — never as a chat turn."""
     provider = ScriptedProvider(
         [
             _calls(_alpha()),
             _calls(("list_tasks", {})),
             _calls(("list_tasks", {})),
-            _text(SUMMARY),
-            _text("Anything else?"),
-        ]
+            _text("Nothing to do."),
+        ],
+        narrations=[_text(SUMMARY), _text("Anything else?")],
     )
     app.dependency_overrides[routes_agent.get_agent_loop] = lambda: AgentLoop(provider)
     conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
@@ -402,5 +468,9 @@ def test_route_saves_the_summary_as_the_reply(
         f"/api/agent/conversations/{conversation_id}/messages",
         json={"content": "Thanks."},
     )
-    history = provider.requests[-1]["messages"]
-    assert {"role": "assistant", "content": SUMMARY} in history
+    planner = next(r for r in reversed(provider.requests) if r["tools"])["messages"]
+    assert [m["role"] for m in planner] == ["system", "user"]
+    opening = planner[1]["content"]
+    assert f'The assistant said then (its words, not a record): "{SUMMARY}"' in opening
+    assert 'create_task {"title":"Alpha"} -> id 1 "Alpha"' in opening
+    assert opening.endswith("Thanks.")

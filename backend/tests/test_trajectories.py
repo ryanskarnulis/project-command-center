@@ -123,9 +123,9 @@ NAMED: dict[str, tuple[str, tuple[Step, ...]]] = {
             Step((calls(("restore_task", {"task_id": 3})), reply())),
         ),
     ),
-    # Stop pressed while the limit summary is being written: it completes (it
-    # was in flight), the stop reason stays the limit's.
-    "stop_during_the_summary": (
+    # Stop pressed while the narrator speaks for a limit stop: it completes
+    # (it was in flight), the stop reason stays the limit's.
+    "stop_during_the_narration": (
         "prevents",
         (
             Step(
@@ -136,7 +136,7 @@ NAMED: dict[str, tuple[str, tuple[Step, ...]]] = {
         ),
     ),
     # The deadline passes during the second call of a batch: the third never
-    # starts, is answered "not run", and nothing is summarised.
+    # starts, is answered "not run", and nothing is narrated.
     "deadline_mid_batch": (
         "prevents",
         (
@@ -147,7 +147,7 @@ NAMED: dict[str, tuple[str, tuple[Step, ...]]] = {
         ),
     ),
     # Stop during the last call of a turn that only repeats a lookup: the run
-    # ends at the stall rule, and no summary starts after the Stop.
+    # ends at the stall rule, and no narrator starts after the Stop.
     "stop_in_a_stalled_turn": (
         "prevents",
         (
@@ -252,7 +252,7 @@ def _tool(name: str = "create_task", **fields: Any) -> ToolEvent:
 def _chat(**fields: Any) -> ChatEvent:
     defaults: dict[str, Any] = {
         "index": 0,
-        "summary": False,
+        "narrator": False,
         "after_stop": False,
         "after_deadline": False,
         "messages": [],
@@ -373,7 +373,7 @@ def test_the_restore_check_fires_on_an_unrestorable_row() -> None:
 def test_the_start_check_fires_on_a_call_after_stop_or_the_deadline() -> None:
     with pytest.raises(InvariantBreach, match="after Stop"):
         check_nothing_starts_after_stop_or_deadline(
-            Observed(_STEP, chats=[_chat(summary=True, after_stop=True)])
+            Observed(_STEP, chats=[_chat(narrator=True, after_stop=True)])
         )
     with pytest.raises(InvariantBreach, match="after the deadline"):
         check_nothing_starts_after_stop_or_deadline(

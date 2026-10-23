@@ -9,6 +9,7 @@ appended; soft delete is conversation-level only. The loop itself lives in
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 import structlog
 from sqlalchemy import func, select
@@ -196,30 +197,28 @@ def has_messages_before(db: Session, conversation_id: int, message_id: int) -> b
     )
 
 
-def history_for_loop(db: Session, conversation_id: int) -> list[dict[str, str]]:
-    """Prior turns as provider messages for ``AgentLoop.run(history=…)``.
+def history_for_loop(db: Session, conversation_id: int) -> list[dict[str, Any]]:
+    """Prior turns for ``AgentLoop.run(history=…)``, as data for its recall.
 
-    Text turns only: tool calls/results are persisted for display and audit
-    but deliberately not round-tripped into future model context — replaying
-    stale tool transcripts bloats the local model's window, and the loop
-    re-reads live state through its tools instead. Assistant turns that ended
-    without a reply (a limit stop where nothing ran, or whose summary failed;
-    a failure; a Stop) are skipped.
+    The loop never replays these as chat turns (#418): ``app/ai/recall.py``
+    turns them into what came before the run — the record of what earlier
+    runs' tools did, the user's earlier words, and the last exchange. So an
+    assistant turn carries its stored ``tool_calls`` beside its text, and one
+    that ended without a reply (a limit stop where nothing could be said, a
+    failure, a Stop) is kept for what its calls did, with ``content`` ``None``.
 
-    **Bounded** (#244): a per-turn character cap does not bound a
-    conversation, so the result is the newest coherent window that fits
-    ``context_budget.history_token_budget()`` — everything older is left in
-    the transcript for display and audit but not sent to the model. This is
-    the source of truth for that policy; the loop re-applies the same function
-    as a last gate with the overhead it can actually measure.
+    **Bounded** (#244): the newest coherent window that fits
+    ``context_budget.history_token_budget()``, read from at most
+    ``HISTORY_SCAN_LIMIT`` rows; recall caps each of its parts again.
     """
-    turns = [
-        {"role": message.role.value, "content": message.content}
-        for message in list_messages(
-            db, conversation_id, limit=context_budget.HISTORY_SCAN_LIMIT
-        )
-        if message.content is not None
-    ]
+    turns: list[dict[str, Any]] = []
+    for message in list_messages(
+        db, conversation_id, limit=context_budget.HISTORY_SCAN_LIMIT
+    ):
+        turn: dict[str, Any] = {"role": message.role.value, "content": message.content}
+        if message.tool_calls:
+            turn["tool_calls"] = message.tool_calls
+        turns.append(turn)
     return context_budget.fit_history(
         turns, budget_tokens=context_budget.history_token_budget()
     )

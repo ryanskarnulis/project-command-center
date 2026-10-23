@@ -53,34 +53,34 @@ response and rendered prompt to the run: see
 [`agent-context-capture.md`](agent-context-capture.md). The agent
 route binds `conversation_id` the same way, and the record picks it up.
 
-## The record (schema 3)
+## The record (schema 4)
 
 | Field | Meaning |
 | --- | --- |
-| `schema`, `kind` | Layout version (`3`) and `"run"`. A reader keys off `schema`; bump it on any change a reader must branch on. Schema 2 (#412) added `state_block` and `lookup_turns`; schema 3 (#415) added `gather`. |
+| `schema`, `kind` | Layout version (`4`) and `"run"`. A reader keys off `schema`; bump it on any change a reader must branch on. Schema 2 (#412) added `state_block` and `lookup_turns`; schema 3 (#415) added `gather`; schema 4 (#418, the planner/narrator split) added `note`, `narrated` and `history.recall`, renamed the call phases and the narrator's cap and hash, and dropped `history.kept`/`dropped` and `summarised`. |
 | `ts`, `started` | When the record was written / the run began (UTC ISO). |
 | `run_id`, `conversation_id`, `actor` | Which run; the thread (`null` outside the route); who its writes are stamped as (`agent:loop`, `agent:conductor`). |
 | `utterance` | The user message, as typed — without the state block in front of it. |
 | `state_block` | The state block the run's user turn opened with (#412): the calendar, the open-project roster and today's counts, as of the run's start. With `utterance` it is exactly the turn the model saw. |
 | `gather` | The possible matches shown before the first model call (#415): `source` (`hybrid` — keywords and meaning; `keyword` — the embeddings service was unset, down, slow or still warming; `none` — nothing searched), `model` (the embedding model, `null` unless hybrid), `ms` (the gather's wall clock, the query's embedding included), `matches`: each item's `kind` (`task` or `commitment`), `id`, fused `score`, `lift` over the median cosine (`null` without vectors) and `keyword` score (query words held, plus a BM25 fraction for tasks; `null` without a word hit), and `rows`: the matches exactly as the model read them, after `state_block` in its user turn. |
 | `lookup_turns` | Model turns that asked only for reads (`list_*`, `get_*`, `search`) before the first turn asking for anything else. The before/after measure for the state block; `read_trace.py` rebuilds it from `calls` + `tools` for schema-1 records, so old and new traces compare. |
-| `history` | `given` / `kept` / `dropped` message counts after the context budget, and `messages`: the kept history exactly as the model saw it. |
+| `history` | `given`: how many stored messages the run was handed (the service already windowed them, #244); `messages`: those messages; `recall`: what the planner read of them (#418) — the "Before this run" section of its opening message. Schema ≤ 3 had `kept`/`dropped`, when the loop windowed chat turns. |
 | `stop_reason`, `limit` | The loop's stop reason, and which configured limit ended it: `max_iterations`, `max_corrections`, `max_tokens` (a `truncated` stop), `max_tool_calls`, `no_progress`, `deadline` (`timed_out`); `null` for `completed`, `cancelled` and failures. |
 | `error` | Empty, or the failure message of a `provider_error` / `timed_out` / `internal_error` run. |
-| `reply`, `summarised` | The saved reply (`null` when none), and whether it is the limit summary (#399) rather than the model's own closing turn. |
+| `reply`, `note`, `narrated` | The saved reply (`null` when none); the planner's handoff note (`null` when it stopped at a limit); and whether the reply is the narrator's words. A completed run whose narrator could not speak replies with the note (`narrated` false). Schema ≤ 3 had `summarised`: the reply was the limit summary (#399). |
 | `iterations`, `corrections` | Provider turns run; self-correction turns spent. |
 | `tools` | Every tool call in order: `name`, `args`, and `result` or `error` (full text, as the model saw it). |
 | `calls` | One entry per model call, see below. |
 | `model_calls`, `unmetered_calls`, `prompt_tokens`, `completion_tokens`, `cached_tokens`, `model_ms` | Totals derived from `calls`; `unmetered_calls` counts calls with no token usage, which makes the token totals a lower bound. |
 | `total_ms` | The run's wall clock. |
-| `limits` | The configured `max_iterations`, `max_corrections`, `max_tokens`, `summary_max_tokens`, `max_tool_calls`, and `deadline_s` — the budget left as the first model call started (`null` with no deadline). |
-| `serving` | `model` (the alias sent), `profile` (`null` until per-model profiles, #402), `system_prompt_sha256` and `summary_prompt_sha256` (the prompts, which carry no date since #412, so the hash moves with wording, not the calendar), `tool_schemas_sha256` (canonical JSON of every offered tool's wire schema), `tools_offered`. |
+| `limits` | The configured `max_iterations`, `max_corrections`, `max_tokens`, `narrator_max_tokens`, `max_tool_calls`, and `deadline_s` — the budget left as the first model call started (`null` with no deadline). |
+| `serving` | `model` (the alias sent), `profile` (`null` until per-model profiles, #402), `system_prompt_sha256` (the planner's prompt) and `narrator_prompt_sha256` (the narrator's; `summary_prompt_sha256` before schema 4) (the prompts, which carry no date since #412, so the hash moves with wording, not the calendar), `tool_schemas_sha256` (canonical JSON of every offered tool's wire schema), `tools_offered`. |
 
 Each `calls` entry:
 
 | Field | Meaning |
 | --- | --- |
-| `seq`, `phase` | Position in the run; `turn` (a loop turn) or `summary` (the limit summary call). |
+| `seq`, `phase` | Position in the run; `planner` (a tool-loop turn) or `narrator` (the tool-free call that speaks). Schema ≤ 3 says `turn` and `summary`. |
 | `status` | `ok`, `truncated` (cut off by `max_tokens`), `bad_args` (tool-call arguments not a JSON object), `failed` (no usable answer). |
 | `ms`, `server_ms` | The loop's wall clock around the call; llama-server's own prompt + generation time (`timings`). `ms - server_ms` is queueing, transport and any cold load. |
 | `prompt_tokens`, `completion_tokens`, `cached_tokens` | From the response's `usage` (`cached_tokens` is `usage.prompt_tokens_details.cached_tokens`); `null` when unknown, never a zero that reads as measured. |

@@ -98,8 +98,8 @@ from app.ai import trace as run_trace
 from app.ai.loop import (
     DELEGATE_ACTORS,
     LOOP_ACTOR,
-    SUMMARY_PROMPT_SHA256,
-    SYSTEM_PROMPT_SHA256,
+    NARRATOR_PROMPT_SHA256,
+    PLANNER_PROMPT_SHA256,
     AgentLoop,
     AgentRunFailed,
     AgentRunResult,
@@ -299,8 +299,8 @@ def _header(provider: LlamaCppProvider) -> dict[str, Any]:
         "git_dirty": None if status is None else bool(status),
         "model": provider.model,
         "profile": provider.profile.describe(),
-        "system_prompt_sha256": SYSTEM_PROMPT_SHA256,
-        "summary_prompt_sha256": SUMMARY_PROMPT_SHA256,
+        "system_prompt_sha256": PLANNER_PROMPT_SHA256,
+        "narrator_prompt_sha256": NARRATOR_PROMPT_SHA256,
         "tool_schemas_sha256": run_trace.tool_schemas_sha256(registry.tool_specs()),
         "knobs": {
             "block_runs": _BLOCK_RUNS,
@@ -547,6 +547,9 @@ class Step:
             "refusals": _refusals(self.result),
             "run_id": self.result.run_id,
             "reply": self.reply[:1000],
+            # The planner's handoff (#418): what it thought it did, beside
+            # what the narrator said.
+            "note": (self.result.note or "")[:1000],
         }
 
 

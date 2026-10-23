@@ -4,10 +4,12 @@ A real :class:`LlamaCppProvider` over a faked llama-server drives two loop
 runs through the shared registry and an empty in-memory DB:
 
 1. a fresh ask: ``list_projects`` (answers ``[]``), ``get_task`` on an id that
-   does not exist (a domain refusal), then a text reply;
-2. a follow-up with one exchange of history, capped at one iteration, so it
-   stops at ``max_iterations`` after a lookup and makes the limit summary
-   call (#399) — the one tool-free request the loop sends.
+   does not exist (a domain refusal), then the planner's note and the
+   narrator's call (#418);
+2. a follow-up with one exchange of history (its tool records included, so
+   the recall carries a record line), capped at one iteration, so it stops
+   at ``max_iterations`` after a lookup and the narrator speaks for the
+   limit stop (#399).
 
 Every body the provider built (``request.content``, since #401 literally what
 goes on the wire) is compared with ``fixtures/canonical_run_requests.jsonl``,
@@ -15,7 +17,7 @@ one exact body per line. The run is deterministic: the date is fixed, the
 tool-call ids are the fake server's, and nothing the tools answer carries a
 timestamp or a generated id.
 
-So a change to the system prompt, the personality, the summary rules, a tool
+So a change to either phase's prompt, the personality, the recall, a tool
 schema, the sampling, the token caps or the thinking kwarg shows up here as a
 fixture diff — and a fixture diff is a model-facing change, which runs the
 eval gate (``docs/agent-design.md``, "Pinned bytes"). Regenerate only for a
@@ -84,9 +86,9 @@ def _text(content: str) -> httpx.Response:
 
 
 class _Server:
-    """Answers by what each request is: a turn (tools offered) takes the next
-    step of the script by how many tool results its history already holds; a
-    request without tools is the limit summary and gets words."""
+    """Answers by what each request is: a planner turn (tools offered) takes
+    the next step of the script by how many tool results its history already
+    holds; a request without tools is the narrator's and gets words."""
 
     _SCRIPT: tuple[tuple[str, dict[str, Any]], ...] = (
         ("list_projects", {}),
@@ -130,11 +132,17 @@ def canonical_run_bodies(monkeypatch: pytest.MonkeyPatch) -> list[bytes]:
         "What projects do I have, and what is task 999?"
     )
     assert first.stop_reason == "completed"
+    assert first.reply == "I looked up your projects; there are none yet."
+    assert first.note == "You have no projects yet, and there is no task 999."
     second = AgentLoop(provider, max_iterations=1, tracer=_NoTrace()).run(
         "Check my projects again.",
         history=[
             {"role": "user", "content": "What projects do I have, and what is task 999?"},
-            {"role": "assistant", "content": first.reply},
+            {
+                "role": "assistant",
+                "content": first.reply,
+                "tool_calls": [record.model_dump() for record in first.tool_calls],
+            },
         ],
     )
     assert second.stop_reason == "max_iterations"
@@ -173,13 +181,13 @@ def test_the_canonical_run_sends_the_pinned_bytes(
         )
 
 
-def test_the_canonical_run_covers_turns_tools_history_and_the_summary() -> None:
+def test_the_canonical_run_covers_both_phases_tools_and_recall() -> None:
     # What the pin is worth depends on what it drove: a fixture that never
     # reached a phase would pass any change to it.
     bodies = [json.loads(line) for line in FIXTURE.read_bytes().splitlines()]
     turns = [body for body in bodies if "tools" in body]
-    summaries = [body for body in bodies if "tools" not in body]
-    assert len(turns) == 4 and len(summaries) == 1
+    narrations = [body for body in bodies if "tools" not in body]
+    assert len(turns) == 4 and len(narrations) == 2
     assert {body["model"] for body in bodies} == {_MODEL}
     assert all(body["tool_choice"] == "auto" for body in turns)
     # Every request carries the model profile's settings (#402).
@@ -188,24 +196,26 @@ def test_the_canonical_run_covers_turns_tools_history_and_the_summary() -> None:
         assert {key: body[key] for key in profile.sampling.wire()} == profile.sampling.wire()
         assert body["chat_template_kwargs"] == {profile.thinking_kwarg: False}
     assert {body["max_tokens"] for body in turns} == {profile.turn_max_tokens}
-    assert summaries[0]["max_tokens"] == profile.summary_max_tokens
+    assert {body["max_tokens"] for body in narrations} == {profile.narrator_max_tokens}
+    assert {body["messages"][0]["content"] for body in narrations} == {loop_module.NARRATOR_PROMPT}
     assert {message["role"] for message in turns[2]["messages"]} == {
         "system",
         "user",
         "assistant",
         "tool",
     }
-    # The follow-up carries its history between the system prompt and the ask.
-    assert [message["role"] for message in turns[3]["messages"]] == [
-        "system",
-        "user",
-        "assistant",
-        "user",
-    ]
+    # The follow-up carries its history as recall inside its one user turn.
+    assert [message["role"] for message in turns[3]["messages"]] == ["system", "user"]
+    follow_up = turns[3]["messages"][1]["content"]
+    assert 'The user said: "What projects do I have, and what is task 999?"' in follow_up
+    assert "The app's record of earlier runs" not in follow_up  # reads only
+    assert follow_up.endswith("Check my projects again.")
+    # The second narrator brief is a limit stop's, with the recall at its head.
+    assert narrations[1]["messages"][1]["content"].startswith("Before this run:")
+    assert "What you said then (your words, not a record)" in narrations[1]["messages"][1]["content"]
     # The date is the state block's, at the head of the current turn (#412);
     # the system prompt carries none, so its bytes never move with the day.
     assert _TODAY.isoformat() not in turns[0]["messages"][0]["content"]
     assert f"Today: Wednesday {_TODAY.isoformat()}" in turns[0]["messages"][-1]["content"]
-    assert turns[3]["messages"][1]["content"].startswith("What projects")
     # The refusal reached the model as a tool result, not a crash.
     assert "999" in turns[2]["messages"][-1]["content"]

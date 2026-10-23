@@ -79,7 +79,7 @@ def test_gemma_profile_holds_the_shipped_numbers() -> None:
     assert gemma.sampling.wire() == {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
     assert gemma.thinking_kwarg == "enable_thinking"
     assert gemma.turn_max_tokens == loop_module.DEFAULT_MAX_TOKENS == 2048
-    assert gemma.summary_max_tokens == loop_module.SUMMARY_MAX_TOKENS == 512
+    assert gemma.narrator_max_tokens == loop_module.NARRATOR_MAX_TOKENS == 2048
 
 
 @pytest.mark.skipif(_FLEET_PROFILE is None, reason="needs the ../agent-standard sibling")
@@ -125,7 +125,7 @@ def test_the_configured_default_model_has_a_profile() -> None:
         "[phases.turn]\nmax_tokens = 0\n",
         # A cap above the completion reserve could overflow the window.
         f"[phases.turn]\nmax_tokens = {context_budget.COMPLETION_RESERVE_TOKENS + 1}\n",
-        "[phases.summary]\nmax_tokens = true\n",
+        "[phases.narrator]\nmax_tokens = true\n",
         "sampling = 3\n",  # a table that is not one
         "[sampling\n",  # not TOML
     ],
@@ -141,7 +141,7 @@ def test_an_empty_profile_is_the_default_settings_under_its_own_name() -> None:
     assert profile.sampling.wire() == {}
     assert profile.thinking_kwarg is None
     assert profile.turn_max_tokens == DEFAULT_PROFILE.turn_max_tokens
-    assert profile.summary_max_tokens == DEFAULT_PROFILE.summary_max_tokens
+    assert profile.narrator_max_tokens == DEFAULT_PROFILE.narrator_max_tokens
 
 
 def test_a_model_with_no_profile_runs_on_the_default_and_says_so() -> None:
@@ -229,11 +229,11 @@ class _Records:
 
 
 _TIGHT = parse_profile(
-    "tight", "[phases.turn]\nmax_tokens = 300\n[phases.summary]\nmax_tokens = 100\n", "test"
+    "tight", "[phases.turn]\nmax_tokens = 300\n[phases.narrator]\nmax_tokens = 100\n", "test"
 )
 
 
-def test_the_loop_caps_turns_and_the_summary_at_the_profile_s_values(
+def test_the_loop_caps_turns_and_the_narrator_at_the_profile_s_values(
     tool_db: sessionmaker[Session],
 ) -> None:
     provider = _ProfiledProvider(
@@ -246,10 +246,10 @@ def test_the_loop_caps_turns_and_the_summary_at_the_profile_s_values(
     (record,) = tracer.records
     assert record["serving"]["profile"] == "tight"
     assert record["limits"]["max_tokens"] == 300
-    assert record["limits"]["summary_max_tokens"] == 100
+    assert record["limits"]["narrator_max_tokens"] == 100
 
 
-def test_an_explicit_cap_overrides_the_profile_and_bounds_the_summary(
+def test_an_explicit_cap_overrides_the_profile_and_bounds_the_narrator(
     tool_db: sessionmaker[Session],
 ) -> None:
     provider = _ProfiledProvider(
@@ -259,11 +259,11 @@ def test_an_explicit_cap_overrides_the_profile_and_bounds_the_summary(
     assert [request["max_tokens"] for request in provider.requests] == [64, 64]
 
 
-def test_a_thinking_profile_thinks_on_turns_and_never_on_the_summary(
+def test_a_thinking_profile_thinks_on_turns_and_never_on_the_narrator(
     tool_db: sessionmaker[Session],
 ) -> None:
     # #417: `[phases.turn] thinking = true` opens the turns' thinking channel;
-    # the limit summary stays a plain call.
+    # the narrator stays a plain call.
     thinking = parse_profile("thinker", "[phases.turn]\nthinking = true\n", "test")
     assert thinking.turn_thinking and thinking.describe()["turn_thinking"] is True
     provider = _ProfiledProvider(
@@ -275,6 +275,6 @@ def test_a_thinking_profile_thinks_on_turns_and_never_on_the_summary(
 
 def test_the_default_and_gemma_profiles_never_think(tool_db: sessionmaker[Session]) -> None:
     assert not DEFAULT_PROFILE.turn_thinking
-    provider = _ProfiledProvider([_text("Hi.")], load_profile("gemma-4-12b"))
+    provider = _ProfiledProvider([_text("Hi."), _text("Hey.")], load_profile("gemma-4-12b"))
     AgentLoop(provider, tracer=_Records()).run("hi")
-    assert provider.thinking == [False]
+    assert provider.thinking == [False, False]

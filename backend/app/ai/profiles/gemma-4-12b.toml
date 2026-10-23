@@ -20,7 +20,7 @@ top_k = 64
 [phases.turn]
 max_tokens = 2048
 
-# The limit summary is a few sentences (#399); a runaway one is cut off and
-# dropped long before it can eat the run's time.
-[phases.summary]
-max_tokens = 512
+# The narrator writes the reply the single-phase turn used to (#418), at the
+# turn's cap.
+[phases.narrator]
+max_tokens = 2048

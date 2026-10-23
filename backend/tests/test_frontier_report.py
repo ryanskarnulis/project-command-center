@@ -38,7 +38,7 @@ def _header(split: str = "heldout", sha: str = "abc123") -> dict[str, Any]:
         "model": "gemma-4-12b",
         "profile": "gemma-4-12b@1",
         "system_prompt_sha256": "p" * 64,
-        "summary_prompt_sha256": "s" * 64,
+        "narrator_prompt_sha256": "s" * 64,
         "tool_schemas_sha256": "t" * 64,
         "seed": 408,
         "split": split,

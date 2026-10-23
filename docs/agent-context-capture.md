@@ -37,7 +37,7 @@ the chat template rendered, then the raw response. When the run record is
 written, the run's outcome follows: the ask, every tool call and its answer,
 the stop reason and the reply. Options go after the paths:
 
-- `--phase turn` (or `summary`) follows one phase.
+- `--phase planner` (or `narrator`) follows one phase.
 - `--json` prints the request body instead of the rendered prompt.
 - `--from-start` replays the files from the top instead of waiting at the end.
 
@@ -93,7 +93,7 @@ when the call ends:
 | Field | Meaning |
 | --- | --- |
 | `run_id` | The run, the same id as the trace record's `run_id`. `null` for a call made outside a run (a probe, a script). |
-| `phase` | `turn` or `summary`, as in the trace's `calls[].phase`; `unknown` outside the loop. |
+| `phase` | `planner` or `narrator` (`turn` or `summary` before #418), as in the trace's `calls[].phase`; `unknown` outside the loop. |
 | `seq` | The call's place among the calls its run sent, from 0, counted when it was sent. `(run_id, seq)` is the trace record's `calls[seq]`. |
 | `started_at`, `ended_at`, `ms` | Wall clock (UTC ISO; ms includes the template render). |
 | `url` | Where the request went. |

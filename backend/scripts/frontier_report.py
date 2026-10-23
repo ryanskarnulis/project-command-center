@@ -66,7 +66,7 @@ _CONFIG_KEYS = (
     "model",
     "profile",
     "system_prompt_sha256",
-    "summary_prompt_sha256",
+    "narrator_prompt_sha256",
     "tool_schemas_sha256",
     "seed",
 )

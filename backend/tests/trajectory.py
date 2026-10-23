@@ -1,9 +1,9 @@
 """Seeded random walks through the agent loop and the tool registry (#409).
 
 The loop tests (``test_agent_loop.py``, ``test_agent_cancel.py``,
-``test_agent_limit_summary.py`` …) each drive one feature: one Stop, one
+``test_agent_narrator.py`` …) each drive one feature: one Stop, one
 deadline, one bad argument. The combinations nobody wrote a test for — a Stop
-during the summary call of a run that hit its tool-call cap, a DB error in the
+during the narrator call of a run that hit its tool-call cap, a DB error in the
 second call of a batch after a schema correction — are what this drives.
 
 A walk is a sequence of user messages posted through the real route
@@ -87,11 +87,12 @@ Call = tuple[str, dict[str, Any]]
 FaultSite = Literal["chat", "tool"]
 FaultKind = Literal["provider_dies", "provider_crashes", "db_error", "deadline", "stop"]
 
-# The summary call's script (#399): a usable answer, a provider fault, or an
-# empty reply (both of the latter leave the reply ``None``).
-SummaryMode = Literal["ok", "fails", "empty"]
+# The narrator call's script (#418): a usable answer, a provider fault, or an
+# empty reply (both of the latter fall back: to the planner's note on a
+# completed run, to no reply on a limit stop).
+NarrationMode = Literal["ok", "fails", "empty"]
 
-SUMMARY_TEXT = "Summary: here is what ran."
+NARRATION_TEXT = "Narration: here is what ran."
 _MESSAGES = "/api/agent/conversations/{id}/messages"
 
 # How many messages a corpus walk posts.
@@ -154,7 +155,7 @@ class Step:
 
     turns: tuple[Turn, ...]
     fault: Fault | None = None
-    summary: SummaryMode = "ok"
+    narration: NarrationMode = "ok"
     actor_header: str | None = None
     conversation: int = 0
     max_iterations: int = 10
@@ -170,8 +171,8 @@ class Step:
         ]
         if self.actor_header is not None:
             flags.append(f"X-Agent-Actor={self.actor_header}")
-        if self.summary != "ok":
-            flags.append(f"summary {self.summary}")
+        if self.narration != "ok":
+            flags.append(f"narration {self.narration}")
         if self.fault is not None:
             flags.append(self.fault.describe())
         return f"{turns}  [{'; '.join(flags)}]"
@@ -576,7 +577,7 @@ def next_step(rng: random.Random, world: World, index: int) -> Step:
     return Step(
         turns=tuple(turns),
         fault=fault,
-        summary=_pick(rng, (("ok", 8), ("fails", 1), ("empty", 1))),  # type: ignore[arg-type]
+        narration=_pick(rng, (("ok", 8), ("fails", 1), ("empty", 1))),  # type: ignore[arg-type]
         actor_header=rng.choice([None, None, None, "agent:conductor", "agent:nobody"]),
         conversation=rng.randrange(2),
         max_iterations=rng.choice([2, 3, 10, 10, 10]),
@@ -593,7 +594,7 @@ class ChatEvent:
     """One model call the loop started."""
 
     index: int
-    summary: bool  # offered no tools: the limit summary (#399)
+    narrator: bool  # offered no tools: the narrator (#418)
     after_stop: bool  # Stop had already been pressed when it started
     after_deadline: bool  # the deadline had already passed when it started
     messages: list[dict[str, Any]]
@@ -703,7 +704,7 @@ class WalkProvider:
         assert run is not None, "the provider was called outside a step"
         event_ = ChatEvent(
             index=len(run.chats),
-            summary=tools is None,
+            narrator=tools is None,
             after_stop=run.stopped,
             after_deadline=run.deadline_passed,
             messages=[dict(message) for message in messages],
@@ -723,9 +724,9 @@ class WalkProvider:
                 if fault.then_raises:
                     raise ProviderRequestError("injected: llama-server request timed out")
         if tools is None:
-            if run.step.summary == "fails":
-                raise ProviderRequestError("injected: the summary call failed")
-            return _text(SUMMARY_TEXT if run.step.summary == "ok" else "")
+            if run.step.narration == "fails":
+                raise ProviderRequestError("injected: the narrator call failed")
+            return _text(NARRATION_TEXT if run.step.narration == "ok" else "")
         if not run.turns:
             return _text("Nothing left to say.")
         turn = run.turns.pop(0)
@@ -1265,11 +1266,11 @@ def check_trashed_is_restorable(observed: Observed) -> None:
 
 def check_nothing_starts_after_stop_or_deadline(observed: Observed) -> None:
     """Once Stop is pressed or the deadline passes, no model call and no tool
-    call starts — neither the next turn nor the limit summary."""
+    call starts — neither the next turn nor the narrator."""
     for chat in observed.chats:
         if chat.after_stop or chat.after_deadline:
             why = "Stop" if chat.after_stop else "the deadline"
-            kind = "summary" if chat.summary else "model"
+            kind = "narrator" if chat.narrator else "model"
             raise InvariantBreach(f"{kind} call {chat.index} started after {why}")
     for tool in observed.tools:
         if tool.after_stop or tool.after_deadline:
@@ -1286,9 +1287,11 @@ def check_fault_ends_the_run_as_documented(observed: Observed) -> None:
     """A fault that fired ends the run the way ``app/ai/loop.py`` says it does.
 
     The one boundary-less case is a fault during the run's *last* model call:
-    a reply or a summary already in flight completes, so the run keeps the stop
-    it was heading for. A limit stop after Stop or the deadline carries no
-    summary (it would be a call started after them).
+    a reply or a narration already in flight completes, so the run keeps the
+    stop it was heading for. A fault in the narrator call never changes the
+    stop either (#418): its words are dropped, and a completed run replies
+    with the planner's note. A limit stop after Stop or the deadline carries
+    no narration (it would be a call started after them).
     """
     result = observed.result
     fault = observed.step.fault
@@ -1299,26 +1302,34 @@ def check_fault_ends_the_run_as_documented(observed: Observed) -> None:
         return
     reason = result.stop_reason
     last_chat = bool(observed.chats) and observed.chats[-1].fault
-    summary_chat = last_chat and observed.chats[-1].summary
+    narrator_chat = last_chat and observed.chats[-1].narrator
     if fault.kind in ("stop", "deadline"):
         expected = "cancelled" if fault.kind == "stop" else "timed_out"
-        if fault.then_raises and not summary_chat:
+        if fault.then_raises and not narrator_chat:
             expected = "timed_out"
         allowed = {expected}
         if last_chat and not fault.then_raises:
             allowed |= {"completed"} | _LIMITS
-        if fault.site == "tool" or summary_chat:
+        if fault.site == "tool":
             allowed |= _LIMITS
+        if narrator_chat:
+            allowed |= {"completed"} | _LIMITS
         if reason not in allowed:
             raise InvariantBreach(f"{fault.describe()} fired but the run ended {reason}")
-        if reason in _LIMITS and result.reply is not None and not summary_chat:
-            raise InvariantBreach(f"a {reason} stop after {fault.kind} was still summarised")
+        if reason in _LIMITS and result.reply is not None and not narrator_chat:
+            raise InvariantBreach(f"a {reason} stop after {fault.kind} was still narrated")
         return
-    if summary_chat:
-        # A failed summary is dropped, never the run (#399).
-        if reason not in _LIMITS or result.reply is not None:
+    if narrator_chat:
+        # A failed narration is dropped, never the run (#399, #418).
+        if reason == "completed":
+            if result.reply != result.note:
+                raise InvariantBreach(
+                    f"{fault.describe()} in the narrator call left reply {result.reply!r}, "
+                    f"not the planner's note {result.note!r}"
+                )
+        elif reason not in _LIMITS or result.reply is not None:
             raise InvariantBreach(
-                f"{fault.describe()} in the summary call ended the run {reason} "
+                f"{fault.describe()} in the narrator call ended the run {reason} "
                 f"with reply {result.reply!r}"
             )
         return

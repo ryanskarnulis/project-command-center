@@ -10,13 +10,14 @@ with the model and nothing else:
 - ``[sampling]`` — the request's ``temperature``, ``top_p`` and ``top_k``. A
   key left out is a field the request leaves out, so the server's own default
   applies.
-- ``[phases.turn]`` / ``[phases.summary]`` — the per-call ``max_tokens`` cap
-  (#397) for the loop's tool-calling turns and for the limit summary (#399).
+- ``[phases.turn]`` / ``[phases.narrator]`` — the per-call ``max_tokens`` cap
+  (#397) for the planner's tool-calling turns and for the narrator's one
+  tool-free call (#418).
   Each cap must fit the completion reserve the context budget keeps free
   (``context_budget.COMPLETION_RESERVE_TOKENS``), or a capped call could
   overflow the window. ``[phases.turn]`` may also set ``thinking = true``: the
   loop's turns then open the thinking channel (#417). Its tokens count against
-  the same cap. The summary never thinks.
+  the same cap. The narrator never thinks.
 
 Loading is strict: an unknown key, a misspelt phase or a value of the wrong
 type is a :class:`ProfileError`, because a typo in a profile is a model quietly
@@ -50,9 +51,10 @@ PROFILES_DIR = Path(__file__).with_name("profiles")
 DEFAULT_NAME = "default"
 
 # The per-call caps a model with no profile runs at — the values the loop
-# shipped with (#397, #399). A turn's cap is the completion reserve itself.
+# shipped with (#397). A turn's cap is the completion reserve itself, and so
+# is the narrator's (#418): it writes the reply the turn used to.
 DEFAULT_TURN_MAX_TOKENS = context_budget.COMPLETION_RESERVE_TOKENS
-DEFAULT_SUMMARY_MAX_TOKENS = 512
+DEFAULT_NARRATOR_MAX_TOKENS = context_budget.COMPLETION_RESERVE_TOKENS
 
 # Sampling keys in the order the request carries them.
 SAMPLING_KEYS = ("temperature", "top_p", "top_k")
@@ -81,7 +83,7 @@ class Sampling(_Strict):
 
 
 class TurnPhase(_Strict):
-    """The loop's tool-calling turns."""
+    """The planner's tool-calling turns."""
 
     max_tokens: int = Field(
         default=DEFAULT_TURN_MAX_TOKENS, ge=1, le=context_budget.COMPLETION_RESERVE_TOKENS
@@ -90,17 +92,17 @@ class TurnPhase(_Strict):
     thinking: bool = False
 
 
-class SummaryPhase(_Strict):
-    """The limit summary's one tool-free call (#399)."""
+class NarratorPhase(_Strict):
+    """The narrator's one tool-free call (#418)."""
 
     max_tokens: int = Field(
-        default=DEFAULT_SUMMARY_MAX_TOKENS, ge=1, le=context_budget.COMPLETION_RESERVE_TOKENS
+        default=DEFAULT_NARRATOR_MAX_TOKENS, ge=1, le=context_budget.COMPLETION_RESERVE_TOKENS
     )
 
 
 class Phases(_Strict):
     turn: TurnPhase = TurnPhase()
-    summary: SummaryPhase = SummaryPhase()
+    narrator: NarratorPhase = NarratorPhase()
 
 
 class _ProfileFile(_Strict):
@@ -122,7 +124,7 @@ class ModelProfile(BaseModel):
     sampling: Sampling = Sampling()
     turn_max_tokens: int = DEFAULT_TURN_MAX_TOKENS
     turn_thinking: bool = False
-    summary_max_tokens: int = DEFAULT_SUMMARY_MAX_TOKENS
+    narrator_max_tokens: int = DEFAULT_NARRATOR_MAX_TOKENS
 
     def describe(self) -> dict[str, Any]:
         """The profile as the eval harness prints it."""
@@ -133,7 +135,7 @@ class ModelProfile(BaseModel):
             "sampling": self.sampling.wire(),
             "turn_max_tokens": self.turn_max_tokens,
             "turn_thinking": self.turn_thinking,
-            "summary_max_tokens": self.summary_max_tokens,
+            "narrator_max_tokens": self.narrator_max_tokens,
         }
 
 
@@ -157,7 +159,7 @@ def parse_profile(name: str, text: str, source: str) -> ModelProfile:
         sampling=parsed.sampling,
         turn_max_tokens=parsed.phases.turn.max_tokens,
         turn_thinking=parsed.phases.turn.thinking,
-        summary_max_tokens=parsed.phases.summary.max_tokens,
+        narrator_max_tokens=parsed.phases.narrator.max_tokens,
     )
 
 

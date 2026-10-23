@@ -72,7 +72,7 @@ _PHASE: contextvars.ContextVar[str] = contextvars.ContextVar(
 def model_phase(phase: str) -> Iterator[None]:
     """Name the phase of every model call made inside this block.
 
-    The loop wraps its one call site in it (``turn`` or ``summary``, the run
+    The loop wraps each call site in it (``planner`` or ``narrator``, the run
     trace's ``CallPhase``); the provider reads it back when it captures the
     call. A ``ContextVar`` rather than a ``chat`` argument, so the
     ``ChatProvider`` protocol and every test double stay as they are.

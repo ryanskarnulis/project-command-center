@@ -178,7 +178,7 @@ def test_control_arm_request_is_what_the_loop_sends() -> None:
     payload = probe.dry_run_payload(probe.Arm("control"), item, MODEL, seed=7)
     profile = load_profile(MODEL)
     assert payload["messages"] == [
-        {"role": "system", "content": agent_loop.SYSTEM_PROMPT},
+        {"role": "system", "content": agent_loop.PLANNER_PROMPT},
         {
             "role": "user",
             "content": state_block.with_state(
@@ -193,13 +193,13 @@ def test_control_arm_request_is_what_the_loop_sends() -> None:
         assert payload[key] == value
 
 
-def test_history_goes_through_the_loops_own_window() -> None:
+def test_history_goes_through_the_loops_own_recall() -> None:
     history = [{"role": "user", "content": "earlier"}, {"role": "assistant", "content": "ok"}]
     item = probe.Item("i", "and now", history=tuple(history))
     payload = probe.dry_run_payload(probe.Arm("control"), item, MODEL, seed=None)
-    contents = [m["content"] for m in payload["messages"][1:]]
-    assert contents[:2] == ["earlier", "ok"]
-    assert contents[2].endswith("\n\nand now")
+    [user] = payload["messages"][1:]
+    assert 'The user said: "earlier"' in user["content"]
+    assert user["content"].endswith("\n\nand now")
     assert "seed" not in payload
 
 

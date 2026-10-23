@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 # The record layout's version. A reader keys off it rather than off which
 # fields happen to be present; bump it on any change a reader must branch on.
-TRACE_SCHEMA = 3
+TRACE_SCHEMA = 4
 # Schema 2 (#412) adds ``state_block`` (the text the run's user turn opened
 # with) and ``lookup_turns`` (model turns of only reads before the first turn
 # asking for anything else). Schema 1 records have neither; a reader rebuilds
@@ -60,9 +60,10 @@ KIND_RUN = "run"
 # (``ToolCallArgumentsError``); ``failed`` — no usable answer (the request
 # failed, the body failed validation, or anything else raised).
 CallStatus = Literal["ok", "truncated", "bad_args", "failed"]
-# Which part of the run made the call: a loop turn, or the tool-free summary a
-# limit stop makes (#399).
-CallPhase = Literal["turn", "summary"]
+# Which phase made the call (#418): the planner's tool loop, or the tool-free
+# narrator that speaks for the run. Records before schema 4 say ``turn`` and
+# ``summary`` (the limit summary the narrator replaced, #399).
+CallPhase = Literal["planner", "narrator"]
 
 
 def new_run_id() -> str:
@@ -158,13 +159,17 @@ class RunTrace:
     profile: str | None = None
     history_given: int = 0
     history_kept: list[dict[str, Any]] = field(default_factory=list)
+    # What came before the run as the planner read it (#418, ``recall``).
+    recall: str | None = None
     system_prompt_sha256: str | None = None
-    summary_prompt_sha256: str | None = None
+    narrator_prompt_sha256: str | None = None
     tool_schemas_sha256: str | None = None
     tools_offered: int = 0
     limits: dict[str, Any] = field(default_factory=dict)
     calls: list[ModelCall] = field(default_factory=list)
-    summarised: bool = False
+    # Whether the reply is the narrator's words (#418); else the planner's
+    # note (a completed run whose narrator could not speak) or none.
+    narrated: bool = False
     corrections: int = 0
     state_block: str | None = None
     gather: dict[str, Any] | None = None
@@ -213,17 +218,20 @@ class RunTrace:
             "state_block": self.state_block,
             "gather": self.gather,
             "lookup_turns": self.lookup_turns,
+            # What the run was handed (the service already windowed it,
+            # #244) and what the planner read of it (#418, capped parts).
+            # Schema 3 had ``kept``/``dropped``: the loop windowed turns then.
             "history": {
                 "given": self.history_given,
-                "kept": len(self.history_kept),
-                "dropped": self.history_given - len(self.history_kept),
                 "messages": self.history_kept,
+                "recall": self.recall,
             },
             "stop_reason": result.stop_reason if result is not None else "internal_error",
             "limit": limit,
             "error": error,
             "reply": result.reply if result is not None else None,
-            "summarised": self.summarised,
+            "note": result.note if result is not None else None,
+            "narrated": self.narrated,
             "iterations": result.iterations if result is not None else 0,
             "corrections": self.corrections,
             "tools": tools,
@@ -243,7 +251,7 @@ class RunTrace:
                 # for a provider that carries none (a scripted one).
                 "profile": self.profile,
                 "system_prompt_sha256": self.system_prompt_sha256,
-                "summary_prompt_sha256": self.summary_prompt_sha256,
+                "narrator_prompt_sha256": self.narrator_prompt_sha256,
                 "tool_schemas_sha256": self.tool_schemas_sha256,
                 "tools_offered": self.tools_offered,
             },
