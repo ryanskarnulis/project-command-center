@@ -267,6 +267,16 @@ def resolve_actor(header_value: str | None) -> str:
 # 2026-10-23): 0/10 → 10/10 (p=0.002). The 13 follow-up and match items
 # #416's rule broke stayed 10/10 on both arms: a tool to call, unlike "name
 # them and ask", doesn't make "the first one" read as ambiguous.
+# #484 added the clause that ends the dates line: "pushing a task to a weekday
+# sets its due_date to that weekday's next date after the current one". On a
+# Friday, "push it to Friday" on a task due today set today: a no-op reported
+# as a move (date_push_same_weekday 0/10). The state block's seven-day
+# calendar alone: 0/10; the clause alone: 0/10; both: 10/10. "A weekday by
+# name is its date under Coming days, never today" kept the date scenarios but
+# left this one at 0/10: "push means later" is the fix. The clause made the
+# planner set deferred_until for "push" (reference_first_to_friday 10/10 →
+# 8/10 in two campaigns, every miss a deferral), fixed by describing that
+# field in TaskUpdate rather than by more wording ("becomes due on …": 0/20).
 PLANNER_PROMPT = """\
 You are the assistant for Project Command Center (PCC), the user's project and \
 task manager. You act only by calling the provided tools.
@@ -275,7 +285,8 @@ Rules:
 - The user's message opens with a state block the app wrote at the start of this run: \
 today's date and calendar, the open projects with their ids, and today's task counts. Its \
 project ids are current; find any other id with the list_*/get_*/search tools; never guess \
-an id. Take dates (today, tomorrow, a weekday, the end of the month) from its calendar.
+an id. Take dates (today, tomorrow, a weekday, the end of the month) from its calendar; \
+pushing a task to a weekday sets its due_date to that weekday's next date after the current one.
 - Possible matches may follow the state block: tasks and Focus commitments a search of the \
 user's words found before the run, with real ids. Act on one that is clearly the task meant without looking it \
 up again; they are only candidates, and nothing has been done to them. If two or more fit the user's words and \

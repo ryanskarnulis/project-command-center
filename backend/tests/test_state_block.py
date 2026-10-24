@@ -32,24 +32,35 @@ def test_a_midweek_calendar_names_every_day_with_its_weekday() -> None:
     assert state_block.calendar_lines(WEDNESDAY) == [
         "Today: Wednesday 2026-10-21",
         "Tomorrow: Thursday 2026-10-22",
-        "Rest of this week: Friday 2026-10-23, Saturday 2026-10-24, Sunday 2026-10-25",
+        "Coming days: Friday 2026-10-23, Saturday 2026-10-24, Sunday 2026-10-25,"
+        " Monday 2026-10-26, Tuesday 2026-10-27, Wednesday 2026-10-28",
         "Next Monday: Monday 2026-10-26",
         "End of this month: Saturday 2026-10-31",
     ]
 
 
-@pytest.mark.parametrize("today", [date(2026, 10, 24), date(2026, 10, 25)])
-def test_the_weekend_has_no_rest_of_week_line(today: date) -> None:
+@pytest.mark.parametrize("offset", range(7))
+def test_every_weekday_has_one_date_strictly_after_today(offset: int) -> None:
+    """Tomorrow and the coming days are the next seven (#484): on a Friday,
+    next Friday is in the block, not only today."""
+    today = WEDNESDAY + timedelta(days=offset)
     lines = state_block.calendar_lines(today)
-    assert not any(line.startswith("Rest of this week") for line in lines)
-    assert "Next Monday: Monday 2026-10-26" in lines
+    ahead = [today + timedelta(days=n) for n in range(1, 8)]
+    named = lines[1].removeprefix("Tomorrow: ") + ", " + lines[2].removeprefix("Coming days: ")
+    assert named == ", ".join(state_block.day(when) for when in ahead)
 
 
-def test_monday_lists_wednesday_to_sunday_and_next_monday_a_week_on() -> None:
-    lines = state_block.calendar_lines(date(2026, 10, 19))
-    assert lines[2].startswith("Rest of this week: Wednesday 2026-10-21,")
-    assert lines[2].endswith("Sunday 2026-10-25")
-    assert "Next Monday: Monday 2026-10-26" in lines
+def test_a_friday_names_next_friday() -> None:
+    assert state_block.calendar_lines(date(2026, 10, 23))[2].endswith("Friday 2026-10-30")
+
+
+@pytest.mark.parametrize("today", [date(2026, 10, 24), date(2026, 10, 25)])
+def test_next_monday_from_the_weekend_is_the_coming_one(today: date) -> None:
+    assert "Next Monday: Monday 2026-10-26" in state_block.calendar_lines(today)
+
+
+def test_next_monday_on_a_monday_is_a_week_on() -> None:
+    assert "Next Monday: Monday 2026-10-26" in state_block.calendar_lines(date(2026, 10, 19))
 
 
 def test_the_last_day_of_the_month_is_its_own_end_and_tomorrow_rolls_over() -> None:

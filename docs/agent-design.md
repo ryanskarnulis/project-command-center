@@ -293,7 +293,8 @@ that.
   days, so llama-server's prompt cache keeps each prefix.
 - **State block** (#412) `app/ai/state_block.py`: code builds one block per
   run and puts it at the head of the current user message: today with its
-  weekday, tomorrow, the rest of this week, next Monday, the end of the month,
+  weekday, tomorrow, the six days after it (#484: with tomorrow, every weekday
+  has one date strictly after today), next Monday, the end of the month,
   the open-project roster (id · name · open · overdue, at most 25 rows, names
   clipped at 60 chars), and today's open-task counts (overdue, due today,
   blocked). The numbers come from `dashboard.get_agent_snapshot`, using the
@@ -305,6 +306,19 @@ that.
   guessed. The trace records the block and `lookup_turns` (read-only turns
   before the first write), the before/after measure. Chess does the same
   with `planner_state`.
+
+  **Measured** (#484, 2026-10-23, a Friday, gemma-4-12b, paired campaigns vs
+  main, seed 484, 2 blocks of 5): `date_push_same_weekday` 0/10 → 10/10
+  (p=0.002). It needs all three parts: the seven-day calendar alone 0/10, the
+  planner's "pushing a task to a weekday sets its due_date to that weekday's
+  next date after the current one" alone 0/10, and without a description on
+  `TaskUpdate.deferred_until` the clause sent "push" there
+  (`reference_first_to_friday` 10/10 → 8/10 twice, every miss a deferral;
+  with it 20/20). The other 26 date, reference, compose, follow-up, Focus,
+  recurrence and update items stayed flat (`reference_rename_then_undo`'s
+  8/10 re-ran 20/20 on both arms). Full gate on the branch: 49/49 green,
+  claims 466/467 backed. On main, the claim reader now marks the no-op
+  "pushed the quarterly report to Friday" unbacked.
 - **Gather** (#415) `app/ai/gather.py`: before the first model call the loop
   searches the user's own words. It puts the top matches (at most 5) between
   the state block and the ask, labelled "may match; nothing was done to them".
@@ -569,7 +583,9 @@ n=5 and *less* often (63%) at n=20. `tests/evalstats.py` is a copy of chess's
   Sunday of the current or upcoming weekend that is not already past
   (`weekend_targets`), "the end of the month" the last day of this month
   (`end_of_month`), "in two weeks" exactly +14 days, and "next month" any day
-  of the next calendar month (`next_month_bounds`). A misheard-speech miss is
+  of the next calendar month (`next_month_bounds`). "Push it to <today's
+  weekday>" on a task due today is only the same weekday next week
+  (`date_push_same_weekday`, #484): today would leave it where it was. A misheard-speech miss is
   fixed in the model's understanding, never with a normaliser in the app.
 
 - **Claim accuracy (#407).** What a reply tells the user is held to what the
@@ -733,7 +749,7 @@ firing fails a sample.
 | `trashed` | deleted, trashed, moved/sent to the trash, removed, dropped, unpinned; "no longer blocked/pinned/…"; a state: "is in the trash", "is off the plan" | `trash_task`, `trash_project`, `remove_focus_entry`, `remove_dependency`, `skip_occurrence` ("removed"/"dropped"/"cleared"/"no longer" also an update or a skip; a state also a skip, or a `list_trash` that showed it) |
 | `restored` | restored, brought … back, recovered, out of the trash; a state: "is back" | `restore_task`, `restore_project`, `restore_focus_entry` (a state also a reopen or an update: "Garage is back", "it's back to its old title") |
 | `undone` | undid, reverted, changed/renamed/put it back | any write |
-| `moved` | moved, rescheduled, pushed, postponed, set/changed the due date, "is now due" | `update_task`, `edit_focus_occurrence`, `reorder_focus_pins`, `pin_focus_task` (a "set"/"is now" also by a create carrying the field). Never `add_focus_commitment`: that is the deployed misfire |
+| `moved` | moved, rescheduled, pushed, postponed, set/changed the due date, "is now due" | `update_task`, `edit_focus_occurrence`, `reorder_focus_pins`, `pin_focus_task` (a "set"/"is now" also by a create carrying the field). Never `add_focus_commitment`: that is the deployed misfire. Never an `update_task` whose only change sets the due date the run last saw the task carry, in the gather's rows or an earlier result (#484); a task the run never saw counts |
 | `updated` | updated, changed, renamed, bumped, set it to …, made it high, "is now high/called …" | `update_task`, `update_project`, `edit_focus_occurrence`, `reorder_focus_pins`, `stop_recurrence`, `stop_focus_series` (same create rule) |
 | `planned` | pinned, blocked out, scheduled, added … to your focus/plan | `pin_focus_task`, `add_focus_commitment`, `edit_focus_occurrence`, `reorder_focus_pins`, `restore_focus_entry`, `update_task` |
 | `closed` / `reopened` | closed (a state: "is closed") / reopened | `close_project` (a state also by a result with `closed_at`) / `reopen_task`, `reopen_project` |

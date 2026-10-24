@@ -73,6 +73,7 @@ end-of-suite table. The first call may cold-load the model (~100 s).
 
 from __future__ import annotations
 
+import calendar
 import json
 import os
 import re
@@ -231,6 +232,7 @@ _FLOORS: dict[str, float] = {
         "compose_finish_and_follow_up",
         "compose_wait_and_bump",
         "date_next_friday",
+        "date_push_same_weekday",
         "date_in_two_weeks",
         "date_end_of_month",
         "date_this_weekend",
@@ -2860,14 +2862,19 @@ def _compose_wait_and_bump(sample: Sample) -> None:
     _assert_events_only_about(after, before, {report_id})
 
 
-def _date_ask(sample: Sample, ask: str, accepted: frozenset[date]) -> None:
-    """Give the quarterly report (no due date; a bystander has one) a due date
-    said in words. The model is told only today's ISO date, so the calendar
-    arithmetic is its own; ``accepted`` is every reading of the words we allow."""
+def _date_ask(
+    sample: Sample, ask: str, accepted: frozenset[date], due: date | None = None
+) -> None:
+    """Give the quarterly report (due ``due``, none by default; a bystander has
+    one) a due date said in words. The model is told only today's ISO date, so
+    the calendar arithmetic is its own; ``accepted`` is every reading of the
+    words we allow."""
     today = date.today()
     with sample.db() as db:
         ids = _seed_projects(db, "Work")
-        report = tasks_service.create_task(db, project_id=ids["Work"], title="Quarterly report")
+        report = tasks_service.create_task(
+            db, project_id=ids["Work"], title="Quarterly report", due_date=due
+        )
         tasks_service.create_task(
             db,
             project_id=ids["Work"],
@@ -2896,6 +2903,22 @@ def _date_next_friday(sample: Sample) -> None:
         sample,
         "Make the quarterly report due next Friday.",
         next_friday_targets(date.today()),
+    )
+
+
+def _date_push_same_weekday(sample: Sample) -> None:
+    """"Push it to <today's weekday>" on a task already due today (#484).
+
+    "Push" means later, so the only reading is the same weekday next week:
+    today would leave the task where it was and report a move that never
+    happened. The weekday is today's, so the scenario measures this case on
+    every day of the week rather than one day in seven."""
+    today = date.today()
+    _date_ask(
+        sample,
+        f"Push the quarterly report to {calendar.day_name[today.weekday()]}.",
+        frozenset({today + timedelta(days=7)}),
+        due=today,
     )
 
 
@@ -3181,6 +3204,10 @@ def test_eval_compose_wait_and_bump() -> None:
 
 def test_eval_date_next_friday() -> None:
     _gate("date_next_friday", _date_next_friday)
+
+
+def test_eval_date_push_same_weekday() -> None:
+    _gate("date_push_same_weekday", _date_push_same_weekday)
 
 
 def test_eval_date_in_two_weeks() -> None:

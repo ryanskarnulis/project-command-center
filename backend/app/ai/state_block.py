@@ -58,23 +58,25 @@ def day(when: date) -> str:
 
 
 def calendar_lines(today: date) -> list[str]:
-    """Today, tomorrow, the rest of this week (to Sunday), next Monday, and the
-    end of the month — each with its weekday. The rest-of-week line is left
-    out on Saturday and Sunday, when nothing past tomorrow is left in it."""
+    """Today, tomorrow, the six days after it, next Monday, and the end of the
+    month — each with its weekday.
+
+    Tomorrow and the days after it are the next seven, so every weekday name
+    has exactly one date strictly after today. The line used to be the rest of
+    this week (to Sunday), which on a Friday left today as the only Friday in
+    the block: "push it to Friday" on a task due today saved it unchanged and
+    reported a move (#484)."""
     tomorrow = today + timedelta(days=1)
-    sunday = today + timedelta(days=6 - today.weekday())
-    rest = [
-        tomorrow + timedelta(days=offset)
-        for offset in range(1, (sunday - tomorrow).days + 1)
-    ]
-    next_monday = sunday + timedelta(days=1)
+    after = [tomorrow + timedelta(days=offset) for offset in range(1, 7)]
+    next_monday = today + timedelta(days=7 - today.weekday())
     month_end = today.replace(day=calendar.monthrange(today.year, today.month)[1])
-    lines = [f"Today: {day(today)}", f"Tomorrow: {day(tomorrow)}"]
-    if rest:
-        lines.append("Rest of this week: " + ", ".join(day(when) for when in rest))
-    lines.append(f"Next Monday: {day(next_monday)}")
-    lines.append(f"End of this month: {day(month_end)}")
-    return lines
+    return [
+        f"Today: {day(today)}",
+        f"Tomorrow: {day(tomorrow)}",
+        "Coming days: " + ", ".join(day(when) for when in after),
+        f"Next Monday: {day(next_monday)}",
+        f"End of this month: {day(month_end)}",
+    ]
 
 
 def render(

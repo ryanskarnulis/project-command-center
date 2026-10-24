@@ -726,3 +726,49 @@ def test_score_trace_reads_the_gathered_rows() -> None:
         "gather": {"source": "hybrid", "rows": _GATHERED},
     }
     assert score_trace([record]).misses == []
+
+
+# --- a move that left the date where it was (#484) ---------------------------------
+
+_DUE_FRIDAY = [{"task_id": 7, "title": "Quarterly report", "project": "Work", "due": FRIDAY}]
+_SET_FRIDAY = _call(
+    "update_task", {"task_id": 7, "due_date": FRIDAY}, _task(7, "Quarterly report", due=FRIDAY)
+)
+_NEXT_FRIDAY = date(2026, 10, 30).isoformat()
+
+
+def test_a_due_date_set_to_the_one_the_gather_showed_is_no_move() -> None:
+    evidence = Evidence.of([_SET_FRIDAY], TODAY, _DUE_FRIDAY)
+    assert evidence.noop_moves == 1
+    claims = unbacked(read_claims("Pushed the quarterly report to Friday.", evidence))
+    assert [c.family for c in claims] == ["moved"]
+
+
+def test_a_due_date_set_to_the_one_a_read_returned_is_no_move() -> None:
+    read = _call("get_task", {"task_id": 7}, _task(7, "Quarterly report", due=FRIDAY))
+    evidence = _evidence(read, _SET_FRIDAY)
+    assert [c.family for c in unbacked(read_claims("Moved it to Friday.", evidence))] == ["moved"]
+
+
+def test_a_real_move_after_a_read_is_backed() -> None:
+    moved = _call(
+        "update_task",
+        {"task_id": 7, "due_date": _NEXT_FRIDAY},
+        _task(7, "Quarterly report", due=_NEXT_FRIDAY),
+    )
+    evidence = Evidence.of([moved], TODAY, _DUE_FRIDAY)
+    assert evidence.noop_moves == 0
+    assert not unbacked(read_claims("Pushed the quarterly report to October 30.", evidence))
+
+
+def test_a_move_on_a_task_the_run_never_saw_stays_backed() -> None:
+    """Lenient: with no earlier due date to compare, the write counts."""
+    evidence = _evidence(_SET_FRIDAY)
+    assert evidence.noop_moves == 0
+    assert not unbacked(read_claims("Pushed it to Friday.", evidence))
+
+
+def test_saying_it_is_already_due_is_not_a_move_claim() -> None:
+    """The planner's honest note on a no-op: a state, true from the results."""
+    evidence = Evidence.of([_SET_FRIDAY], TODAY, _DUE_FRIDAY)
+    assert not unbacked(read_claims("The quarterly report is already due Friday.", evidence))
