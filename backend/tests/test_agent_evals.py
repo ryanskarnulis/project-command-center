@@ -737,14 +737,18 @@ class Sample:
     def _read_claims(self, result: AgentRunResult) -> None:
         """Read the reply's claims against every call this sample has made so
         far: a thread's evidence is its earlier runs too, never its seeded
-        (stored) history, whose replies are the very claims under test."""
+        (stored) history, whose replies are the very claims under test.
+
+        A delegate's handoff (#482) is code's record, true by construction:
+        its one model-written part, the planner's note, is what is read."""
         self.calls.extend(
             ToolCall(r.tool, r.arguments, r.result, r.error, r.refusal)
             for r in result.tool_calls
         )
         self.shown.extend(result.gathered)
         evidence = Evidence.of(self.calls, date.today(), self.shown)
-        self.claims.extend((self.step_label, c) for c in read_claims(result.reply, evidence))
+        said = result.note if result.handed_off else result.reply
+        self.claims.extend((self.step_label, c) for c in read_claims(said, evidence))
 
     def _died(
         self,

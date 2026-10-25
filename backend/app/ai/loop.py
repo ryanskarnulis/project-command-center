@@ -81,7 +81,10 @@ unchanged. When the narrator cannot speak — a Stop or the deadline before its
 call, a provider failure, a cut-off or empty reply — a completed run replies
 with the planner's note and a limit stop with ``None``; a limit stop where
 nothing ran never calls it. ``cancelled`` and the failure stops never narrate:
-the user asked it to stop, or the run broke.
+the user asked it to stop, or the run broke. A delegate caller (#482,
+:data:`DELEGATE_ACTORS`) speaks for itself, so wherever the narrator would
+speak its run replies with the code-built handoff (``narration.handoff``)
+and makes no narrator call.
 
 Every run can leave a trace (#400): with ``PCC_TRACE_PATH`` set, the loop
 appends one JSONL record per run (:mod:`app.ai.trace`) — the utterance, the
@@ -433,6 +436,9 @@ class _RunContext:
     # The candidates of a landed ``ask_user`` (#420): the run ends on asking
     # which one the user meant. Set by the loop once the ask lands.
     asked: tuple[clarification.Candidate, ...] = ()
+    # A delegate caller (#482) speaks for itself: the run hands it the typed
+    # handoff (``narration.handoff``) and the narrator is never called.
+    delegate: bool = False
 
 
 class ToolCallRecord(BaseModel):
@@ -480,6 +486,9 @@ class AgentRunResult(BaseModel):
     # narrator reads as a reading. ``None`` when the planner stopped at a
     # limit or failed. Not persisted; the trace keeps it.
     note: str | None = None
+    # Whether ``reply`` is the delegate handoff (#482): built by code, so its
+    # only model words are ``note``. Not persisted; the trace keeps it.
+    handed_off: bool = False
 
 
 class AgentRunFailed(Exception):
@@ -792,6 +801,7 @@ class AgentLoop:
             earlier=recall.section(earlier, recall.NARRATOR_REPLY_LABEL),
             gathered=matches,
             state=block,
+            delegate=actor in DELEGATE_ACTORS,
         )
         corrections = 0
         iterations = 0
@@ -1060,7 +1070,29 @@ class AgentLoop:
         falls back to the planner's note, which is what the single-phase loop
         replied with, and a limit stop to no reply, which is what it had
         before #399. The stop reason never changes.
+
+        A delegate caller gets the handoff in the narrator's place (#482):
+        code-built, so it is the reply whatever the time left.
         """
+        if ctx.delegate:
+            ctx.trace.handed_off = True
+            logger.info("agent_handed_off", stop_reason=stop_reason)
+            result = self._finish(
+                stop_reason,
+                narration.handoff(
+                    records=records,
+                    answers=[record.answer for record in records],
+                    note=note,
+                    stop_reason=stop_reason,
+                    asked=ctx.asked,
+                ),
+                records,
+                iterations,
+                messages,
+            )
+            result.note = note
+            result.handed_off = True
+            return result
         reply = self._narrate(stop_reason, ctx, records, note)
         if reply is None and ctx.asked:
             reply = clarification.ask_text(ctx.asked)

@@ -174,6 +174,8 @@ class RunTrace:
     # Whether the reply is the narrator's words (#418); else the planner's
     # note (a completed run whose narrator could not speak) or none.
     narrated: bool = False
+    # Whether the reply is the delegate handoff (#482) instead.
+    handed_off: bool = False
     corrections: int = 0
     state_block: str | None = None
     gather: dict[str, Any] | None = None
@@ -247,6 +249,7 @@ class RunTrace:
             "reply": result.reply if result is not None else None,
             "note": result.note if result is not None else None,
             "narrated": self.narrated,
+            "handed_off": self.handed_off,
             "iterations": result.iterations if result is not None else 0,
             "corrections": self.corrections,
             "tools": tools,

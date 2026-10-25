@@ -144,6 +144,18 @@ def test_a_failed_narration_asks_in_codes_words(tool_db: sessionmaker[Session]) 
     )
 
 
+def test_a_delegate_is_handed_the_question(tool_db: sessionmaker[Session]) -> None:
+    """A delegate (#482) gets the ask in the handoff, candidates in order, and
+    no narrator call."""
+    book, pay = _seed_dentists(tool_db)
+    provider = ScriptedProvider([_calls(("ask_user", {"task_ids": [book, pay]}))])
+    result = AgentLoop(provider).run("Mark the dentist one as done.", actor="agent:conductor")
+    assert len(provider.requests) == 1
+    assert (result.reply or "").endswith(
+        "Ask the user which one they meant:\n1. Book dentist appointment\n2. Pay the dentist bill"
+    )
+
+
 # --- the open question ------------------------------------------------------------
 
 

@@ -115,6 +115,60 @@ def brief(
     return "\n\n".join(parts)
 
 
+# How a handoff opens. Its record is one block (``run_record.render`` joins
+# its lines with single newlines), and every part after it is a paragraph.
+HANDOFF_HEAD = (
+    "PCC's record of this run (built by the app from its tool results; nothing "
+    'outside "Done" was changed):\n'
+)
+
+
+def handoff(
+    *,
+    records: Sequence[ToolCallRecord],
+    answers: Sequence[str | None],
+    note: str | None,
+    stop_reason: str,
+    asked: Sequence[Candidate] = (),
+) -> str:
+    """The reply a delegate caller gets in place of the narrator's (#482).
+
+    A delegate (conductor) speaks to the user in its own voice, so a Glitch
+    reply would only be re-voiced: it gets the typed handoff instead — the
+    run's record as the narrator reads it, the planner's note labelled as a
+    reading, and, as the narrator would be told, why a limit stop stopped or
+    the question an ``ask_user`` ended on. Built by code; no model call."""
+    parts = [HANDOFF_HEAD + run_record.render(records, answers)]
+    if note and note.strip():
+        parts.append(f'{_NOTE_LABEL}: "{note.strip()}"')
+    if asked:
+        named = "\n".join(
+            f"{number}. {candidate.title}" for number, candidate in enumerate(asked, start=1)
+        )
+        parts.append(
+            "The run ended on a question: more than one task fits, so nothing was changed "
+            f"for it. Ask the user which one they meant:\n{named}"
+        )
+    elif stop_reason in run_record.LIMIT_REASONS:
+        why = run_record.LIMIT_REASONS[stop_reason]
+        parts.append(f"The run stopped because {why}. {run_record.LIMIT_NOTE}")
+    return "\n\n".join(parts)
+
+
+def handoff_words(reply: str) -> str | None:
+    """A stored reply as words for recall: a handoff without its record.
+
+    A delegate's stored reply is its handoff (#482), and recall already keeps
+    that record. Shown whole as the last reply, the next planner copied its
+    format into its own note. What is left is what was written beside it: the
+    note, the limit or the question. ``None`` when there is nothing. Any
+    other reply comes back as it is."""
+    if not reply.startswith(HANDOFF_HEAD):
+        return reply
+    _, _, words = reply.partition("\n\n")
+    return words or None
+
+
 def messages(system_prompt: str, brief_text: str) -> list[dict[str, Any]]:
     """The whole narrator request: its own system prompt and the brief."""
     return [
