@@ -276,6 +276,34 @@ that.
   narrate. Reads are `READ_TOOLS` — exactly the registry bodies opened with
   `tool_session(..., write=False)`, pinned by a test; any other tool that
   answers is "done".
+
+  **A delegate speaks for itself** (#482): a run whose actor is a delegate
+  (`X-Agent-Actor: agent:conductor`) never calls the narrator. Conductor
+  re-voices whatever PCC replies, so a Glitch reply was one model call
+  (~0.6 s) thrown away. Its `reply` is the typed handoff instead
+  (`narration.handoff`, code-built): the run record as the narrator reads it,
+  the planner's note labelled as a reading, and, as the narrator would have
+  been told, a limit stop's reason with the limit note, or the `ask_user`
+  question with its candidates in order. It rides the existing
+  `assistant_message.content`, the only text conductor relays, so the wire
+  contract is unchanged. It is stored and recalled like any reply. A limit
+  stop where nothing ran still has no reply. The trace marks it `handed_off`.
+  The eval claim reader grades its note, the one model-written part. Recall
+  shows a stored handoff without its record (`narration.handoff_words`),
+  since recall keeps that record already. Shown whole as the last reply, the
+  next planner copied the record's format into its own note.
+
+  **Measured** (2026-10-23, gemma-4-12b): `delegate_actor` 5/5 and
+  `delegate_thread` 5/5, with every claim backed. Before the recall fix,
+  `delegate_thread` was 8/10, and both misses were that copied note. On the
+  conductor side, a scratch probe ran conductor's real loop, prompt and
+  manifests, with PCC's hop canned (10 runs per arm on the limit stop, 5 per
+  case otherwise). Due-today, push, refused and ask relayed only what the
+  handoff showed, 20/20. On a limit stop (Alpha made, Beta not), Glitch's
+  "ask again" got relayed 10/10 with no retry. Handed the record, conductor
+  re-asked PCC for Beta every time. With a retry that succeeds, it said
+  both were in, true 10/10. With a retry that hit the limit again, it said
+  both were in 3/10.
 - **Stop reasons**: `completed`, `max_iterations`, `correction_limit`,
   `truncated`, `no_progress`, `tool_call_limit` and `cancelled` return 200; `provider_error` (502), `timed_out` (504) and
   `internal_error` (500) are failures. Every one persists a truthful assistant

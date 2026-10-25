@@ -24,7 +24,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai import loop as loop_module
-from app.ai import run_record
+from app.ai import narration, run_record
 from app.ai.loop import AgentLoop, ToolCallRecord
 from app.ai.providers.llamacpp import (
     ChatResult,
@@ -426,6 +426,72 @@ def test_read_only_flag_is_not_in_any_emitted_schema() -> None:
         assert "read_only" not in spec.description
 
 
+# --- Delegate callers (#482) -----------------------------------------------------
+
+DELEGATE = "agent:conductor"
+
+
+def test_a_delegate_gets_the_handoff_and_no_narrator_call(
+    tool_db: sessionmaker[Session],
+) -> None:
+    """Conductor speaks for itself: its run replies with the code-built record
+    and the planner's note, and the narrator is never called."""
+    provider = ScriptedProvider(
+        [
+            _calls(_alpha()),
+            _calls(("list_tasks", {})),
+            _text("Created Alpha (id 1); it is the only task."),
+        ]
+    )
+    result = AgentLoop(provider).run("Make Alpha, then tell me what I have.", actor=DELEGATE)
+
+    assert result.stop_reason == "completed"
+    assert len(provider.requests) == 3
+    assert all(request["tools"] for request in provider.requests)
+    reply = result.reply or ""
+    assert reply.startswith("PCC's record of this run")
+    assert '- #1 create_task {"title":"Alpha"} -> {' in reply
+    assert '- #2 list_tasks {} -> {"tasks": [{' in reply
+    assert reply.endswith(
+        "The planner's note (its reading of the results, not a record): "
+        '"Created Alpha (id 1); it is the only task."'
+    )
+    assert result.note == "Created Alpha (id 1); it is the only task."
+    assert result.handed_off
+
+
+@pytest.mark.parametrize("stop_reason", sorted(_LIMIT_RUNS))
+def test_a_delegate_limit_stop_hands_off_why_it_stopped(
+    tool_db: sessionmaker[Session], stop_reason: str
+) -> None:
+    turns, options = _LIMIT_RUNS[stop_reason]
+    provider = ScriptedProvider(turns)
+    result = AgentLoop(provider, **options).run("Make tasks Alpha and Beta.", actor=DELEGATE)
+
+    assert result.stop_reason == stop_reason
+    assert len(provider.requests) == len(turns)
+    reply = result.reply or ""
+    assert 'Done:\n- #1 create_task {"title":"Alpha"} -> {"id": 1, "title": "Alpha"' in reply
+    assert reply.endswith(
+        f"The run stopped because {run_record.LIMIT_REASONS[stop_reason]}. "
+        f"{run_record.LIMIT_NOTE}"
+    )
+
+
+def test_a_delegate_limit_stop_with_nothing_run_still_has_no_reply() -> None:
+    provider = ScriptedProvider([_calls(_invalid())])
+    result = AgentLoop(provider, max_corrections=0).run("Make a task.", actor=DELEGATE)
+    assert result.stop_reason == "correction_limit"
+    assert result.reply is None
+
+
+def test_an_unrecognized_actor_is_still_narrated(tool_db: sessionmaker[Session]) -> None:
+    provider = ScriptedProvider([_text("Nothing to do.")], narrations=[_text("Hey!")])
+    result = AgentLoop(provider).run("hi", actor=loop_module.LOOP_ACTOR)
+    assert result.reply == "Hey!"
+    assert not result.handed_off
+
+
 # --- Route --------------------------------------------------------------------
 
 
@@ -475,3 +541,48 @@ def test_route_saves_the_narration_as_the_reply(
     assert f'The assistant said then (its words, not a record): "{SUMMARY}"' in opening
     assert 'create_task {"title":"Alpha"} -> id 1 "Alpha"' in opening
     assert opening.endswith("Thanks.")
+
+
+def test_route_saves_the_handoff_for_a_delegate(
+    client: TestClient, tool_db: sessionmaker[Session]
+) -> None:
+    """``X-Agent-Actor: agent:conductor`` gets the handoff as the reply, saved
+    like any reply, and its next run reads it as the last exchange's words."""
+    provider = ScriptedProvider(
+        [_calls(_alpha()), _text("Made Alpha."), _text("Nothing to do.")]
+    )
+    app.dependency_overrides[routes_agent.get_agent_loop] = lambda: AgentLoop(provider)
+    conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
+    url = f"/api/agent/conversations/{conversation_id}/messages"
+    headers = {"X-Agent-Actor": DELEGATE}
+
+    response = client.post(url, json={"content": "Make Alpha."}, headers=headers)
+    assert response.status_code == 200
+    assistant = response.json()["assistant_message"]
+    assert assistant["stop_reason"] == "completed"
+    assert assistant["content"].startswith("PCC's record of this run")
+    assert '- #1 create_task {"title":"Alpha"} -> {' in assistant["content"]
+    saved = client.get(f"/api/agent/conversations/{conversation_id}").json()["messages"]
+    assert saved[-1]["content"] == assistant["content"]
+
+    client.post(url, json={"content": "Thanks."}, headers=headers)
+    assert len(provider.requests) == 3
+    opening = provider.requests[-1]["messages"][1]["content"]
+    # The record is recall's own section; the last reply is the note beside it.
+    assert (
+        "The assistant said then (its words, not a record): \"The planner's note "
+        "(its reading of the results, not a record): \"Made Alpha.\"\"" in opening
+    )
+    assert "PCC's record" not in opening
+    assert 'create_task {"title":"Alpha"} -> id 1 "Alpha"' in opening
+
+
+def test_handoff_words_drop_the_record() -> None:
+    reply = narration.handoff(
+        records=[ToolCallRecord(tool="create_task", arguments={"title": "A"}, result="{}")],
+        answers=[None],
+        note=None,
+        stop_reason="completed",
+    )
+    assert narration.handoff_words(reply) is None
+    assert narration.handoff_words("Done — Alpha's in.") == "Done — Alpha's in."

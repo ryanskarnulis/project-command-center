@@ -35,7 +35,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from app.ai import clarification, run_record
+from app.ai import clarification, narration, run_record
 
 # The user's earlier requests: each cut to this many characters, and the
 # newest kept until this many in all (chess's ``REQUEST_CHARS`` /
@@ -77,7 +77,11 @@ class Recall:
         at = _last_exchange_at(history)
         last = None
         if at is not None:
-            last = (str(history[at - 1]["content"] or ""), history[at].get("content"))
+            reply = history[at].get("content")
+            last = (
+                str(history[at - 1]["content"] or ""),
+                None if reply is None else narration.handoff_words(reply),
+            )
         return cls(
             record=tuple(_earlier_record(history)),
             requests=tuple(_requests(history, skip=None if at is None else at - 1)),
