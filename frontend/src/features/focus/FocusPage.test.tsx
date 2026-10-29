@@ -24,6 +24,7 @@ import {
 import type { CommitmentBlock, FocusEntry, ScheduledBlock, FocusPlan } from '../../types/focus'
 import type { Task } from '../../types/task'
 import { ToastProvider } from '../../components/ToastProvider'
+import { formatDueDate } from '../../utils/dates'
 import { FocusPage } from './FocusPage'
 import { resetFocusSessionSyncForTests } from './mobile/sessionSync'
 
@@ -310,7 +311,6 @@ describe('FocusPage', () => {
     const link = await screen.findByRole('link', { name: 'Draft launch checklist' })
     // Row links open the peek panel in place via the ?task= param.
     expect(link).toHaveAttribute('href', '/?task=7')
-    expect(screen.getByText('in-progress · due today · high priority')).toBeInTheDocument()
     expect(screen.getByText('assumed')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Timeline' })).toBeInTheDocument()
   })
@@ -1172,7 +1172,7 @@ describe('FocusPage', () => {
             title: 'Write intro section',
             parent_task_id: 5,
             parent_title: 'Draft the whitepaper',
-            reason: 'part of Draft the whitepaper · high priority',
+            reason: 'part of Draft the whitepaper · open · high priority',
           }),
         ],
       }),
@@ -1185,12 +1185,102 @@ describe('FocusPage', () => {
     )
 
     await screen.findByRole('link', { name: 'Write intro section' })
-    // The parent shows once, via the scheduler's reason string — not a second
-    // dedicated "part of" line.
+    // The parent shows once, from `parent_title` — the rest of the scheduler's
+    // reason string (status, priority) is already on the row (#498).
     expect(screen.getAllByText(/part of/)).toHaveLength(1)
+    expect(screen.getByText('part of Draft the whitepaper')).toHaveClass('focus-reason')
     expect(
-      screen.getByText('part of Draft the whitepaper · high priority'),
-    ).toBeInTheDocument()
+      screen.queryByText('part of Draft the whitepaper · open · high priority'),
+    ).not.toBeInTheDocument()
+  })
+
+  // #498: the scheduler's reason string ("open · due today · medium priority")
+  // repeats words the row already shows, so the row doesn't render it, and
+  // "Due today" in the head stands in for the date (it is the plan's date).
+  it('says each word once on a due-today row: no reason string, no repeated date', async () => {
+    mockGetFocusPlan.mockResolvedValue(
+      makePlan({
+        scheduled: [
+          scheduledBlock({
+            task_id: 7,
+            title: 'Ship the release notes',
+            priority: 'medium',
+            workflow_status: 'open',
+            due_date: '2026-06-20',
+            due_signal: 'due_today',
+            reason: 'open · due today · medium priority',
+          }),
+        ],
+      }),
+    )
+
+    render(
+      <MemoryRouter>
+        <FocusPage />
+      </MemoryRouter>,
+    )
+
+    const row = (await screen.findByRole('link', { name: 'Ship the release notes' })).closest('li')!
+    expect(within(row).queryByText(/\bopen\b/)).not.toBeInTheDocument()
+    expect(within(row).getAllByText(/due today/i)).toHaveLength(1)
+    expect(within(row).getAllByText(/medium/)).toHaveLength(1)
+    expect(within(row).queryByText(`Due ${formatDueDate('2026-06-20')}`)).not.toBeInTheDocument()
+    expect(row.querySelector('.focus-due-date')).toBeNull()
+    // A top-level task has no parent to name, so no reason element at all.
+    expect(row.querySelector('.focus-reason')).toBeNull()
+  })
+
+  it('keeps the due date on overdue, due-soon and far-off rows (#498)', async () => {
+    mockGetFocusPlan.mockResolvedValue(
+      makePlan({
+        scheduled: [
+          scheduledBlock({
+            task_id: 7,
+            title: 'Overdue task',
+            due_date: '2026-06-17',
+            due_signal: 'overdue',
+            reason: 'open · overdue · high priority',
+          }),
+          scheduledBlock({
+            task_id: 8,
+            title: 'Due soon task',
+            start_time: '09:30',
+            end_time: '10:00',
+            due_date: '2026-06-22',
+            due_signal: 'due_soon',
+            reason: 'open · due soon · high priority',
+          }),
+          scheduledBlock({
+            task_id: 9,
+            title: 'Far-off task',
+            start_time: '10:00',
+            end_time: '10:30',
+            due_date: '2026-09-01',
+            due_signal: 'none',
+            reason: 'open · high priority',
+          }),
+        ],
+      }),
+    )
+
+    render(
+      <MemoryRouter>
+        <FocusPage />
+      </MemoryRouter>,
+    )
+
+    const overdue = (await screen.findByRole('link', { name: 'Overdue task' })).closest('li')!
+    const soon = screen.getByRole('link', { name: 'Due soon task' }).closest('li')!
+    const farOff = screen.getByRole('link', { name: 'Far-off task' }).closest('li')!
+    expect(within(overdue).getByText('Overdue')).toBeInTheDocument()
+    expect(within(overdue).getByText(`Due ${formatDueDate('2026-06-17')}`)).toHaveClass('focus-due-date')
+    expect(within(soon).getByText('Due soon')).toBeInTheDocument()
+    expect(within(soon).getByText(`Due ${formatDueDate('2026-06-22')}`)).toHaveClass('focus-due-date')
+    // No due signal: the date is the only due word the row has.
+    expect(within(farOff).getByText(`Due ${formatDueDate('2026-09-01')}`)).toHaveClass('focus-due-date')
+    for (const row of [overdue, soon, farOff]) {
+      expect(row.querySelector('.focus-reason')).toBeNull()
+    }
   })
 
   it('notes partially scheduled overflow tasks', async () => {
