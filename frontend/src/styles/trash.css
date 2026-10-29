@@ -16,6 +16,9 @@
    reach of its title on a wide screen. */
 .desktop-trash { gap: 14px; }
 .desktop-trash > * { width: 100%; max-width: 880px; }
+/* The empty state has no row actions to keep in reach: it spans the page so
+   it centers in it, not in the left-aligned reading column (#493). */
+.desktop-trash > .trash-empty { max-width: none; }
 
 .desktop-trash .trash-heading { min-height: 40px; }
 .desktop-trash .trash-heading h1 { font-size: var(--fs-page-title); }
