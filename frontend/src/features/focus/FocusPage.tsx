@@ -255,7 +255,9 @@ function FocusRowActions({
   }
 
   return (
-    <div className="focus-row-actions">
+    // Engaged while its "Pin at" field is open, so the cluster stays shown on a
+    // desktop row even once the pointer leaves it (see `.focus-row-actions`).
+    <div className={pinAt !== null ? 'focus-row-actions focus-row-actions-engaged' : 'focus-row-actions'}>
       {workflowStatus !== 'in_progress' && (
         <button
           type="button"
@@ -452,6 +454,7 @@ function PinGrip({ title, reorder }: { title: string; reorder: PinReorder }) {
 function ScheduledRow({
   block,
   past,
+  current,
   planDate,
   onMutated,
   onSkip,
@@ -459,6 +462,8 @@ function ScheduledRow({
 }: {
   block: ScheduledBlock
   past: boolean
+  // The block the "now" marker sits above: its actions stay shown on desktop.
+  current: boolean
   planDate: string
   onMutated: () => void
   onSkip: (taskId: number, title: string) => void
@@ -469,6 +474,7 @@ function ScheduledRow({
   const className = [
     'focus-block',
     past && 'focus-block-past',
+    current && 'focus-block-current',
     reorder && 'focus-block-reorderable',
     reorder?.dragging && 'focus-block-dragging',
     reorder?.dropTarget && 'focus-block-drop-target',
@@ -514,7 +520,11 @@ function ScheduledRow({
             {block.title}
           </Link>
           <PriorityPill priority={block.priority} />
-          <WorkflowPill status={block.workflow_status} />
+          {/* Exceptions only: every scheduled task is open unless started, so
+              "open" says nothing; "in progress" is the one worth a word. */}
+          {block.workflow_status === 'in_progress' && (
+            <WorkflowPill status={block.workflow_status} />
+          )}
           <DueSignalPill signal={block.due_signal} />
         </div>
         <div className="focus-block-meta">
@@ -549,11 +559,13 @@ function ScheduledRow({
 function CommitmentRow({
   commitment,
   past,
+  current,
   planDate,
   onMutated,
 }: {
   commitment: CommitmentBlock
   past: boolean
+  current: boolean
   planDate: string
   onMutated: () => void
 }) {
@@ -612,9 +624,13 @@ function CommitmentRow({
 
   return (
     <li
-      className={
-        past ? 'focus-block focus-commitment focus-block-past' : 'focus-block focus-commitment'
-      }
+      className={[
+        'focus-block focus-commitment',
+        past && 'focus-block-past',
+        current && 'focus-block-current',
+      ]
+        .filter(Boolean)
+        .join(' ')}
     >
       <div className="focus-block-time" aria-hidden="true">
         <strong>
@@ -633,7 +649,9 @@ function CommitmentRow({
           <EstimateLabel minutes={commitment.duration_minutes} assumed={false} />
         </div>
       </div>
-      <div className="focus-row-actions">
+      <div
+        className={moveTo !== null ? 'focus-row-actions focus-row-actions-engaged' : 'focus-row-actions'}
+      >
         {moveTo === null ? (
           <button
             type="button"
@@ -793,11 +811,13 @@ function useUndoAction(onMutated: () => void): (undo: () => Promise<unknown>) =>
 function SkippedCommitmentRow({
   commitment,
   past,
+  current,
   planDate,
   onMutated,
 }: {
   commitment: SkippedCommitmentBlock
   past: boolean
+  current: boolean
   planDate: string
   onMutated: () => void
 }) {
@@ -824,11 +844,13 @@ function SkippedCommitmentRow({
 
   return (
     <li
-      className={
-        past
-          ? 'focus-block focus-commitment focus-skipped focus-block-past'
-          : 'focus-block focus-commitment focus-skipped'
-      }
+      className={[
+        'focus-block focus-commitment focus-skipped',
+        past && 'focus-block-past',
+        current && 'focus-block-current',
+      ]
+        .filter(Boolean)
+        .join(' ')}
     >
       <div className="focus-block-time" aria-hidden="true">
         <strong>
@@ -1331,6 +1353,7 @@ export function FocusPage() {
                       <ScheduledRow
                         block={item.block}
                         past={nowIndex !== null && index < nowIndex}
+                        current={index === nowIndex}
                         planDate={plan.date}
                         onMutated={refetch}
                         onSkip={(id, title) => setSkipTarget({ id, title })}
@@ -1340,6 +1363,7 @@ export function FocusPage() {
                       <SkippedCommitmentRow
                         commitment={item.commitment}
                         past={nowIndex !== null && index < nowIndex}
+                        current={index === nowIndex}
                         planDate={plan.date}
                         onMutated={refetch}
                       />
@@ -1347,6 +1371,7 @@ export function FocusPage() {
                       <CommitmentRow
                         commitment={item.commitment}
                         past={nowIndex !== null && index < nowIndex}
+                        current={index === nowIndex}
                         planDate={plan.date}
                         onMutated={refetch}
                       />

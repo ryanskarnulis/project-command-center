@@ -565,6 +565,36 @@ describe('FocusPage', () => {
     ).toBeInTheDocument()
   })
 
+  // #491: a row under the timeline carries exceptions only — "open" is the
+  // routine state of every scheduled task, so only "in progress" earns a word.
+  it('shows the status word only when a scheduled task is in progress', async () => {
+    mockGetFocusPlan.mockResolvedValue(
+      makePlan({
+        scheduled: [
+          scheduledBlock({ task_id: 7, title: 'Routine task', workflow_status: 'open' }),
+          scheduledBlock({
+            task_id: 8,
+            title: 'WIP task',
+            workflow_status: 'in_progress',
+            start_time: '10:00',
+            end_time: '10:30',
+          }),
+        ],
+      }),
+    )
+
+    render(
+      <MemoryRouter>
+        <FocusPage />
+      </MemoryRouter>,
+    )
+
+    const routine = (await screen.findByRole('link', { name: 'Routine task' })).closest('li')!
+    const wip = screen.getByRole('link', { name: 'WIP task' }).closest('li')!
+    expect(within(routine).queryByText('open')).not.toBeInTheDocument()
+    expect(within(wip).getByText('in progress')).toHaveClass('status-pill', 'workflow-in_progress')
+  })
+
   it('defers a task to the day after the plan date', async () => {
     mockGetFocusPlan.mockResolvedValue(
       makePlan({ scheduled: [scheduledBlock({ task_id: 7, workflow_status: 'open' })] }),
@@ -1325,6 +1355,18 @@ describe('FocusPage', () => {
         'marker',
       ])
       expect(screen.getByLabelText('Now, 18:00')).toBeInTheDocument()
+    })
+
+    // #491: the block under the marker keeps its actions shown on desktop;
+    // the rest reveal on hover/focus-within, but every button stays mounted
+    // (and so tabbable) — the quieting is CSS opacity only.
+    it('flags the block under the marker as current, and only that one', async () => {
+      atLocalTime(11, 0)
+      const rows = (await renderTimeline()).filter((row) => row.tagName === 'LI' && !row.classList.contains('focus-now-marker'))
+      expect(rows.map((row) => row.classList.contains('focus-block-current'))).toEqual([false, true])
+      for (const row of rows) {
+        expect(within(row).getByRole('button', { name: /^Mark .* done$/ })).toBeInTheDocument()
+      }
     })
 
     it('renders no marker or dimming when viewing another day', async () => {

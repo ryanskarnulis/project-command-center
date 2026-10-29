@@ -183,6 +183,37 @@
   margin-left: auto;
 }
 
+/* Quiet rows (#491): with a real pointer, a row's verbs stay out of sight until
+   the row is hovered or holds focus, so the timeline reads as a list, not a
+   grid of buttons. Opacity, not visibility/display: the buttons keep their
+   space (no reflow on hover) and stay in the tab order, and tabbing onto one
+   reveals the cluster via :focus-within. The current block (the one under the
+   "now" marker) and a cluster with an open time field stay shown. Touch-only
+   screens never match the query and keep the always-on buttons. */
+@media (hover: hover) and (pointer: fine) {
+  .focus-block .focus-row-actions,
+  .focus-overflow-row .focus-row-actions {
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+
+  .focus-block:hover .focus-row-actions,
+  .focus-block:focus-within .focus-row-actions,
+  .focus-block-current .focus-row-actions,
+  .focus-overflow-row:hover .focus-row-actions,
+  .focus-overflow-row:focus-within .focus-row-actions,
+  .focus-row-actions.focus-row-actions-engaged {
+    opacity: 1;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: reduce) {
+  .focus-block .focus-row-actions,
+  .focus-overflow-row .focus-row-actions {
+    transition: none;
+  }
+}
+
 .focus-estimate {
   display: inline-flex;
   align-items: center;
