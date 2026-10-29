@@ -562,8 +562,51 @@ describe('ProjectDetailPage', () => {
     await waitFor(() => expect(mockListTasks).toHaveBeenCalledTimes(2))
   })
 
+  it('renders dense exceptions-only rows, keeping In progress as a live status chip', async () => {
+    const user = userEvent.setup()
+    mockListTasks.mockResolvedValue([
+      { ...task, priority: 'medium' },
+      { ...task, id: 4, title: 'Rotate the keys', workflow_status: 'in_progress', priority: 'low' },
+      { ...task, id: 5, title: 'Audit the rules', priority: 'urgent', is_blocked: true },
+      { ...task, id: 6, parent_task_id: 3, title: 'Order the patch cable', priority: 'medium' },
+    ])
+    mockUpdateTask.mockResolvedValue({ ...task, workflow_status: 'open' })
+    renderDetail()
+
+    // Open + Medium say nothing on a list of open work: no meta line at all.
+    const quiet = await screen.findByRole('link', { name: 'Patch the router' })
+    expect(within(quiet).queryByRole('button', { name: /^Status:/ })).not.toBeInTheDocument()
+    expect(within(quiet).queryByRole('button', { name: /^Priority:/ })).not.toBeInTheDocument()
+    expect(quiet.querySelector('.task-card-badges')).toBeNull()
+    expect(within(quiet).getByRole('button', { name: 'Mark Patch the router done' })).toBeInTheDocument()
+
+    // Urgent and Blocked are exceptions and survive.
+    const urgent = screen.getByRole('link', { name: 'Audit the rules' })
+    expect(within(urgent).getByRole('button', { name: 'Priority: urgent' })).toBeInTheDocument()
+    expect(within(urgent).getByText('Blocked')).toBeInTheDocument()
+    expect(within(urgent).queryByRole('button', { name: /^Status:/ })).not.toBeInTheDocument()
+
+    // In progress is off the list's implied state, so its chip stays and still
+    // moves the task without a drag; Low priority is dropped.
+    const active = screen.getByRole('link', { name: 'Rotate the keys' })
+    expect(within(active).queryByRole('button', { name: /^Priority:/ })).not.toBeInTheDocument()
+    await user.click(within(active).getByRole('button', { name: 'Status: In progress' }))
+    await user.click(screen.getByRole('button', { name: 'Open' }))
+    await waitFor(() =>
+      expect(mockUpdateTask).toHaveBeenCalledWith(4, { workflow_status: 'open' }),
+    )
+
+    // Subtasks get the same dense line.
+    await user.click(screen.getByRole('button', { name: 'Subtasks (1)' }))
+    const sub = screen.getByRole('link', { name: 'Order the patch cable' })
+    expect(within(sub).queryByRole('button', { name: /^Status:/ })).not.toBeInTheDocument()
+    expect(within(sub).queryByRole('button', { name: /^Priority:/ })).not.toBeInTheDocument()
+  })
+
   it('does not refetch tasks after rejected card mutations', async () => {
     const user = userEvent.setup()
+    // In progress so the dense row keeps its status chip (an Open row drops it).
+    mockListTasks.mockResolvedValue([{ ...task, workflow_status: 'in_progress' }])
     mockMarkTaskDone.mockRejectedValue(new Error('Complete failed'))
     mockUpdateTask.mockRejectedValue(new Error('Update failed'))
     renderDetail()
@@ -588,12 +631,12 @@ describe('ProjectDetailPage', () => {
     expect(mockListTasks).toHaveBeenCalledTimes(1)
 
     await user.click(
-      within(taskCard).getByRole('button', { name: 'Status: Open' }),
+      within(taskCard).getByRole('button', { name: 'Status: In progress' }),
     )
-    await user.click(screen.getByRole('button', { name: 'In progress' }))
+    await user.click(screen.getByRole('button', { name: 'Open' }))
     await waitFor(() =>
       expect(mockUpdateTask).toHaveBeenCalledWith(3, {
-        workflow_status: 'in_progress',
+        workflow_status: 'open',
       }),
     )
     expect(mockListTasks).toHaveBeenCalledTimes(1)

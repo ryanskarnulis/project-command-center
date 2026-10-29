@@ -12,6 +12,10 @@ interface SubtaskGroupProps {
   /** Enables inline chip editing on each subtask card. */
   onUpdateTask?: (task: Task, patch: TaskUpdate) => void
   onSetTaskStatus?: (task: Task, target: TaskWorkflowStatus) => void
+  /** Passed through to each subtask card: exceptions-only meta line. */
+  dense?: boolean
+  /** Passed through to each subtask card; see TaskCard's `impliedStatus`. */
+  impliedStatus?: TaskWorkflowStatus
 }
 
 /**
@@ -25,6 +29,8 @@ export function SubtaskGroup({
   onCompleteTask,
   onUpdateTask,
   onSetTaskStatus,
+  dense,
+  impliedStatus,
 }: SubtaskGroupProps) {
   const [expanded, setExpanded] = useState(false)
   if (children.length === 0) return null
@@ -50,6 +56,8 @@ export function SubtaskGroup({
               <TaskCard
                 task={t}
                 projects={projects}
+                dense={dense}
+                impliedStatus={impliedStatus}
                 onComplete={onCompleteTask && (() => onCompleteTask(t))}
                 onUpdate={onUpdateTask && ((patch) => onUpdateTask(t, patch))}
                 onSetStatus={onSetTaskStatus && ((target) => onSetTaskStatus(t, target))}

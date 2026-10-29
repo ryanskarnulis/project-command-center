@@ -48,6 +48,13 @@ interface Props {
    * "Aug 4", "~45m") into a "·"-separated line of one to three facts.
    */
   dense?: boolean
+  /**
+   * For a dense row whose list has no status header but whose scope already
+   * implies one state (the project Overview lists open work): the status chip
+   * is dropped only when the row is in that state, so an off-scope status
+   * ("In progress") stays on the line as a live chip.
+   */
+  impliedStatus?: TaskWorkflowStatus
   subtaskCount?: number
 }
 
@@ -64,6 +71,7 @@ export function TaskCard({
   onSetStatus,
   onSkipOccurrence,
   dense = false,
+  impliedStatus,
   subtaskCount,
 }: Props) {
   const taskLinkTo = useTaskLinkTo()
@@ -121,7 +129,9 @@ export function TaskCard({
   // a chip <button> — there a screen reader would read them as part of the
   // control's name.
   const meta: ReactNode[] = []
-  if (!dense) {
+  const showStatus =
+    !dense || (impliedStatus !== undefined && task.workflow_status !== impliedStatus)
+  if (showStatus) {
     meta.push(
       editable ? (
         <StatusChip
