@@ -260,6 +260,13 @@ export function TaskCard({
           <Check size={13} aria-hidden="true" />
         </button>
       )}
+      {/* A done row in a lane that completes keeps the circle's column, filled,
+          so the titles down the lane stay on one edge. */}
+      {onComplete && task.workflow_status === 'done' && (
+        <span className="task-complete-circle is-done" aria-hidden="true">
+          <Check size={13} />
+        </span>
+      )}
       <div className="task-card-body">
         <span className="task-card-title">{task.title}</span>
         {/* A dense row with nothing exceptional to say prints no meta line at

@@ -52,7 +52,15 @@ function renderBoard(
   return onSetStatus
 }
 
-/** Opens a card's status chip and picks a target status from its menu. */
+/** Drops task `id` onto the named column, as a drag from another column would. */
+function drop(columnName: string, id: number) {
+  fireEvent.drop(screen.getByRole('region', { name: columnName }), {
+    dataTransfer: { getData: () => String(id), types: ['text/plain'] },
+  })
+}
+
+/** Opens a card's status chip and picks a target status from its menu. Only
+ *  Done-column cards carry the chip; the live columns are dense. */
 async function moveViaStatusChip(
   user: ReturnType<typeof userEvent.setup>,
   fromLabel: string,
@@ -81,31 +89,28 @@ describe('KanbanBoard', () => {
     expect(within(done).getByText('Finished')).toBeInTheDocument()
   })
 
-  it('routes a move via the card status chip to onSetStatus', async () => {
-    const user = userEvent.setup()
+  it('routes a drop to onSetStatus', () => {
     const onSetStatus = renderBoard([
       task({ id: 1, title: 'Open one', workflow_status: 'open' }),
     ])
-    await moveViaStatusChip(user, 'Open', 'In progress')
+    drop('In progress', 1)
     expect(onSetStatus).toHaveBeenCalledTimes(1)
     expect(onSetStatus.mock.calls[0][0].id).toBe(1)
     expect(onSetStatus.mock.calls[0][1]).toBe('in_progress')
   })
 
-  it('allows starting a blocked task (blocking gates completion, not starting)', async () => {
-    const user = userEvent.setup()
+  it('allows starting a blocked task (blocking gates completion, not starting)', () => {
     const onSetStatus = renderBoard([
       task({ id: 1, title: 'Blocked one', is_blocked: true }),
     ])
-    await moveViaStatusChip(user, 'Open', 'In progress')
+    drop('In progress', 1)
     expect(onSetStatus).toHaveBeenCalledWith(
       expect.objectContaining({ id: 1 }),
       'in_progress',
     )
   })
 
-  it('refuses completing a blocked task', async () => {
-    const user = userEvent.setup()
+  it('refuses completing a blocked task', () => {
     const onSetStatus = renderBoard([
       task({
         id: 1,
@@ -114,12 +119,11 @@ describe('KanbanBoard', () => {
         is_blocked: true,
       }),
     ])
-    await moveViaStatusChip(user, 'In progress', 'Done')
+    drop('Done', 1)
     expect(onSetStatus).not.toHaveBeenCalled()
   })
 
-  it('allows moving a blocked task back to Open', async () => {
-    const user = userEvent.setup()
+  it('allows moving a blocked task back to Open', () => {
     const onSetStatus = renderBoard([
       task({
         id: 1,
@@ -128,7 +132,7 @@ describe('KanbanBoard', () => {
         is_blocked: true,
       }),
     ])
-    await moveViaStatusChip(user, 'In progress', 'Open')
+    drop('Open', 1)
     expect(onSetStatus).toHaveBeenCalledWith(
       expect.objectContaining({ id: 1 }),
       'open',
@@ -138,17 +142,11 @@ describe('KanbanBoard', () => {
   // A parent owns Open / In progress while its subtasks are untouched; Done is
   // reached only through them (the server's 409 guard, mirrored up front).
   describe('a task with subtasks', () => {
-    const drop = (columnName: string, id: number) =>
-      fireEvent.drop(screen.getByRole('region', { name: columnName }), {
-        dataTransfer: { getData: () => String(id), types: ['text/plain'] },
-      })
-
-    it('can be started via the status chip before any subtask moves', async () => {
-      const user = userEvent.setup()
+    it('can be started by a drop before any subtask moves', () => {
       const onSetStatus = renderBoard([
         task({ id: 1, title: 'Release', has_subtasks: true, subtask_status: 'open' }),
       ])
-      await moveViaStatusChip(user, 'Open', 'In progress')
+      drop('In progress', 1)
       expect(onSetStatus).toHaveBeenCalledWith(
         expect.objectContaining({ id: 1 }),
         'in_progress',
@@ -170,8 +168,7 @@ describe('KanbanBoard', () => {
       )
     })
 
-    it('refuses Done from both the chip and a drop', async () => {
-      const user = userEvent.setup()
+    it('refuses Done from a drop', () => {
       const onSetStatus = renderBoard([
         task({
           id: 1,
@@ -181,13 +178,6 @@ describe('KanbanBoard', () => {
           subtask_status: 'open',
         }),
       ])
-      await user.click(screen.getByRole('button', { name: 'Status: In progress' }))
-      const done = within(screen.getByRole('dialog')).getByRole('button', {
-        name: 'Done',
-      })
-      expect(done).toBeDisabled()
-      expect(done).toHaveAttribute('title', 'Complete its subtasks to complete it')
-      await user.keyboard('{Escape}')
       drop('Done', 1)
       expect(onSetStatus).not.toHaveBeenCalled()
     })
@@ -247,7 +237,6 @@ describe('KanbanBoard', () => {
 
   // A failed move must not leak — the swallow lives in move()'s try/catch.
   it('swallows a failing move (onSetStatus rejects) without leaking', async () => {
-    const user = userEvent.setup()
     let calls = 0
     const onSetStatus = () => {
       calls += 1
@@ -263,13 +252,14 @@ describe('KanbanBoard', () => {
         />
       </MemoryRouter>,
     )
-    await moveViaStatusChip(user, 'Open', 'In progress')
+    drop('In progress', 1)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(calls).toBe(1)
     // The card stays interactive after the failed move (pending cleared).
-    expect(
-      screen.getByRole('button', { name: 'Status: Open' }),
-    ).toBeInTheDocument()
+    expect(screen.getByText('Open one').closest('li')).toHaveAttribute(
+      'draggable',
+      'true',
+    )
   })
 
   // The card chip edit calls onUpdate directly (not via move()); it must be
@@ -285,7 +275,7 @@ describe('KanbanBoard', () => {
       <MemoryRouter>
         <KanbanBoard
           activeTasks={[
-            task({ id: 1, title: 'Open one', workflow_status: 'open', priority: 'medium' }),
+            task({ id: 1, title: 'Open one', workflow_status: 'open', priority: 'high' }),
           ]}
           completedTasks={[]}
           onSetStatus={vi.fn(() => Promise.resolve())}
@@ -293,11 +283,63 @@ describe('KanbanBoard', () => {
         />
       </MemoryRouter>,
     )
-    await user.click(screen.getByRole('button', { name: 'Priority: medium' }))
+    await user.click(screen.getByRole('button', { name: 'Priority: high' }))
     await user.click(
-      within(screen.getByRole('dialog')).getByRole('button', { name: /high/i }),
+      within(screen.getByRole('dialog')).getByRole('button', { name: /urgent/i }),
     )
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(patches).toEqual([{ priority: 'high' }])
+    expect(patches).toEqual([{ priority: 'urgent' }])
   })
+
+  // The live columns' header names the status, so their rows don't repeat it
+  // (nor a Medium/Low priority); Done keeps its chip for the #148 move.
+  it('prints no status word on live-column rows', () => {
+    renderBoard(
+      [task({ id: 1, title: 'Open one', workflow_status: 'open' })],
+      [task({ id: 2, title: 'Finished', workflow_status: 'done' })],
+    )
+    const open = within(screen.getByRole('region', { name: 'Open' }))
+    expect(open.queryByRole('button', { name: /^Status:/ })).toBeNull()
+    expect(open.queryByRole('button', { name: /^Priority:/ })).toBeNull()
+    const done = within(screen.getByRole('region', { name: 'Done' }))
+    expect(done.getByRole('button', { name: 'Status: Done' })).toBeInTheDocument()
+  })
+
+  it('shows a root task\'s subtask count', () => {
+    render(
+      <MemoryRouter>
+        <KanbanBoard
+          activeTasks={[task({ id: 1, title: 'Parent' })]}
+          completedTasks={[]}
+          onSetStatus={vi.fn(() => Promise.resolve())}
+          onUpdate={vi.fn(() => Promise.resolve())}
+          subtaskCounts={new Map([[1, 3]])}
+        />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('3 subtasks')).toBeInTheDocument()
+  })
+
+  it('caps the Done column at the most recent five behind Show all', async () => {
+    const user = userEvent.setup()
+    const done = Array.from({ length: 7 }, (_, i) =>
+      task({
+        id: 10 + i,
+        title: `Finished ${i}`,
+        workflow_status: 'done',
+        updated_at: `2026-10-0${i + 1}T00:00:00Z`,
+      }),
+    )
+    renderBoard([], done)
+    const column = within(screen.getByRole('region', { name: 'Done' }))
+    expect(column.getAllByRole('listitem')).toHaveLength(5)
+    // Newest first: Finished 6 was completed last.
+    expect(column.getAllByRole('listitem')[0]).toHaveTextContent('Finished 6')
+    expect(column.queryByText('Finished 0')).toBeNull()
+    await user.click(column.getByRole('button', { name: 'Show all 7' }))
+    expect(column.getAllByRole('listitem')).toHaveLength(7)
+    await user.click(column.getByRole('button', { name: 'Show fewer' }))
+    expect(column.getAllByRole('listitem')).toHaveLength(5)
+  })
+
 })

@@ -22,6 +22,10 @@ const COLUMNS: Column[] = [
   { status: 'done', label: 'Done' },
 ]
 
+// The archive grows without bound while Open/In progress stay short, so the
+// Done column shows only the most recently finished few until asked for more.
+const DONE_PREVIEW = 5
+
 interface Props {
   // Active (not-done) tasks, already filtered by the page's filter bar.
   activeTasks: Task[]
@@ -32,6 +36,8 @@ interface Props {
   onSetStatus: (task: Task, target: TaskWorkflowStatus) => Promise<void>
   // Inline chip edits (priority, due date, estimate) on a card.
   onUpdate: (task: Task, patch: TaskUpdate) => Promise<void>
+  // Live subtask count per root, shown on the card's meta line.
+  subtaskCounts?: Map<number, number>
 }
 
 export function KanbanBoard({
@@ -39,8 +45,10 @@ export function KanbanBoard({
   completedTasks,
   onSetStatus,
   onUpdate,
+  subtaskCounts,
 }: Props) {
   const { notify } = useToast()
+  const [showAllDone, setShowAllDone] = useState(false)
   const [pendingId, setPendingId] = useState<number | null>(null)
   const [dragOverStatus, setDragOverStatus] = useState<TaskWorkflowStatus | null>(
     null,
@@ -60,7 +68,10 @@ export function KanbanBoard({
     const inProgress = activeTasks
       .filter((t) => t.workflow_status === 'in_progress')
       .sort(compareTasks)
-    const done = [...completedTasks].sort(compareTasks)
+    // Most recently finished first: completing a task is its last write.
+    const done = [...completedTasks].sort(
+      (a, b) => b.updated_at.localeCompare(a.updated_at) || b.id - a.id,
+    )
     return { open, in_progress: inProgress, done }
   }, [activeTasks, completedTasks])
 
@@ -108,8 +119,13 @@ export function KanbanBoard({
           e.dataTransfer.setData('text/plain', String(task.id))
         }
       >
+        {/* The live columns are dense — the header already names the status —
+            as on the dashboard lanes. Done keeps the full line: its status
+            chip is the only non-drag way back to In progress (#148). */}
         <TaskCard
           task={task}
+          dense={task.workflow_status !== 'done'}
+          subtaskCount={subtaskCounts?.get(task.id)}
           onComplete={() => void move(task, 'done')}
           onUpdate={(patch) => fireAndForget(onUpdate(task, patch))}
           onSetStatus={(target) => void move(task, target)}
@@ -143,7 +159,22 @@ export function KanbanBoard({
             {tasks.length === 0 ? (
               <p className="kanban-empty">Nothing here</p>
             ) : (
-              <ul className="kanban-column-list">{tasks.map(renderCard)}</ul>
+              <ul className="kanban-column-list">
+                {(col.status === 'done' && !showAllDone
+                  ? tasks.slice(0, DONE_PREVIEW)
+                  : tasks
+                ).map(renderCard)}
+              </ul>
+            )}
+            {col.status === 'done' && tasks.length > DONE_PREVIEW && (
+              <button
+                type="button"
+                className="kanban-show-all"
+                aria-expanded={showAllDone}
+                onClick={() => setShowAllDone((v) => !v)}
+              >
+                {showAllDone ? 'Show fewer' : `Show all ${tasks.length}`}
+              </button>
             )}
           </section>
         )
