@@ -529,8 +529,9 @@ gate's power depends on it. Why not "N clean runs in a row": consecutive
 samples on one llama-server are correlated (chess read one unchanged prompt
 at 5/20, 19/40 and 31/40 in three batches), and, per chess's analysis, at a
 true rate of 0.80 a fixed `rate >= 0.8` check goes green 74% of the time at
-n=5 and *less* often (63%) at n=20. `tests/evalstats.py` is a copy of chess's
-(provenance in its header); folding it into agent-standard is #396 phase 7.
+n=5 and *less* often (63%) at n=20. `tests/evalstats.py` and `test_evalstats.py`
+are vendored from `../agent-standard/` (STANDARD.md §6): re-copy, never edit;
+PCC's drift guards live in `test_evalstats_app.py`.
 
 - **Infrastructure is retried, never scored.** A provider death (dead socket,
   5xx, timeout, the run budget running out on the provider) or a 429 from the
