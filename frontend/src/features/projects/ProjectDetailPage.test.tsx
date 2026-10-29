@@ -590,7 +590,11 @@ describe('ProjectDetailPage', () => {
     // moves the task without a drag; Low priority is dropped.
     const active = screen.getByRole('link', { name: 'Rotate the keys' })
     expect(within(active).queryByRole('button', { name: /^Priority:/ })).not.toBeInTheDocument()
-    await user.click(within(active).getByRole('button', { name: 'Status: In progress' }))
+    // The row chip sits outside the hero, so the hero's tinted-pill exception
+    // (scoped to `.task-hero` in tasks.css) can't reach it: a flat word (#499).
+    const activeStatus = within(active).getByRole('button', { name: 'Status: In progress' })
+    expect(activeStatus.closest('.task-hero')).toBeNull()
+    await user.click(activeStatus)
     await user.click(screen.getByRole('button', { name: 'Open' }))
     await waitFor(() =>
       expect(mockUpdateTask).toHaveBeenCalledWith(4, { workflow_status: 'open' }),

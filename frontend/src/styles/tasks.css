@@ -881,8 +881,8 @@
   margin: 4px 0;
 }
 
-/* --- Metadata chips: pill triggers that open an anchored editor.
-       Used in the task hero (and later by quick-add + inbox triage). --- */
+/* --- Metadata chips: triggers that open an anchored editor. Used in the
+       task hero and on editable task rows (boards, lanes, project Overview). --- */
 
 .chip-wrap {
   position: relative;
@@ -935,10 +935,14 @@
   margin: 0;
 }
 
-/* Deliberate exception: on the task-detail hero the chips *are* the primary
+/* Deliberate exception: in the task-detail hero the chips *are* the primary
    edit controls, not annotations on a row you came to read. They keep the
-   tinted pill so the click target is unmistakable. */
-.task-detail .task-card-badges .chip-trigger {
+   tinted pill so the click target is unmistakable. Scoped to the hero, not to
+   `.task-detail`: ProjectDetailPage is also a `.task-detail`, and its Overview
+   task rows carry the same `.task-card-badges .chip-trigger` markup — under
+   the wider scope they drew as tinted boxes beside plain words like
+   "High · Blocked" (#499). Chips on a task row are always flat words. */
+.task-hero .task-card-badges .chip-trigger {
   border-radius: 6px;
   padding: 5px 8px;
   margin: 0;
@@ -947,25 +951,25 @@
   text-decoration: none;
 }
 
-/* The `.chip-trigger` bound matters: the exception is about edit controls,
-   not about being inside a detail view. ProjectDetailPage is also a
-   `.task-detail`, and its header words ("8 open · 5 done", "Protected") are
-   plain spans — they stay flat, like every other read-only metadata word. */
-.task-detail .chip-trigger.status-pill.workflow-open { background: var(--blue-soft); }
-.task-detail .chip-trigger.status-pill.workflow-in_progress { background: var(--purple-soft); }
-.task-detail .chip-trigger.status-pill.workflow-done { background: var(--done-bg); }
-.task-detail .chip-trigger.status-pill.workflow-skipped { background: var(--orange-soft); }
-.task-detail .chip-trigger.priority-pill.priority-urgent { background: var(--urgent-bg); }
-.task-detail .chip-trigger.priority-pill.priority-high { background: var(--high-bg); }
-.task-detail .chip-trigger.priority-pill.priority-medium,
-.task-detail .chip-trigger.priority-pill.priority-low,
-.task-detail .chip-trigger.source-pill,
-.task-detail .chip-trigger.estimate,
-.task-detail .chip-trigger.due-none { background: var(--neutral-soft); }
-.task-detail .chip-trigger.due-today,
-.task-detail .chip-trigger.due-soon { background: var(--blue-soft); }
-.task-detail .chip-trigger.due-overdue { background: var(--orange-soft); }
-.task-detail .chip-trigger.repeat-badge { background: var(--purple-soft); }
+/* The `.chip-trigger` bound matters too: the exception is about edit
+   controls, not about being inside a hero. ProjectDetailPage's hero is also a
+   `.task-hero`, and its words ("8 open · 5 done", "Protected") are plain
+   spans — they stay flat, like every other read-only metadata word. */
+.task-hero .chip-trigger.status-pill.workflow-open { background: var(--blue-soft); }
+.task-hero .chip-trigger.status-pill.workflow-in_progress { background: var(--purple-soft); }
+.task-hero .chip-trigger.status-pill.workflow-done { background: var(--done-bg); }
+.task-hero .chip-trigger.status-pill.workflow-skipped { background: var(--orange-soft); }
+.task-hero .chip-trigger.priority-pill.priority-urgent { background: var(--urgent-bg); }
+.task-hero .chip-trigger.priority-pill.priority-high { background: var(--high-bg); }
+.task-hero .chip-trigger.priority-pill.priority-medium,
+.task-hero .chip-trigger.priority-pill.priority-low,
+.task-hero .chip-trigger.source-pill,
+.task-hero .chip-trigger.estimate,
+.task-hero .chip-trigger.due-none { background: var(--neutral-soft); }
+.task-hero .chip-trigger.due-today,
+.task-hero .chip-trigger.due-soon { background: var(--blue-soft); }
+.task-hero .chip-trigger.due-overdue { background: var(--orange-soft); }
+.task-hero .chip-trigger.repeat-badge { background: var(--purple-soft); }
 
 /* Portaled to <body> with an inline top/left(or right) anchored to the chip,
    so overflow-clipped ancestors (swimlanes, columns) can't cut it off. */

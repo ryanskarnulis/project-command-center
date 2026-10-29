@@ -125,8 +125,11 @@ describe('TaskDetailView', () => {
     await waitFor(() => expect(title).toHaveValue('Patch the router'))
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
     expect(screen.queryByText('accepted')).not.toBeInTheDocument()
-    // The workflow status renders as the status chip in the hero.
-    expect(screen.getByRole('button', { name: 'Status: Open' })).toBeInTheDocument()
+    // The workflow status renders as the status chip in the hero. The hero's
+    // tinted-pill exception in tasks.css hangs off `.task-hero`, so the hero
+    // chips must sit inside it (#499).
+    const statusChip = screen.getByRole('button', { name: 'Status: Open' })
+    expect(statusChip.closest('.task-hero .task-card-badges')).not.toBeNull()
   })
 
   it('saves title changes inline on blur', async () => {

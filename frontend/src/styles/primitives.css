@@ -387,8 +387,9 @@
    padding. Accent color carries the meaning; non-semantic values stay muted.
    The chips underneath are still <button>s (see `.chip-trigger` in tasks.css):
    they keep every inline editor, and trade the resting fill for a hover
-   affordance. The task-detail hero is the deliberate exception — it keeps the
-   tinted pills, because there the chips *are* the primary edit controls. */
+   affordance. The task-detail hero (`.task-hero`, see tasks.css) is the
+   deliberate exception — its chips keep the tinted pills, because there they
+   *are* the primary edit controls. Chips on a task row never get it. */
 .status-pill,
 .badge,
 .count-badge,
