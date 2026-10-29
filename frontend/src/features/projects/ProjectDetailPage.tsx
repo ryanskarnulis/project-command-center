@@ -416,10 +416,17 @@ export function ProjectDetailPage() {
           <p>Loading…</p>
         ) : currentTasks.length > 0 ? (
           <ul className="task-detail-list">
+            {/* Dense, exceptions-only rows (#492): the list is the project's
+                open work, so "Open" and Medium/Low say nothing. An In progress
+                row keeps its status chip (the only non-drag way back to Open);
+                an open row reaches Done by its circle and In progress through
+                the peek panel. */}
             {taskTree.roots.map((t) => (
               <li key={t.id}>
                 <TaskCard
                   task={t}
+                  dense
+                  impliedStatus="open"
                   onComplete={() => fireAndForget(handleCompleteTask(t))}
                   onUpdate={(patch) => fireAndForget(handleUpdateTask(t, patch))}
                   onSetStatus={(target) =>
@@ -428,6 +435,8 @@ export function ProjectDetailPage() {
                 />
                 <SubtaskGroup
                   children={taskTree.childrenOf.get(t.id) ?? []}
+                  dense
+                  impliedStatus="open"
                   onCompleteTask={(s) => fireAndForget(handleCompleteTask(s))}
                   onUpdateTask={(s, patch) =>
                     fireAndForget(handleUpdateTask(s, patch))
