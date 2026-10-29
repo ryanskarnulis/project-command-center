@@ -48,15 +48,6 @@
     padding-left: 27px;
   }
 
-  .task-filters,
-  .task-filter-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .task-filters-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
 }
 
 @media (max-width: 1220px) {

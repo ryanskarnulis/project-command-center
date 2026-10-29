@@ -207,6 +207,12 @@
   transform: translate(-50%, -50%);
 }
 
+.task-complete-circle.is-done {
+  border-color: var(--green);
+  background: var(--green);
+  color: var(--bg);
+}
+
 /* The ring picks up its row's group color, so a scan down the lane reads
    status from the circles without the word being printed on every row. */
 .task-card.workflow-in_progress .task-complete-circle {
@@ -335,77 +341,30 @@
   font-style: italic;
 }
 
-/* Filter blocks are ruled top and bottom — the one place the flat system
-   uses two rules, because the block interrupts the page rather than opening
-   a section. */
+/* The filter bar is one wrapping row under the toolbar: search, selects,
+   quick toggles, then Clear. No heading and no field labels — each control
+   carries its own aria-label, and the row reads as chrome, not a section. */
 .task-filters {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-  border: 0;
-  border-top: 1px solid var(--rule);
-  border-bottom: 1px solid var(--rule);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  padding: 12px 0;
-  margin: 12px 0;
-}
-
-.task-filters-header,
-.task-filter-toggles,
-.task-filters-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 18px;
 }
 
-.task-filters-header {
-  grid-column: 1 / -1;
-  justify-content: space-between;
+.task-filter-grid,
+.task-filter-toggles {
+  display: contents;
 }
 
-.task-filters-title {
-  font-family: var(--mono);
-  font-size: var(--fs-micro);
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
-
-/* Field labels are mono micro-labels, matching every other section marker. */
-.task-search-field,
-.task-filter-grid label {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
-
-/* The field itself opts back out of the label's mono/uppercase. */
-.task-search-field input,
-.task-filter-grid select {
-  font-family: var(--sans);
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--text-h);
-}
-
-.task-search-field > div {
+.task-search-field {
+  flex: 0 1 280px;
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
+  grid-template-columns: 15px minmax(0, 1fr);
   align-items: center;
-  gap: 9px;
-  min-height: var(--field-h);
+  gap: 8px;
+  min-width: 180px;
+  height: var(--ctl-h);
   border: 1px solid var(--rule-field);
   border-radius: 7px;
   background: var(--fill-subtle);
@@ -413,12 +372,8 @@
   padding: 0 10px;
 }
 
-.task-search-field > div:focus-within {
+.task-search-field:focus-within {
   border-color: var(--focus-ring);
-}
-
-.task-search-field input:focus {
-  outline: none;
 }
 
 .task-search-field input {
@@ -427,26 +382,26 @@
   border: 0;
   background: transparent;
   padding: 0;
+  font-size: 13px;
+  color: var(--text-h);
 }
 
-.task-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 10px;
+.task-search-field input:focus {
+  outline: none;
 }
 
-.task-search-field {
-  max-width: 420px;
+.task-filter-grid label {
+  display: inline-flex;
 }
 
 .task-filter-grid select {
-  width: 100%;
+  width: auto;
+  height: var(--ctl-h);
+  min-height: var(--ctl-h);
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 13px;
   cursor: pointer;
-}
-
-.task-filter-toggles {
-  grid-column: 1 / -1;
-  flex-wrap: wrap;
 }
 
 .task-filter-toggles label {
@@ -459,11 +414,8 @@
   background: transparent;
   color: var(--text);
   cursor: pointer;
-  font-family: var(--sans);
   font-size: var(--fs-btn);
   font-weight: 650;
-  letter-spacing: 0;
-  text-transform: none;
   padding: 0 11px;
 }
 
@@ -477,6 +429,10 @@
   width: 14px;
   min-height: 14px;
   cursor: pointer;
+}
+
+.task-filters-clear {
+  margin-left: auto;
 }
 
 /* Rows carry their own bottom hairline, so the list has no gap of its own. */
@@ -881,6 +837,42 @@
 
 .kanban-card:active {
   cursor: grabbing;
+}
+
+.kanban-show-all {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--link);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.kanban-show-all:hover:not(:disabled) {
+  background: transparent;
+  text-decoration: underline;
+}
+
+/* Desktop Tasks tab header: name, health line, progress — Overview's hero
+   without the editable fields. */
+.project-tasks-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.project-tasks-header .breadcrumb,
+.project-tasks-header h1 {
+  margin: 0;
+}
+
+.project-tasks-header h1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .kanban-empty {

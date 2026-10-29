@@ -3,7 +3,7 @@ import { AsyncState } from '../../components/AsyncState'
 import type { Task, TaskUpdate, TaskWorkflowStatus } from '../../types/task'
 import { KanbanBoard } from './KanbanBoard'
 import { isActive, matchesFilters, type Filters } from './taskFilters'
-import { isEffectiveTopLevel } from './taskTree'
+import { buildTaskTree, isEffectiveTopLevel } from './taskTree'
 
 interface TaskBoardViewProps {
   tasks: Task[]
@@ -54,6 +54,15 @@ export function TaskBoardView({
     [completedTasks, boardFilters],
   )
 
+  // Counted over every live task, done included, like the mobile rows: "3
+  // subtasks" names the parent's size, not how many are left.
+  const subtaskCounts = useMemo(() => {
+    const all = [...new Map([...completedTasks, ...tasks].map((t) => [t.id, t])).values()]
+    const counts = new Map<number, number>()
+    for (const [id, kids] of buildTaskTree(all).childrenOf) counts.set(id, kids.length)
+    return counts
+  }, [tasks, completedTasks])
+
   return (
     <AsyncState
       loading={loading || completedLoading}
@@ -70,6 +79,7 @@ export function TaskBoardView({
         completedTasks={boardDone}
         onSetStatus={onSetStatus}
         onUpdate={onUpdate}
+        subtaskCounts={subtaskCounts}
       />
     </AsyncState>
   )

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { buildProjectStats } from '../../utils/projectStatus'
 import { Columns3, List } from 'lucide-react'
 import { listProjects } from '../../api/projects'
 import { createUnscopedTask } from '../../api/tasks'
@@ -41,14 +42,13 @@ export function TasksPage() {
     sortMode,
     filtersActive,
     hasNonStatusFilters,
-    activeFilterCount,
     updateTaskQuery,
     selectView,
   } = useTaskUrlState('board')
   const [projects, setProjects] = useState<Project[]>([])
 
-  // Desktop lazily loads the archive for its Done view/column. Mobile also
-  // needs it for progress and the filter sheet's live result count.
+  // Both layouts need the archive: the header's done count and progress bar,
+  // the board's Done column, and mobile's filter-sheet result count.
   const showingCompleted = filters.status === 'done'
   const {
     tasks: completedTasks,
@@ -56,7 +56,7 @@ export function TasksPage() {
     error: completedError,
     reopen,
     reload: reloadCompleted,
-  } = useCompletedTasks(id, mobile || showingCompleted || view === 'board')
+  } = useCompletedTasks(id)
 
   // "More options" hands an in-progress draft (quick-add or subtask composer)
   // to the full task modal.
@@ -71,6 +71,8 @@ export function TasksPage() {
 
   // Closed projects identify existing tasks but are not filing targets: they
   // stay out of quick-add's #project tokens and the create modal's picker.
+  const projectName =
+    projects.find((p) => p.id === id)?.name ?? 'Project'
   const openProjects = useMemo(
     () => projects.filter((p) => !p.closed_at),
     [projects],
@@ -153,10 +155,13 @@ export function TasksPage() {
           onSetStatus={handleSetStatus}
         />
       ) : <>
-      <p>
-        <Link to={`/projects/${id}`}>← Project</Link>
-      </p>
-      <h1>Tasks</h1>
+      <ProjectTasksHeader
+        name={projectName}
+        tasks={tasks}
+        doneCount={completedTasks.length}
+        loading={loading}
+        doneKnown={!completedLoading && !completedError}
+      />
       <ProjectTabs projectId={id} />
 
       <div className="task-toolbar">
@@ -197,7 +202,6 @@ export function TasksPage() {
         sortMode={sortMode}
         view={view}
         filtersActive={filtersActive}
-        activeFilterCount={activeFilterCount}
         updateTaskQuery={updateTaskQuery}
       />
 
@@ -288,5 +292,42 @@ export function TasksPage() {
       )}
     </main>
     </TaskPanelProvider>
+  )
+}
+
+interface ProjectTasksHeaderProps {
+  name: string
+  tasks: Task[]
+  doneCount: number
+  loading: boolean
+  doneKnown: boolean
+}
+
+/** The desktop Tasks tab's header — the same name, health and progress line as
+ *  the Overview tab, so switching tabs keeps the page's identity in place. */
+function ProjectTasksHeader({ name, tasks, doneCount, loading, doneKnown }: ProjectTasksHeaderProps) {
+  const stats = buildProjectStats(tasks, doneCount)
+  const subtaskLabel =
+    stats.subtasks > 0 ? ` · ${stats.subtasks} ${stats.subtasks === 1 ? 'subtask' : 'subtasks'}` : ''
+  return (
+    <header className="project-tasks-header">
+      <p className="breadcrumb">
+        <Link to="/dashboard">← Dashboard</Link>
+      </p>
+      <h1 title={name}>{name}</h1>
+      {!loading && (
+        <div className="task-card-badges">
+          <span className={`status-pill tone-${stats.status.tone}`}>{stats.status.label}</span>
+          <span className="estimate">
+            {stats.open} open{subtaskLabel}{doneKnown && ` · ${stats.done} done`}
+          </span>
+        </div>
+      )}
+      {doneKnown && stats.open + stats.subtasks + stats.done > 0 && (
+        <div className="project-progress" aria-hidden="true">
+          <span style={{ width: `${Math.round(stats.progress * 100)}%` }} />
+        </div>
+      )}
+    </header>
   )
 }

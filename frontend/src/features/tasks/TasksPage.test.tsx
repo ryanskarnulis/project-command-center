@@ -688,7 +688,16 @@ describe('TasksPage', () => {
       expect(screen.getByLabelText('Task title')).toHaveValue('Fix the VPN'),
     )
     // The list is still rendered behind the panel.
-    expect(screen.getByRole('heading', { name: 'Tasks' })).toBeInTheDocument()
+    expect(screen.getByRole('search', { name: 'Filter tasks' })).toBeInTheDocument()
+  })
+
+  // The desktop tab carries the project's own header, as Overview does, so
+  // switching tabs keeps the page's identity in place.
+  it('heads the desktop page with the project name and its counts', async () => {
+    mockListProjects.mockResolvedValue([{ ...baseProject, id: 1 }])
+    renderProject()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Infra' })).toBeInTheDocument()
+    expect(await screen.findByText(/\d+ open.* · \d+ done/)).toBeInTheDocument()
   })
 
   it('opens the peek panel from a task card without navigating away', async () => {

@@ -1,4 +1,4 @@
-import { Search, SlidersHorizontal } from 'lucide-react'
+import { Search } from 'lucide-react'
 import type { TaskPriority } from '../../types/task'
 import {
   EMPTY_FILTERS,
@@ -20,7 +20,6 @@ interface TaskFiltersProps {
   sortMode: SortMode
   view: ViewMode
   filtersActive: boolean
-  activeFilterCount: number
   updateTaskQuery: (next: TaskQueryUpdate) => void
 }
 
@@ -29,49 +28,28 @@ export function TaskFilters({
   sortMode,
   view,
   filtersActive,
-  activeFilterCount,
   updateTaskQuery,
 }: TaskFiltersProps) {
+  // One row on desktop: search, the selects, the two quick toggles, then
+  // Clear. Each control names itself through aria-label, so there is no
+  // visible label row or section heading spending height above the tasks.
   return (
     <div className="task-filters" role="search" aria-label="Filter tasks">
-      <div className="task-filters-header">
-        <div className="task-filters-title">
-          <SlidersHorizontal size={17} aria-hidden="true" />
-          <strong>Filters</strong>
-          {activeFilterCount > 0 && (
-            <span className="count-badge">{activeFilterCount} active</span>
-          )}
-        </div>
-        {filtersActive && (
-          <button
-            type="button"
-            className="secondary-action"
-            onClick={() => updateTaskQuery({ filters: EMPTY_FILTERS })}
-          >
-            Clear filters
-          </button>
-        )}
-      </div>
-
       <label className="task-search-field">
-        <span>Search</span>
-        <div>
-          <Search size={17} aria-hidden="true" />
-          <input
-            aria-label="Search tasks"
-            value={filters.search}
-            onChange={(e) =>
-              updateTaskQuery({ filters: { ...filters, search: e.target.value } })
-            }
-            placeholder="Title or description"
-          />
-        </div>
+        <Search size={15} aria-hidden="true" />
+        <input
+          aria-label="Search tasks"
+          value={filters.search}
+          onChange={(e) =>
+            updateTaskQuery({ filters: { ...filters, search: e.target.value } })
+          }
+          placeholder="Search tasks"
+        />
       </label>
 
       <div className="task-filter-grid">
         {view !== 'board' && (
         <label>
-          <span>Status</span>
           <select
             aria-label="Filter by status"
             value={filters.status}
@@ -92,7 +70,6 @@ export function TaskFilters({
         )}
 
         <label>
-          <span>Priority</span>
           <select
             aria-label="Filter by priority"
             value={filters.priorities?.length ? 'multiple' : filters.priority}
@@ -124,7 +101,6 @@ export function TaskFilters({
 
         {view !== 'board' && (
         <label>
-          <span>Sort</span>
           <select
             aria-label="Sort tasks"
             value={sortMode}
@@ -169,6 +145,15 @@ export function TaskFilters({
           Due soon
         </label>
       </div>
+      {filtersActive && (
+        <button
+          type="button"
+          className="task-filters-clear"
+          onClick={() => updateTaskQuery({ filters: EMPTY_FILTERS })}
+        >
+          Clear filters
+        </button>
+      )}
     </div>
   )
 }

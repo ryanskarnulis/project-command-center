@@ -27,7 +27,6 @@ interface UseTaskUrlState {
   sortMode: SortMode
   filtersActive: boolean
   hasNonStatusFilters: boolean
-  activeFilterCount: number
   updateTaskQuery: (next: TaskQueryUpdate) => void
   selectView: (next: ViewMode) => void
 }
@@ -70,14 +69,6 @@ export function useTaskUrlState(defaultView: ViewMode = 'list'): UseTaskUrlState
     filters.projectId !== '' ||
     filters.overdue ||
     filters.dueSoon
-  const activeFilterCount = [
-    filters.search.trim() !== '',
-    filters.status !== '',
-    selectedPriorities(filters).length > 0,
-    filters.projectId !== '',
-    filters.overdue,
-    filters.dueSoon,
-  ].filter(Boolean).length
 
   return {
     view,
@@ -86,7 +77,6 @@ export function useTaskUrlState(defaultView: ViewMode = 'list'): UseTaskUrlState
     sortMode,
     filtersActive,
     hasNonStatusFilters,
-    activeFilterCount,
     updateTaskQuery,
     selectView,
   }
