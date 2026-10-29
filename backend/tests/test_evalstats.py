@@ -1,27 +1,28 @@
-"""The eval gate's verdict, unit-tested off the GPU (#403).
+# vendored — canonical: agent-standard/test_evalstats.py; re-copy, never edit
+"""The eval gate's verdict, unit-tested off the GPU.
 
 ``test_agent_evals.py`` needs the model on the GPU, so its *verdict* lives in
-``tests/evalstats.py`` and this file is its spec, run on every commit. Ported
-from chess's ``backend/tests/test_evalstats.py``
-(ryanskarnulis/chess@0c088f18191cc2002f0df417191040f0ca88a284) for the parts
-PCC copied, plus drift guards tying evalstats' literals to the app.
+``tests/evalstats.py`` and this file is its spec, run in every app's CI. Pure:
+nothing here imports the app. Each app's ``test_evalstats_app.py`` holds the
+drift guards tying evalstats' literals to its own loop and provider.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 
-import httpx
 import pytest
 
-from app.ai import loop as loop_module
-from app.ai.providers.llamacpp import LlamaCppProvider, ProviderError
 from tests.evalstats import (
     DEFAULT_FLOOR,
     DETERMINISTIC_FAILURES,
+    INFRA_STATUSES,
     INFRA_STOPS,
     Z_ONE_SIDED_95,
     Decision,
+    GateAborted,
+    InfraBudget,
     Outcome,
     RateResult,
     Stability,
@@ -34,6 +35,8 @@ from tests.evalstats import (
     paired_counts,
     provider_failure_kind,
     sample_seed,
+    Taken,
+    run_gate,
     scenario_record,
     wilson_interval,
 )
@@ -156,15 +159,13 @@ def test_a_limit_stop_is_behavior_not_infrastructure() -> None:
     # max_iterations, no_progress, … are the model's doing: scored.
     for stop in ("max_iterations", "correction_limit", "no_progress", "tool_call_limit"):
         assert (
-            classify(status_code=200, stop_reason=stop, error=AssertionError(stop))
-            == Outcome.FAIL
+            classify(status_code=200, stop_reason=stop, error=AssertionError(stop)) == Outcome.FAIL
         )
 
 
 @pytest.mark.parametrize("stop", sorted(INFRA_STOPS))
 def test_a_provider_death_or_timeout_is_infrastructure(stop: str) -> None:
-    statuses = {str(k): v for k, v in loop_module._FAILURE_STATUS.items()}  # noqa: SLF001
-    status = statuses[stop]
+    status = {"provider_error": 502, "timed_out": 504}[stop]
     assert classify(status_code=status, stop_reason=stop, error=None) == Outcome.INFRA
 
 
@@ -214,46 +215,27 @@ def test_a_dead_or_busy_server_is_still_retried(kind: str | None) -> None:
     assert outcome == Outcome.INFRA
 
 
-def test_the_infra_stops_are_the_loops_own() -> None:
-    # Literals in evalstats, so the duplication is paid for here.
-    assert INFRA_STOPS <= set(loop_module._FAILURE_STATUS)  # noqa: SLF001
+@pytest.mark.parametrize("status", sorted(INFRA_STATUSES))
+def test_an_error_response_without_a_stop_reason_classifies_on_its_status(status: int) -> None:
+    # A harness reading only the HTTP response: the delegate route's 502/504.
+    assert classify(status_code=status, stop_reason=None, error=None) == Outcome.INFRA
 
 
-# --- provider_failure_kind, against the real provider's messages --------------
-
-
-def _death(handler: httpx.MockTransport) -> str:
-    provider = LlamaCppProvider(
-        "http://llm.test/v1", "gemma-4-12b", client=httpx.Client(transport=handler)
-    )
-    with pytest.raises(ProviderError) as caught:
-        provider.chat([{"role": "user", "content": "hi"}])
-    return str(caught.value)
-
-
-def test_a_4xx_from_the_server_is_a_rejection() -> None:
-    message = _death(httpx.MockTransport(lambda _r: httpx.Response(400, text="ctx overrun")))
-    assert provider_failure_kind(message) == "rejected"
-    # The route's 502 detail wraps it; the kind survives the wrapping.
-    assert provider_failure_kind(f"agent run failed: {message}") == "rejected"
-
-
-def test_a_5xx_or_a_429_from_the_server_is_retried() -> None:
-    for status in (503, 429):
-        message = _death(httpx.MockTransport(lambda _r, s=status: httpx.Response(s, text="")))
-        assert provider_failure_kind(message) == f"http_{status}"
-
-
-def test_a_dead_socket_is_transport() -> None:
-    def refuse(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("connection refused", request=request)
-
-    assert provider_failure_kind(_death(httpx.MockTransport(refuse))) == "transport"
-
-
-def test_an_unparseable_body_is_malformed() -> None:
-    message = _death(httpx.MockTransport(lambda _r: httpx.Response(200, json={"nope": 1})))
-    assert provider_failure_kind(message) == "malformed_response"
+@pytest.mark.parametrize(
+    ("message", "kind"),
+    [
+        ("llama-server returned 400: ctx overrun", "rejected"),
+        ("agent run failed: llama-server returned 400: ctx overrun", "rejected"),
+        ("llama-server returned 503: ", "http_503"),
+        ("llama-server returned 429: ", "http_429"),
+        ("llama-server request failed: timed out", "transport"),
+        ("llama-server response failed wire validation: 1 error", "malformed_response"),
+    ],
+)
+def test_provider_failure_kind_reads_the_reference_providers_messages(
+    message: str, kind: str
+) -> None:
+    assert provider_failure_kind(message) == kind
 
 
 # --- failure_signature --------------------------------------------------------
@@ -310,9 +292,7 @@ def test_rate_result_derives_its_own_verdict() -> None:
 
 
 def test_a_scenario_below_the_floor_reads_as_a_regression() -> None:
-    result = RateResult.from_blocks(
-        blocks=[(1, 5)], failures=["no create_task"] * 4, floor=0.8
-    )
+    result = RateResult.from_blocks(blocks=[(1, 5)], failures=["no create_task"] * 4, floor=0.8)
     assert result.decision == Decision.BELOW_FLOOR
     assert result.rate == 0.2
 
@@ -399,3 +379,115 @@ def test_concordant_pairs_do_not_move_the_verdict() -> None:
 def test_sample_seed_is_keyed_on_the_scored_position() -> None:
     assert sample_seed(None, 3) is None
     assert [sample_seed(5000, j) for j in range(3)] == [5000, 5001, 5002]
+
+
+# --- InfraBudget --------------------------------------------------------------
+
+
+def test_budget_caps_retries_per_scenario() -> None:
+    budget = InfraBudget(retries=2, budget=10)
+    assert budget.spend("a")
+    assert budget.spend("a")
+    assert not budget.spend("a")
+    assert budget.spend("b")
+
+
+def test_budget_caps_retries_across_the_suite() -> None:
+    budget = InfraBudget(retries=5, budget=2)
+    assert budget.spend("a")
+    assert budget.spend("b")
+    assert not budget.spend("c")
+
+
+def test_summary_says_where_the_budget_went() -> None:
+    budget = InfraBudget(retries=5, budget=9)
+    budget.spend("a")
+    budget.spend("a")
+    assert budget.summary() == "infra_spent=2/9 (a=2)"
+    assert InfraBudget(retries=1, budget=1).summary() == "infra_spent=0/1"
+
+
+# --- run_gate -----------------------------------------------------------------
+
+
+def _scripted(
+    *outcomes: Outcome, seeds: list[int | None] | None = None
+) -> Callable[[int | None], Taken]:
+    queue = list(outcomes)
+
+    def take(seed: int | None) -> Taken:
+        if seeds is not None:
+            seeds.append(seed)
+        outcome = queue.pop(0)
+        return Taken(outcome, failure="missed" if outcome is Outcome.FAIL else None)
+
+    return take
+
+
+def test_a_healthy_scenario_costs_one_block() -> None:
+    result = run_gate("s", _scripted(*[Outcome.PASS] * 5), budget=InfraBudget(retries=5, budget=25))
+    assert (result.passed, result.runs, result.decision) == (5, 5, Decision.ABOVE_FLOOR)
+
+
+def test_three_of_five_buys_another_block() -> None:
+    p, f = Outcome.PASS, Outcome.FAIL
+    result = run_gate(
+        "s", _scripted(p, p, p, f, f, *[p] * 5), budget=InfraBudget(retries=5, budget=25)
+    )
+    assert result.blocks == ((3, 5), (5, 5))
+    assert result.decision is Decision.ABOVE_FLOOR
+    assert result.failures == ("run 4: missed", "run 5: missed")
+
+
+def test_a_red_block_stops_early() -> None:
+    result = run_gate("s", _scripted(*[Outcome.FAIL] * 5), budget=InfraBudget(retries=5, budget=25))
+    assert result.decision is Decision.BELOW_FLOOR
+    assert result.deterministic_suspect
+
+
+def test_undecided_at_the_cap_returns_flagged() -> None:
+    p, f = Outcome.PASS, Outcome.FAIL
+    result = run_gate(
+        "s",
+        _scripted(p, p, p, f, f),
+        budget=InfraBudget(retries=5, budget=25),
+        max_runs=5,
+    )
+    assert result.decision is Decision.UNDECIDED
+
+
+def test_an_infra_death_is_retaken_with_the_same_seed_and_not_scored() -> None:
+    seeds: list[int | None] = []
+    budget = InfraBudget(retries=5, budget=25)
+    deaths: list[int] = []
+    result = run_gate(
+        "s",
+        _scripted(Outcome.PASS, Outcome.INFRA, *[Outcome.PASS] * 4, seeds=seeds),
+        budget=budget,
+        seed_base=100,
+        on_infra=lambda n, _sample: deaths.append(n),
+    )
+    assert seeds == [100, 101, 101, 102, 103, 104]
+    assert (result.runs, result.infra, budget.spent, deaths) == (5, 1, 1, [1])
+
+
+def test_running_out_of_infra_budget_aborts_without_a_rate() -> None:
+    with pytest.raises(GateAborted) as caught:
+        run_gate("s", _scripted(*[Outcome.INFRA] * 3), budget=InfraBudget(retries=2, budget=25))
+    assert (caught.value.decision, caught.value.infra) == ("INFRA_ABORTED", 3)
+
+
+def test_a_rejected_request_aborts_on_the_first_one() -> None:
+    with pytest.raises(GateAborted) as caught:
+        run_gate(
+            "s", _scripted(Outcome.PROVIDER_REJECTED), budget=InfraBudget(retries=5, budget=25)
+        )
+    assert caught.value.decision == "PROVIDER_REJECTED"
+
+
+def test_a_harness_bug_reraises_its_own_error() -> None:
+    def take(_seed: int | None) -> Taken:
+        return Taken(Outcome.HARNESS, error=KeyError("typo"))
+
+    with pytest.raises(KeyError):
+        run_gate("s", take, budget=InfraBudget(retries=5, budget=25))

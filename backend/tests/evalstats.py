@@ -1,20 +1,21 @@
-"""The eval gate's arithmetic: how many samples, and what the count means (#403).
+# vendored — canonical: agent-standard/evalstats.py; re-copy, never edit
+"""The eval gate's arithmetic: how many samples, and what the count means.
 
-Provenance: copied from the chess app, ``../chess/backend/tests/evalstats.py``
-at ryanskarnulis/chess@0c088f18191cc2002f0df417191040f0ca88a284, cut down to
-the parts PCC's harness uses (chess's latency/token phase attribution, its
-narrator vacuity check and its SAN normalisation are chess-specific and were
-left behind) and adapted to PCC's stop reasons and provider errors. A copy, not
-a vendored file: agent-standard has no canonical eval module yet — folding one
-in is #396 phase 7 (ryanskarnulis/agent-standard#16). Fix a bug in both places.
+Canonical in ``../agent-standard/evalstats.py``; every app vendors it verbatim
+as ``backend/tests/evalstats.py`` with one ``# vendored …`` first line, beside
+the vendored spec ``test_evalstats.py``. ``check-sync.sh`` diffs the copies. Fix
+a bug here and re-copy, never in a copy. App-specific drift guards (that the
+loop's stop reasons and the provider's error text are the ones read below) live
+in each app's own ``test_evalstats_app.py``. Grown in chess, cut down and
+adapted in PCC (#403), canonical since ryanskarnulis/agent-standard#16.
 
 The live suite in ``test_agent_evals.py`` cannot be unit-tested — every
 assertion there needs the model on the GPU — so its *verdict* never was. This
 module is that verdict: pure functions over counts, stop reasons and failure
-strings, with no I/O, no model and no import of the app. ``test_evalstats.py``
-is its spec and runs on every commit.
+strings, with no I/O, no model and no import of the app, plus ``run_gate``,
+the block-sampling driver, which takes the app's one-sample function.
 
-Why it exists (chess measured all of this before PCC did):
+Why it exists (chess measured all of this first):
 
 - **"N clean runs in a row" is weak evidence either way.** At a true rate of
   exactly 0.80, a fixed 5-sample ``rate >= 0.8`` gate goes green 74% of the
@@ -25,7 +26,8 @@ Why it exists (chess measured all of this before PCC did):
   socket or a 5xx is not the model choosing badly. ``classify`` separates the
   two so the harness retries instead of scoring — and splits the death itself:
   a request the server *rejected* (a 4xx) answers the same way every time and
-  is ``Outcome.PROVIDER_REJECTED`` on the first one.
+  is ``Outcome.PROVIDER_REJECTED`` on the first one. ``InfraBudget`` bounds the
+  retries per scenario and per suite.
 - **Consecutive samples on one llama-server are correlated** (chess: one
   unchanged prompt read 5/20, 19/40 and 31/40 in three batches), so comparing
   two arms needs pairing: sample *j* of every arm sends the same sampling seed
@@ -37,7 +39,7 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -57,14 +59,20 @@ DEFAULT_FLOOR = 0.8
 # quiet on ordinary 5/5-vs-3/5 spread at a true rate near the floor).
 UNSTABLE_SPREAD = 0.6
 
-# The loop's failure stops that mean the model was never (fully) asked: the
-# provider died, or the run's wall-clock budget ran out waiting on it. Literals
-# rather than imports so this module stays importable with nothing installed;
-# ``test_evalstats`` pins them against ``app.ai.loop``.
+# The standard's failure stops (STANDARD.md §3) that mean the model was never
+# (fully) asked: the provider died, or the run's wall-clock budget ran out
+# waiting on it. Literals rather than imports so this module stays importable
+# with nothing installed; each app's ``test_evalstats_app`` pins them against
+# its loop.
 INFRA_STOPS = frozenset({"provider_error", "timed_out"})
 
-# The agent route's rate limit (10 messages a minute per client). A 429 is the
-# harness outrunning the limiter, never the model: infrastructure.
+# The statuses the delegate route answers those stops with (delegate-api.md):
+# 502 for a provider failure, 504 for the deadline. A harness that reads only
+# the HTTP response (no stop reason on an error body) classifies on these.
+INFRA_STATUSES = frozenset({502, 504})
+
+# The agent route's rate limit (delegate-api.md). A 429 is the harness
+# outrunning the limiter, never the model: infrastructure.
 STATUS_RATE_LIMITED = 429
 
 # Provider-failure kinds (``provider_failure_kind``) a retry cannot fix. Anything
@@ -151,10 +159,10 @@ def decide(passed: int, runs: int, floor: float, *, z: float = Z_ONE_SIDED_95) -
 def provider_failure_kind(message: str) -> str:
     """Name a provider death from its error text, for ``classify``.
 
-    Read off the message ``LlamaCppProvider`` raises (and the route returns as
-    its 502 detail), because the provider keeps no structured status on the
-    error; ``test_evalstats`` drives the real provider over a fake server to
-    pin these strings.
+    Read off the message the reference ``LlamaCppProvider`` raises (and the
+    route returns as its 502 detail), because the provider keeps no structured
+    status on the error; each app's ``test_evalstats_app`` drives its real
+    provider over a fake server to pin these strings.
     """
     returned = _RETURNED.search(message)
     if returned is not None:
@@ -182,11 +190,16 @@ def classify(
     A provider death then splits on ``provider_failure`` — a kind in
     ``DETERMINISTIC_FAILURES`` is PROVIDER_REJECTED, everything else INFRA.
     Only then is a failed assertion, or a non-200 that isn't infrastructure (a
-    500 from a tool that raised), a real miss.
+    500 from a tool that raised), a real miss. ``stop_reason`` may be ``None``
+    when the harness only has an error response: the status then decides.
     """
     if error is not None and not isinstance(error, AssertionError):
         return Outcome.HARNESS
-    if status_code == STATUS_RATE_LIMITED or stop_reason in INFRA_STOPS:
+    if (
+        status_code == STATUS_RATE_LIMITED
+        or status_code in INFRA_STATUSES
+        or stop_reason in INFRA_STOPS
+    ):
         if provider_failure in DETERMINISTIC_FAILURES:
             return Outcome.PROVIDER_REJECTED
         return Outcome.INFRA
@@ -295,9 +308,7 @@ class RateResult:
         return line
 
 
-def scenario_record(
-    scenario: str, result: RateResult, floor: float, **meta: Any
-) -> dict[str, Any]:
+def scenario_record(scenario: str, result: RateResult, floor: float, **meta: Any) -> dict[str, Any]:
     """One scenario's verdict as a JSON-serialisable report line. ``**meta``
     carries what the call site knows and this module must not (per-sample
     records, wall clock)."""
@@ -361,6 +372,138 @@ def mcnemar_exact(a_only: int, b_only: int) -> float:
 def format_paired(a_only: int, b_only: int, pairs: int) -> str:
     """One paired verdict as the report prints it."""
     return (
-        f"pairs {pairs} · A-only {a_only} · B-only {b_only} · "
-        f"p={mcnemar_exact(a_only, b_only):.3g}"
+        f"pairs {pairs} · A-only {a_only} · B-only {b_only} · p={mcnemar_exact(a_only, b_only):.3g}"
     )
+
+
+# --- infra budget -------------------------------------------------------------
+
+
+@dataclass
+class InfraBudget:
+    """The per-scenario and suite-wide ceilings on infra retries.
+
+    Suite-wide as well as per-scenario because the failure it guards against is
+    not one unlucky scenario but a server that has stopped coming back: without
+    a ceiling, a dead llama-server turns the suite into an unbounded retry loop
+    that never reports anything. ``per_scenario`` records where the budget
+    went, so a scenario that keeps straddling a model swap shows up by name.
+    """
+
+    retries: int
+    budget: int
+    spent: int = 0
+    per_scenario: dict[str, int] = field(default_factory=dict)
+
+    def spend(self, scenario: str) -> bool:
+        """Charge one thrown-away sample; False when ``scenario`` may not retry.
+
+        ``retries`` is re-takes per scenario and ``budget`` re-takes across
+        the suite.
+        """
+        self.spent += 1
+        used = self.per_scenario.get(scenario, 0) + 1
+        self.per_scenario[scenario] = used
+        return used <= self.retries and self.spent <= self.budget
+
+    def summary(self) -> str:
+        """The suite line: total spent, and which scenarios spent it."""
+        where = ", ".join(f"{name}={n}" for name, n in self.per_scenario.items() if n)
+        return f"infra_spent={self.spent}/{self.budget}" + (f" ({where})" if where else "")
+
+
+# --- the block-sampling driver ------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Taken:
+    """One sample as the app's ``take`` function saw it.
+
+    ``failure`` says why a FAIL failed (it feeds the failure modes);
+    ``detail`` is the server's words on a provider death; ``error`` is the
+    exception behind a HARNESS outcome, re-raised by ``run_gate``.
+    """
+
+    outcome: Outcome
+    failure: str | None = None
+    detail: str | None = None
+    error: BaseException | None = None
+
+
+class GateAborted(Exception):
+    """A scenario that measured no rate: the server rejected the request
+    (``PROVIDER_REJECTED``) or would not stay up (``INFRA_ABORTED``)."""
+
+    def __init__(self, scenario: str, decision: str, message: str, infra: int) -> None:
+        super().__init__(f"{scenario}: {decision} — {message}")
+        self.scenario = scenario
+        self.decision = decision
+        self.infra = infra
+
+
+def run_gate(
+    scenario: str,
+    take: Callable[[int | None], Taken],
+    *,
+    budget: InfraBudget,
+    floor: float = DEFAULT_FLOOR,
+    block_runs: int = 5,
+    max_runs: int = 20,
+    seed_base: int | None = None,
+    on_infra: Callable[[int, Taken], None] | None = None,
+) -> RateResult:
+    """Sample one scenario in blocks until its count decides against ``floor``.
+
+    ``take(seed)`` runs one fresh sample and classifies it (``classify``). An
+    INFRA sample is thrown away and re-taken with the same seed, charged to
+    ``budget``; running out raises ``GateAborted("INFRA_ABORTED")``. A
+    PROVIDER_REJECTED sample raises ``GateAborted`` at once, a HARNESS one
+    re-raises its error. Otherwise blocks of ``block_runs`` scored samples
+    accumulate until the decision is not UNDECIDED or ``max_runs`` is reached.
+    The caller holds the result to the verdict: red is
+    ``Decision.BELOW_FLOOR``; an UNDECIDED at the cap passes, flagged.
+    """
+    if block_runs < 1 or max_runs < 1:
+        raise ValueError("block_runs and max_runs must be >= 1")
+    blocks: list[tuple[int, int]] = []
+    failures: list[str] = []
+    infra = 0
+    while True:
+        block_passed = block_count = 0
+        while block_count < block_runs:
+            scored = sum(runs for _, runs in blocks) + block_count
+            sample = take(sample_seed(seed_base, scored))
+            if sample.outcome is Outcome.HARNESS:
+                if sample.error is not None:
+                    raise sample.error
+                raise RuntimeError(f"{scenario}: harness error with no exception")
+            if sample.outcome is Outcome.PROVIDER_REJECTED:
+                raise GateAborted(
+                    scenario,
+                    "PROVIDER_REJECTED",
+                    f"llama-server refused the request ({sample.detail}); "
+                    "a retry would get the same refusal",
+                    infra,
+                )
+            if sample.outcome is Outcome.INFRA:
+                infra += 1
+                if on_infra is not None:
+                    on_infra(infra, sample)
+                if not budget.spend(scenario):
+                    raise GateAborted(
+                        scenario,
+                        "INFRA_ABORTED",
+                        f"{infra} provider deaths ({budget.summary()}); "
+                        "no rate was measured: llama-server is not staying up",
+                        infra,
+                    )
+                continue
+            block_count += 1
+            if sample.outcome is Outcome.PASS:
+                block_passed += 1
+            else:
+                failures.append(f"run {scored + 1}: {sample.failure or 'failed'}")
+        blocks.append((block_passed, block_count))
+        result = RateResult.from_blocks(blocks=blocks, failures=failures, floor=floor, infra=infra)
+        if result.decision is not Decision.UNDECIDED or result.runs >= max_runs:
+            return result
