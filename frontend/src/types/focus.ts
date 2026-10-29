@@ -32,7 +32,9 @@ export interface ScheduledBlock {
   due_signal: DueSignal
   // True when the underlying task recurs, so the row can offer "skip occurrence".
   is_recurring: boolean
-  // Deterministic, human-readable placement explanation. No model prose.
+  // Deterministic, human-readable placement explanation. No model prose. For
+  // the agent and API clients: the desktop row doesn't render it, since every
+  // token is already on the row from the fields above (#498).
   reason: string
   // Set when this block is a subtask standing in for a parent that didn't fit
   // the remaining capacity; the UI labels it "part of <parent_title>".

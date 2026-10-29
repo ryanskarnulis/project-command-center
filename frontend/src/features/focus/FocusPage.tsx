@@ -530,10 +530,16 @@ function ScheduledRow({
         <div className="focus-block-meta">
           <PinWord block={block} />
           <EstimateLabel minutes={block.estimated_minutes} assumed={block.estimate_assumed} />
-          {block.due_date && (
+          {/* "Due today" in the head already names the date: it is the plan's. */}
+          {block.due_date && block.due_signal !== 'due_today' && (
             <span className="focus-due-date">Due {formatDueDate(block.due_date)}</span>
           )}
-          <span className="focus-reason">{block.reason}</span>
+          {/* Exceptions only (#498): the scheduler's `reason` string repeats the
+              status, due signal and priority this row already shows, so the
+              only part worth a word is the parent a subtask stands in for. */}
+          {block.parent_title && (
+            <span className="focus-reason">part of {block.parent_title}</span>
+          )}
         </div>
       </div>
       <FocusRowActions
