@@ -95,7 +95,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.ai import gather
+from app.ai import confirmation, gather
 from app.ai import loop as agent_loop
 from app.ai import trace as run_trace
 from app.ai.loop import (
@@ -229,6 +229,7 @@ _FLOORS: dict[str, float] = {
         "reference_trash_then_undo",
         "reference_first_to_friday",
         "delegate_thread",
+        "delegate_confirm_trash",
         "compose_create_and_pin",
         "compose_move_due_today",
         "compose_finish_and_follow_up",
@@ -436,6 +437,7 @@ class _RecordingLoop(AgentLoop):
         actor: str = LOOP_ACTOR,
         deadline: float | None = None,
         cancel: threading.Event | None = None,
+        gate: confirmation.Gate | None = None,
     ) -> AgentRunResult:
         _warm_vectors()
         result = super().run(
@@ -444,6 +446,7 @@ class _RecordingLoop(AgentLoop):
             actor=actor,
             deadline=deadline,
             cancel=cancel,
+            gate=gate,
         )
         self.runs.append((actor, result))
         return result
@@ -2655,6 +2658,50 @@ def _delegate_thread(sample: Sample) -> None:
     )
 
 
+def _delegate_confirm_trash(sample: Sample) -> None:
+    """A delegate's "delete the Garage project" asks first; the user's plain
+    "yes" runs it (#503, delegate-api "Confirmation", the v1 path with no
+    token).
+
+    Turn one must stop ``confirm_required`` with PCC's code-built question and
+    nothing written. Turn two is the model's half of the gate: on "yes" it has
+    to re-issue the identical ``trash_project`` call, which the gate then lets
+    through, once.
+    """
+    delegate = "agent:conductor"
+    garage_id, _ = _seed_garage(sample)
+
+    def check_asked(thread: Thread) -> None:
+        step = thread.step
+        assert step.result.stop_reason == "confirm_required", (
+            f"stopped: {step.result.stop_reason}; {_trajectory(step.result)}"
+        )
+        assert step.reply == 'Trash project "Garage" and its 2 tasks?', step.reply
+        assert step.events == (), f"wrote {list(step.events)}"
+        assert step.world.projects[garage_id][1] is False, "Garage was trashed unasked"
+
+    def check_trashed(thread: Thread) -> None:
+        _assert_completed(thread)
+        step = thread.step
+        assert _successful(step.result, "trash_project"), _trajectory(step.result)
+        assert step.world.projects[garage_id][1] is True, "Garage is still live"
+        garage_tasks = [t for t in step.world.tasks.values() if t.project_id == garage_id]
+        assert garage_tasks and all(t.deleted for t in garage_tasks)
+        others = {pid: row for pid, row in step.world.projects.items() if pid != garage_id}
+        assert others == {
+            pid: row for pid, row in thread.before.projects.items() if pid != garage_id
+        }, "another project was touched"
+        assert all(e[3] == delegate for e in step.events), list(step.events)
+
+    sample.converse(
+        [
+            ("Delete the Garage project.", check_asked),
+            ("Yes, delete it.", check_trashed),
+        ],
+        headers={"X-Agent-Actor": delegate},
+    )
+
+
 # --- Compositions, date math and misheard speech (#406) -----------------------
 #
 # Every scenario above asks for one thing, in clean text. These three families
@@ -3227,6 +3274,10 @@ def test_eval_reference_first_to_friday() -> None:
 
 def test_eval_delegate_thread() -> None:
     _gate("delegate_thread", _delegate_thread)
+
+
+def test_eval_delegate_confirm_trash() -> None:
+    _gate("delegate_confirm_trash", _delegate_confirm_trash)
 
 
 # Compositions, dates and speech (#406).

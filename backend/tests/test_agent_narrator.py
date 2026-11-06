@@ -160,7 +160,8 @@ def test_every_limit_stop_has_a_reason_line() -> None:
         reason
         for reason in get_args(loop_module._StopReason)
         if reason not in loop_module._FAILURE_STATUS
-        and reason not in ("completed", "cancelled")
+        # confirm_required (#503) ends on the app's question, not at a limit.
+        and reason not in ("completed", "cancelled", "confirm_required")
     }
     assert limits == set(run_record.LIMIT_REASONS) == set(_LIMIT_RUNS)
 

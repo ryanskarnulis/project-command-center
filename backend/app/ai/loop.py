@@ -122,6 +122,7 @@ from pydantic import BaseModel, Field, PrivateAttr, ValidationError
 
 from app.ai import (
     clarification,
+    confirmation,
     gather,
     model_profile,
     narration,
@@ -168,6 +169,12 @@ _CANCELLED_ERROR = f"{run_record.NOT_RUN_PREFIX}the user stopped the agent run b
 # Recorded (and fed back) for a call after a landed ``ask_user`` in the same
 # turn (#420): the run ends on the question, so it never reached the registry.
 _ASKED_ERROR = f"{run_record.NOT_RUN_PREFIX}the run ended on a question to the user before this call"
+
+# Recorded (and fed back) for the calls after a gated one that armed a
+# confirmation (#503): the run ends on the app's question.
+_CONFIRM_ERROR = (
+    f"{run_record.NOT_RUN_PREFIX}the run ended on a confirmation question before this call"
+)
 
 # Recorded (and fed back) for a call past the run's tool-call cap (#398) — the
 # call never reached the registry or the service layer.
@@ -363,6 +370,7 @@ _StopReason = Literal[
     "timed_out",
     "internal_error",
     "cancelled",
+    "confirm_required",
 ]
 
 # HTTP status the route surfaces for each failure stop reason: a provider fault
@@ -492,6 +500,12 @@ class AgentRunResult(BaseModel):
     # Whether ``reply`` is the delegate handoff (#482): built by code, so its
     # only model words are ``note``. Not persisted; the trace keeps it.
     handed_off: bool = False
+    # The confirmation a gated call armed (#503, ``stop_reason``
+    # ``confirm_required``). Not persisted: the token lives in
+    # :mod:`app.ai.confirmation`.
+    # A :class:`confirmation.Pending`, typed loosely so pydantic never
+    # validates or copies it.
+    confirm: Any = None
 
 
 class AgentRunFailed(Exception):
@@ -575,8 +589,13 @@ class AgentLoop:
         actor: str = LOOP_ACTOR,
         deadline: float | None = None,
         cancel: threading.Event | None = None,
+        gate: confirmation.Gate | None = None,
     ) -> AgentRunResult:
         """Run the loop for one user message. Always returns or raises cleanly.
+
+        ``gate`` (a delegate run, #503) holds back destructive calls: a gated
+        call it doesn't allow arms a confirmation, is recorded not run, and the
+        run stops ``confirm_required`` with the app's question as its reply.
 
         Binds a request ID for the whole run unless the caller (e.g. the HTTP
         middleware, come slice 2) already bound one — every tool call and
@@ -639,7 +658,9 @@ class AgentLoop:
         started = perf_counter()
         with structlog.contextvars.bound_contextvars(**bindings):
             try:
-                result = self._run(user_message, history, actor, deadline, cancel, trace)
+                result = self._run(
+                    user_message, history, actor, deadline, cancel, trace, gate
+                )
             except AgentRunFailed as exc:
                 exc.result.run_id = run_id
                 exc.result.gathered = trace.gathered
@@ -755,6 +776,7 @@ class AgentLoop:
         deadline: float | None,
         cancel: threading.Event | None,
         trace: run_trace.RunTrace,
+        gate: confirmation.Gate | None = None,
     ) -> AgentRunResult:
         specs = registry.tool_specs()
         # A question an earlier run asked and nobody answered (#420), kept
@@ -965,6 +987,34 @@ class AgentLoop:
                     )
                     over_cap = True
                     break
+                if (
+                    gate is not None
+                    and gate.gated(call.name)
+                    and not gate.allows(call.name, call.arguments)
+                ):
+                    pending = gate.arm(call.name, call.arguments)
+                    if pending is not None:
+                        # Never dispatched: the app asks first (#503). The
+                        # question is code's, from the live rows.
+                        self._skip_remaining(
+                            [call],
+                            records,
+                            messages,
+                            error=confirmation.NOT_RUN_REASON,
+                            reason="confirm_required",
+                        )
+                        self._skip_remaining(
+                            result.tool_calls[index + 1 :],
+                            records,
+                            messages,
+                            error=_CONFIRM_ERROR,
+                            reason="confirm_required",
+                        )
+                        finished = self._finish(
+                            "confirm_required", pending.question, records, iteration, messages
+                        )
+                        finished.confirm = pending
+                        return finished
                 dispatched += 1
                 try:
                     record, feedback, schema_error = self._dispatch(call, actor)
@@ -1231,6 +1281,13 @@ class AgentLoop:
             error=str(exc),
             error_type=type(exc).__name__,
         )
+
+    def dispatch_confirmed(self, pending: confirmation.Pending, actor: str) -> ToolCallRecord:
+        """Run exactly the call a redeemed ``Confirm-Token`` names, once, with
+        no model turn (#503). Its outcome is the record's: done or refused."""
+        call = ToolCall(id="confirmed", name=pending.tool, arguments=pending.arguments)
+        record, _feedback, _schema_error = self._dispatch(call, actor)
+        return record
 
     def _dispatch(self, call: ToolCall, actor: str) -> tuple[ToolCallRecord, str, bool]:
         """Run one tool call as ``actor``.
