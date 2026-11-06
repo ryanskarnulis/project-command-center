@@ -16,6 +16,9 @@ tags: [productivity]
 agent:
   description: "Manages projects and tasks: create, find, update, complete, reopen, reschedule, and delete tasks and projects, track dependencies and recurrence, search across everything, and plan the day's focus."
   api: /api/agent
+  # Trashing a task or project is gated in code and asks (#503), so conductor
+  # delegates it straight through (../agent-standard/app-yaml-agent-block.md).
+  confirms: true
   examples:
     - "what's due today"
     - "add a task to fix the fence to the house project"
