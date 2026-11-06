@@ -58,23 +58,25 @@ def day(when: date) -> str:
 
 
 def calendar_lines(today: date) -> list[str]:
-    """Today, tomorrow, the six days after it, next Monday, and the end of the
-    month — each with its weekday.
+    """Today, then the next date of every weekday (tomorrow first, marked),
+    then the end of the month.
 
-    Tomorrow and the days after it are the next seven, so every weekday name
-    has exactly one date strictly after today. The line used to be the rest of
+    One line per weekday name, keyed by the name: "push it to Thursday" is a
+    lookup of ``Next Thursday``, never today. The line used to be the rest of
     this week (to Sunday), which on a Friday left today as the only Friday in
-    the block: "push it to Friday" on a task due today saved it unchanged and
-    reported a move (#484)."""
-    tomorrow = today + timedelta(days=1)
-    after = [tomorrow + timedelta(days=offset) for offset in range(1, 7)]
-    next_monday = today + timedelta(days=7 - today.weekday())
+    the block (#484). The seven days then sat in a ``Tomorrow`` line and a
+    ``Coming days`` list, and the same ask set today or tomorrow on Tuesday,
+    Wednesday, Thursday and Saturday (#506); only Monday had a line of its own,
+    ``Next Monday``, and Monday passed."""
     month_end = today.replace(day=calendar.monthrange(today.year, today.month)[1])
+    week = [today + timedelta(days=offset) for offset in range(1, 8)]
     return [
         f"Today: {day(today)}",
-        f"Tomorrow: {day(tomorrow)}",
-        "Coming days: " + ", ".join(day(when) for when in after),
-        f"Next Monday: {day(next_monday)}",
+        *(
+            f"Next {calendar.day_name[when.weekday()]}: {when.isoformat()}"
+            + (" (tomorrow)" if offset == 0 else "")
+            for offset, when in enumerate(week)
+        ),
         f"End of this month: {day(month_end)}",
     ]
 

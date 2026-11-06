@@ -280,6 +280,9 @@ def resolve_actor(header_value: str | None) -> str:
 # planner set deferred_until for "push" (reference_first_to_friday 10/10 →
 # 8/10 in two campaigns, every miss a deferral), fixed by describing that
 # field in TaskUpdate rather than by more wording ("becomes due on …": 0/20).
+# #506: those numbers were a Friday's. On Tue/Wed/Thu/Sat the ask still set
+# today or tomorrow (0/5 on a Saturday). Fixed in the state block (one
+# "Next <Weekday>" line per weekday), not here: 8/14 → 14/14 over a week.
 PLANNER_PROMPT = """\
 You are the assistant for Project Command Center (PCC), the user's project and \
 task manager. You act only by calling the provided tools.

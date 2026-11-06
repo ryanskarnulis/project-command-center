@@ -321,8 +321,8 @@ that.
   days, so llama-server's prompt cache keeps each prefix.
 - **State block** (#412) `app/ai/state_block.py`: code builds one block per
   run and puts it at the head of the current user message: today with its
-  weekday, tomorrow, the six days after it (#484: with tomorrow, every weekday
-  has one date strictly after today), next Monday, the end of the month,
+  weekday, one `Next <Weekday>: <date>` line per weekday for the seven days
+  after it (tomorrow first, marked; #484, #506), the end of the month,
   the open-project roster (id · name · open · overdue, at most 25 rows, names
   clipped at 60 chars), and today's open-task counts (overdue, due today,
   blocked). The numbers come from `dashboard.get_agent_snapshot`, using the
@@ -347,6 +347,17 @@ that.
   8/10 re-ran 20/20 on both arms). Full gate on the branch: 49/49 green,
   claims 466/467 backed. On main, the claim reader now marks the no-op
   "pushed the quarterly report to Friday" unbacked.
+
+  **Measured** (#506, 2026-11-05): that number was a Friday's. With
+  `date.today()` faked, main scored Mon 5/5, Tue 4/5, Wed 4/10, Thu 1/5,
+  Fri 5/5, Sat 0/5, Sun 5/5; #484's own commit scored 0/5 on the Thursday.
+  The misses set today or tomorrow, though the right date was the last entry
+  of `Coming days`; only Monday had a line of its own (`Next Monday`). The
+  scenario now pins today to one weekday of a fixed week per sample (a block
+  of seven is one week), and the calendar is one `Next <Weekday>` line per
+  weekday. Paired campaign vs the pinned clock alone (seed 507, 2 blocks of
+  7): 8/14 → 14/14 (p=0.031); the other nine date, reference and reschedule
+  items 14/14 on both arms. Those nine read the real clock (a Thursday).
 - **Gather** (#415) `app/ai/gather.py`: before the first model call the loop
   searches the user's own words. It puts the top matches (at most 5) between
   the state block and the ask, labelled "may match; nothing was done to them".
