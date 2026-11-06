@@ -2922,7 +2922,7 @@ def _date_next_friday(sample: Sample) -> None:
 
 
 # A Monday. ``date_push_same_weekday`` pins each sample's "today" to a day of
-# this week instead of the real clock (#507).
+# this week instead of the real clock (#506).
 _PINNED_WEEK = date(2026, 11, 2)
 
 
@@ -2933,8 +2933,8 @@ def _pinned_today(day: date) -> Iterator[None]:
 
     class _Pinned(date):
         @classmethod
-        def today(cls) -> date:
-            return day
+        def today(cls) -> _Pinned:
+            return cls(day.year, day.month, day.day)
 
     targets = [
         (agent_loop, "date"),
@@ -2957,7 +2957,7 @@ def _date_push_same_weekday(sample: Sample) -> None:
 
     "Push" means later, so the only reading is the same weekday next week:
     today would leave the task where it was and report a move that never
-    happened. The model's answer depends on which weekday today is (#507:
+    happened. The model's answer depends on which weekday today is (#506:
     10/10 on a Friday, 0/5 on a Saturday), so the real clock made the gate's
     verdict depend on the day it ran. Each sample pins today to the next day
     of a fixed week instead, so every campaign measures all seven weekdays in

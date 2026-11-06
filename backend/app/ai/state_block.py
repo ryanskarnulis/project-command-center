@@ -66,7 +66,7 @@ def calendar_lines(today: date) -> list[str]:
     this week (to Sunday), which on a Friday left today as the only Friday in
     the block (#484). The seven days then sat in a ``Tomorrow`` line and a
     ``Coming days`` list, and the same ask set today or tomorrow on Tuesday,
-    Wednesday, Thursday and Saturday (#507); only Monday had a line of its own,
+    Wednesday, Thursday and Saturday (#506); only Monday had a line of its own,
     ``Next Monday``, and Monday passed."""
     month_end = today.replace(day=calendar.monthrange(today.year, today.month)[1])
     week = [today + timedelta(days=offset) for offset in range(1, 8)]
