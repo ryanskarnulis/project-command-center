@@ -78,6 +78,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
@@ -95,6 +96,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.ai import gather
+from app.ai import loop as agent_loop
 from app.ai import trace as run_trace
 from app.ai.loop import (
     DELEGATE_ACTORS,
@@ -595,10 +597,14 @@ class Sample:
     """One sample's world: a fresh in-memory DB the loop's tool sessions are
     pointed at, the sample's seed, and what its run turned out to be."""
 
-    def __init__(self, scenario: str, index: int, seed: int | None) -> None:
+    def __init__(
+        self, scenario: str, index: int, seed: int | None, position: int = 0
+    ) -> None:
         self.scenario = scenario
         self.index = index
         self.seed = seed
+        # The scored position (0-based), which an infra retry re-takes.
+        self.position = position
         # StaticPool: one in-memory connection, visible from the TestClient's
         # worker thread (the same topology as conftest's ``test_engine``).
         self.engine = create_engine(
@@ -892,10 +898,14 @@ class Sample:
 
 
 def _take(
-    scenario: str, body: Callable[[Sample], None], index: int, seed: int | None
+    scenario: str,
+    body: Callable[[Sample], None],
+    index: int,
+    seed: int | None,
+    position: int = 0,
 ) -> tuple[Outcome, Sample, BaseException | None]:
     """One sample on a fresh DB, and what kind of sample it turned out to be."""
-    sample = Sample(scenario, index, seed)
+    sample = Sample(scenario, index, seed, position)
     saved = runtime.session_factory
     runtime.session_factory = sample.db
     error: BaseException | None = None
@@ -976,8 +986,9 @@ def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
             taken += 1
             # Keyed on the scored position, so an infra retry re-takes the
             # same seed and the pairs behind it stay aligned.
-            seed = sample_seed(_SEED_BASE, sum(r for _, r in blocks) + block_runs)
-            outcome, sample, error = _take(scenario, body, taken, seed)
+            position = sum(r for _, r in blocks) + block_runs
+            seed = sample_seed(_SEED_BASE, position)
+            outcome, sample, error = _take(scenario, body, taken, seed, position)
             _SUITE.samples += 1
             samples.append(sample.record(outcome, error))
             if outcome is Outcome.PROVIDER_REJECTED:
@@ -2910,20 +2921,55 @@ def _date_next_friday(sample: Sample) -> None:
     )
 
 
+# A Monday. ``date_push_same_weekday`` pins each sample's "today" to a day of
+# this week instead of the real clock (#507).
+_PINNED_WEEK = date(2026, 11, 2)
+
+
+@contextmanager
+def _pinned_today(day: date) -> Iterator[None]:
+    """Every ``date.today()`` the run reads (the state block, the gather, the
+    Focus tools, and this module's own checks) returns ``day``."""
+
+    class _Pinned(date):
+        @classmethod
+        def today(cls) -> date:
+            return day
+
+    targets = [
+        (agent_loop, "date"),
+        (gather, "date"),
+        (registry, "date_type"),
+        (sys.modules[__name__], "date"),
+    ]
+    saved = [getattr(module, name) for module, name in targets]
+    for module, name in targets:
+        setattr(module, name, _Pinned)
+    try:
+        yield
+    finally:
+        for (module, name), value in zip(targets, saved, strict=True):
+            setattr(module, name, value)
+
+
 def _date_push_same_weekday(sample: Sample) -> None:
     """"Push it to <today's weekday>" on a task already due today (#484).
 
     "Push" means later, so the only reading is the same weekday next week:
     today would leave the task where it was and report a move that never
-    happened. The weekday is today's, so the scenario measures this case on
-    every day of the week rather than one day in seven."""
-    today = date.today()
-    _date_ask(
-        sample,
-        f"Push the quarterly report to {calendar.day_name[today.weekday()]}.",
-        frozenset({today + timedelta(days=7)}),
-        due=today,
-    )
+    happened. The model's answer depends on which weekday today is (#507:
+    10/10 on a Friday, 0/5 on a Saturday), so the real clock made the gate's
+    verdict depend on the day it ran. Each sample pins today to the next day
+    of a fixed week instead, so every campaign measures all seven weekdays in
+    the same order: a campaign block of seven (``--runs 7``) is one week."""
+    today = _PINNED_WEEK + timedelta(days=sample.position % 7)
+    with _pinned_today(today):
+        _date_ask(
+            sample,
+            f"Push the quarterly report to {calendar.day_name[today.weekday()]}.",
+            frozenset({today + timedelta(days=7)}),
+            due=today,
+        )
 
 
 def _date_in_two_weeks(sample: Sample) -> None:
