@@ -42,6 +42,7 @@ class _BlockedLoop:
         actor: str,
         deadline: float,
         cancel: object = None,
+        gate: object = None,
     ) -> AgentRunResult:
         self.running.set()
         self.release.wait(timeout=10.0)

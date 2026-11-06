@@ -576,6 +576,19 @@ same thread replays the stored answer and never runs the loop again; an
 exchange that never finished is a 409, and different words under the key are
 a 422.
 
+Destructive delegate writes are confirmed structurally (#503,
+`app/ai/confirmation.py`). On a delegate run, `trash_task` and `trash_project`
+never run unasked. The run stops `confirm_required` with a code-built question
+("Trash project "Kitchen" and its 12 tasks?") and
+`assistant_message.confirm_required {token, tool, question, preview,
+expires_at}`. A follow-up carrying `Confirm-Token` runs exactly that call once,
+with no model turn. The token is single-use, expires after 10 minutes, and is
+bound to the thread, the call and the row's state; anything else is a 409
+naming why. A plain "yes" whose run re-issues the identical call also runs it
+(the v1 path). Any other next message voids the question. Tokens live in the
+process, so a restart means asking again. PCC's own chat is never gated:
+there, trash is the undo.
+
 Runs on one conversation are serialized: a second message that arrives mid-run
 waits for the first to finish (so it sees the reply in history) or gets a 409.
 Deleting a conversation takes the same lock and is rejected with a 409 while a

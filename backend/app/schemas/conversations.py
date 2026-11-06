@@ -72,6 +72,10 @@ class MessageRead(BaseModel):
     tool_calls: list[ToolCallRead] | None = None
     stop_reason: str | None = None
     created_at: UTCDateTime
+    # The question a gated call armed on a delegate run (#503): ``{token,
+    # tool, question, preview, expires_at}``. Only on the reply that asked
+    # (and its replay); history reads carry ``None``.
+    confirm_required: dict[str, Any] | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property

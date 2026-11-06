@@ -19,7 +19,14 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.ai.loop import AgentLoop, AgentRunFailed, resolve_actor
+from app.ai import confirmation, run_record
+from app.ai.loop import (
+    DELEGATE_ACTORS,
+    AgentLoop,
+    AgentRunFailed,
+    AgentRunResult,
+    resolve_actor,
+)
 from app.ai.providers.llamacpp import provider_from_settings
 from app.api.conversation_locks import conversation_idle_lock, conversation_run_lock
 from app.api.rate_limit import rate_limit
@@ -251,7 +258,31 @@ def _replayed(
         return _failure_response(failed, f"agent run failed: {answered.stop_reason}", answered)
     return MessageExchange(
         user_message=MessageRead.model_validate(asked),
-        assistant_message=MessageRead.model_validate(answered),
+        assistant_message=_assistant_read(answered, confirmation.for_message(answered.id)),
+    )
+
+
+def _assistant_read(
+    message: ConversationMessage, pending: confirmation.Pending | None
+) -> MessageRead:
+    """The assistant turn as read, with the confirmation it asked (#503)."""
+    read = MessageRead.model_validate(message)
+    if pending is None:
+        return read
+    return read.model_copy(update={"confirm_required": pending.wire()})
+
+
+def _confirm_refused(kind: str) -> JSONResponse:
+    """A ``Confirm-Token`` that can't be honoured: 409, nothing ran (#503)."""
+    words = {
+        "unknown": "that Confirm-Token isn't one this thread is waiting on",
+        "expired": "that Confirm-Token expired; ask again",
+        "used": "that Confirm-Token was already used",
+        "stale": "what that Confirm-Token previewed has changed since; ask again",
+    }
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={"detail": words.get(kind, kind), "confirm": kind},
     )
 
 
@@ -272,6 +303,7 @@ def post_message(
     idempotency_key: Annotated[
         str | None, Header(min_length=1, max_length=MAX_IDEMPOTENCY_KEY_LENGTH)
     ] = None,
+    confirm_token: Annotated[str | None, Header(min_length=1, max_length=128)] = None,
 ) -> MessageExchange | JSONResponse:
     """Store the user turn, run the loop, store and return the assistant turn.
 
@@ -315,6 +347,17 @@ def post_message(
     replays (200, or the stored failure's status and body), one that never
     finished is a 409, and different words under the key are a 422. Checked
     under the run lock, so a retry racing the original waits for its answer.
+
+    **Structural confirmation** (#503, delegate-api "Confirmation"). On a
+    delegate run (a recognized ``X-Agent-Actor``) a destructive call
+    (``confirmation.GATED_TOOLS``) never runs unasked: the run stops
+    ``confirm_required`` and ``assistant_message.confirm_required`` carries a
+    single-use token with the code-built question and preview. A message with
+    ``Confirm-Token`` runs exactly that call once, with no model turn; a token
+    that can't be honoured is a 409 naming why (``unknown`` / ``expired`` /
+    ``used`` / ``stale``). The next message without the token voids the
+    pending question unless its run re-issues the identical call. PCC's own
+    chat is never gated.
     """
     _get_or_404(reader, conversation_id)
     actor = resolve_actor(x_agent_actor)
@@ -332,6 +375,25 @@ def post_message(
             seen = conversations_service.find_exchange(db, conversation.id, idempotency_key)
             if seen is not None:
                 return _replayed(data.content, *seen)
+        if confirm_token is not None:
+            # Release the write lock before the token's state check reads the
+            # rows on its own session; nothing is written yet, and the run lock
+            # still holds the thread.
+            db.commit()
+            try:
+                # The path's id, not ``conversation.id``: reading the expired
+                # row would open a transaction again.
+                pending = confirmation.redeem(confirm_token, conversation_id)
+            except confirmation.ConfirmRefused as refused:
+                return _confirm_refused(refused.kind)
+            return _run_confirmed(
+                db, conversation, data.content, idempotency_key, pending, loop, actor
+            )
+        gate = None
+        if actor in DELEGATE_ACTORS:
+            gate = confirmation.Gate(
+                conversation.id, answered=confirmation.take_for_thread(conversation.id)
+            )
         history = conversations_service.history_for_loop(db, conversation.id)
         user_message = conversations_service.append_user_message(
             db, conversation, data.content, idempotency_key
@@ -353,6 +415,7 @@ def post_message(
                     actor=actor,
                     deadline=deadline,
                     cancel=cancel,
+                    gate=gate,
                 )
         except AgentRunFailed as exc:
             logger.error(
@@ -371,10 +434,50 @@ def post_message(
             db, conversation, run
         )
         db.commit()
+        if run.confirm is not None:
+            run.confirm.message_id = assistant_message.id
         return MessageExchange(
             user_message=MessageRead.model_validate(user_message),
-            assistant_message=MessageRead.model_validate(assistant_message),
+            assistant_message=_assistant_read(assistant_message, run.confirm),
         )
+
+
+def _run_confirmed(
+    db: Session,
+    conversation: Conversation,
+    content: str,
+    idempotency_key: str | None,
+    pending: confirmation.Pending,
+    loop: AgentLoop,
+    actor: str,
+) -> MessageExchange:
+    """The answer to a redeemed ``Confirm-Token``: exactly the armed call,
+    once, no model turn. The reply is the code-built record of that call."""
+    user_message = conversations_service.append_user_message(
+        db, conversation, content, idempotency_key
+    )
+    # Commit first: the tool takes its own write session (see above).
+    db.commit()
+    record = loop.dispatch_confirmed(pending, actor)
+    run = AgentRunResult(
+        reply=run_record.render([record]),
+        stop_reason="completed",
+        tool_calls=[record],
+        iterations=0,
+        messages=[],
+    )
+    assistant_message = conversations_service.append_assistant_message(db, conversation, run)
+    db.commit()
+    logger.info(
+        "agent_confirmed_call",
+        conversation_id=conversation.id,
+        tool=pending.tool,
+        ok=record.error is None,
+    )
+    return MessageExchange(
+        user_message=MessageRead.model_validate(user_message),
+        assistant_message=MessageRead.model_validate(assistant_message),
+    )
 
 
 @router.post(

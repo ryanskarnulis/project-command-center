@@ -62,6 +62,7 @@ class _WritingLoop:
         actor: str,
         deadline: float,
         cancel: object = None,
+        gate: object = None,
     ) -> AgentRunResult:
         self._running.set()
         self._follower_arrived.wait(timeout=FOLLOWER_ARRIVAL_SECONDS)
