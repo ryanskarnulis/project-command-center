@@ -433,6 +433,9 @@ class ConversationMessage(Base, TimestampMixin):
     """
 
     __tablename__ = "conversation_messages"
+    __table_args__ = (
+        Index("ix_conversation_messages_idempotency", "conversation_id", "idempotency_key"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     conversation_id: Mapped[int] = mapped_column(
@@ -442,6 +445,9 @@ class ConversationMessage(Base, TimestampMixin):
     content: Mapped[str | None] = mapped_column(default=None)
     tool_calls: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, default=None)
     stop_reason: Mapped[str | None] = mapped_column(default=None)
+    # The delegate's ``Idempotency-Key`` for the exchange this user turn opened
+    # (delegate-api v1.1, #502). A retry under it replays the stored answer.
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), default=None)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 

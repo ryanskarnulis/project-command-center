@@ -224,8 +224,42 @@ def history_for_loop(db: Session, conversation_id: int) -> list[dict[str, Any]]:
     )
 
 
+def find_exchange(
+    db: Session, conversation_id: int, idempotency_key: str
+) -> tuple[ConversationMessage, ConversationMessage | None] | None:
+    """The exchange a delegate's ``Idempotency-Key`` opened on this thread (#502).
+
+    ``None`` when the key is new here. Otherwise the user turn that carries it
+    and the assistant turn that answered it — the next message, since runs on
+    a thread are serialized — or ``None`` for that answer when the exchange
+    never finished (the process died mid-run).
+    """
+    asked = db.execute(
+        select(ConversationMessage)
+        .where(ConversationMessage.conversation_id == conversation_id)
+        .where(ConversationMessage.idempotency_key == idempotency_key)
+        .order_by(ConversationMessage.id)
+        .limit(1)
+    ).scalar_one_or_none()
+    if asked is None:
+        return None
+    following = db.execute(
+        select(ConversationMessage)
+        .where(ConversationMessage.conversation_id == conversation_id)
+        .where(ConversationMessage.id > asked.id)
+        .order_by(ConversationMessage.id)
+        .limit(1)
+    ).scalar_one_or_none()
+    if following is None or following.role != ConversationRole.assistant:
+        return asked, None
+    return asked, following
+
+
 def append_user_message(
-    db: Session, conversation: Conversation, content: str
+    db: Session,
+    conversation: Conversation,
+    content: str,
+    idempotency_key: str | None = None,
 ) -> ConversationMessage:
     """Store one user turn; an untitled conversation is titled from it."""
     if conversation.title is None:
@@ -234,6 +268,7 @@ def append_user_message(
         conversation_id=conversation.id,
         role=ConversationRole.user,
         content=content,
+        idempotency_key=idempotency_key,
     )
     conversation.updated_at = utcnow()
     db.add(message)

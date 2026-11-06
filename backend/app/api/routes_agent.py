@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import time
 from collections.abc import Generator, Sequence
+from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.ai.loop import AgentLoop, AgentRunFailed, resolve_actor
@@ -23,7 +25,7 @@ from app.api.conversation_locks import conversation_idle_lock, conversation_run_
 from app.api.rate_limit import rate_limit
 from app.api.run_cancel import active_run, request_cancel, run_started_at
 from app.config import get_settings
-from app.db.models import Conversation
+from app.db.models import Conversation, ConversationMessage
 from app.db.session import get_db, get_db_write
 from app.schemas.common import MAX_SQLITE_INT, EntityId, PaginationOffset
 from app.schemas.conversations import (
@@ -197,6 +199,62 @@ def update_conversation(
     return conversation
 
 
+# An ``Idempotency-Key`` is the caller's name for one exchange (delegate-api
+# v1.1); longer than this is a caller bug, not a key (chess uses the same cap).
+MAX_IDEMPOTENCY_KEY_LENGTH = 128
+
+# The failure stops and the status each answers with, so a replayed failure
+# answers exactly as the first attempt did (``loop._FAILURE_STATUS``).
+FAILURE_STATUS = {"provider_error": 502, "timed_out": 504, "internal_error": 500}
+
+
+def _failure_response(
+    status_code: int, detail: str, message: ConversationMessage | None
+) -> JSONResponse:
+    """A 5xx with the failed run's partial record (delegate-api v1.1, #502).
+
+    Keeps FastAPI's ``detail`` for v1 clients and adds what the run did, so a
+    caller never reads a write that landed as "unavailable, try again"
+    (ryanskarnulis/conductor#60).
+    """
+    read = MessageRead.model_validate(message) if message is not None else None
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "detail": detail,
+            "stop_reason": read.stop_reason if read is not None else None,
+            "assistant_message_id": read.id if read is not None else None,
+            "record": read.record if read is not None else None,
+        },
+    )
+
+
+def _replayed(
+    content: str, asked: ConversationMessage, answered: ConversationMessage | None
+) -> MessageExchange | JSONResponse:
+    """The answer to a retried ``Idempotency-Key``: never a second run."""
+    if asked.content != content:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="that Idempotency-Key was already used for a different message",
+        )
+    if answered is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "the exchange under that Idempotency-Key did not complete; whatever "
+                "it did has happened. Read the thread and send a new key"
+            ),
+        )
+    failed = FAILURE_STATUS.get(answered.stop_reason or "")
+    if failed is not None:
+        return _failure_response(failed, f"agent run failed: {answered.stop_reason}", answered)
+    return MessageExchange(
+        user_message=MessageRead.model_validate(asked),
+        assistant_message=MessageRead.model_validate(answered),
+    )
+
+
 @router.post(
     "/conversations/{conversation_id}/messages",
     response_model=MessageExchange,
@@ -211,7 +269,10 @@ def post_message(
     reader: Session = Depends(get_db),
     loop: AgentLoop = Depends(get_agent_loop),
     x_agent_actor: str | None = Header(default=None),
-) -> MessageExchange:
+    idempotency_key: Annotated[
+        str | None, Header(min_length=1, max_length=MAX_IDEMPOTENCY_KEY_LENGTH)
+    ] = None,
+) -> MessageExchange | JSONResponse:
     """Store the user turn, run the loop, store and return the assistant turn.
 
     Runs on this conversation are serialized (``conversation_run_lock``): a
@@ -246,6 +307,14 @@ def post_message(
     the user asked for it and got it, and the response carries the truthful
     partial turn — the tool calls that ran keep their undo — exactly like a
     ``max_iterations`` stop.
+
+    **Delegate v1.1** (#502). Every assistant turn carries its typed
+    ``record``; a 5xx body carries the failed run's partial record beside
+    ``detail``. An ``Idempotency-Key`` is stored on the user turn, and a later
+    post here with the same key never runs the loop: a finished exchange
+    replays (200, or the stored failure's status and body), one that never
+    finished is a 409, and different words under the key are a 422. Checked
+    under the run lock, so a retry racing the original waits for its answer.
     """
     _get_or_404(reader, conversation_id)
     actor = resolve_actor(x_agent_actor)
@@ -259,9 +328,13 @@ def post_message(
         # wait above, and the holder's tool writes would then deadlock on us
         # until busy_timeout (#91).
         conversation = _get_or_404(db, conversation_id)
+        if idempotency_key is not None:
+            seen = conversations_service.find_exchange(db, conversation.id, idempotency_key)
+            if seen is not None:
+                return _replayed(data.content, *seen)
         history = conversations_service.history_for_loop(db, conversation.id)
         user_message = conversations_service.append_user_message(
-            db, conversation, data.content
+            db, conversation, data.content, idempotency_key
         )
         db.commit()
 
@@ -288,11 +361,11 @@ def post_message(
                 stop_reason=exc.result.stop_reason,
                 error=str(exc),
             )
-            conversations_service.append_assistant_message(db, conversation, exc.result)
+            failed = conversations_service.append_assistant_message(
+                db, conversation, exc.result
+            )
             db.commit()
-            raise HTTPException(
-                status_code=exc.http_status, detail=str(exc)
-            ) from exc
+            return _failure_response(exc.http_status, str(exc), failed)
 
         assistant_message = conversations_service.append_assistant_message(
             db, conversation, run

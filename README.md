@@ -225,7 +225,9 @@ Key decisions:
   `conversation_messages`. The assistant turn stores the loop's tool
   calls/results as JSON plus a `stop_reason` — the chat trajectory lives
   here (the audit log records only mutations and can't reconstruct it), while
-  `activity_events` remains the audit source of truth for what changed.
+  `activity_events` remains the audit source of truth for what changed. A
+  user turn may carry the delegate's `idempotency_key` (indexed with its
+  conversation).
 - **`tasks` read-path indexes** back the hot list/read queries: `deleted_at`
   (active-task list, search, and the trash `deleted_at IS NOT NULL` scan) plus
   single `project_id`, `parent_task_id`, `recurrence_id`, plus the partial unique
@@ -562,6 +564,17 @@ running; 404 for a missing or deleted thread). The conversation detail carries
 tab) shows the run, offers Stop, and polls until it lands. It is rate-limited
 per client IP (`AGENT_MESSAGES_PER_MIN`, default 10; must be a positive
 integer — the limiter cannot be disabled).
+
+It speaks the workspace delegate contract v1.1
+(`../agent-standard/delegate-api.md`, #502). Every assistant turn carries a
+typed `record` built by code from its tool calls (`app/ai/receipts.py`): an
+outcome per call, the rows it touched as `{app, kind, id, title}` refs, and an
+undo handle for each write. A 502/504/500 body keeps `detail` and adds the
+failed run's partial `record`, `stop_reason` and `assistant_message_id`. An
+`Idempotency-Key` header is stored on the user turn. A retry under it on the
+same thread replays the stored answer and never runs the loop again; an
+exchange that never finished is a 409, and different words under the key are
+a 422.
 
 Runs on one conversation are serialized: a second message that arrives mid-run
 waits for the first to finish (so it sees the reply in history) or gets a 409.

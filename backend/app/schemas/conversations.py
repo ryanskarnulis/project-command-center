@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, StringConstraints, computed_field
 
 from app.db.models import ConversationRole
 from app.schemas.common import MutationModel, NonBlankStr, UTCDateTime
@@ -72,6 +72,19 @@ class MessageRead(BaseModel):
     tool_calls: list[ToolCallRead] | None = None
     stop_reason: str | None = None
     created_at: UTCDateTime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def record(self) -> list[dict[str, Any]] | None:
+        """The turn's typed record (delegate-api v1.1, #502): one receipt per
+        tool call, ``[]`` when none ran; ``None`` on a user turn. Built by code
+        from ``tool_calls`` on every read, never stored."""
+        if self.role != ConversationRole.assistant:
+            return None
+        from app.ai import receipts  # app.ai imports the tool registry
+
+        calls = [call.model_dump() for call in self.tool_calls or []]
+        return receipts.dump(receipts.build(calls))
 
 
 class ConversationDetail(ConversationRead):
