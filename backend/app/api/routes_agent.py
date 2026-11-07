@@ -11,6 +11,7 @@ asks that conversation's in-flight run to stop (#324).
 from __future__ import annotations
 
 import time
+from datetime import date
 from collections.abc import Generator, Sequence
 from typing import Annotated
 
@@ -45,11 +46,23 @@ from app.schemas.conversations import (
     MessageRead,
     RunCancelRead,
 )
+from app.schemas.glance import Glance
 from app.services import conversations as conversations_service
+from app.services import glance as glance_service
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/agent", tags=["agent"])
+
+
+@router.get("/glance", response_model=Glance)
+def glance(db: Session = Depends(get_db)) -> Glance:
+    """Today's and overdue tasks and today's Focus, for conductor's ``look`` (#504).
+
+    No arguments, no model call, read-only: it never takes the rate limit or a
+    conversation lock, and writes nothing (no audit row).
+    """
+    return glance_service.get_glance(db, today=date.today())
 
 
 def get_agent_loop() -> Generator[AgentLoop, None, None]:

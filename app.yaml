@@ -26,3 +26,6 @@ agent:
     - "what am I blocked on"
     - "create a new project called garage cleanup"
     - "push the dentist appointment to next week"
+glance:
+  holds: "Today's and overdue open tasks (titles, ids, due dates), today's Focus pin, and the next due date."
+  path: /api/agent/glance
