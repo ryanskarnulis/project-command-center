@@ -1,0 +1,186 @@
+{
+ "v": 3,
+ "createdOnFiles": {
+  "v": 1,
+  "at": "2026-10-18T17:00:16Z"
+ },
+ "title": "PCC screens \u2014 current state",
+ "launch": {
+  "view": "canvas"
+ },
+ "pages": [],
+ "boards": {
+  "Main.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 1440,
+   "h": 1667,
+   "title": "Dashboard \u2014 desktop  \u00b7  /dashboard",
+   "expand": "fill"
+  },
+  "Focus-Desktop.dc.html": {
+   "x": 1520,
+   "y": 0,
+   "w": 1440,
+   "h": 1299,
+   "title": "Focus \u2014 desktop  \u00b7  /focus",
+   "expand": "fill"
+  },
+  "Project-Desktop.dc.html": {
+   "x": 3040,
+   "y": 0,
+   "w": 1440,
+   "h": 900,
+   "title": "Project overview \u2014 desktop  \u00b7  /projects/15",
+   "expand": "fill"
+  },
+  "Tasks-Desktop.dc.html": {
+   "x": 4560,
+   "y": 0,
+   "w": 1440,
+   "h": 1766,
+   "title": "Project tasks \u2014 desktop  \u00b7  /projects/15/tasks",
+   "expand": "fill"
+  },
+  "TaskPeek-Desktop.dc.html": {
+   "x": 6080,
+   "y": 0,
+   "w": 1440,
+   "h": 1766,
+   "title": "Task peek \u2014 desktop  \u00b7  /projects/15/tasks?task=270",
+   "expand": "fill"
+  },
+  "AgentNew-Desktop.dc.html": {
+   "x": 7600,
+   "y": 0,
+   "w": 1440,
+   "h": 901,
+   "title": "Agent \u2014 new chat \u2014 desktop  \u00b7  /agent",
+   "expand": "fill"
+  },
+  "AgentChat-Desktop.dc.html": {
+   "x": 9120,
+   "y": 0,
+   "w": 1440,
+   "h": 901,
+   "title": "Agent \u2014 conversation \u2014 desktop  \u00b7  /agent/53",
+   "expand": "fill"
+  },
+  "Trash-Desktop.dc.html": {
+   "x": 10640,
+   "y": 0,
+   "w": 1440,
+   "h": 900,
+   "title": "Trash \u2014 desktop  \u00b7  /trash",
+   "expand": "fill"
+  },
+  "NotFound-Desktop.dc.html": {
+   "x": 12160,
+   "y": 0,
+   "w": 1440,
+   "h": 900,
+   "title": "Not found \u2014 desktop  \u00b7  /nope",
+   "expand": "fill"
+  },
+  "Dashboard-Mobile.dc.html": {
+   "x": 0,
+   "y": 2186,
+   "w": 390,
+   "h": 1994,
+   "title": "Dashboard \u2014 mobile  \u00b7  /dashboard"
+  },
+  "Focus-Mobile.dc.html": {
+   "x": 470,
+   "y": 2186,
+   "w": 390,
+   "h": 1318,
+   "title": "Focus \u2014 mobile  \u00b7  /focus"
+  },
+  "Project-Mobile.dc.html": {
+   "x": 940,
+   "y": 2186,
+   "w": 390,
+   "h": 844,
+   "title": "Project overview \u2014 mobile  \u00b7  /projects/15"
+  },
+  "Tasks-Mobile.dc.html": {
+   "x": 1410,
+   "y": 2186,
+   "w": 390,
+   "h": 844,
+   "title": "Project tasks \u2014 mobile  \u00b7  /projects/15/tasks"
+  },
+  "TaskPeek-Mobile.dc.html": {
+   "x": 1880,
+   "y": 2186,
+   "w": 390,
+   "h": 844,
+   "title": "Task peek \u2014 mobile  \u00b7  /projects/15/tasks?task=270"
+  },
+  "AgentNew-Mobile.dc.html": {
+   "x": 2350,
+   "y": 2186,
+   "w": 390,
+   "h": 844,
+   "title": "Agent \u2014 new chat \u2014 mobile  \u00b7  /agent"
+  },
+  "AgentChat-Mobile.dc.html": {
+   "x": 2820,
+   "y": 2186,
+   "w": 390,
+   "h": 844,
+   "title": "Agent \u2014 conversation \u2014 mobile  \u00b7  /agent/53"
+  },
+  "Trash-Mobile.dc.html": {
+   "x": 3290,
+   "y": 2186,
+   "w": 390,
+   "h": 844,
+   "title": "Trash \u2014 mobile  \u00b7  /trash"
+  },
+  "NotFound-Mobile.dc.html": {
+   "x": 3760,
+   "y": 2186,
+   "w": 390,
+   "h": 844,
+   "title": "Not found \u2014 mobile  \u00b7  /nope"
+  }
+ },
+ "order": [
+  "Main.dc.html",
+  "Focus-Desktop.dc.html",
+  "Project-Desktop.dc.html",
+  "Tasks-Desktop.dc.html",
+  "TaskPeek-Desktop.dc.html",
+  "AgentNew-Desktop.dc.html",
+  "AgentChat-Desktop.dc.html",
+  "Trash-Desktop.dc.html",
+  "NotFound-Desktop.dc.html",
+  "Dashboard-Mobile.dc.html",
+  "Focus-Mobile.dc.html",
+  "Project-Mobile.dc.html",
+  "Tasks-Mobile.dc.html",
+  "TaskPeek-Mobile.dc.html",
+  "AgentNew-Mobile.dc.html",
+  "AgentChat-Mobile.dc.html",
+  "Trash-Mobile.dc.html",
+  "NotFound-Mobile.dc.html"
+ ],
+ "notes": {
+  "desktop": {
+   "x": 0,
+   "y": -300,
+   "text": "Desktop \u2014 current app (prod, 2026-10-18)",
+   "kind": "title1",
+   "maxW": 13600
+  },
+  "mobile": {
+   "x": 0,
+   "y": 1886,
+   "text": "Mobile \u2014 current app (prod, 2026-10-18)",
+   "kind": "title1",
+   "maxW": 4150
+  }
+ },
+ "designSystems": []
+}
