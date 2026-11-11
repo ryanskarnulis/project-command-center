@@ -754,6 +754,20 @@ with held-out and dev wordings, rubric checkpoints, normalised failure modes,
 and `docs/frontier-history.jsonl` read by `scripts/frontier_report.py`. See
 `docs/agent-frontier.md`.
 
+### The conductor-phrased tier (#514)
+
+Conductor's planner does not speak the gate's human phrasing: it passes the
+person's words through, fills `{sN}` with a quoted title from another app, and
+appends a saved fact as quoted context. `tests/test_agent_conductor_evals.py`
+sends those compiled requests (copied from conductor at 70476ea, named in the
+file) as `X-Agent-Actor: agent:conductor` and checks the end state and the
+typed record. Same sampling and report as the gate, but a count below the
+0.8 reference floor is printed, never failed; a miss becomes an issue.
+
+```bash
+PCC_AGENT_CONDUCTOR_EVALS=1 .venv/bin/pytest tests/test_agent_conductor_evals.py -v -s
+```
+
 ### Claim accuracy
 
 `tests/claims.py` (#407, ported from chess's `honesty.claims` /
