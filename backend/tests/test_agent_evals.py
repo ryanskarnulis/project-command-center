@@ -319,17 +319,20 @@ def _header(provider: LlamaCppProvider) -> dict[str, Any]:
     }
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _eval_session() -> Generator[None, None, None]:
-    """Bracket the run: the header before the first scenario (so an
-    interrupted run still says what produced its lines), the table and the
-    infra budget spent after the last."""
+@contextmanager
+def eval_session(tier: str | None = None) -> Iterator[None]:
+    """Bracket a run: the header before the first scenario (so an interrupted
+    run still says what produced its lines), the table and the infra budget
+    spent after the last. ``tier`` names a tier that is not the gate (it goes
+    into the header and the suite line), so a report says what it measured."""
     # The model's sampling, thinking kwarg and token caps come from its
     # profile (#402) — the same one the provider builds every request from —
     # so measuring another model is LLAMACPP_MODEL=<id> plus its profile file.
     with provider_from_settings() as provider:
         header = _header(provider)
         print(f"\n[eval] model={provider.model} profile={provider.profile.describe()}")
+    if tier is not None:
+        header["tier"] = tier
     print(f"[eval] header {json.dumps(header)}")
     write_jsonl(_REPORT_PATH, header)
     started = time.monotonic()
@@ -343,11 +346,18 @@ def _eval_session() -> Generator[None, None, None]:
         "infra_spent": _SUITE.infra_spent,
         "infra_budget": _SUITE.infra_budget,
         "claims": _CLAIMS.as_dict(),
+        **({} if tier is None else {"tier": tier}),
     }
     write_jsonl(_REPORT_PATH, suite)
     print(f"\n{format_report(summarize(_RECORDS), _RESULTS)}")
     print("\n".join(f"[eval] {line}" for line in _CLAIMS.lines()))
     print(f"[eval] suite {json.dumps(suite)}")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _eval_session() -> Generator[None, None, None]:
+    with eval_session():
+        yield
 
 
 def _is_read(tool: str) -> bool:
@@ -530,6 +540,8 @@ class Step:
     world: World
     # The activity rows this step wrote.
     events: tuple[EventRow, ...]
+    # The typed record the route returned with the turn (delegate v1.1, #502).
+    typed_record: tuple[dict[str, Any], ...] = ()
 
     @property
     def reply(self) -> str:
@@ -868,7 +880,7 @@ class Sample:
                     self.step_label = f"{index}/{len(turns)}"
                     step_started = time.monotonic()
                     runs = len(loop.runs)
-                    self.post_message(
+                    response = self.post_message(
                         client, url, content=ask, headers=dict(headers or {}), loop=loop
                     )
                     if len(loop.runs) != runs + 1:
@@ -887,6 +899,7 @@ class Sample:
                         seconds=time.monotonic() - step_started,
                         world=world,
                         events=world.events[len(previous.events) :],
+                        typed_record=tuple(response.json()["assistant_message"].get("record") or ()),
                     )
                     state.steps.append(step)
                     self.steps.append(step)
@@ -948,9 +961,15 @@ def _assert_claims_backed(sample: Sample) -> None:
     )
 
 
-def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
+def _gate(scenario: str, body: Callable[[Sample], None], *, tier: str | None = None) -> None:
     """Sample one scenario in blocks until its count decides against its floor,
     then hold it to the verdict.
+
+    ``tier`` names a tier that is measured but does not block (the
+    conductor-phrased scenarios, #514): same sampling, same report with the
+    tier on each line and the default floor as the reference, but a count
+    below the floor is printed, never failed. An unmeasurable scenario (infra
+    abort, rejected request, harness bug) still fails: the number is missing.
 
     Red takes evidence: only a Wilson upper bound *below* the floor fails. A
     count still UNDECIDED at the cap passes, flagged. An infra death is thrown
@@ -958,7 +977,7 @@ def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
     harness bug fails the scenario on the spot, with what was measured so far
     already reported.
     """
-    floor = _FLOORS[scenario]
+    floor = _FLOORS[scenario] if tier is None else DEFAULT_FLOOR
     blocks: list[tuple[int, int]] = []
     failures: list[str] = []
     samples: list[dict[str, Any]] = []
@@ -978,6 +997,7 @@ def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
                 "kind": "scenario",
                 "seconds": round(time.monotonic() - started, 1),
                 "samples": samples,
+                **({} if tier is None else {"tier": tier}),
                 **meta,
             },
         )
@@ -1081,9 +1101,13 @@ def _gate(scenario: str, body: Callable[[Sample], None]) -> None:
         print(f"[eval]   ×{count} {mode}")
     report(**scenario_record(scenario, result, floor, **schema, claims=claims.as_dict()))
     detail = f"{result.summary()} floor={floor:.0%}"
-    assert result.decision is not Decision.BELOW_FLOOR, (
-        f"{scenario} is below its floor with evidence, not noise: {detail}"
-    )
+    if tier is not None:
+        if result.decision is Decision.BELOW_FLOOR:
+            print(f"[eval]   ⚠ below the reference floor, not gating ({tier}): {detail}")
+    else:
+        assert result.decision is not Decision.BELOW_FLOOR, (
+            f"{scenario} is below its floor with evidence, not noise: {detail}"
+        )
     if result.decision is Decision.UNDECIDED:
         print(f"[eval]   ⚠ UNDECIDED at the sampling cap: {detail}")
 
