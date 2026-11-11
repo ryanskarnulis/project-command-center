@@ -768,6 +768,29 @@ typed record. Same sampling and report as the gate, but a count below the
 PCC_AGENT_CONDUCTOR_EVALS=1 .venv/bin/pytest tests/test_agent_conductor_evals.py -v -s
 ```
 
+**First measurement, 2026-11-11, gemma-4-12b, `ad8e637`** (no earlier
+numbers; the main gate was not run, the agent code is unchanged). Nothing
+tuned, never gated: 6 scenarios, 35 samples, 56 s, infra 0/25, claims backed
+99/110.
+
+| scenario | pass |
+|---|---|
+| `conductor_s2_add_task` | 5/5 |
+| `conductor_s3_quoted_title` | **5/10** (3/5, then 2/5) |
+| `conductor_s3_quoted_title_album` | 4/5 |
+| `conductor_s15_other_album` | 5/5 |
+| `conductor_s9_wipe_project` | **0/5** |
+| `conductor_m3_saved_fact` | 5/5 |
+
+- All three misses are the claim check, not the end state. `s3_quoted_title`:
+  5 of 5 misses read an unbacked title, the reply says `Sort 'Honey'` and the
+  title claim isn't backed (the created title was not compared here).
+  `s3_quoted_title_album`: one, the same shape (`Sort the album 'Honey'`).
+- `s9_wipe_project`: every sample paused on `confirm_required` and the
+  confirmed step trashed the project (`trash_project`), but the reply's
+  "its 3 tasks" count is unbacked in all 5 (e.g. "trashed the
+  Kitchen project and its 3 tasks").
+
 ### Claim accuracy
 
 `tests/claims.py` (#407, ported from chess's `honesty.claims` /
