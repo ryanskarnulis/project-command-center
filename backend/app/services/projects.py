@@ -201,7 +201,7 @@ def reorder_projects(db: Session, ordered_ids: Sequence[int]) -> Sequence[Projec
     return list_projects(db)
 
 
-def soft_delete_project(db: Session, project: Project) -> None:
+def soft_delete_project(db: Session, project: Project) -> int:
     if project.is_protected:
         raise ValueError(f'Project "{project.name}" is protected and cannot be deleted')
 
@@ -265,6 +265,9 @@ def soft_delete_project(db: Session, project: Project) -> None:
         action="deleted",
         summary=f'Project "{project.name}" deleted',
     )
+    # How many tasks went with it: the agent's answer and the delegate
+    # record say it (#520).
+    return len(deleted_ids)
 
 
 # --- Trash / restore (Sprint 7) --------------------------------------------

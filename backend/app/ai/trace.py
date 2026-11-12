@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 # The record layout's version. A reader keys off it rather than off which
 # fields happen to be present; bump it on any change a reader must branch on.
-TRACE_SCHEMA = 5
+TRACE_SCHEMA = 6
 # Schema 2 (#412) adds ``state_block`` (the text the run's user turn opened
 # with) and ``lookup_turns`` (model turns of only reads before the first turn
 # asking for anything else). Schema 1 records have neither; a reader rebuilds
@@ -52,7 +52,11 @@ TRACE_SCHEMA = 5
 # Schema 5 (#420) adds ``clarification``: the question an earlier run left
 # open as this run's state block carried it (``open``), why the newest one no
 # longer stood (``closed``), and the task ids this run's ``ask_user`` offered
-# (``asked``).
+# (``asked``). Schema 6 (#517, #516) adds ``agent_turn`` and ``agent_hop``
+# (the ``X-Agent-Turn`` and ``X-Agent-Hop`` a delegate caller sent, so the
+# record joins conductor's trace), the ``closing`` call phase (the planner's
+# tool-free closing turn, ``planner`` before) and ``closed_by_code`` (an agent
+# caller's run that ended without that turn).
 # What a record in the trace file is: one agent run. On every record so a
 # later kind (#401's context captures, a serving manifest) is never mistaken
 # for one.
@@ -64,10 +68,13 @@ KIND_RUN = "run"
 # (``ToolCallArgumentsError``); ``failed`` — no usable answer (the request
 # failed, the body failed validation, or anything else raised).
 CallStatus = Literal["ok", "truncated", "bad_args", "failed"]
-# Which phase made the call (#418): the planner's tool loop, or the tool-free
-# narrator that speaks for the run. Records before schema 4 say ``turn`` and
+# Which phase made the call (#418): a turn of the planner's tool loop, its
+# closing turn (#517: the call that came back with text, not tool calls — its
+# handoff note), or the tool-free narrator that speaks for the run. A call is
+# sent as ``planner`` and named ``closing`` once it answers without tools;
+# schema 5 said ``planner`` for both. Records before schema 4 say ``turn`` and
 # ``summary`` (the limit summary the narrator replaced, #399).
-CallPhase = Literal["planner", "narrator"]
+CallPhase = Literal["planner", "closing", "narrator"]
 
 
 def new_run_id() -> str:
@@ -159,6 +166,10 @@ class RunTrace:
     actor: str
     utterance: str
     conversation_id: int | None = None
+    # The delegate caller's turn and hop (#517): conductor's ``X-Agent-Turn``
+    # and ``X-Agent-Hop``, which its own trace keys the call by.
+    agent_turn: str | None = None
+    agent_hop: str | None = None
     model: str | None = None
     profile: str | None = None
     history_given: int = 0
@@ -176,6 +187,9 @@ class RunTrace:
     narrated: bool = False
     # Whether the reply is the delegate handoff (#482) instead.
     handed_off: bool = False
+    # Whether an agent caller's run ended without the planner's closing turn,
+    # its reply the code-built note (#516). Implies ``handed_off``.
+    closed_by_code: bool = False
     corrections: int = 0
     state_block: str | None = None
     gather: dict[str, Any] | None = None
@@ -225,6 +239,8 @@ class RunTrace:
             "started": self.started.isoformat(),
             "run_id": self.run_id,
             "conversation_id": self.conversation_id,
+            "agent_turn": self.agent_turn,
+            "agent_hop": self.agent_hop,
             "actor": self.actor,
             "utterance": self.utterance,
             "state_block": self.state_block,
@@ -250,6 +266,7 @@ class RunTrace:
             "note": result.note if result is not None else None,
             "narrated": self.narrated,
             "handed_off": self.handed_off,
+            "closed_by_code": self.closed_by_code,
             "iterations": result.iterations if result is not None else 0,
             "corrections": self.corrections,
             "tools": tools,

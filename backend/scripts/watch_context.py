@@ -17,7 +17,7 @@ pretty-printing. Separators and headers are the only additions, and the
 outcome block (read from the trace, already a summary) is the only formatted
 part. Standard library only: it needs no venv and does not import the app.
 
-``--phase`` follows one phase (``planner`` or ``narrator``); ``--json`` prints the
+``--phase`` follows one phase (``planner``, ``closing`` or ``narrator``); ``--json`` prints the
 request body instead of the rendered prompt; ``--from-start`` replays the
 files from the top instead of waiting for new lines.
 """
@@ -212,7 +212,7 @@ def main(argv: list[str] | None = None, out: TextIO = sys.stdout) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     parser.add_argument("context", type=Path, help="the PCC_CONTEXT_PATH file")
     parser.add_argument("--trace", type=Path, help="the PCC_TRACE_PATH file")
-    parser.add_argument("--phase", help="follow one phase only (planner or narrator)")
+    parser.add_argument("--phase", help="follow one phase only (planner, closing or narrator)")
     parser.add_argument(
         "--json", action="store_true", help="print the request JSON, not the prompt"
     )

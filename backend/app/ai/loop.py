@@ -84,7 +84,9 @@ nothing ran never calls it. ``cancelled`` and the failure stops never narrate:
 the user asked it to stop, or the run broke. A delegate caller (#482,
 :data:`DELEGATE_ACTORS`) speaks for itself, so wherever the narrator would
 speak its run replies with the code-built handoff (``narration.handoff``)
-and makes no narrator call.
+and makes no narrator call. When its ask names one change and that one write
+lands, the run also ends without the planner's closing turn, replying with
+the code-built note (#516, :mod:`app.ai.closing`, which says when that is safe).
 
 Every run can leave a trace (#400): with ``PCC_TRACE_PATH`` set, the loop
 appends one JSONL record per run (:mod:`app.ai.trace`) — the utterance, the
@@ -122,6 +124,7 @@ from pydantic import BaseModel, Field, PrivateAttr, ValidationError
 
 from app.ai import (
     clarification,
+    closing,
     confirmation,
     gather,
     model_profile,
@@ -450,6 +453,9 @@ class _RunContext:
     # A delegate caller (#482) speaks for itself: the run hands it the typed
     # handoff (``narration.handoff``) and the narrator is never called.
     delegate: bool = False
+    # A delegate whose ask names one change (#516, ``closing.one_change``):
+    # its one landed write ends the run with no closing turn.
+    closes_by_code: bool = False
 
 
 class ToolCallRecord(BaseModel):
@@ -497,8 +503,9 @@ class AgentRunResult(BaseModel):
     # narrator reads as a reading. ``None`` when the planner stopped at a
     # limit or failed. Not persisted; the trace keeps it.
     note: str | None = None
-    # Whether ``reply`` is the delegate handoff (#482): built by code, so its
-    # only model words are ``note``. Not persisted; the trace keeps it.
+    # Whether ``reply`` is the delegate handoff (#482) or the code-built
+    # closing note (#516): built by code, so its only model words are
+    # ``note`` (``None`` for the closing note). Not persisted; the trace keeps it.
     handed_off: bool = False
     # The confirmation a gated call armed (#503, ``stop_reason``
     # ``confirm_required``). Not persisted: the token lives in
@@ -635,11 +642,15 @@ class AgentLoop:
         run_id = str(bound.get("run_id") or run_trace.new_run_id())
         bindings["run_id"] = run_id
         conversation_id = bound.get("conversation_id")
+        agent_turn, agent_hop = bound.get("agent_turn"), bound.get("agent_hop")
         trace = run_trace.RunTrace(
             run_id=run_id,
             actor=actor,
             utterance=user_message,
             conversation_id=conversation_id if isinstance(conversation_id, int) else None,
+            # A delegate caller's turn and hop, bound by the agent route (#517).
+            agent_turn=agent_turn if isinstance(agent_turn, str) else None,
+            agent_hop=agent_hop if isinstance(agent_hop, str) else None,
             # The alias the provider sends; the weights behind it are in each
             # call's ``served_model``; the profile the request was built from
             # (#402) beside it.
@@ -765,6 +776,10 @@ class AgentLoop:
         call.status = "truncated" if result.finish_reason == _FINISH_LENGTH else "ok"
         call.finish_reason = result.finish_reason
         call.tool_calls = len(result.tool_calls)
+        if phase == "planner" and not result.tool_calls:
+            # The planner's closing turn (#517): it answered with its note,
+            # not a tool call. Only known once it has answered.
+            call.phase = "closing"
         call.meter(result.usage, result.server)
         return result
 
@@ -827,6 +842,7 @@ class AgentLoop:
             gathered=matches,
             state=block,
             delegate=actor in DELEGATE_ACTORS,
+            closes_by_code=actor in DELEGATE_ACTORS and closing.one_change(user_message),
         )
         corrections = 0
         iterations = 0
@@ -941,6 +957,7 @@ class AgentLoop:
                     trace.lookup_turns += 1
                 else:
                     trace.wrote = True
+            turn_start = len(records)
             schema_error_this_turn = False
             progressed = False
             over_cap = False
@@ -1085,7 +1102,40 @@ class AgentLoop:
                 # seen: another turn can bring nothing new back (#398).
                 logger.warning("agent_run_no_progress", tool_calls=len(result.tool_calls))
                 return self._limit_stop("no_progress", ctx, records, iteration, messages)
+            if (
+                ctx.closes_by_code
+                and iteration < self._max_iterations
+                and closing.ends_the_run(records, turn_start)
+                and not (cancel is not None and cancel.is_set())
+                and not (deadline is not None and time.monotonic() >= deadline)
+            ):
+                # The one write an agent caller asked for landed: its closing
+                # turn would only write a note nobody reads (#516). A last
+                # turn, a Stop or the deadline still end the run their way.
+                return self._closed_by_code(ctx, records, iteration, messages)
         return self._limit_stop("max_iterations", ctx, records, iterations, messages)
+
+    def _closed_by_code(
+        self,
+        ctx: _RunContext,
+        records: list[ToolCallRecord],
+        iterations: int,
+        messages: list[dict[str, Any]],
+    ) -> AgentRunResult:
+        """End an agent caller's run with the code-built note and no closing
+        turn (#516, ``closing``): ``completed``, the record as it stands."""
+        ctx.trace.handed_off = True
+        ctx.trace.closed_by_code = True
+        logger.info("agent_closed_by_code", tool_calls=len(records))
+        result = self._finish(
+            "completed",
+            closing.note([record.model_dump() for record in records]),
+            records,
+            iterations,
+            messages,
+        )
+        result.handed_off = True
+        return result
 
     def _limit_stop(
         self,

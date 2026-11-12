@@ -358,7 +358,7 @@ def test_the_watcher_prints_calls_verbatim_then_the_runs_outcome(
     ).stdout
 
     assert f"run {run_id}" in watched
-    assert "planner · seq 0" in watched and "narrator · seq 1" in watched
+    assert "closing · seq 0" in watched and "narrator · seq 1" in watched
     assert "HTTP 200" in watched
     assert _PROMPT in watched  # the rendered prompt, exactly as captured
     assert _TEXT_RESPONSE.decode("utf-8") in watched  # the raw response body

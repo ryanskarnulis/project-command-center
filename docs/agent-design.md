@@ -304,6 +304,26 @@ that.
   re-asked PCC for Beta every time. With a retry that succeeds, it said
   both were in, true 10/10. With a retry that hit the limit again, it said
   both were in 3/10.
+
+  **No closing turn for one landed change** (#516, `app/ai/closing.py`,
+  delegate-api "Agent callers and the closing note"). Conductor reads the
+  typed record, so the planner's closing turn (~0.5 s) writes a note nobody
+  reads. But the planner only says it is done *in* that turn, and it writes
+  one call per turn whenever the next needs the last one's id: a task then
+  its pin, a project then its tasks, a task then its subtask or blocker. A
+  landed write alone never says the work is done. So a delegate run ends
+  without the closing turn only when the ask names one change
+  (`closing.one_change`: one line, one sentence, no joiner, plural target or
+  word for a second change), that turn made exactly one call, a write that
+  landed and the run's only one, and turns, Stop and deadline are all
+  untouched. Its reply is `closing.note`, built from the typed record: one
+  sentence per landed write (verb, kind, id, the stored title verbatim, a
+  project's task count, a create's due date, an update's changed fields) and
+  one per refusal with its reason. A `Confirm-Token` answer replies with the
+  same note. Every other run keeps its closing turn and the handoff above.
+  The trace marks it `closed_by_code`; the eval claim reader has no model
+  words to grade, and `test_delegate_closing.py` holds each note to the
+  claim reader in CI.
 - **Stop reasons**: `completed`, `max_iterations`, `correction_limit`,
   `truncated`, `no_progress`, `tool_call_limit` and `cancelled` return 200; `provider_error` (502), `timed_out` (504) and
   `internal_error` (500) are failures. Every one persists a truthful assistant

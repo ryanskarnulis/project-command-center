@@ -69,8 +69,11 @@ _UNDO: dict[str, tuple[str, str, str] | str] = {
     "restore_focus_entry": ("remove_focus_entry", "entry_id", "take it off the Focus plan"),
 }
 
-# A sentence answer names its row as ``Task 41 "Pay rent"``.
-_SENTENCE_TITLE = re.compile(r'"([^"]*)"')
+# A sentence answer names its row as ``Task 41 "Pay rent"``. Read to the last
+# quote, so a title that holds straight double quotes itself (#522) is whole.
+_SENTENCE_TITLE = re.compile(r'"(.*)"')
+# What a trash answer says went with its row (#520): ``and its 3 tasks``.
+_SENTENCE_WENT = re.compile(r"\band its (\d+) (?:sub)?tasks?\b")
 
 Outcome = Literal["done", "refused", "looked_up", "not_run"]
 
@@ -137,6 +140,12 @@ def entry(call: _Call) -> RecordEntry:
     total = _total(call.result)
     if total is not None and total > len(record.touched or []):
         record.count = total
+    went = _went_with(call.result) if outcome == "done" else 0
+    if went and record.touched:
+        # The rows that went with the one it names (a project's tasks): the
+        # count is every row the call changed, as a confirmation's preview
+        # counts them (#503, #520).
+        record.count = max(record.count or 0, len(refs)) + went
     if outcome == "done":
         record.undo = _undo(call)
     return record
@@ -222,6 +231,19 @@ def _total(result: str | None) -> int | None:
     if isinstance(value, dict) and isinstance(value.get("total"), int):
         return int(value["total"])
     return None
+
+
+def _went_with(result: str | None) -> int:
+    """How many rows a write says went with the one it names: a restore's
+    ``restored_task_count``, or a trash sentence's ``and its 3 tasks``."""
+    try:
+        value = json.loads(result or "")
+    except ValueError:
+        match = _SENTENCE_WENT.search(result or "")
+        return int(match.group(1)) if match else 0
+    if isinstance(value, dict) and isinstance(value.get("restored_task_count"), int):
+        return int(value["restored_task_count"])
+    return 0
 
 
 def _undo(call: _Call) -> Undo:

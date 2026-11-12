@@ -37,7 +37,7 @@ the chat template rendered, then the raw response. When the run record is
 written, the run's outcome follows: the ask, every tool call and its answer,
 the stop reason and the reply. Options go after the paths:
 
-- `--phase planner` (or `narrator`) follows one phase.
+- `--phase planner` (or `closing`, or `narrator`) follows one phase.
 - `--json` prints the request body instead of the rendered prompt.
 - `--from-start` replays the files from the top instead of waiting at the end.
 
@@ -87,13 +87,14 @@ The capture file stays until you delete it:
 
 ## What a record holds
 
-One JSONL line per model call (`kind: "model_call"`, `schema: 1`), written
+One JSONL line per model call (`kind: "model_call"`, `schema: 2`; schema 2, #517, added `agent_turn` and `agent_hop`), written
 when the call ends:
 
 | Field | Meaning |
 | --- | --- |
 | `run_id` | The run, the same id as the trace record's `run_id`. `null` for a call made outside a run (a probe, a script). |
-| `phase` | `planner` or `narrator` (`turn` or `summary` before #418), as in the trace's `calls[].phase`; `unknown` outside the loop. |
+| `agent_turn`, `agent_hop` | The delegate caller's `X-Agent-Turn` and `X-Agent-Hop` (#517), as on the trace record; `null` when not sent. |
+| `phase` | `planner`, `closing` or `narrator` (`turn` or `summary` before #418), as in the trace's `calls[].phase`: a call sent as `planner` whose response holds no tool calls is `closing` (schema 1 said `planner`); `unknown` outside the loop. |
 | `seq` | The call's place among the calls its run sent, from 0, counted when it was sent. `(run_id, seq)` is the trace record's `calls[seq]`. |
 | `started_at`, `ended_at`, `ms` | Wall clock (UTC ISO; ms includes the template render). |
 | `url` | Where the request went. |

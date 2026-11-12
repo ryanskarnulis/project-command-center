@@ -274,11 +274,18 @@ def _is_noop_move(call: ToolCall, due_seen: Mapping[int, Any]) -> bool:
     return bool(changes["due_date"] == due_seen[task_id])
 
 
+# What a trash answer says went with its row: ``and its 3 tasks`` (#520).
+_WENT_WITH = re.compile(r"\band its (\d+) (?:sub)?tasks?\b")
+
+
 def _result_counts(value: Any) -> set[int]:
     """The counts a write's result reports: integers under a ``*_count`` key
     and list lengths. Not every integer, so a created task's id can't back
-    "I created 12 tasks"."""
+    "I created 12 tasks". A sentence answer counts what it says went with
+    its row (#520: ``Project 7 "Kitchen" and its 3 tasks moved to trash``)."""
     found: set[int] = set()
+    if isinstance(value, str):
+        return {int(n) for n in _WENT_WITH.findall(value)}
     for node in _walk(value):
         if isinstance(node, list):
             found.add(len(node))

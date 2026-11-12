@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 # The record layouts this reader understands (``TRACE_SCHEMA`` in trace.py).
-KNOWN_SCHEMAS = {1, 2, 3, 4, 5}
+KNOWN_SCHEMAS = {1, 2, 3, 4, 5, 6}
 # The registry's read-only tools (``registry.read_only_tool_names()``), by the
 # naming they all follow — this reader imports nothing from the app.
 _READ_PREFIXES = ("list_", "get_")
@@ -147,11 +147,16 @@ def detail(record: dict[str, Any]) -> str:
         stop += f" (limit {limit}" + (f"={limits[limit]})" if limit in limits else ")")
     if record.get("summarised"):  # schema <= 3
         stop += ", reply is the limit summary"
+    elif record.get("closed_by_code"):  # schema >= 6
+        stop += ", reply is the code-built note (no closing turn)"
     elif "narrated" in record and not record["narrated"] and record.get("reply") is not None:
         stop += ", reply is the planner's note (the narrator could not speak)"
+    joins = ""
+    if record.get("agent_turn") or record.get("agent_hop"):
+        joins = f"  turn {record.get('agent_turn')}  hop {record.get('agent_hop')}"
     lines = [
         f"run {record.get('run_id')}  conv {record.get('conversation_id')}  "
-        f"{record.get('actor')}  {record.get('ts')}",
+        f"{record.get('actor')}  {record.get('ts')}{joins}",
         f"  ask:     {clip(record.get('utterance', ''), 300)!r}",
         _history_line(history),
         f"  lookups: {lookup_turns(record)} turn(s) of only reads before the first write",
