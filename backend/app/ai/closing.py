@@ -92,8 +92,11 @@ _VERBS = {
     "edit": "Edited",
     "reorder": "Reordered",
 }
-# The rows that went with a project's trash or restore are its tasks.
-_WITH_TASKS = frozenset({"trash_project", "restore_project"})
+# What a project's trash answer says went with it (#520): ``and its 3 tasks``.
+# Read from the tool's answer, not the record: the record's ``count`` is the
+# rows its refs are of one kind with, and a client names a count by the kind
+# of its first ref (conductor's narrator would say "4 projects").
+_WENT_WITH = re.compile(r"\band its (\d+) tasks?\b")
 # The arguments that name a row rather than change it.
 _NAMING = frozenset({"task_id", "project_id", "entry_id", "series_id", "dependency_id"})
 # Refs one sentence names before "and N more".
@@ -102,11 +105,12 @@ _VALUE_CHARS = 40
 
 
 def note(tool_calls: Sequence[Mapping[str, Any]]) -> str:
-    """The note for a run's calls (stored ``tool_calls`` dicts), from the
-    typed record alone: one sentence per write that landed, with its verb and
-    what it touched (kind, id and stored title, verbatim) or how many, and
-    one per call the service layer refused, with its reason. Reads are left
-    out; the record lists them."""
+    """The note for a run's calls (stored ``tool_calls`` dicts): one sentence
+    per write that landed, with its verb and what the typed record says it
+    touched (kind, id and stored title, verbatim) or how many, plus what its
+    answer says went with it (a project's tasks); and one per call the
+    service layer refused, with its reason. Reads are left out; the record
+    lists them."""
     sentences: list[str] = []
     for call, entry in zip(tool_calls, receipts.build(tool_calls), strict=True):
         if entry.outcome == "done":
@@ -126,12 +130,28 @@ def _done(call: Mapping[str, Any], entry: receipts.RecordEntry) -> str:
     named = ", ".join(_ref(ref) for ref in refs[:_NAMED])
     said = f"{verb} {named}"
     rest = (entry.count or len(refs)) - min(len(refs), _NAMED)
-    if entry.tool in _WITH_TASKS and entry.count and entry.count > len(refs):
-        went = entry.count - len(refs)
-        said += f" and its {went} {'task' if went == 1 else 'tasks'}"
-    elif rest > 0:
+    if rest > 0:
         said += f" and {rest} more"
+    went = _went_with(call)
+    if went:
+        said += f" and its {went} {'task' if went == 1 else 'tasks'}"
     return said + _details(call, entry) + "."
+
+
+def _went_with(call: Mapping[str, Any]) -> int:
+    """How many tasks a project's trash or restore answer says went with it:
+    the trash sentence's ``and its 3 tasks``, a restore's
+    ``restored_task_count``."""
+    result = call.get("result") or ""
+    try:
+        answer = json.loads(result)
+    except ValueError:
+        match = _WENT_WITH.search(result) if call.get("tool") == "trash_project" else None
+        return int(match.group(1)) if match else 0
+    if call.get("tool") == "restore_project" and isinstance(answer, dict):
+        count = answer.get("restored_task_count")
+        return count if isinstance(count, int) and not isinstance(count, bool) else 0
+    return 0
 
 
 def _ref(ref: receipts.EntityRef) -> str:

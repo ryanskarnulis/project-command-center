@@ -318,7 +318,7 @@ that.
   landed and the run's only one, and turns, Stop and deadline are all
   untouched. Its reply is `closing.note`, built from the typed record: one
   sentence per landed write (verb, kind, id, the stored title verbatim, a
-  project's task count, a create's due date, an update's changed fields) and
+  project's task count from its trash or restore answer, a create's due date, an update's changed fields) and
   one per refusal with its reason. A `Confirm-Token` answer replies with the
   same note. Every other run keeps its closing turn and the handoff above.
   The trace marks it `closed_by_code`; the eval claim reader has no model
@@ -832,8 +832,10 @@ and count missed: the gain is partly that. `m3`'s ask holds a context
 paragraph, so it keeps its closing turn and is graded as before. Stored
 titles: `Sort "Honey"` 2/5 and `Sort Honey` 3/5 (the model dropped the quotes
 itself; nothing adds them back); `Sort the album "Honey"` 5/5. `s9`'s yes
-replies `Trashed project 3 "Kitchen" and its 3 tasks.`, the record counting
-4 rows (#520).
+replies `Trashed project 3 "Kitchen" and its 3 tasks.` (#520). The count is
+in the tool's answer and the note only: the record keeps main's shape
+(`touched` the project, no `count`), since a client names a count by its
+first ref's kind and would read 4 rows as "4 projects".
 
 ### Claim accuracy
 

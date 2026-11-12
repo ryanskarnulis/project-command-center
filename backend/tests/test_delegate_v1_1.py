@@ -325,9 +325,10 @@ def test_every_write_has_an_undo_rule() -> None:
 # --- what went with a project (#520) -----------------------------------------------
 
 
-def test_a_project_trash_counts_the_tasks_that_went_with_it() -> None:
-    """The record counts every row the trash changed: the project and its
-    tasks, as the confirmation's preview counts them (#503)."""
+def test_a_project_trash_record_keeps_mains_shape() -> None:
+    """The trash answer now says how many tasks went (#520), but the record
+    names only the project and sends no ``count``, as before: a client names
+    a count by its first ref's kind, so 4 would read as "4 projects"."""
     [entry] = receipts.dump(
         receipts.build(
             [
@@ -341,10 +342,10 @@ def test_a_project_trash_counts_the_tasks_that_went_with_it() -> None:
         )
     )
     assert entry["touched"] == [{"app": "tasks", "kind": "project", "id": "7", "title": "Kitchen"}]
-    assert entry["count"] == 4
+    assert "count" not in entry
 
 
-def test_a_project_restore_counts_the_tasks_that_came_back() -> None:
+def test_a_project_restore_record_keeps_mains_shape() -> None:
     restored = {
         "project": {"id": 7, "name": "Kitchen", "closed_at": None},
         "restored_task_count": 3,
@@ -361,7 +362,7 @@ def test_a_project_restore_counts_the_tasks_that_came_back() -> None:
         )
     )
     assert entry["touched"] == [{"app": "tasks", "kind": "project", "id": "7", "title": "Kitchen"}]
-    assert entry["count"] == 4
+    assert "count" not in entry
 
 
 def test_a_title_with_quotes_in_a_sentence_answer_is_read_whole() -> None:

@@ -334,7 +334,7 @@ def test_the_apps_own_yes_is_answered_by_code(
     assert len(provider.requests) == 1
     assert body["stop_reason"] == "completed"
     [entry] = body["record"]
-    assert entry["count"] == 4
+    assert "count" not in entry  # the record's shape is main's (#520)
     assert body["content"] == f'Trashed project {project_id} "Kitchen" and its 3 tasks.'
 
 
@@ -400,6 +400,17 @@ def test_the_note_for_several_writes_names_each_in_order() -> None:
 
 def test_the_note_for_a_project_trash_says_what_went_with_it() -> None:
     assert closing.note([TRASHED]) == 'Trashed project 7 "Kitchen" and its 3 tasks.'
+
+
+def test_the_note_for_a_project_restore_says_what_came_back() -> None:
+    restored = {
+        "tool": "restore_project",
+        "arguments": {"project_id": 7, "restore_tasks": True},
+        "result": json.dumps(
+            {"project": {"id": 7, "name": "Kitchen", "closed_at": None}, "restored_task_count": 3}
+        ),
+    }
+    assert closing.note([restored]) == 'Restored project 7 "Kitchen" and its 3 tasks.'
 
 
 def test_every_note_is_backed_by_its_run() -> None:
