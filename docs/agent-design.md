@@ -324,6 +324,19 @@ that.
   The trace marks it `closed_by_code`; the eval claim reader has no model
   words to grade, and `test_delegate_closing.py` holds each note to the
   claim reader in CI.
+
+  **Measured** (2026-11-12, gemma-4-12b, as `agent:conductor`, a shared GPU).
+  Writes landed, skip off / on (as shipped) / naive (the one-change guard
+  forced true, never shipped): "add three tasks: …" 60/60 / 60/60 / 15/15
+  (one batched turn, so never closed by code); "add a task to call the vet
+  and make it due friday" 20/20 / 20/20 / 5/5 (one create carrying the date);
+  "create a Garden project with tasks …" 60/60 / 60/60 / **5/15** (the naive
+  rule ended every run after the project, 0/5 end states met); "add a task
+  to call the vet due friday" 20/20 / 20/20 (closed by code 20/20, one model
+  call instead of two) / 5/5. Every off and on end state was met. A delegated
+  task write (`conductor_s2_add_task`): 2 PCC model calls before, 1.37 s
+  median with the closing turn 0.66–0.68 s on a quiet GPU; 1 call after.
+  Paired under load: 3.10 s off, 1.58 s on (median of 8).
 - **Stop reasons**: `completed`, `max_iterations`, `correction_limit`,
   `truncated`, `no_progress`, `tool_call_limit` and `cancelled` return 200; `provider_error` (502), `timed_out` (504) and
   `internal_error` (500) are failures. Every one persists a truthful assistant
@@ -810,6 +823,17 @@ tuned, never gated: 6 scenarios, 35 samples, 56 s, infra 0/25, claims backed
   confirmed step trashed the project (`trash_project`), but the reply's
   "its 3 tasks" count is unbacked in all 5 (e.g. "trashed the
   Kitchen project and its 3 tasks").
+
+**Second measurement, 2026-11-12, after #516, #520 and #522** (default n, a
+shared GPU): every scenario 5/5, claims backed 15/15. Most runs are now
+answered by the code-built note (`closed_by_code`), which has no model words
+for the claim reader, so `s3` and `s9` no longer have the note whose quotes
+and count missed: the gain is partly that. `m3`'s ask holds a context
+paragraph, so it keeps its closing turn and is graded as before. Stored
+titles: `Sort "Honey"` 2/5 and `Sort Honey` 3/5 (the model dropped the quotes
+itself; nothing adds them back); `Sort the album "Honey"` 5/5. `s9`'s yes
+replies `Trashed project 3 "Kitchen" and its 3 tasks.`, the record counting
+4 rows (#520).
 
 ### Claim accuracy
 
