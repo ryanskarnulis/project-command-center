@@ -19,6 +19,9 @@ agent:
   # Trashing a task or project is gated in code and asks (#503), so conductor
   # delegates it straight through (../agent-standard/app-yaml-agent-block.md).
   confirms: true
+  # Takes delegate v1.2's context and read mode, and says needs_input when it
+  # asks (#527, ../agent-standard/delegate-api.md "v1.2").
+  context: true
   examples:
     - "what's due today"
     - "add a task to fix the fence to the house project"

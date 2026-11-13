@@ -230,6 +230,8 @@ _FLOORS: dict[str, float] = {
         "reference_first_to_friday",
         "delegate_thread",
         "delegate_confirm_trash",
+        "delegate_read_mode",
+        "delegate_context_ref",
         "compose_create_and_pin",
         "compose_move_due_today",
         "compose_finish_and_follow_up",
@@ -448,6 +450,8 @@ class _RecordingLoop(AgentLoop):
         deadline: float | None = None,
         cancel: threading.Event | None = None,
         gate: confirmation.Gate | None = None,
+        context: Mapping[str, Any] | None = None,
+        read_mode: bool = False,
     ) -> AgentRunResult:
         _warm_vectors()
         result = super().run(
@@ -457,6 +461,8 @@ class _RecordingLoop(AgentLoop):
             deadline=deadline,
             cancel=cancel,
             gate=gate,
+            context=context,
+            read_mode=read_mode,
         )
         self.runs.append((actor, result))
         return result
@@ -542,6 +548,8 @@ class Step:
     events: tuple[EventRow, ...]
     # The typed record the route returned with the turn (delegate v1.1, #502).
     typed_record: tuple[dict[str, Any], ...] = ()
+    # What the turn asked the person, as the route said it (delegate v1.2, #527).
+    needs_input: dict[str, Any] | None = None
 
     @property
     def reply(self) -> str:
@@ -727,11 +735,15 @@ class Sample:
         content: str,
         headers: dict[str, str],
         loop: _RecordingLoop,
+        body: Mapping[str, Any] | None = None,
     ) -> httpx.Response:
-        """One run through the agent route; a failure status ends the sample."""
+        """One run through the agent route; a failure status ends the sample.
+        ``body`` adds delegate v1.2 fields (``context``, ``mode``) to the message."""
         started = time.monotonic()
         self.prompt = content
-        response = client.post(url, json={"content": content}, headers=headers)
+        response = client.post(
+            url, json={"content": content, **(body or {})}, headers=headers
+        )
         if response.status_code != 200:
             try:
                 detail = str(response.json().get("detail"))
@@ -843,6 +855,7 @@ class Sample:
         *,
         thread: Sequence[tuple[str, str]] = (),
         headers: Mapping[str, str] | None = None,
+        body: Mapping[str, Any] | None = None,
     ) -> Thread:
         """Drive a scripted thread through the conversation route (#389, #405).
 
@@ -881,7 +894,12 @@ class Sample:
                     step_started = time.monotonic()
                     runs = len(loop.runs)
                     response = self.post_message(
-                        client, url, content=ask, headers=dict(headers or {}), loop=loop
+                        client,
+                        url,
+                        content=ask,
+                        headers=dict(headers or {}),
+                        loop=loop,
+                        body=body,
                     )
                     if len(loop.runs) != runs + 1:
                         raise RuntimeError(f"step {index} ran {len(loop.runs) - runs} loops")
@@ -900,6 +918,7 @@ class Sample:
                         world=world,
                         events=world.events[len(previous.events) :],
                         typed_record=tuple(response.json()["assistant_message"].get("record") or ()),
+                        needs_input=response.json()["assistant_message"].get("needs_input"),
                     )
                     state.steps.append(step)
                     self.steps.append(step)
@@ -2726,6 +2745,82 @@ def _delegate_confirm_trash(sample: Sample) -> None:
     )
 
 
+# --- Delegate v1.2: context, read mode, needs_input (#527) ------------------------
+
+
+def _seed_bills(sample: Sample) -> dict[str, int]:
+    """Three open tasks in Home, two of them about paying; ids by title."""
+    with sample.db() as db:
+        home = projects_service.create_project(db, name="Home")
+        titles = ("Pay rent", "Pay the dentist bill", "Book dentist appointment")
+        ids = {t: tasks_service.create_task(db, project_id=home.id, title=t).id for t in titles}
+        db.commit()
+        return ids
+
+
+def _delegate_read_mode(sample: Sample) -> None:
+    """``mode: "read"`` on an ask that also asks for a write: no write lands,
+    and the run still answers from its reads (``not_run``, "not run: read
+    mode")."""
+    delegate = "agent:conductor"
+    _seed_bills(sample)
+
+    def check(thread: Thread) -> None:
+        _assert_completed(thread)
+        _assert_wrote_nothing(thread)
+        step = thread.step
+        assert not any(e["outcome"] == "done" for e in step.typed_record), step.typed_record
+        assert any(e["outcome"] == "looked_up" for e in step.typed_record), step.typed_record
+        assert step.reply.strip(), "no answer"
+
+    sample.converse(
+        [("Is the rent paid? If not, mark it done.", check)],
+        headers={"X-Agent-Actor": delegate},
+        body={"mode": "read"},
+    )
+
+
+def _delegate_context_ref(sample: Sample) -> None:
+    """The words point ("this one") and only ``context.refs`` says which: the
+    caller's ref, with our id, picks the task (conductor#145 decision 2's
+    "drop the title once evals pass" path)."""
+    delegate = "agent:conductor"
+    ids = _seed_bills(sample)
+    rent = ids["Pay rent"]
+    ref = {"app": "tasks", "kind": "task", "id": str(rent), "title": "Pay rent"}
+
+    def check(thread: Thread) -> None:
+        _assert_completed(thread)
+        _assert_only(thread, rent, actor=delegate)
+        assert thread.step.world.tasks[rent].status == "done", thread.step.world.tasks[rent]
+
+    sample.converse(
+        [("Mark this one done.", check)],
+        headers={"X-Agent-Actor": delegate},
+        body={"context": {"refs": [ref]}},
+    )
+
+
+def _delegate_needs_input(sample: Sample) -> None:
+    """Two tasks fit and nothing tells them apart: the reply says
+    ``needs_input`` with both as candidates, and nothing is written."""
+    delegate = "agent:conductor"
+    ids = _seed_bills(sample)
+    dentist = {ids["Pay the dentist bill"], ids["Book dentist appointment"]}
+
+    def check(thread: Thread) -> None:
+        _assert_completed(thread)
+        _assert_wrote_nothing(thread)
+        asked = thread.step.needs_input
+        assert asked is not None, f"no needs_input; {_trajectory(thread.step.result)}"
+        assert {int(c["id"]) for c in asked["candidates"]} == dentist, asked
+
+    sample.converse(
+        [("Mark the dentist one done.", check)],
+        headers={"X-Agent-Actor": delegate},
+    )
+
+
 # --- Compositions, date math and misheard speech (#406) -----------------------
 #
 # Every scenario above asks for one thing, in clean text. These three families
@@ -3302,6 +3397,22 @@ def test_eval_delegate_thread() -> None:
 
 def test_eval_delegate_confirm_trash() -> None:
     _gate("delegate_confirm_trash", _delegate_confirm_trash)
+
+
+def test_eval_delegate_read_mode() -> None:
+    _gate("delegate_read_mode", _delegate_read_mode)
+
+
+def test_eval_delegate_context_ref() -> None:
+    _gate("delegate_context_ref", _delegate_context_ref)
+
+
+def test_eval_delegate_needs_input() -> None:
+    # Measured, not gating: whether the planner asks at all is the frontier's
+    # ambiguous_then_pick (0/5 on gemma-4-12b, docs/agent-frontier.md); the
+    # code path from a landed ask to needs_input is pinned in
+    # tests/test_delegate_v1_2.py.
+    _gate("delegate_needs_input", _delegate_needs_input, tier="frontier")
 
 
 # Compositions, dates and speech (#406).

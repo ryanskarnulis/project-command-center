@@ -227,7 +227,7 @@ Key decisions:
   here (the audit log records only mutations and can't reconstruct it), while
   `activity_events` remains the audit source of truth for what changed. A
   user turn may carry the delegate's `idempotency_key` (indexed with its
-  conversation).
+  conversation), and a v1.2 caller's `context` and `mode` for audit.
 - **`tasks` read-path indexes** back the hot list/read queries: `deleted_at`
   (active-task list, search, and the trash `deleted_at IS NOT NULL` scan) plus
   single `project_id`, `parent_task_id`, `recurrence_id`, plus the partial unique
@@ -575,6 +575,17 @@ failed run's partial `record`, `stop_reason` and `assistant_message_id`. An
 same thread replays the stored answer and never runs the loop again; an
 exchange that never finished is a 409, and different words under the key are
 a 422.
+
+It also takes v1.2 (#527, `app/ai/delegate_context.py`; `agent.context: true`
+in `app.yaml`). A message may carry `context` (up to 20 entity refs and 5
+saved facts), which the planner reads after the words as quoted data: PCC's
+own refs with their ids, another app's by name, outside titles marked.
+`mode: "read"` stops every call the registry doesn't mark read-only before the
+service layer (`not_run`, "not run: read mode"), and the run answers from its
+reads; a `Confirm-Token` on such a message is a 422. A landed `ask_user` in a
+run that did nothing is `assistant_message.needs_input {question,
+candidates}`, built by code. A retry under an `Idempotency-Key` must match the
+words, `context` and `mode`.
 
 Destructive delegate writes are confirmed structurally (#503,
 `app/ai/confirmation.py`). On a delegate run, `trash_task` and `trash_project`

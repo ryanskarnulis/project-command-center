@@ -448,6 +448,11 @@ class ConversationMessage(Base, TimestampMixin):
     # The delegate's ``Idempotency-Key`` for the exchange this user turn opened
     # (delegate-api v1.1, #502). A retry under it replays the stored answer.
     idempotency_key: Mapped[str | None] = mapped_column(String(128), default=None)
+    # What a v1.2 caller sent beside the words (#527): ``context`` (entity refs
+    # and saved facts) and ``mode`` (``"read"``), kept with the user turn for
+    # audit. History replays the words only.
+    context: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+    mode: Mapped[str | None] = mapped_column(String(16), default=None)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 
