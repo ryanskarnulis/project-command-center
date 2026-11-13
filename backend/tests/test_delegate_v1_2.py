@@ -108,8 +108,15 @@ def test_context_reaches_the_planner_after_the_words_as_data(
     ).scalar_one()
     assert stored.context == {
         "refs": [
-            {"app": "tasks", "kind": "task", "id": "41", "title": "Pay rent", "untrusted": False},
-            HONEY,
+            {
+                "app": "tasks",
+                "kind": "task",
+                "id": "41",
+                "title": "Pay rent",
+                "untrusted": False,
+                "picked": False,
+            },
+            {**HONEY, "picked": False},
         ],
         "facts": ["I sort music on Sundays"],
     }
@@ -284,3 +291,16 @@ def test_a_run_that_wrote_before_it_asked_is_not_needs_input() -> None:
     assert delegate_context.needs_input([ask]) is not None
     assert delegate_context.needs_input([wrote, ask]) is None
     assert delegate_context.needs_input([{**ask, "result": None, "error": "nope"}]) is None
+
+
+def test_a_picked_ref_is_accepted_and_marked_for_the_planner(client: TestClient) -> None:
+    """conductor#196: the person's answer to an ``ask_user`` comes back as the
+    candidate it picked, ``picked: true``."""
+    provider = ScriptedProvider([text_turn("ok")])
+    _use_loop(provider)
+    ref = {"app": "tasks", "kind": "task", "id": "7", "title": "Pay the bill", "picked": True}
+
+    response = _post(client, _thread(client), {"content": "the second one", "context": {"refs": [ref]}})
+
+    assert response.status_code == 200
+    assert "- task 7 “Pay the bill”, the person's pick from your question" in _planner_turn(provider)
