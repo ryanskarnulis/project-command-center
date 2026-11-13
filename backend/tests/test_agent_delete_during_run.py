@@ -43,6 +43,8 @@ class _BlockedLoop:
         deadline: float,
         cancel: object = None,
         gate: object = None,
+        context: object = None,
+        read_mode: bool = False,
     ) -> AgentRunResult:
         self.running.set()
         self.release.wait(timeout=10.0)

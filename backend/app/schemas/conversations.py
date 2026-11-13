@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, computed_field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, computed_field
 
 from app.db.models import ConversationRole
 from app.schemas.common import MutationModel, NonBlankStr, UTCDateTime
@@ -44,8 +44,38 @@ class ConversationRead(BaseModel):
     updated_at: UTCDateTime
 
 
+# Delegate-api v1.2 (#527): at most this many refs and facts ride a message.
+MAX_CONTEXT_REFS = 20
+MAX_CONTEXT_FACTS = 5
+MAX_FACT_CHARS = 200
+
+_ContextText = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_FACT_CHARS)
+]
+
+
+class ContextRef(MutationModel):
+    """An entity ref in the record's shape: what the person's words point at."""
+
+    app: _ContextText
+    kind: _ContextText
+    id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
+    title: _ContextText | None = None
+    untrusted: bool = False
+
+
+class MessageContext(MutationModel):
+    """Data beside the person's words, never instructions (delegate-api v1.2)."""
+
+    refs: Annotated[list[ContextRef], Field(max_length=MAX_CONTEXT_REFS)] = []
+    facts: Annotated[list[_ContextText], Field(max_length=MAX_CONTEXT_FACTS)] = []
+
+
 class MessageCreate(MutationModel):
     content: AgentMessageText
+    # Delegate-api v1.2 (#527); absent on a v1.1 caller.
+    context: MessageContext | None = None
+    mode: Literal["read"] | None = None
 
 
 class ToolCallRead(BaseModel):
@@ -89,6 +119,19 @@ class MessageRead(BaseModel):
 
         calls = [call.model_dump() for call in self.tool_calls or []]
         return receipts.dump(receipts.build(calls))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def needs_input(self) -> dict[str, Any] | None:
+        """What the turn asked the person (delegate-api v1.2, #527): a landed
+        ``ask_user`` in a run that did nothing, as ``{question, candidates}``.
+        Built by code from ``tool_calls`` on every read; ``None`` otherwise."""
+        if self.role != ConversationRole.assistant:
+            return None
+        from app.ai import delegate_context
+
+        calls = [call.model_dump() for call in self.tool_calls or []]
+        return delegate_context.needs_input(calls)
 
 
 class ConversationDetail(ConversationRead):

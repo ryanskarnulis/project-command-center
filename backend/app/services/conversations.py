@@ -260,8 +260,14 @@ def append_user_message(
     conversation: Conversation,
     content: str,
     idempotency_key: str | None = None,
+    *,
+    context: dict[str, Any] | None = None,
+    mode: str | None = None,
 ) -> ConversationMessage:
-    """Store one user turn; an untitled conversation is titled from it."""
+    """Store one user turn; an untitled conversation is titled from it.
+
+    ``context`` and ``mode`` are a delegate-api v1.2 caller's (#527), kept
+    with the turn for audit."""
     if conversation.title is None:
         conversation.title = _derive_title(content)
     message = ConversationMessage(
@@ -269,6 +275,8 @@ def append_user_message(
         role=ConversationRole.user,
         content=content,
         idempotency_key=idempotency_key,
+        context=context,
+        mode=mode,
     )
     conversation.updated_at = utcnow()
     db.add(message)

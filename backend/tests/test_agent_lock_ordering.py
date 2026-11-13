@@ -63,6 +63,8 @@ class _WritingLoop:
         deadline: float,
         cancel: object = None,
         gate: object = None,
+        context: object = None,
+        read_mode: bool = False,
     ) -> AgentRunResult:
         self._running.set()
         self._follower_arrived.wait(timeout=FOLLOWER_ARRIVAL_SECONDS)

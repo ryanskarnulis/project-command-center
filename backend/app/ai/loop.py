@@ -114,7 +114,7 @@ import json
 import threading
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
@@ -128,6 +128,7 @@ from app.ai import (
     clarification,
     closing,
     confirmation,
+    delegate_context,
     gather,
     model_profile,
     narration,
@@ -596,8 +597,15 @@ class AgentLoop:
         deadline: float | None = None,
         cancel: threading.Event | None = None,
         gate: confirmation.Gate | None = None,
+        context: Mapping[str, Any] | None = None,
+        read_mode: bool = False,
     ) -> AgentRunResult:
         """Run the loop for one user message. Always returns or raises cleanly.
+
+        ``context`` and ``read_mode`` are a delegate-api v1.2 caller's (#527):
+        refs and facts the planner reads after the words, as data; and no
+        write reaches the service layer (each is recorded ``not run: read
+        mode`` and the run goes on from its reads).
 
         ``gate`` (a delegate run, #503) holds back destructive calls: a gated
         call it doesn't allow arms a confirmation, is recorded not run, and the
@@ -669,7 +677,15 @@ class AgentLoop:
         with structlog.contextvars.bound_contextvars(**bindings):
             try:
                 result = self._run(
-                    user_message, history, actor, deadline, cancel, trace, gate
+                    user_message,
+                    history,
+                    actor,
+                    deadline,
+                    cancel,
+                    trace,
+                    gate,
+                    context=context,
+                    read_mode=read_mode,
                 )
             except AgentRunFailed as exc:
                 exc.result.run_id = run_id
@@ -830,6 +846,9 @@ class AgentLoop:
         cancel: threading.Event | None,
         trace: run_trace.RunTrace,
         gate: confirmation.Gate | None = None,
+        *,
+        context: Mapping[str, Any] | None = None,
+        read_mode: bool = False,
     ) -> AgentRunResult:
         specs = registry.tool_specs()
         # A question an earlier run asked and nobody answered (#420), kept
@@ -858,6 +877,10 @@ class AgentLoop:
             matches,
             recall.section(earlier, recall.PLANNER_REPLY_LABEL),
         )
+        # A v1.2 caller's refs and facts come after the words, as data (#527).
+        given = delegate_context.section(context)
+        if given is not None:
+            user_turn = f"{user_turn}\n\n{given}"
         read_only = registry.read_only_tool_names()
         trace.system_prompt_sha256 = PLANNER_PROMPT_SHA256
         trace.narrator_prompt_sha256 = NARRATOR_PROMPT_SHA256
@@ -895,6 +918,8 @@ class AgentLoop:
             "agent_run_started",
             tools=len(specs),
             history_messages=len(history or []),
+            context=given is not None,
+            read_mode=read_mode,
         )
         for iteration in range(1, self._max_iterations + 1):
             iterations = iteration
@@ -1052,6 +1077,23 @@ class AgentLoop:
                     )
                     over_cap = True
                     break
+                if read_mode and call.name not in read_only:
+                    # Read mode (#527): a write never reaches the service
+                    # layer. The model is told so and the run goes on from
+                    # its reads; a repeat of the same refusal is no progress.
+                    self._skip_remaining(
+                        [call],
+                        records,
+                        messages,
+                        error=delegate_context.READ_MODE_ERROR,
+                        reason="read_mode",
+                    )
+                    refused = _exchange_key(
+                        call.name, call.arguments, delegate_context.READ_MODE_ERROR
+                    )
+                    progressed = progressed or refused not in seen
+                    seen.add(refused)
+                    continue
                 if (
                     gate is not None
                     and gate.gated(call.name)

@@ -14,14 +14,14 @@ import re
 import time
 from datetime import date
 from collections.abc import Generator, Sequence
-from typing import Annotated
+from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.ai import closing, confirmation
+from app.ai import closing, confirmation, delegate_context
 from app.ai.loop import (
     DELEGATE_ACTORS,
     AgentLoop,
@@ -269,10 +269,13 @@ def _failure_response(
 
 
 def _replayed(
-    content: str, asked: ConversationMessage, answered: ConversationMessage | None
+    data: MessageCreate, asked: ConversationMessage, answered: ConversationMessage | None
 ) -> MessageExchange | JSONResponse:
-    """The answer to a retried ``Idempotency-Key``: never a second run."""
-    if asked.content != content:
+    """The answer to a retried ``Idempotency-Key``: never a second run. The
+    retry must be the same message: its words, and a v1.2 caller's
+    ``context`` and ``mode`` (#527)."""
+    sent = (data.content, _context_of(data), data.mode)
+    if (asked.content, asked.context, asked.mode) != sent:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="that Idempotency-Key was already used for a different message",
@@ -292,6 +295,11 @@ def _replayed(
         user_message=MessageRead.model_validate(asked),
         assistant_message=_assistant_read(answered, confirmation.for_message(answered.id)),
     )
+
+
+def _context_of(data: MessageCreate) -> dict[str, Any] | None:
+    """A v1.2 caller's context as stored and run (#527); ``None`` when absent."""
+    return None if data.context is None else data.context.model_dump()
 
 
 def _assistant_read(
@@ -414,8 +422,13 @@ def post_message(
         if idempotency_key is not None:
             seen = conversations_service.find_exchange(db, conversation.id, idempotency_key)
             if seen is not None:
-                return _replayed(data.content, *seen)
+                return _replayed(data, *seen)
         if confirm_token is not None:
+            if data.mode == delegate_context.READ_MODE:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="a Confirm-Token can't ride a read-mode message",
+                )
             # Release the write lock before the token's state check reads the
             # rows on its own session; nothing is written yet, and the run lock
             # still holds the thread.
@@ -436,7 +449,12 @@ def post_message(
             )
         history = conversations_service.history_for_loop(db, conversation.id)
         user_message = conversations_service.append_user_message(
-            db, conversation, data.content, idempotency_key
+            db,
+            conversation,
+            data.content,
+            idempotency_key,
+            context=_context_of(data),
+            mode=data.mode,
         )
         db.commit()
 
@@ -459,6 +477,8 @@ def post_message(
                     deadline=deadline,
                     cancel=cancel,
                     gate=gate,
+                    context=_context_of(data),
+                    read_mode=data.mode == delegate_context.READ_MODE,
                 )
         except AgentRunFailed as exc:
             logger.error(
