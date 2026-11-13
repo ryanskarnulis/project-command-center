@@ -62,6 +62,8 @@ class ContextRef(MutationModel):
     id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
     title: _ContextText | None = None
     untrusted: bool = False
+    # The person's pick from a list the app gave (delegate v1.2, conductor#196).
+    picked: bool = False
 
 
 class MessageContext(MutationModel):

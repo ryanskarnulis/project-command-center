@@ -59,7 +59,8 @@ def _ref_line(ref: Mapping[str, Any]) -> str:
     if ref.get("untrusted") and title:
         named += " (outside text)"
     if ref.get("app") == receipts.APP:
-        return f"{kind} {ref.get('id')}{named}"
+        picked = ", the person's pick from your question" if ref.get("picked") else ""
+        return f"{kind} {ref.get('id')}{named}{picked}"
     return f"{ref.get('app')} {kind}{named}"
 
 
