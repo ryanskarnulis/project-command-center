@@ -772,3 +772,24 @@ def test_saying_it_is_already_due_is_not_a_move_claim() -> None:
     """The planner's honest note on a no-op: a state, true from the results."""
     evidence = Evidence.of([_SET_FRIDAY], TODAY, _DUE_FRIDAY)
     assert not unbacked(read_claims("The quarterly report is already due Friday.", evidence))
+
+
+# --- a trash that says how many tasks went with it (#520) -------------------------
+
+PROJECT_TRASHED_WITH_COUNT = _evidence(
+    _call(
+        "trash_project",
+        {"project_id": 7},
+        'Project 7 "Kitchen" and its 3 tasks moved to trash (undo with restore_project)',
+    ),
+)
+
+
+def test_a_trash_answer_backs_its_task_count() -> None:
+    """"its 3 tasks" is backed once the trash answer says 3; a different
+    number is not, and the old answer with no number backs none."""
+    said = "Trashed the Kitchen project and its 3 tasks."
+    assert not unbacked(read_claims(said, PROJECT_TRASHED_WITH_COUNT))
+    wrong = unbacked(read_claims("Trashed the Kitchen project and its 4 tasks.", PROJECT_TRASHED_WITH_COUNT))
+    assert [claim.family for claim in wrong] == ["count"]
+    assert [claim.family for claim in unbacked(read_claims(said, PROJECT_TRASHED))] == ["count"]

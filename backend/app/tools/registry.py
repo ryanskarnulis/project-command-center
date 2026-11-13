@@ -67,6 +67,7 @@ from app.tools.flat_args import RepeatInterval as ToolRepeatInterval
 from app.tools.refusals import ToolRefusal as ToolRefusal  # re-export
 from app.tools.refusals import refusal_for
 from app.tools.runtime import tool_session
+from app.tools.titles import straight_quotes
 
 logger = structlog.get_logger(__name__)
 
@@ -337,7 +338,8 @@ def create_task(data: TaskCreate) -> TaskRead:
             task = tasks_service.create_task(
                 db,
                 project_id=data.project_id,
-                title=data.title,
+                # An outside title keeps its quotes, made straight (#522).
+                title=straight_quotes(data.title),
                 description=data.description,
                 workflow_status=data.workflow_status,
                 priority=data.priority,
@@ -372,6 +374,8 @@ def update_task(task_id: EntityId, changes: TaskUpdate) -> TaskRead:
         fields = changes.model_dump(exclude_unset=True)
         if fields.get("project_id") is not None:
             _ensure_project_exists(db, fields["project_id"])
+        if isinstance(fields.get("title"), str):
+            fields["title"] = straight_quotes(fields["title"])
         try:
             updated = tasks_service.update_task(db, task, fields)
         except _TASK_DOMAIN_ERRORS as exc:
@@ -631,14 +635,13 @@ def trash_project(project_id: EntityId) -> str:
         project = _project_or_error(db, project_id)
         name = project.name
         try:
-            projects_service.soft_delete_project(db, project)
+            tasks = projects_service.soft_delete_project(db, project)
         except ValueError as exc:
             raise refusal_for(db, exc) from exc
-        logger.info("tool_project_trashed", project_id=project_id)
-        return (
-            f'Project {project_id} "{name}" and its tasks moved to trash '
-            "(undo with restore_project)"
-        )
+        logger.info("tool_project_trashed", project_id=project_id, trashed_task_count=tasks)
+        # The count is what the typed record and a reply's "its 3 tasks" read (#520).
+        went = f" and its {tasks} {'task' if tasks == 1 else 'tasks'}" if tasks else ""
+        return f'Project {project_id} "{name}"{went} moved to trash (undo with restore_project)'
 
 
 @_tool

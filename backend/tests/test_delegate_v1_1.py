@@ -320,3 +320,84 @@ def test_every_write_has_an_undo_rule() -> None:
     reads = registry.read_only_tool_names()
     writes = {tool.name for tool in registry.all_tools()} - reads - {"ask_user"}
     assert writes - set(receipts._UNDO) == set()
+
+
+# --- what went with a project (#520) -----------------------------------------------
+
+
+def test_a_project_trash_record_keeps_mains_shape() -> None:
+    """The trash answer now says how many tasks went (#520), but the record
+    names only the project and sends no ``count``, as before: a client names
+    a count by its first ref's kind, so 4 would read as "4 projects"."""
+    [entry] = receipts.dump(
+        receipts.build(
+            [
+                {
+                    "tool": "trash_project",
+                    "arguments": {"project_id": 7},
+                    "result": 'Project 7 "Kitchen" and its 3 tasks moved to trash '
+                    "(undo with restore_project)",
+                }
+            ]
+        )
+    )
+    assert entry["touched"] == [{"app": "tasks", "kind": "project", "id": "7", "title": "Kitchen"}]
+    assert "count" not in entry
+
+
+def test_a_project_restore_record_keeps_mains_shape() -> None:
+    restored = {
+        "project": {"id": 7, "name": "Kitchen", "closed_at": None},
+        "restored_task_count": 3,
+    }
+    [entry] = receipts.dump(
+        receipts.build(
+            [
+                {
+                    "tool": "restore_project",
+                    "arguments": {"project_id": 7, "restore_tasks": True},
+                    "result": json.dumps(restored),
+                }
+            ]
+        )
+    )
+    assert entry["touched"] == [{"app": "tasks", "kind": "project", "id": "7", "title": "Kitchen"}]
+    assert "count" not in entry
+
+
+def test_a_title_with_quotes_in_a_sentence_answer_is_read_whole() -> None:
+    """A sentence answer quotes its row's title; a title holding straight
+    double quotes (#522) is read to its last quote, not its first."""
+    [entry] = receipts.dump(
+        receipts.build(
+            [
+                {
+                    "tool": "trash_task",
+                    "arguments": {"task_id": 5},
+                    "result": 'Task 5 "Sort "Honey" this weekend" and its subtasks moved to '
+                    "trash (undo with restore_task)",
+                }
+            ]
+        )
+    )
+    assert entry["touched"] == [
+        {"app": "tasks", "kind": "task", "id": "5", "title": 'Sort "Honey" this weekend'}
+    ]
+
+
+def test_the_trash_tool_says_how_many_tasks_went(
+    tool_db: sessionmaker[Session], db_session: Session
+) -> None:
+    kitchen = registry.call_tool("create_project", {"name": "Kitchen"}, actor="agent:loop")
+    for title in ("Mop", "Descale kettle", "Wipe the counters"):
+        registry.call_tool(
+            "create_task", {"title": title, "project_id": kitchen.id}, actor="agent:loop"
+        )
+    empty = registry.call_tool("create_project", {"name": "Shed"}, actor="agent:loop")
+
+    said = registry.call_tool("trash_project", {"project_id": kitchen.id}, actor="agent:loop")
+    assert said == (
+        f'Project {kitchen.id} "Kitchen" and its 3 tasks moved to trash (undo with restore_project)'
+    )
+    said = registry.call_tool("trash_project", {"project_id": empty.id}, actor="agent:loop")
+    assert said == f'Project {empty.id} "Shed" moved to trash (undo with restore_project)'

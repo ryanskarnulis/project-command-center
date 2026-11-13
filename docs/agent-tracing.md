@@ -51,15 +51,19 @@ the hook for capturing more about the same run elsewhere. Context capture
 (`PCC_CONTEXT_PATH`, #401) uses it to key every model call's exact request,
 response and rendered prompt to the run: see
 [`agent-context-capture.md`](agent-context-capture.md). The agent
-route binds `conversation_id` the same way, and the record picks it up.
+route binds `conversation_id` the same way, and the record picks it up, as
+it does a delegate caller's `X-Agent-Turn` and `X-Agent-Hop` (#517): the
+record's `agent_turn` and `agent_hop`, so a delegated write joins
+conductor's trace by id, not by thread and time window.
 
-## The record (schema 5)
+## The record (schema 6)
 
 | Field | Meaning |
 | --- | --- |
-| `schema`, `kind` | Layout version (`5`) and `"run"`. A reader keys off `schema`; bump it on any change a reader must branch on. Schema 2 (#412) added `state_block` and `lookup_turns`; schema 3 (#415) added `gather`; schema 4 (#418, the planner/narrator split) added `note`, `narrated` and `history.recall`, renamed the call phases and the narrator's cap and hash, and dropped `history.kept`/`dropped` and `summarised`; schema 5 (#420) added `clarification`. |
+| `schema`, `kind` | Layout version (`6`) and `"run"`. A reader keys off `schema`; bump it on any change a reader must branch on. Schema 2 (#412) added `state_block` and `lookup_turns`; schema 3 (#415) added `gather`; schema 4 (#418, the planner/narrator split) added `note`, `narrated` and `history.recall`, renamed the call phases and the narrator's cap and hash, and dropped `history.kept`/`dropped` and `summarised`; schema 5 (#420) added `clarification`; schema 6 (#517, #516) added `agent_turn`, `agent_hop`, `closed_by_code`, `peek_ms`, the `closing` call phase and the `peeked` call status. |
 | `ts`, `started` | When the record was written / the run began (UTC ISO). |
 | `run_id`, `conversation_id`, `actor` | Which run; the thread (`null` outside the route); who its writes are stamped as (`agent:loop`, `agent:conductor`). |
+| `agent_turn`, `agent_hop` | The delegate caller's `X-Agent-Turn` and `X-Agent-Hop` (conductor's turn and hop ids, #517); `null` when not sent, or when a value wasn't an id (1–128 of `A-Za-z0-9._:-`; dropped and logged as `agent_trace_id_dropped`, never refused). |
 | `utterance` | The user message, as typed — without the state block in front of it. |
 | `state_block` | The state block the run's user turn opened with (#412): the calendar, the open-project roster and today's counts, as of the run's start. With `utterance` it is exactly the turn the model saw. |
 | `clarification` | The open question (#420): `open` is the question an earlier run left open, as this run's state block carried it (`request`, candidate task ids in the order named), or `null`; `closed` is why the newest one no longer stood (`later_write`, `candidate_gone`, `candidate_changed`, `check_failed`) or `""`; `asked` is the task ids this run's landed `ask_user` offered, in order. |
@@ -68,7 +72,8 @@ route binds `conversation_id` the same way, and the record picks it up.
 | `history` | `given`: how many stored messages the run was handed (the service already windowed them, #244); `messages`: those messages; `recall`: what the planner read of them (#418) — the "Before this run" section of its opening message. Schema ≤ 3 had `kept`/`dropped`, when the loop windowed chat turns. |
 | `stop_reason`, `limit` | The loop's stop reason, and which configured limit ended it: `max_iterations`, `max_corrections`, `max_tokens` (a `truncated` stop), `max_tool_calls`, `no_progress`, `deadline` (`timed_out`); `null` for `completed`, `cancelled` and failures. |
 | `error` | Empty, or the failure message of a `provider_error` / `timed_out` / `internal_error` run. |
-| `reply`, `note`, `narrated` | The saved reply (`null` when none); the planner's handoff note (`null` when it stopped at a limit); and whether the reply is the narrator's words. A completed run whose narrator could not speak replies with the note (`narrated` false). Schema ≤ 3 had `summarised`: the reply was the limit summary (#399). |
+| `reply`, `note`, `narrated` | The saved reply (`null` when none); the planner's handoff note (`null` when it stopped at a limit, or when its run closed by code); and whether the reply is the narrator's words. A completed run whose narrator could not speak replies with the note (`narrated` false). Schema ≤ 3 had `summarised`: the reply was the limit summary (#399). |
+| `handed_off`, `closed_by_code`, `peek_ms` | Whether the reply is code's for a delegate caller (#482): the handoff, or, with `closed_by_code`, the code-built note of a run whose closing turn was peeked and stopped at its first words (#516, `app/ai/closing.py`); `peek_ms` is that peek's time to those words (`null` otherwise). |
 | `iterations`, `corrections` | Provider turns run; self-correction turns spent. |
 | `tools` | Every tool call in order: `name`, `args`, and `result` or `error` (full text, as the model saw it). |
 | `calls` | One entry per model call, see below. |
@@ -81,8 +86,8 @@ Each `calls` entry:
 
 | Field | Meaning |
 | --- | --- |
-| `seq`, `phase` | Position in the run; `planner` (a tool-loop turn) or `narrator` (the tool-free call that speaks). Schema ≤ 3 says `turn` and `summary`. |
-| `status` | `ok`, `truncated` (cut off by `max_tokens`), `bad_args` (tool-call arguments not a JSON object), `failed` (no usable answer). |
+| `seq`, `phase` | Position in the run; `planner` (a tool-loop turn that asked for tools, or failed before answering), `closing` (the planner's turn that answered with text: its note; schema ≤ 5 said `planner`) or `narrator` (the tool-free call that speaks). Schema ≤ 3 says `turn` and `summary`. |
+| `status` | `ok`, `truncated` (cut off by `max_tokens`), `bad_args` (tool-call arguments not a JSON object), `failed` (no usable answer), `peeked` (a streamed call stopped at its first delta of words, #516: `ms` is the time to it, no token counts). |
 | `ms`, `server_ms` | The loop's wall clock around the call; llama-server's own prompt + generation time (`timings`). `ms - server_ms` is queueing, transport and any cold load. |
 | `prompt_tokens`, `completion_tokens`, `cached_tokens` | From the response's `usage` (`cached_tokens` is `usage.prompt_tokens_details.cached_tokens`); `null` when unknown, never a zero that reads as measured. |
 | `finish_reason`, `tool_calls` | As the server sent it; how many tool calls the turn asked for. |

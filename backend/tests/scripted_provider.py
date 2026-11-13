@@ -75,3 +75,63 @@ class ScriptedProvider:
         if isinstance(turn, Exception):
             raise turn
         return turn
+
+
+class PeekingProvider(ScriptedProvider):
+    """A scripted provider that can also ``peek`` (#516), as the real one does.
+
+    A peek pops the next planner turn like ``chat`` and answers as
+    ``LlamaCppProvider.peek`` would: ``None`` for a turn that opens with words
+    (the stream stopped at them), the turn itself for one that calls tools.
+    ``sent`` names each planner or narrator call in order: ``chat``, ``peek``
+    or ``narrate``.
+    """
+
+    def __init__(
+        self,
+        turns: Sequence[ChatResult | Exception],
+        narrations: Sequence[ChatResult | Exception] = (),
+    ) -> None:
+        super().__init__(turns, narrations)
+        self.sent: list[str] = []
+
+    def chat(
+        self,
+        messages: Sequence[dict[str, Any]],
+        *,
+        tools: Sequence[ToolSpec] | None = None,
+        enable_thinking: bool = False,
+        max_tokens: int | None = None,
+        timeout: float | None = None,
+        temperature: float | None = None,
+    ) -> ChatResult:
+        self.sent.append("chat" if tools is not None else "narrate")
+        return super().chat(
+            messages,
+            tools=tools,
+            enable_thinking=enable_thinking,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            temperature=temperature,
+        )
+
+    def peek(
+        self,
+        messages: Sequence[dict[str, Any]],
+        *,
+        tools: Sequence[ToolSpec] | None = None,
+        enable_thinking: bool = False,
+        max_tokens: int | None = None,
+        timeout: float | None = None,
+        temperature: float | None = None,
+    ) -> ChatResult | None:
+        turn = super().chat(
+            messages,
+            tools=tools,
+            enable_thinking=enable_thinking,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            temperature=temperature,
+        )
+        self.sent.append("peek")
+        return turn if turn.tool_calls else None

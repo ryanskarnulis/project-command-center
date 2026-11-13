@@ -226,10 +226,76 @@ TParsed = TypeVar("TParsed")
 @dataclass
 class _Wire:
     """How far one captured call got: the request once built, the response
-    once it arrived (#401)."""
+    once it arrived (#401). ``streamed`` is a streamed call's body as read so
+    far (#516), the event-stream lines as they came; ``None`` for a plain call."""
 
     request: httpx.Request | None = None
     response: httpx.Response | None = None
+    streamed: list[str] | None = None
+
+
+class _StreamedTurn:
+    """One streamed completion put back together, chunk by chunk (#516).
+
+    ``first`` is the kind of the first meaningful delta: ``"content"`` (text
+    that is not only whitespace) or ``"tool_calls"``; ``None`` until one
+    arrives. Reasoning deltas are never meaningful: they are not answer text.
+    """
+
+    def __init__(self) -> None:
+        self.first: str | None = None
+        self.content = ""
+        self.reasoning = ""
+        self.calls: dict[int, dict[str, Any]] = {}
+        self.finish_reason: str | None = None
+        self.extra: dict[str, Any] = {}
+
+    def add(self, chunk: Any) -> None:
+        if not isinstance(chunk, dict):
+            raise ProviderResponseError("llama-server stream chunk is not an object")
+        for key in ("usage", "timings", "model", "system_fingerprint"):
+            if chunk.get(key) is not None:
+                self.extra[key] = chunk[key]
+        for choice in chunk.get("choices") or []:
+            if not isinstance(choice, dict):
+                raise ProviderResponseError("llama-server stream choice is not an object")
+            if choice.get("finish_reason"):
+                self.finish_reason = choice["finish_reason"]
+            delta = choice.get("delta") or {}
+            for part in delta.get("tool_calls") or []:
+                self.first = self.first or "tool_calls"
+                call = self.calls.setdefault(
+                    int(part.get("index", len(self.calls))),
+                    {"id": "", "function": {"name": "", "arguments": ""}},
+                )
+                call["id"] = part.get("id") or call["id"]
+                function = part.get("function") or {}
+                call["function"]["name"] += function.get("name") or ""
+                call["function"]["arguments"] += function.get("arguments") or ""
+            reasoning = delta.get("reasoning_content")
+            if isinstance(reasoning, str):
+                self.reasoning += reasoning
+            text = delta.get("content")
+            if isinstance(text, str) and text:
+                self.content += text
+                if text.strip():
+                    self.first = self.first or "content"
+
+    def completion(self) -> dict[str, Any]:
+        """The turn in the non-streamed wire shape :class:`_WireCompletion` reads."""
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": self.content or None,
+                        "reasoning_content": self.reasoning or None,
+                        "tool_calls": [self.calls[index] for index in sorted(self.calls)],
+                    },
+                    "finish_reason": self.finish_reason,
+                }
+            ],
+            **self.extra,
+        }
 
 
 class LlamaCppProvider:
@@ -326,6 +392,131 @@ class LlamaCppProvider:
             temperature=temperature,
         )
         return self._post(payload, self._result, timeout=timeout)
+
+    def peek(
+        self,
+        messages: Sequence[dict[str, Any]],
+        *,
+        tools: Sequence[ToolSpec] | None = None,
+        enable_thinking: bool = False,
+        max_tokens: int | None = None,
+        timeout: float | None = None,
+        temperature: float | None = None,
+    ) -> ChatResult | None:
+        """:meth:`chat`, streamed, stopped as soon as the turn shows it is
+        only words (#516; music's ``peek``, music#97).
+
+        The same request as :meth:`chat`, sent with ``stream: true``. The
+        first meaningful delta decides: plain content (the model has begun its
+        closing line) closes the stream and returns ``None``; a tool call is
+        read to the end and returned exactly as :meth:`chat` would return the
+        turn, so a run that goes on working goes on unchanged. A stream that
+        ends with no meaningful delta (an empty text turn) is ``None`` too.
+        Errors are :meth:`chat`'s: a failed request or a non-200 is a
+        :class:`ProviderRequestError`, a chunk that is not JSON a
+        :class:`ProviderResponseError`, a tool call's bad arguments a
+        :class:`ToolCallArgumentsError`. The context capture (#401) keeps the
+        request bytes and the event-stream lines read, up to where it stopped.
+        """
+        payload = self._payload(
+            messages,
+            tools=tools,
+            enable_thinking=enable_thinking,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        payload["stream"] = True
+        payload["stream_options"] = {"include_usage": True}
+        stamp = self._begin_capture()
+        started = time.monotonic()
+        wire = _Wire(streamed=[])
+        error: Exception | None = None
+        try:
+            return self._stream(payload, timeout, wire)
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            if stamp is not None:
+                self._capture_call(stamp, wire, error, started)
+
+    def _stream(
+        self, payload: dict[str, Any], timeout: float | None, wire: _Wire
+    ) -> ChatResult | None:
+        log = logger.bind(llm_call_id=uuid.uuid4().hex[:8], model=self._model)
+        log.info(
+            "llm_peek",
+            messages=len(payload["messages"]),
+            tools=len(payload.get("tools", ())),
+        )
+        request_timeout: Any = (
+            httpx.USE_CLIENT_DEFAULT
+            if timeout is None
+            else httpx.Timeout(timeout, connect=min(_CONNECT_TIMEOUT_SECONDS, timeout))
+        )
+        request = self._client.build_request(
+            "POST",
+            f"{self._base_url}/chat/completions",
+            json=payload,
+            timeout=request_timeout,
+        )
+        wire.request = request
+        started = time.monotonic()
+        turn = _StreamedTurn()
+        streamed = wire.streamed if wire.streamed is not None else []
+        try:
+            response = self._client.send(request, stream=True)
+        except httpx.HTTPError as exc:
+            log.error("llm_request_failed", error=str(exc))
+            raise ProviderRequestError(f"llama-server request failed: {exc}") from exc
+        wire.response = response
+        try:
+            if response.status_code != 200:
+                body = response.read().decode("utf-8", errors="replace")
+                streamed.append(body)
+                log.error("llm_request_failed", status=response.status_code)
+                raise ProviderRequestError(
+                    f"llama-server returned {response.status_code}: {body[:500]}"
+                )
+            for line in response.iter_lines():
+                streamed.append(line)
+                if not line.startswith("data:"):
+                    continue
+                data = line[len("data:") :].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                except json.JSONDecodeError as exc:
+                    raise ProviderResponseError(
+                        f"llama-server stream chunk is not JSON: {exc.msg}"
+                    ) from exc
+                turn.add(chunk)
+                if turn.first == "content":
+                    # The model has begun its closing line: stop it here.
+                    log.info("llm_peek_words", duration_ms=_ms(started))
+                    return None
+        except httpx.HTTPError as exc:
+            log.error("llm_request_failed", error=str(exc))
+            raise ProviderRequestError(f"llama-server request failed: {exc}") from exc
+        finally:
+            response.close()
+        if turn.first is None:
+            log.info("llm_peek_empty", duration_ms=_ms(started))
+            return None
+        try:
+            completion = _WireCompletion.model_validate(turn.completion())
+        except ValidationError as exc:
+            raise ProviderResponseError(f"llama-server stream failed wire validation: {exc}") from exc
+        choice = completion.choices[0]
+        log.info(
+            "llm_response",
+            duration_ms=_ms(started),
+            streamed=True,
+            finish_reason=choice.finish_reason,
+            tool_calls=len(choice.message.tool_calls),
+        )
+        return self._result(completion)
 
     def chat_structured(
         self,
@@ -517,6 +708,12 @@ class LlamaCppProvider:
         assert self._capture is not None
         try:
             request, response = wire.request, wire.response
+            if wire.streamed is not None:
+                # A streamed call (#516): the lines read, not the whole body,
+                # which a stream stopped early never had.
+                body = None if response is None else "\n".join(wire.streamed)
+            else:
+                body = None if response is None else _body_text(response.content)
             self._capture.record(
                 stamp,
                 {
@@ -524,7 +721,7 @@ class LlamaCppProvider:
                     "ms": round((time.monotonic() - started) * 1000),
                     "request": None if request is None else _body_text(request.content),
                     "status_code": None if response is None else response.status_code,
-                    "response": None if response is None else _body_text(response.content),
+                    "response": body,
                     "error": "" if error is None else f"{type(error).__name__}: {error}",
                     # A server that never answered cannot render either; asking
                     # would only stall a run that is already failing.
@@ -613,6 +810,10 @@ def provider_from_settings(*, seed: int | None = None) -> LlamaCppProvider:
         capture=context_capture_from_settings(),
         seed=seed,
     )
+
+
+def _ms(started: float) -> int:
+    return round((time.monotonic() - started) * 1000)
 
 
 def _body_text(body: bytes) -> str:

@@ -548,7 +548,9 @@ def test_route_saves_the_handoff_for_a_delegate(
     client: TestClient, tool_db: sessionmaker[Session]
 ) -> None:
     """``X-Agent-Actor: agent:conductor`` gets the handoff as the reply, saved
-    like any reply, and its next run reads it as the last exchange's words."""
+    like any reply, and its next run reads it as the last exchange's words.
+    An ask of more than one change keeps the closing turn (#516), so its
+    note is there to read."""
     provider = ScriptedProvider(
         [_calls(_alpha()), _text("Made Alpha."), _text("Nothing to do.")]
     )
@@ -557,7 +559,7 @@ def test_route_saves_the_handoff_for_a_delegate(
     url = f"/api/agent/conversations/{conversation_id}/messages"
     headers = {"X-Agent-Actor": DELEGATE}
 
-    response = client.post(url, json={"content": "Make Alpha."}, headers=headers)
+    response = client.post(url, json={"content": "Make Alpha, then Beta."}, headers=headers)
     assert response.status_code == 200
     assistant = response.json()["assistant_message"]
     assert assistant["stop_reason"] == "completed"

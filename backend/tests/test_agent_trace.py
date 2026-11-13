@@ -56,6 +56,8 @@ RECORD_KEYS = {
     "started",
     "run_id",
     "conversation_id",
+    "agent_turn",
+    "agent_hop",
     "actor",
     "utterance",
     "state_block",
@@ -70,6 +72,8 @@ RECORD_KEYS = {
     "note",
     "narrated",
     "handed_off",
+    "closed_by_code",
+    "peek_ms",
     "iterations",
     "corrections",
     "tools",
@@ -159,7 +163,7 @@ def test_a_traced_run_writes_one_well_formed_record(
 
     record = _only_record(trace_path)
     assert result.run_id and record["run_id"] == result.run_id
-    assert record["schema"] == run_trace.TRACE_SCHEMA == 5
+    assert record["schema"] == run_trace.TRACE_SCHEMA == 6
     assert record["kind"] == "run"
     assert record["conversation_id"] == 7
     assert record["actor"] == "agent:loop"
@@ -187,7 +191,7 @@ def test_a_traced_run_writes_one_well_formed_record(
 
     first, second, narrator = record["calls"]
     assert first["seq"] == 0 and first["phase"] == "planner" and first["status"] == "ok"
-    assert second["phase"] == "planner" and narrator["phase"] == "narrator"
+    assert second["phase"] == "closing" and narrator["phase"] == "narrator"
     assert first["tool_calls"] == 1 and first["finish_reason"] == "tool_calls"
     assert (first["prompt_tokens"], first["completion_tokens"], first["cached_tokens"]) == (
         100,
@@ -281,7 +285,9 @@ def test_a_limit_stop_records_the_limit_and_the_narrator_call(
     assert record["limit"] == limit
     assert record["narrated"] is True and record["note"] is None
     assert record["reply"] == "Made Alpha; the rest wasn't done."
-    assert [call["phase"] for call in record["calls"]] == ["planner"] * len(turns) + ["narrator"]
+    # A turn that answered with text, cut off or not, is the closing turn (#517).
+    phases = ["closing" if not turn.tool_calls else "planner" for turn in turns]
+    assert [call["phase"] for call in record["calls"]] == phases + ["narrator"]
     if limit != "no_progress":
         # The limit's configured value is in the record beside its name.
         expected = options.get(limit, loop_module.DEFAULT_MAX_TOKENS)

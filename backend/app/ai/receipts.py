@@ -69,8 +69,9 @@ _UNDO: dict[str, tuple[str, str, str] | str] = {
     "restore_focus_entry": ("remove_focus_entry", "entry_id", "take it off the Focus plan"),
 }
 
-# A sentence answer names its row as ``Task 41 "Pay rent"``.
-_SENTENCE_TITLE = re.compile(r'"([^"]*)"')
+# A sentence answer names its row as ``Task 41 "Pay rent"``. Read to the last
+# quote, so a title that holds straight double quotes itself (#522) is whole.
+_SENTENCE_TITLE = re.compile(r'"(.*)"')
 
 Outcome = Literal["done", "refused", "looked_up", "not_run"]
 

@@ -10,6 +10,7 @@ asks that conversation's in-flight run to stop (#324).
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import date
 from collections.abc import Generator, Sequence
@@ -20,7 +21,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.ai import confirmation, run_record
+from app.ai import closing, confirmation
 from app.ai.loop import (
     DELEGATE_ACTORS,
     AgentLoop,
@@ -228,6 +229,24 @@ MAX_IDEMPOTENCY_KEY_LENGTH = 128
 FAILURE_STATUS = {"provider_error": 502, "timed_out": 504, "internal_error": 500}
 
 
+# A trace id a caller may send (#517): conductor's are hex, but any short
+# token of these characters joins.
+_TRACE_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
+
+
+def _trace_ids(**headers: str | None) -> dict[str, str]:
+    """The trace headers that hold an id, for the run's log context."""
+    ids: dict[str, str] = {}
+    for name, value in headers.items():
+        if value is None:
+            continue
+        if _TRACE_ID.fullmatch(value.strip()):
+            ids[name] = value.strip()
+        else:
+            logger.warning("agent_trace_id_dropped", header=name, length=len(value))
+    return ids
+
+
 def _failure_response(
     status_code: int, detail: str, message: ConversationMessage | None
 ) -> JSONResponse:
@@ -317,6 +336,8 @@ def post_message(
         str | None, Header(min_length=1, max_length=MAX_IDEMPOTENCY_KEY_LENGTH)
     ] = None,
     confirm_token: Annotated[str | None, Header(min_length=1, max_length=128)] = None,
+    x_agent_turn: str | None = Header(default=None),
+    x_agent_hop: str | None = Header(default=None),
 ) -> MessageExchange | JSONResponse:
     """Store the user turn, run the loop, store and return the assistant turn.
 
@@ -371,6 +392,12 @@ def post_message(
     ``used`` / ``stale``). The next message without the token voids the
     pending question unless its run re-issues the identical call. PCC's own
     chat is never gated.
+
+    **Trace joins** (#517). A delegate caller's ``X-Agent-Turn`` and
+    ``X-Agent-Hop`` (conductor's turn and hop ids) are bound on the run's log
+    lines and written on its trace record and context captures, so a delegated
+    write joins conductor's trace by id. A value that isn't an id is dropped,
+    never refused: diagnostics never cost a request.
     """
     _get_or_404(reader, conversation_id)
     actor = resolve_actor(x_agent_actor)
@@ -420,7 +447,10 @@ def post_message(
             # stamps it on the run's log lines and its trace record (#400).
             with (
                 active_run(conversation_id) as cancel,
-                structlog.contextvars.bound_contextvars(conversation_id=conversation_id),
+                structlog.contextvars.bound_contextvars(
+                    conversation_id=conversation_id,
+                    **_trace_ids(agent_turn=x_agent_turn, agent_hop=x_agent_hop),
+                ),
             ):
                 run = loop.run(
                     data.content,
@@ -473,7 +503,8 @@ def _run_confirmed(
     db.commit()
     record = loop.dispatch_confirmed(pending, actor)
     run = AgentRunResult(
-        reply=run_record.render([record]),
+        # The same code-built note an agent caller's run closes with (#516).
+        reply=closing.note([record.model_dump()]),
         stop_reason="completed",
         tool_calls=[record],
         iterations=0,

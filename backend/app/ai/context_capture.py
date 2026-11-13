@@ -55,7 +55,9 @@ logger = structlog.get_logger(__name__)
 # off ``schema``, as the trace's readers do; bump it on any change they must
 # branch on.
 KIND_MODEL_CALL = "model_call"
-CAPTURE_SCHEMA = 1
+CAPTURE_SCHEMA = 2
+# Schema 2 (#517) adds ``agent_turn`` and ``agent_hop``: the delegate caller's
+# turn and hop, as the run's trace record carries them.
 # The phase of a call made outside the loop's call site (a probe, a script).
 PHASE_UNKNOWN = "unknown"
 
@@ -96,6 +98,14 @@ def current_run_id() -> str | None:
     return None if run_id is None else str(run_id)
 
 
+def current_agent_ids() -> tuple[str | None, str | None]:
+    """The delegate caller's turn and hop the agent route bound (#517), or
+    ``None`` for each one it didn't send."""
+    bound = structlog.contextvars.get_contextvars()
+    turn, hop = bound.get("agent_turn"), bound.get("agent_hop")
+    return (None if turn is None else str(turn), None if hop is None else str(hop))
+
+
 @dataclass(frozen=True)
 class CallStamp:
     """Who a call belongs to, fixed the moment it was sent.
@@ -110,6 +120,9 @@ class CallStamp:
     phase: str
     seq: int
     started_at: str
+    # The delegate caller's turn and hop (#517), ``None`` when not sent.
+    agent_turn: str | None = None
+    agent_hop: str | None = None
 
 
 class ContextCapture(Protocol):
@@ -141,7 +154,15 @@ class JsonlContextCapture:
             self._seq[run_id] = seq
             while len(self._seq) > _SEQ_MEMORY:
                 self._seq.popitem(last=False)
-        return CallStamp(run_id=run_id, phase=current_phase(), seq=seq, started_at=_now())
+        turn, hop = current_agent_ids()
+        return CallStamp(
+            run_id=run_id,
+            phase=current_phase(),
+            seq=seq,
+            started_at=_now(),
+            agent_turn=turn,
+            agent_hop=hop,
+        )
 
     def record(self, stamp: CallStamp, call: dict[str, Any]) -> None:
         line = json.dumps(
@@ -149,7 +170,9 @@ class JsonlContextCapture:
                 "schema": CAPTURE_SCHEMA,
                 "kind": KIND_MODEL_CALL,
                 "run_id": stamp.run_id,
-                "phase": stamp.phase,
+                "agent_turn": stamp.agent_turn,
+                "agent_hop": stamp.agent_hop,
+                "phase": _answered_phase(stamp.phase, call.get("response")),
                 "seq": stamp.seq,
                 "started_at": stamp.started_at,
                 "ended_at": _now(),
@@ -168,6 +191,22 @@ def context_capture_from_settings() -> ContextCapture | None:
     ``PCC_CONTEXT_PATH``, or ``None`` (capture off — the default)."""
     path = get_settings().pcc_context_path
     return None if path is None else JsonlContextCapture(path)
+
+
+def _answered_phase(phase: str, response: Any) -> str:
+    """The phase as the trace names it once the call answered (#517): a
+    planner call that came back with text and no tool calls is its closing
+    turn, a streamed one (#516's peek) included, read from its event-stream
+    lines. Anything that can't be read keeps the phase it was sent with."""
+    if phase != "planner" or not isinstance(response, str):
+        return phase
+    if response.startswith("data:"):
+        return "planner" if '"tool_calls":[{' in response.replace(" ", "") else "closing"
+    try:
+        message = json.loads(response)["choices"][0]["message"]
+    except (ValueError, KeyError, IndexError, TypeError):
+        return phase
+    return phase if not isinstance(message, dict) or message.get("tool_calls") else "closing"
 
 
 def _now() -> str:
