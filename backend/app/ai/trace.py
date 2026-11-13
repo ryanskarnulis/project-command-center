@@ -55,8 +55,10 @@ TRACE_SCHEMA = 6
 # (``asked``). Schema 6 (#517, #516) adds ``agent_turn`` and ``agent_hop``
 # (the ``X-Agent-Turn`` and ``X-Agent-Hop`` a delegate caller sent, so the
 # record joins conductor's trace), the ``closing`` call phase (the planner's
-# tool-free closing turn, ``planner`` before) and ``closed_by_code`` (an agent
-# caller's run that ended without that turn).
+# tool-free closing turn, ``planner`` before), ``closed_by_code`` (an agent
+# caller's run whose closing turn was peeked and stopped at its first words,
+# the reply code's note), ``peek_ms`` (that peek's time to those words) and
+# the call status ``peeked``.
 # What a record in the trace file is: one agent run. On every record so a
 # later kind (#401's context captures, a serving manifest) is never mistaken
 # for one.
@@ -66,8 +68,11 @@ KIND_RUN = "run"
 # ``max_tokens`` cap cut it off (``finish_reason == "length"``); ``bad_args`` —
 # the server answered but a tool call's arguments were not a JSON object
 # (``ToolCallArgumentsError``); ``failed`` — no usable answer (the request
-# failed, the body failed validation, or anything else raised).
-CallStatus = Literal["ok", "truncated", "bad_args", "failed"]
+# failed, the body failed validation, or anything else raised); ``peeked`` — a
+# streamed call stopped at its first delta because the model had begun its
+# closing line, which code wrote instead (#516): its ``ms`` is the time to that
+# delta, and it has no token counts.
+CallStatus = Literal["ok", "truncated", "bad_args", "failed", "peeked"]
 # Which phase made the call (#418): a turn of the planner's tool loop, its
 # closing turn (#517: the call that came back with text, not tool calls — its
 # handoff note), or the tool-free narrator that speaks for the run. A call is
@@ -187,9 +192,11 @@ class RunTrace:
     narrated: bool = False
     # Whether the reply is the delegate handoff (#482) instead.
     handed_off: bool = False
-    # Whether an agent caller's run ended without the planner's closing turn,
-    # its reply the code-built note (#516). Implies ``handed_off``.
+    # Whether an agent caller's closing turn was peeked and stopped at its
+    # first words, its reply the code-built note (#516), and how long the peek
+    # took to see them. Implies ``handed_off``.
     closed_by_code: bool = False
+    peek_ms: int | None = None
     corrections: int = 0
     state_block: str | None = None
     gather: dict[str, Any] | None = None
@@ -267,6 +274,7 @@ class RunTrace:
             "narrated": self.narrated,
             "handed_off": self.handed_off,
             "closed_by_code": self.closed_by_code,
+            "peek_ms": self.peek_ms,
             "iterations": result.iterations if result is not None else 0,
             "corrections": self.corrections,
             "tools": tools,

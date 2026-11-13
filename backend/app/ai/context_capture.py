@@ -196,9 +196,12 @@ def context_capture_from_settings() -> ContextCapture | None:
 def _answered_phase(phase: str, response: Any) -> str:
     """The phase as the trace names it once the call answered (#517): a
     planner call that came back with text and no tool calls is its closing
-    turn. Anything that can't be read keeps the phase it was sent with."""
+    turn, a streamed one (#516's peek) included, read from its event-stream
+    lines. Anything that can't be read keeps the phase it was sent with."""
     if phase != "planner" or not isinstance(response, str):
         return phase
+    if response.startswith("data:"):
+        return "planner" if '"tool_calls":[{' in response.replace(" ", "") else "closing"
     try:
         message = json.loads(response)["choices"][0]["message"]
     except (ValueError, KeyError, IndexError, TypeError):

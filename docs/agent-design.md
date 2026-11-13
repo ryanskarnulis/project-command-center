@@ -305,38 +305,31 @@ that.
   both were in, true 10/10. With a retry that hit the limit again, it said
   both were in 3/10.
 
-  **No closing turn for one landed change** (#516, `app/ai/closing.py`,
-  delegate-api "Agent callers and the closing note"). Conductor reads the
-  typed record, so the planner's closing turn (~0.5 s) writes a note nobody
-  reads. But the planner only says it is done *in* that turn, and it writes
-  one call per turn whenever the next needs the last one's id: a task then
-  its pin, a project then its tasks, a task then its subtask or blocker. A
-  landed write alone never says the work is done. So a delegate run ends
-  without the closing turn only when the ask names one change
-  (`closing.one_change`: one line, one sentence, no joiner, plural target or
-  word for a second change), that turn made exactly one call, a write that
-  landed and the run's only one, and turns, Stop and deadline are all
-  untouched. Its reply is `closing.note`, built from the typed record: one
-  sentence per landed write (verb, kind, id, the stored title verbatim, a
-  project's task count from its trash or restore answer, a create's due date, an update's changed fields) and
-  one per refusal with its reason. A `Confirm-Token` answer replies with the
-  same note. Every other run keeps its closing turn and the handoff above.
-  The trace marks it `closed_by_code`; the eval claim reader has no model
-  words to grade, and `test_delegate_closing.py` holds each note to the
-  claim reader in CI.
+  **The closing turn is peeked** (#516, `app/ai/closing.py`, delegate-api
+  "Agent callers and the closing note"; the same rule as music#97).
+  Conductor reads the typed record, so the planner's closing turn (~0.5 s)
+  writes a note nobody reads. But the planner only says it is done *in* that
+  turn, and it writes one call per turn whenever the next needs the last
+  one's id: a task then its pin, a project then its tasks, a task then its
+  subtask or blocker. So the call is never skipped. After a delegate's turn
+  that settled (`closing.settled`: every call in it a write that landed),
+  the next planner call goes out as always, after every check the loop makes
+  before a call, but streamed (`LlamaCppProvider.peek`). A first delta that
+  is a tool call is read whole and the run goes on unchanged; a first delta
+  of words is the model starting its note, so the stream stops there and the
+  reply is `closing.note`, built from the typed record: one sentence per
+  landed write (verb, kind, id, the stored title verbatim, a project's task
+  count from its trash or restore answer, a create's due date, an update's
+  changed fields) and one per refusal with its reason. A read, a refusal, a
+  not-run or malformed call never arm the peek, so an answer or a question
+  stays the model's. A `Confirm-Token` answer replies with the same note.
+  The trace marks the run `closed_by_code` with `peek_ms`, and the stopped
+  call `peeked` in phase `closing`; the eval claim reader has no model words
+  to grade, and `test_delegate_closing.py` holds each note to the claim
+  reader in CI. A provider with no `peek` makes the plain call.
 
-  **Measured** (2026-11-12, gemma-4-12b, as `agent:conductor`, a shared GPU).
-  Writes landed, skip off / on (as shipped) / naive (the one-change guard
-  forced true, never shipped): "add three tasks: …" 60/60 / 60/60 / 15/15
-  (one batched turn, so never closed by code); "add a task to call the vet
-  and make it due friday" 20/20 / 20/20 / 5/5 (one create carrying the date);
-  "create a Garden project with tasks …" 60/60 / 60/60 / **5/15** (the naive
-  rule ended every run after the project, 0/5 end states met); "add a task
-  to call the vet due friday" 20/20 / 20/20 (closed by code 20/20, one model
-  call instead of two) / 5/5. Every off and on end state was met. A delegated
-  task write (`conductor_s2_add_task`): 2 PCC model calls before, 1.37 s
-  median with the closing turn 0.66–0.68 s on a quiet GPU; 1 call after.
-  Paired under load: 3.10 s off, 1.58 s on (median of 8).
+  **Measured** (2026-11-12, gemma-4-12b, as `agent:conductor`, a shared
+  GPU): see below.
 - **Stop reasons**: `completed`, `max_iterations`, `correction_limit`,
   `truncated`, `no_progress`, `tool_call_limit` and `cancelled` return 200; `provider_error` (502), `timed_out` (504) and
   `internal_error` (500) are failures. Every one persists a truthful assistant

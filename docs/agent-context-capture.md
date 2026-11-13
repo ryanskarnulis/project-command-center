@@ -94,7 +94,7 @@ when the call ends:
 | --- | --- |
 | `run_id` | The run, the same id as the trace record's `run_id`. `null` for a call made outside a run (a probe, a script). |
 | `agent_turn`, `agent_hop` | The delegate caller's `X-Agent-Turn` and `X-Agent-Hop` (#517), as on the trace record; `null` when not sent. |
-| `phase` | `planner`, `closing` or `narrator` (`turn` or `summary` before #418), as in the trace's `calls[].phase`: a call sent as `planner` whose response holds no tool calls is `closing` (schema 1 said `planner`); `unknown` outside the loop. |
+| `phase` | `planner`, `closing` or `narrator` (`turn` or `summary` before #418), as in the trace's `calls[].phase`: a call sent as `planner` whose response holds no tool calls is `closing` (schema 1 said `planner`); `unknown` outside the loop. A peeked call (#516) is streamed: its `response` is the event-stream lines read, up to where the peek stopped. |
 | `seq` | The call's place among the calls its run sent, from 0, counted when it was sent. `(run_id, seq)` is the trace record's `calls[seq]`. |
 | `started_at`, `ended_at`, `ms` | Wall clock (UTC ISO; ms includes the template render). |
 | `url` | Where the request went. |

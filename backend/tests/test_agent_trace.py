@@ -73,6 +73,7 @@ RECORD_KEYS = {
     "narrated",
     "handed_off",
     "closed_by_code",
+    "peek_ms",
     "iterations",
     "corrections",
     "tools",

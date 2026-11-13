@@ -325,3 +325,158 @@ def test_a_bad_tool_call_still_carries_the_calls_cost() -> None:
     assert exc_info.value.usage.cached_tokens is None
     assert exc_info.value.server is not None
     assert exc_info.value.server.server_ms is None
+
+
+# --- the streamed peek (#516; music's, music#97) -------------------------------------
+
+
+def _sse(*chunks: dict[str, Any], done: bool = True) -> bytes:
+    lines = [f"data: {json.dumps(chunk)}\n\n" for chunk in chunks]
+    if done:
+        lines.append("data: [DONE]\n\n")
+    return "".join(lines).encode()
+
+
+def _delta(**delta: Any) -> dict[str, Any]:
+    return {"choices": [{"index": 0, "delta": delta, "finish_reason": None}]}
+
+
+def _streaming(
+    body: bytes,
+    seen: list[dict[str, Any]] | None = None,
+    capture: Any = None,
+    status_code: int = 200,
+) -> LlamaCppProvider:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/apply-template"):
+            return httpx.Response(200, json={"prompt": "<rendered>"})
+        if seen is not None:
+            seen.append(json.loads(request.content))
+        return httpx.Response(
+            status_code, content=body, headers={"content-type": "text/event-stream"}
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    return LlamaCppProvider("http://llm.test/v1", "gemma-4-12b", client=client, capture=capture)
+
+
+_WATER_CALL = _sse(
+    _delta(
+        tool_calls=[
+            {"index": 0, "id": "call_1", "type": "function", "function": {"name": "create_task"}}
+        ]
+    ),
+    _delta(tool_calls=[{"index": 0, "function": {"arguments": '{"title": "Water'}}]),
+    _delta(tool_calls=[{"index": 0, "function": {"arguments": ' the plants"}'}}]),
+    {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]},
+    {
+        "choices": [],
+        "usage": {
+            "prompt_tokens": 3690,
+            "completion_tokens": 22,
+            "total_tokens": 3712,
+            "prompt_tokens_details": {"cached_tokens": 3689},
+        },
+        "timings": {"prompt_ms": 40.0, "predicted_ms": 300.0},
+        "model": "gemma-weights",
+    },
+)
+
+
+def test_a_peek_that_opens_with_words_stops_and_answers_none() -> None:
+    seen: list[dict[str, Any]] = []
+    body = _sse(
+        _delta(role="assistant", content=None),
+        _delta(content="\n"),  # whitespace is not yet words
+        _delta(content="Made it."),
+        {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+    )
+    provider = _streaming(body, seen)
+    assert provider.peek(_USER, tools=[_CREATE_TASK], max_tokens=64) is None
+    [request] = seen
+    assert request["stream"] is True and request["stream_options"] == {"include_usage": True}
+    assert request["max_tokens"] == 64 and request["tools"], "the same request as chat, streamed"
+
+
+def test_a_peek_that_opens_with_a_tool_call_is_read_whole() -> None:
+    result = _streaming(_WATER_CALL).peek(_USER, tools=[_CREATE_TASK])
+    assert result is not None
+    [call] = result.tool_calls
+    assert (call.id, call.name, call.arguments) == (
+        "call_1",
+        "create_task",
+        {"title": "Water the plants"},
+    )
+    assert result.finish_reason == "tool_calls"
+    assert result.usage is not None
+    assert (result.usage.prompt_tokens, result.usage.cached_tokens) == (3690, 3689)
+    assert result.server is not None and result.server.server_ms == 340
+    assert result.server.model == "gemma-weights"
+
+
+def test_a_peek_reads_two_calls_by_their_index() -> None:
+    body = _sse(
+        _delta(
+            tool_calls=[
+                {"index": 0, "id": "a", "function": {"name": "create_task", "arguments": '{"title": "x"}'}}
+            ]
+        ),
+        _delta(
+            tool_calls=[
+                {"index": 1, "id": "b", "function": {"name": "create_task", "arguments": '{"title": "y"}'}}
+            ]
+        ),
+        {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]},
+    )
+    result = _streaming(body).peek(_USER)
+    assert result is not None
+    assert [c.arguments["title"] for c in result.tool_calls] == ["x", "y"]
+
+
+def test_reasoning_is_not_words_and_an_empty_stream_is_none() -> None:
+    body = _sse(_delta(reasoning_content="thinking…"), _delta(content=" "))
+    assert _streaming(body).peek(_USER) is None
+
+
+def test_a_peeked_tool_call_with_bad_arguments_is_the_typed_error() -> None:
+    body = _sse(
+        _delta(
+            tool_calls=[
+                {"index": 0, "id": "a", "function": {"name": "create_task", "arguments": "{not json"}}
+            ]
+        )
+    )
+    with pytest.raises(ToolCallArgumentsError):
+        _streaming(body).peek(_USER)
+
+
+def test_a_peek_fails_like_chat() -> None:
+    with pytest.raises(ProviderRequestError):
+        _streaming(b"loading model", status_code=503).peek(_USER)
+    with pytest.raises(ProviderResponseError):
+        _streaming(b"data: {not json\n\n").peek(_USER)
+
+    def unreachable(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    client = httpx.Client(transport=httpx.MockTransport(unreachable))
+    with pytest.raises(ProviderRequestError):
+        LlamaCppProvider("http://llm.test/v1", "gemma-4-12b", client=client).peek(_USER)
+
+
+def test_a_peek_is_captured_as_the_lines_it_read(tmp_path: Any) -> None:
+    """The context capture (#401) keeps a peek's request bytes and the
+    event-stream lines up to where it stopped, under the phase the trace
+    gives it: ``closing`` for words, ``planner`` for a tool call."""
+    from app.ai.context_capture import JsonlContextCapture, model_phase
+
+    path = tmp_path / "context.jsonl"
+    words = _sse(_delta(content="Made it."), _delta(content=" More words never read."))
+    with model_phase("planner"):
+        assert _streaming(words, capture=JsonlContextCapture(path)).peek(_USER) is None
+        _streaming(_WATER_CALL, capture=JsonlContextCapture(path)).peek(_USER)
+    stopped, called = [json.loads(line) for line in path.read_text().splitlines()]
+    assert json.loads(stopped["request"])["stream"] is True
+    assert "Made it." in stopped["response"] and "never read" not in stopped["response"]
+    assert stopped["phase"] == "closing" and stopped["template"] == {"prompt": "<rendered>"}
+    assert called["phase"] == "planner" and '"create_task"' in called["response"]

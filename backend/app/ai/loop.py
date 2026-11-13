@@ -84,9 +84,11 @@ nothing ran never calls it. ``cancelled`` and the failure stops never narrate:
 the user asked it to stop, or the run broke. A delegate caller (#482,
 :data:`DELEGATE_ACTORS`) speaks for itself, so wherever the narrator would
 speak its run replies with the code-built handoff (``narration.handoff``)
-and makes no narrator call. When its ask names one change and that one write
-lands, the run also ends without the planner's closing turn, replying with
-the code-built note (#516, :mod:`app.ai.closing`, which says when that is safe).
+and makes no narrator call. After a turn whose calls were all writes that
+landed, a delegate's next planner call is *peeked* (#516, :mod:`app.ai.closing`):
+streamed, and stopped at its first words if the model turned to its closing
+line, the reply then the code-built note; a turn that opens with a tool call is
+read whole and the run goes on unchanged.
 
 Every run can leave a trace (#400): with ``PCC_TRACE_PATH`` set, the loop
 appends one JSONL record per run (:mod:`app.ai.trace`) — the utterance, the
@@ -453,9 +455,6 @@ class _RunContext:
     # A delegate caller (#482) speaks for itself: the run hands it the typed
     # handoff (``narration.handoff``) and the narrator is never called.
     delegate: bool = False
-    # A delegate whose ask names one change (#516, ``closing.one_change``):
-    # its one landed write ends the run with no closing turn.
-    closes_by_code: bool = False
 
 
 class ToolCallRecord(BaseModel):
@@ -747,14 +746,46 @@ class AgentLoop:
         Re-raises whatever the provider raised: the caller's handling is
         unchanged, the trace only watches.
         """
+        result = self._call(
+            trace,
+            phase,
+            messages,
+            tools=tools,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            enable_thinking=enable_thinking,
+            temperature=temperature,
+        )
+        assert result is not None, "only a peek answers None"
+        return result
+
+    def _call(
+        self,
+        trace: run_trace.RunTrace,
+        phase: run_trace.CallPhase,
+        messages: Sequence[dict[str, Any]],
+        *,
+        tools: Sequence[ToolSpec] | None,
+        max_tokens: int,
+        timeout: float | None,
+        enable_thinking: bool = False,
+        temperature: float | None = None,
+        peek: bool = False,
+    ) -> ChatResult | None:
+        """:meth:`_chat`, or with ``peek`` the same call streamed through the
+        provider's ``peek`` (#516): ``None`` when the model began its closing
+        line and the stream was stopped there (status ``peeked``). A provider
+        with no ``peek`` (a scripted one) makes the plain call."""
         call = run_trace.ModelCall(phase=phase)
         trace.calls.append(call)
         started = perf_counter()
+        peeker = getattr(self._provider, "peek", None) if peek else None
         try:
             # The phase rides a ContextVar to the provider's context capture
             # (#401), which keys each captured call to this trace entry.
             with model_phase(phase):
-                result = self._provider.chat(
+                send = self._provider.chat if peeker is None else peeker
+                answered: ChatResult | None = send(
                     messages,
                     tools=tools,
                     enable_thinking=enable_thinking,
@@ -773,6 +804,13 @@ class AgentLoop:
             raise
         finally:
             call.ms = _ms_since(started)
+        if answered is None:
+            # The model's first words: code writes the closing line (#516).
+            call.status = "peeked"
+            call.phase = "closing"
+            trace.peek_ms = call.ms
+            return None
+        result = answered
         call.status = "truncated" if result.finish_reason == _FINISH_LENGTH else "ok"
         call.finish_reason = result.finish_reason
         call.tool_calls = len(result.tool_calls)
@@ -842,7 +880,6 @@ class AgentLoop:
             gathered=matches,
             state=block,
             delegate=actor in DELEGATE_ACTORS,
-            closes_by_code=actor in DELEGATE_ACTORS and closing.one_change(user_message),
         )
         corrections = 0
         iterations = 0
@@ -850,6 +887,10 @@ class AgentLoop:
         # exchange the run has seen (the stall rule's memory).
         dispatched = 0
         seen: set[tuple[str, str, str]] = set()
+        # Armed by a settled turn for a delegate (#516, ``closing.settled``):
+        # the next planner call is peeked, and one that opens with words ends
+        # the run on code's note.
+        peek_next = False
         logger.info(
             "agent_run_started",
             tools=len(specs),
@@ -874,7 +915,7 @@ class AgentLoop:
                 # The budget left as the first model call starts, for the trace.
                 trace.limits["deadline_s"] = round(call_timeout, 1)
             try:
-                result = self._chat(
+                peeked = self._call(
                     trace,
                     "planner",
                     messages,
@@ -883,6 +924,7 @@ class AgentLoop:
                     timeout=call_timeout,
                     enable_thinking=self._turn_thinking,
                     temperature=self._turn_temperature,
+                    peek=peek_next,
                 )
             except ToolCallArgumentsError as exc:
                 # The turn is unusable — its tool calls can't round-trip into
@@ -926,6 +968,12 @@ class AgentLoop:
                     error_type=type(exc).__name__,
                 )
                 raise self._internal_failed(exc, records, iteration, messages) from exc
+            if peeked is None:
+                # The model turned to its closing line after a settled turn:
+                # every check before this call ran as always, so only the
+                # note's generation is saved (#516).
+                return self._closed_by_code(ctx, records, iteration, messages)
+            result = peeked
             truncated = result.finish_reason == _FINISH_LENGTH
             if truncated:
                 logger.warning(
@@ -1102,17 +1150,10 @@ class AgentLoop:
                 # seen: another turn can bring nothing new back (#398).
                 logger.warning("agent_run_no_progress", tool_calls=len(result.tool_calls))
                 return self._limit_stop("no_progress", ctx, records, iteration, messages)
-            if (
-                ctx.closes_by_code
-                and iteration < self._max_iterations
-                and closing.ends_the_run(records, turn_start)
-                and not (cancel is not None and cancel.is_set())
-                and not (deadline is not None and time.monotonic() >= deadline)
-            ):
-                # The one write an agent caller asked for landed: its closing
-                # turn would only write a note nobody reads (#516). A last
-                # turn, a Stop or the deadline still end the run their way.
-                return self._closed_by_code(ctx, records, iteration, messages)
+            # A delegate reads the record (#516): after a turn whose calls all
+            # landed as writes, the next call is peeked rather than skipped, so
+            # the run ends early only when the model itself turns to words.
+            peek_next = ctx.delegate and closing.settled(records, turn_start)
         return self._limit_stop("max_iterations", ctx, records, iterations, messages)
 
     def _closed_by_code(
@@ -1122,11 +1163,12 @@ class AgentLoop:
         iterations: int,
         messages: list[dict[str, Any]],
     ) -> AgentRunResult:
-        """End an agent caller's run with the code-built note and no closing
-        turn (#516, ``closing``): ``completed``, the record as it stands."""
+        """End an agent caller's run on the code-built note once its closing
+        turn was peeked and stopped (#516, ``closing``): ``completed``, the
+        record as it stands."""
         ctx.trace.handed_off = True
         ctx.trace.closed_by_code = True
-        logger.info("agent_closed_by_code", tool_calls=len(records))
+        logger.info("agent_closed_by_code", tool_calls=len(records), peek_ms=ctx.trace.peek_ms)
         result = self._finish(
             "completed",
             closing.note([record.model_dump() for record in records]),

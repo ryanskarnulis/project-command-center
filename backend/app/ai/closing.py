@@ -3,32 +3,32 @@
 ``agent-standard/delegate-api.md`` "Agent callers and the closing note
 (v1.1)": an agent caller reads the typed record, not PCC's prose, so the
 planner's closing turn (the tool-free call that writes its note) is spent on
-words nobody reads. A delegate run may end without it and reply with a note
-code builds from the record (:func:`note`).
+words nobody reads. Its generation is saved; the call itself is not skipped.
 
-**When the run may end without it.** Only the closing turn may go: the run's
-tool calls, limits and stop reason must be what they would have been with it.
-The planner says it is done only *in* that turn, so code decides from what it
-has, and the planner writes one call per turn whenever the next call needs
-the last one's id (a probe on gemma-4-12b, 2026-11-12: "add a task … and pin
-it", "a project Garden with two tasks", "a task with a subtask", "a task
-blocked by …" each took one write turn per call, 4/4 twice; "complete X and
-add Y" was one turn once, two the next). A landed write alone never says the
-work is done. So the loop ends after a turn only when all of these hold
-(``AgentLoop._run``):
+**Only the closing turn may go**: the run's tool calls, limits and stop
+reason must be what they would have been with it, and the planner says it
+is done only *in* that turn. It writes one call per turn whenever the next
+call needs the last one's id (a probe on gemma-4-12b, 2026-11-12: a project
+then its tasks, a task then its pin, its subtask or its blocker), so a
+landed write alone never says the work is done. So the call is peeked, as
+music does (music#97, its ``peek``):
 
-- the caller is a delegate (``loop.DELEGATE_ACTORS``);
-- the ask names one change (:func:`one_change`): one line, one sentence, no
-  joiner and no word for a second change, so any ask that could need a
-  second write keeps its closing turn;
-- the turn made exactly one call, a write that landed (``done``), and it is
-  the run's only write (:func:`ends_the_run`);
-- turns are left, no Stop and no deadline yet: a limit, a Stop or a timeout
-  ends the run as it would have with the note.
+- after a tool turn that **settled** (:func:`settled`: every call in it a
+  write that landed, ``done``), a delegate's next planner call is made
+  exactly as always, after every check the loop makes before a call (the
+  Stop, the deadline, the iteration bound; the stall rule and the caps ran
+  at the end of the turn), but streamed through ``provider.peek``;
+- a first meaningful delta that is a tool call is read whole and the run goes
+  on as it would have;
+- a first meaningful delta of plain content (or an empty text turn) is the
+  model beginning its closing line: the stream is stopped there and the
+  reply is :func:`note`, built from the typed record.
 
-Everything else keeps today's path: a human caller's closing turn and
-narrator, and a delegate's handoff (``narration.handoff``) after its closing
-turn; a ``confirm_required`` question, a failure body, a limit stop.
+A read, a refusal, a not-run or malformed call never arm the peek: the
+model's next words may answer, explain or ask, and they stay its own. So do a
+``confirm_required`` question, an ``ask_user`` question, a failure body and a
+limit stop, and a human caller is unchanged. A provider with no ``peek`` (a
+scripted one) makes the plain call.
 
 Pure: builds text from stored tool calls, no session, no I/O.
 """
@@ -45,34 +45,12 @@ from app.ai import receipts, run_record
 if TYPE_CHECKING:
     from app.ai.loop import ToolCallRecord
 
-# What makes an ask more than one change: a second line or sentence, a
-# separator, a joining word, a plural target, or a word naming a change that
-# rides on another (a pin, a dependency, a subtask, something new to file it
-# in). Errs towards "more": a false "more" costs one model call, today's path;
-# a false "one" would end a run before its second write.
-_MORE_THAN_ONE = re.compile(
-    r"""
-    [\n,;:&+] | [.!?] \s+ \S
-    | \b(?: and | then | also | plus | with | after | before | while | or | but
-          | both | each | every | all | them | new | tasks | projects | subtasks?
-          | pin\w* | focus | block\w* | depend\w* | parent )\b
-    """,
-    re.IGNORECASE | re.VERBOSE,
-)
 
-
-def one_change(ask: str) -> bool:
-    """Whether the ask names one change and nothing that could need a second."""
-    return _MORE_THAN_ONE.search(ask.strip()) is None
-
-
-def ends_the_run(records: Sequence[ToolCallRecord], turn_start: int) -> bool:
-    """Whether the turn whose calls start at ``turn_start`` was one landed
-    write, and the run's only one."""
+def settled(records: Sequence[ToolCallRecord], turn_start: int) -> bool:
+    """Whether the turn whose calls start at ``turn_start`` made at least one
+    call and every one of them is a write that landed."""
     turn = records[turn_start:]
-    if len(turn) != 1 or run_record.classify(turn[0]) != "done":
-        return False
-    return sum(1 for record in records if run_record.classify(record) == "done") == 1
+    return bool(turn) and all(run_record.classify(record) == "done" for record in turn)
 
 
 # The verb for a write, by its tool's first word.
