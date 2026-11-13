@@ -1035,6 +1035,8 @@ class AgentLoop:
             progressed = False
             over_cap = False
             asked: tuple[clarification.Candidate, ...] = ()
+            # This turn's calls that read mode refused (#527).
+            read_refused = 0
             for index, call in enumerate(result.tool_calls):
                 if cancel is not None and cancel.is_set():
                     # The user stopped the run before this call started (most
@@ -1093,6 +1095,7 @@ class AgentLoop:
                     )
                     progressed = progressed or refused not in seen
                     seen.add(refused)
+                    read_refused += 1
                     continue
                 if (
                     gate is not None
@@ -1187,6 +1190,15 @@ class AgentLoop:
                     return self._limit_stop("correction_limit", ctx, records, iteration, messages)
                 # A malformed call is what the correction budget is for, so a
                 # turn with one is never judged a stall.
+            elif not progressed and read_refused == len(result.tool_calls):
+                # A read-mode run asking again for the writes it was refused
+                # (#527): its reads are done and nothing else will run, so it
+                # ends as answered from them, and the narrator speaks from the
+                # record (the refusals included), not as a stall.
+                logger.info("agent_run_read_mode_settled", tool_calls=read_refused)
+                return self._narrated_finish(
+                    "completed", ctx, records, iteration, messages, note=None
+                )
             elif not progressed:
                 # Every call this turn repeated an exchange the run had already
                 # seen: another turn can bring nothing new back (#398).

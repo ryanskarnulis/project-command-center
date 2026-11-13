@@ -178,6 +178,26 @@ def test_read_mode_never_runs_a_write_and_goes_on_from_its_reads(
     ).scalar_one() == "read"
 
 
+def test_a_read_mode_run_asking_again_for_its_write_ends_answered(
+    client: TestClient, tool_db: sessionmaker[Session], db_session: Session
+) -> None:
+    """The eval's commonest path (#527): read, write refused, the same write
+    again. That repeat is no stall: the run ends ``completed`` from its reads."""
+    write = ("create_task", {"title": "Sneaky"})
+    provider = ScriptedProvider(
+        [tool_calls_turn(("list_tasks", {})), tool_calls_turn(write), tool_calls_turn(write)],
+        narrations=[text_turn("Nothing is due, and I changed nothing.")],
+    )
+    _use_loop(provider)
+
+    response = _post(client, _thread(client), {"content": "what's due?", "mode": "read"})
+
+    reply = response.json()["assistant_message"]
+    assert reply["stop_reason"] == "completed"
+    assert [e["outcome"] for e in reply["record"]] == ["looked_up", "not_run", "not_run"]
+    assert db_session.execute(select(Task)).scalars().all() == []
+
+
 def test_a_confirm_token_on_a_read_mode_message_is_422(client: TestClient) -> None:
     _use_loop(ScriptedProvider([]))
 
