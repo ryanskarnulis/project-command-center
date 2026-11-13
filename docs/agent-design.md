@@ -328,8 +328,20 @@ that.
   to grade, and `test_delegate_closing.py` holds each note to the claim
   reader in CI. A provider with no `peek` makes the plain call.
 
-  **Measured** (2026-11-12, gemma-4-12b, as `agent:conductor`, a shared
-  GPU): see below.
+  **Measured** (2026-11-12, gemma-4-12b, as `agent:conductor`, 20 samples
+  per arm, peek and plain alternated; plain is the same build with the peek
+  never armed). Writes landed and end states, plain / peek: "add three
+  tasks: …" 60/60, 20/20 / 60/60, 20/20; "add a task to call the vet and
+  make it due friday" 20/20, 20/20 / 20/20, 20/20; "create a Garden project
+  with tasks …" 60/60, 20/20 / **60/60, 20/20** (the planner wrote the
+  project, then each task, one turn each: every peek before the last opened
+  with a tool call and went on); "add a task to call the vet due friday"
+  20/20, 20/20 / 20/20, 20/20. The peek ended 80/80 runs on code's note.
+  Its call stopped after 226–303 ms (medians) where the closing turn ran
+  706–818 ms, so a run was 455–596 ms faster (median 1430 → 975 ms for one
+  task write). Model calls per run are the same; the last one is cut short.
+  An earlier version guessed from the ask's words instead (#516's first
+  cut); with that guess forced on, the Garden ask landed 5/15 writes.
 - **Stop reasons**: `completed`, `max_iterations`, `correction_limit`,
   `truncated`, `no_progress`, `tool_call_limit` and `cancelled` return 200; `provider_error` (502), `timed_out` (504) and
   `internal_error` (500) are failures. Every one persists a truthful assistant
@@ -817,15 +829,13 @@ tuned, never gated: 6 scenarios, 35 samples, 56 s, infra 0/25, claims backed
   "its 3 tasks" count is unbacked in all 5 (e.g. "trashed the
   Kitchen project and its 3 tasks").
 
-**Second measurement, 2026-11-12, after #516, #520 and #522** (default n, a
-shared GPU): every scenario 5/5, claims backed 15/15. Most runs are now
-answered by the code-built note (`closed_by_code`), which has no model words
-for the claim reader, so `s3` and `s9` no longer have the note whose quotes
-and count missed: the gain is partly that. `m3`'s ask holds a context
-paragraph, so it keeps its closing turn and is graded as before. Stored
-titles: `Sort "Honey"` 2/5 and `Sort Honey` 3/5 (the model dropped the quotes
-itself; nothing adds them back); `Sort the album "Honey"` 5/5. `s9`'s yes
-replies `Trashed project 3 "Kitchen" and its 3 tasks.` (#520). The count is
+**Second measurement, 2026-11-12, after #516 (the peek), #520 and #522**
+(default n): every scenario 5/5, 30 completed runs all ended on the
+code-built note (`closed_by_code`), so the claim reader had no model words to
+grade (0/0): the `s3` and `s9` gain is partly that the note whose quotes and
+count missed is gone. Stored titles: `Sort Honey` 5/5 (the model dropped the
+quotes itself; nothing adds them back), `Sort the album "Honey"` 5/5. `s9`'s
+yes replies `Trashed project 3 "Kitchen" and its 3 tasks.` (#520). The count is
 in the tool's answer and the note only: the record keeps main's shape
 (`touched` the project, no `count`), since a client names a count by its
 first ref's kind and would read 4 rows as "4 projects".
