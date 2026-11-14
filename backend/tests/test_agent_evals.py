@@ -232,6 +232,7 @@ _FLOORS: dict[str, float] = {
         "delegate_confirm_trash",
         "delegate_read_mode",
         "delegate_context_ref",
+        "delegate_needs_input",
         "compose_create_and_pin",
         "compose_move_due_today",
         "compose_finish_and_follow_up",
@@ -3408,11 +3409,10 @@ def test_eval_delegate_context_ref() -> None:
 
 
 def test_eval_delegate_needs_input() -> None:
-    # Measured, not gating: whether the planner asks at all is the frontier's
-    # ambiguous_then_pick (0/5 on gemma-4-12b, docs/agent-frontier.md); the
-    # code path from a landed ask to needs_input is pinned in
+    # Gated since #533: the ask beside two matched tasks (gather.ASK_FOOTER).
+    # The code path from a landed ask to needs_input is pinned in
     # tests/test_delegate_v1_2.py.
-    _gate("delegate_needs_input", _delegate_needs_input, tier="frontier")
+    _gate("delegate_needs_input", _delegate_needs_input)
 
 
 # Compositions, dates and speech (#406).

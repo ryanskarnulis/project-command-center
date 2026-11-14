@@ -452,6 +452,21 @@ that.
   among the matches in place of a read. The frontier A/B was flat:
   `misheard_push` 10/10 on both arms (already fixed by #412–#414),
   `ambiguous_then_pick` 0/10 on both (#420's).
+
+  **Two or more tasks among the matches end the section on the ask** (#533,
+  `gather.ASK_FOOTER`): "If two or more fit the user's words and nothing
+  tells them apart, call ask_user with their ids instead of acting." Code
+  counts the task rows; whether they fit the words stays the model's. #420's
+  clause at the end of the prompt's matches line had held "Mark the dentist
+  one done" with two dentist tasks at 10/10. #484's longer calendar in the
+  state block took it to 0/5, on the in-app and delegate paths alike: the
+  planner completed the first match every time (bisected 2026-11-13: #420
+  10/10, #484 0/5, #484 with the old calendar 5/5; the prompt clause alone
+  and a bullet of its own both stayed 0/5). With the footer:
+  `delegate_needs_input` 5/5, now gated (it was measured-only); frontier
+  held-out `ambiguous_then_pick` 6/10 → 10/10 (seed 420); every other gate
+  scenario above its floor in the same pass (53/53, `recurrence_skip` 4/5
+  on an unbacked "moved" in the reply).
 - **Base prompt** (#416; the planner's since #418, `PLANNER_PROMPT` in
   `app/ai/loop.py`): every line
   carries a comment with what it fixes and its measurement. The fleet's

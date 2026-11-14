@@ -113,7 +113,16 @@ LABEL = (
     "[Possible matches for the user's words — tasks and Focus commitments a search "
     "found before this run. They may match; nothing was done to them]"
 )
-_FOOTER = "[End of possible matches]"
+FOOTER = "[End of possible matches]"
+# Two or more tasks shown: the footer carries the ask (#533). As the system
+# prompt's last clause on the matches line alone, it held until #484's longer
+# calendar landed in the state block, then the planner completed the first of
+# two dentist tasks every time (0/5 vs 10/10 at #420); beside the rows it asks
+# again. Code counts the rows; whether they fit the words stays the model's.
+ASK_FOOTER = (
+    "[End of possible matches. If two or more fit the user's words and nothing tells "
+    "them apart, call ask_user with their ids instead of acting]"
+)
 
 
 def task_document(title: str, description: str | None) -> str:
@@ -562,10 +571,13 @@ def _as_match(db: Session, row: dict[str, Any]) -> dict[str, Any]:
 
 
 def section(matches: Sequence[dict[str, Any]]) -> str | None:
-    """The rows under their label, one per line; ``None`` for no rows."""
+    """The rows under their label, one per line; ``None`` for no rows. With
+    two or more tasks among them, the footer is :data:`ASK_FOOTER`."""
     if not matches:
         return None
-    lines = [LABEL, *(f"- {json.dumps(row, ensure_ascii=False)}" for row in matches), _FOOTER]
+    tasks = sum(1 for row in matches if "task_id" in row)
+    footer = ASK_FOOTER if tasks >= 2 else FOOTER
+    lines = [LABEL, *(f"- {json.dumps(row, ensure_ascii=False)}" for row in matches), footer]
     return "\n".join(lines)
 
 
