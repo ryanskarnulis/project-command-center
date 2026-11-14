@@ -32,6 +32,7 @@ from __future__ import annotations
 import os
 from collections.abc import Generator
 from datetime import date, timedelta
+from typing import Any
 
 import pytest
 
@@ -73,6 +74,14 @@ S3_ALBUM_REQUEST = "add a task to sort the album “Honey” this weekend"
 # S15's second turn, as the real planner sent it when "their other album" had
 # nothing to resolve against: no quoted title at all.
 S15_REQUEST = "add a task to sort the other Caribou album this weekend"
+# S3's tasks step with the title out of the words (conductor#204, #145's
+# decision 2): ``{s1}`` becomes "that album" and music's ref rides
+# ``context.refs``, beside a task of PCC's own that the window touched (the
+# refs conductor adds for a v1.2 app), so the words must pick the album.
+S3_REF_REQUEST = "add a task to sort that album this weekend"
+S3_REFS = [
+    {"app": "music", "kind": "album", "id": "rg-honey", "title": "Honey", "untrusted": True},
+]
 # S9: the person's words; the app asks, and a "yes" confirms.
 S9_REQUEST = "wipe the kitchen project"
 S9_ANSWER = "yes"
@@ -130,7 +139,9 @@ def _assert_created_record(thread: Thread, task_id: int) -> None:
     """The typed record names the one task the turn created, with its undo."""
     step = thread.step
     title = step.world.tasks[task_id].title
-    [entry] = [e for e in step.typed_record if e["tool"] == "create_task" and e["outcome"] == "done"]
+    [entry] = [
+        e for e in step.typed_record if e["tool"] == "create_task" and e["outcome"] == "done"
+    ]
     assert entry["touched"] == [
         {"app": "tasks", "kind": "task", "id": str(task_id), "title": title}
     ], entry
@@ -140,10 +151,20 @@ def _assert_created_record(thread: Thread, task_id: int) -> None:
     )
 
 
-def _ask_to_create(sample: Sample, request: str) -> tuple[Thread, int]:
+def _ask_to_create(
+    sample: Sample, request: str, refs: list[dict[str, Any]] | None = None
+) -> tuple[Thread, int]:
     """Send one compiled request as the conductor and return the thread (one
-    step) and the id of the one task it created."""
+    step) and the id of the one task it created. ``refs`` go as v1.2's
+    ``context.refs``, after a ref to the seeded "Wipe the counters" task (one
+    of PCC's own that the window touched, as conductor adds)."""
     _seed_fleet_world(sample)
+    body: dict[str, Any] | None = None
+    if refs is not None:
+        with sample.db() as db:
+            [wipe] = [t for t in tasks_service.list_tasks(db) if t.title == "Wipe the counters"]
+            own = {"app": "tasks", "kind": "task", "id": str(wipe.id), "title": wipe.title}
+        body = {"context": {"refs": [*refs, own]}}
     created: list[int] = []
 
     def check(thread: Thread) -> None:
@@ -155,7 +176,7 @@ def _ask_to_create(sample: Sample, request: str) -> tuple[Thread, int]:
         _assert_created_record(thread, task_id)
         created.append(task_id)
 
-    thread = sample.converse([(request, check)], headers=HEADERS)
+    thread = sample.converse([(request, check)], headers=HEADERS, body=body)
     return thread, created[0]
 
 
@@ -173,8 +194,10 @@ def _conductor_s2(sample: Sample) -> None:
     assert task.due_date == tomorrow, f"due {task.due_date}, expected {tomorrow}"
 
 
-def _sorting_a_quoted_album(sample: Sample, request: str) -> None:
-    thread, task_id = _ask_to_create(sample, request)
+def _sorting_a_quoted_album(
+    sample: Sample, request: str, refs: list[dict[str, Any]] | None = None
+) -> None:
+    thread, task_id = _ask_to_create(sample, request, refs)
     task = thread.step.world.tasks[task_id]
     assert "honey" in task.title.lower(), f"title {task.title!r} dropped the quoted title"
     assert "sort" in task.title.lower(), f"title {task.title!r}"
@@ -191,6 +214,13 @@ def _conductor_s3_quoted_title(sample: Sample) -> None:
 def _conductor_s3_quoted_title_album(sample: Sample) -> None:
     """S3's tasks step, in the wording with "the album" before the title."""
     _sorting_a_quoted_album(sample, S3_ALBUM_REQUEST)
+
+
+def _conductor_s3_ref_only(sample: Sample) -> None:
+    """S3's tasks step with no title in the words: "that album" and music's
+    ref in ``context.refs`` beside one of PCC's own tasks. The task is named
+    for the album the ref names, and due this weekend."""
+    _sorting_a_quoted_album(sample, S3_REF_REQUEST, S3_REFS)
 
 
 def _conductor_s15_other_album(sample: Sample) -> None:
@@ -214,9 +244,7 @@ def _conductor_s9_wipe_project(sample: Sample) -> None:
     def check_asked(thread: Thread) -> None:
         step = thread.step
         assert step.actor == CONDUCTOR, step.actor
-        assert step.result.stop_reason == "confirm_required", (
-            f"stopped: {step.result.stop_reason}"
-        )
+        assert step.result.stop_reason == "confirm_required", f"stopped: {step.result.stop_reason}"
         assert step.reply == 'Trash project "Kitchen" and its 3 tasks?', step.reply
         assert step.events == (), f"wrote {list(step.events)}"
         assert step.world.projects[kitchen_id][1] is False, "Kitchen was trashed unasked"
@@ -278,6 +306,10 @@ def test_eval_conductor_s3_quoted_title() -> None:
 
 def test_eval_conductor_s3_quoted_title_album() -> None:
     _gate("conductor_s3_quoted_title_album", _conductor_s3_quoted_title_album, tier=TIER)
+
+
+def test_eval_conductor_s3_ref_only() -> None:
+    _gate("conductor_s3_ref_only", _conductor_s3_ref_only, tier=TIER)
 
 
 def test_eval_conductor_s15_other_album() -> None:
