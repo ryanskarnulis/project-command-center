@@ -395,6 +395,28 @@ def test_the_section_is_the_task_rows_under_the_label(
     assert gather.section([]) is None
 
 
+def _task(task_id: int, title: str) -> dict[str, Any]:
+    return {"task_id": task_id, "title": title, "project": "Home", "status": "open"}
+
+
+def test_two_matched_tasks_end_the_section_on_the_ask() -> None:
+    # #533: with the ask only in the system prompt, the planner completed the
+    # first of two dentist tasks every time; beside the rows, it asks.
+    two = gather.section([_task(3, "Book dentist appointment"), _task(2, "Pay the dentist bill")])
+    assert two is not None
+    assert two.splitlines()[-1] == gather.ASK_FOOTER
+    assert "ask_user" in gather.ASK_FOOTER
+
+
+def test_one_matched_task_has_no_ask_in_the_section() -> None:
+    commitment = {"entry_id": 7, "title": "Dentist", "focus_commitment": True, "at": "09:00"}
+    for shown in ([_task(3, "Book dentist appointment")], [_task(3, "Book"), commitment]):
+        text = gather.section(shown)
+        assert text is not None
+        assert "ask_user" not in text
+        assert text.splitlines()[-1] == gather.FOOTER
+
+
 def test_a_waiting_task_carries_its_edges_and_keeps_the_other_matches(
     tool_db: sessionmaker[Session],
 ) -> None:
