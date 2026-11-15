@@ -177,8 +177,8 @@ that.
   gemma-4-12b's sampling and thinking key are copied from
   `../agent-standard/model-profile.md`; `tests/test_model_profile.py` checks
   them for drift when that sibling is checked out (skipped in CI).
-- **Loop** `app/ai/loop.py`: bounded iterations (10) + separate correction
-  budget (3); schema failures are corrections, domain rejections are ordinary
+- **Loop** `app/ai/loop.py`: a run goes until its task is done; a separate
+  correction budget (3) and the stall rule stop a stuck one; schema failures are corrections, domain rejections are ordinary
   results; writes stamped `agent:loop`. Every model call carries
   `max_tokens` (the profile's turn cap — 2048 for gemma-4-12b and the
   default, the context budget's completion reserve), since llama-server's
@@ -187,14 +187,15 @@ that.
   its words on: a cut-off text turn is dropped — no reply saved, nothing
   added to history — and the run ends `truncated`; a cut-off turn's tool
   calls still run (each call's arguments arrived whole), only the text beside
-  them is dropped. Work is bounded too (#398): a turn in which *every* call
+  them is dropped. Stuck work is stopped (#398): a turn in which *every* call
   repeats an exchange the run already made — keyed on tool + canonicalised
   arguments + the answer, so a repeat that comes back different (a list
   after a write) is progress — ends the run `no_progress`; a turn with a
-  schema error is left to the correction budget instead. A run dispatches at
-  most `DEFAULT_MAX_TOOL_CALLS` = 24 calls (the largest deployed run made 18,
-  an 8-task batch made twice after schema errors; schema-invalid calls
-  count); a call past it is answered "not run" (one tool answer per call),
+  schema error is left to the correction budget instead. Two runaway
+  ceilings sit far above real use (#511, agent-standard §3):
+  `DEFAULT_MAX_ITERATIONS` = 100 and `DEFAULT_MAX_TOOL_CALLS` = 250 (the
+  largest deployed run made 18 calls, an 8-task batch made twice after schema
+  errors; schema-invalid calls count). A call past the call ceiling is answered "not run" (one tool answer per call),
   never dispatched, and the run ends `tool_call_limit` after that turn.
 - **Planner and narrator** (#418, ported from chess's split,
   `../chess/docs/planner-narrator.md`): a run is two model phases. The

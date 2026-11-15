@@ -16,8 +16,9 @@ exposes, dispatched in-process. Every mutation is stamped ``agent:loop`` in
 ``activity_events`` and every delete is a restorable soft delete, so
 everything the loop does is auditable and undoable.
 
-Termination is structural: at most ``max_iterations`` provider turns, plus a
-separate bounded budget of self-correction turns for schema-invalid tool
+A run goes until its task is done (agent-standard §3); it ends early only when
+it is stuck. ``max_iterations`` is a runaway ceiling far above any real run,
+not a working limit. Stuck runs are caught by a separate bounded budget of self-correction turns for schema-invalid tool
 calls — arguments that aren't a JSON object (``ToolCallArgumentsError`` from
 the provider), arguments that fail the tool's argument model, or a tool name
 the registry doesn't know. Domain rejections from the service layer ("task 7
@@ -59,8 +60,7 @@ beside them is dropped from history.
 Work is bounded too, not just turns (#398). A turn in which *every* call
 repeats one this run already made and comes back with the same answer ends
 the run with stop reason ``no_progress``: nothing new can come back from
-another turn, so the loop stops instead of spending the rest of the iteration
-budget re-reading. The repeat is keyed on the tool, its canonicalised
+another turn, so the loop stops instead of re-reading. The repeat is keyed on the tool, its canonicalised
 arguments *and* what it answered (:func:`_exchange_key`) — a repeated call
 that comes back different (a list after a write) did new work and the run
 goes on. And a run dispatches at most ``max_tool_calls`` tool calls (default
@@ -350,12 +350,15 @@ NARRATOR_PROMPT_SHA256 = run_trace.sha256(NARRATOR_PROMPT)
 # its model's profile (#402), whose caps the loop runs at instead.
 DEFAULT_MAX_TOKENS = model_profile.DEFAULT_TURN_MAX_TOKENS
 
-# The per-run tool-call cap (#398). The largest deployed run made 18 calls (an
-# 8-task batch, made twice after schema errors), so a real batch fits with
-# headroom; a run that needs more is better split across messages than left
-# to spin. Every call that reaches the registry counts, schema-invalid ones
-# included — that is how the 18 was counted.
-DEFAULT_MAX_TOOL_CALLS = 24
+# Runaway ceilings (#511, agent-standard §3), not working limits: they exist
+# for the loop the stall rule can't see — new arguments every turn, no end —
+# and sit at least ten times above the longest real run. The largest deployed
+# run made 18 calls (an 8-task batch, made twice after schema errors); the one
+# run the old 10-iteration cap stopped was still making progress. Every call
+# that reaches the registry counts, schema-invalid ones included. A ceiling
+# that stops a run that was making progress is a bug: raise it.
+DEFAULT_MAX_ITERATIONS = 100
+DEFAULT_MAX_TOOL_CALLS = 250
 
 # The narrator's completion cap (#418): the reply's cap from before the split,
 # since the narrator writes what the single phase used to. As above, the
@@ -541,7 +544,7 @@ class AgentLoop:
         self,
         provider: ChatProvider,
         *,
-        max_iterations: int = 10,
+        max_iterations: int = DEFAULT_MAX_ITERATIONS,
         max_corrections: int = 3,
         max_tokens: int | None = None,
         max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,

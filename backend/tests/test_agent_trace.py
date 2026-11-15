@@ -205,7 +205,7 @@ def test_a_traced_run_writes_one_well_formed_record(
     assert (record["prompt_tokens"], record["completion_tokens"]) == (450, 23)
     assert record["cached_tokens"] == 225
 
-    assert record["limits"]["max_iterations"] == 10
+    assert record["limits"]["max_iterations"] == loop_module.DEFAULT_MAX_ITERATIONS
     assert record["limits"]["max_tool_calls"] == loop_module.DEFAULT_MAX_TOOL_CALLS
     assert record["limits"]["deadline_s"] is None
     serving = record["serving"]
