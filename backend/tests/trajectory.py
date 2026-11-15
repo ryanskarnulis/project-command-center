@@ -158,7 +158,7 @@ class Step:
     narration: NarrationMode = "ok"
     actor_header: str | None = None
     conversation: int = 0
-    max_iterations: int = 10
+    max_iterations: int = loop_module.DEFAULT_MAX_ITERATIONS
     max_corrections: int = 3
     max_tool_calls: int = loop_module.DEFAULT_MAX_TOOL_CALLS
 

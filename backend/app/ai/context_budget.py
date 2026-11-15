@@ -69,9 +69,10 @@ CURRENT_TURN_RESERVE_TOKENS = -(-MAX_AGENT_MESSAGE_LENGTH // CHARS_PER_TOKEN)
 # by construction. ``test_context_budget.py`` asserts the largest one fits.
 STATE_BLOCK_RESERVE_TOKENS = 1_024
 
-# The run's *own* tool traffic: up to `max_iterations` assistant turns with
-# tool calls plus their results, all appended to the same request as the loop
-# proceeds. History has to leave room for it or the loop dies mid-run.
+# The run's *own* tool traffic: assistant turns with tool calls plus their
+# results, all appended to the same request as the loop proceeds. History has
+# to leave room for it or the loop dies mid-run. Sized for real runs, not for
+# the runaway ceiling: a run long enough to overflow it is #537.
 TOOL_TRANSCRIPT_RESERVE_TOKENS = 16_384
 
 # Room for the final reply.

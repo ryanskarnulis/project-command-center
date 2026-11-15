@@ -342,9 +342,11 @@ def test_tool_call_cap_answers_excess_calls_not_run_and_never_dispatches_them(
         assert len(created) == 2
 
 
-def test_default_tool_call_cap_fits_the_largest_deployed_batch() -> None:
-    # The largest deployed run made 18 calls (#398).
-    assert loop_module.DEFAULT_MAX_TOOL_CALLS >= 18
+def test_default_ceilings_sit_ten_times_above_the_longest_real_run() -> None:
+    # The largest deployed run made 18 calls over 10 iterations (#398, #511);
+    # agent-standard §3 puts a runaway ceiling at least ten times above that.
+    assert loop_module.DEFAULT_MAX_TOOL_CALLS >= 180
+    assert loop_module.DEFAULT_MAX_ITERATIONS >= 100
     with pytest.raises(ValueError):
         AgentLoop(ScriptedProvider([]), max_tool_calls=0)
 
