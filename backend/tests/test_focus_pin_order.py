@@ -79,9 +79,7 @@ def test_reordering_changes_the_order_the_plan_places_pins(db_session: Session) 
     assert _scheduled(db_session) == [c, a, b]
     events = _reorder_events(db_session)
     assert len(events) == 1
-    assert events[0].summary == (
-        'Focus pins on 2026-06-20 reordered: "c", "a", "b"'
-    )
+    assert events[0].summary == ('Focus pins on 2026-06-20 reordered: "c", "a", "b"')
 
 
 def test_pins_left_out_keep_their_place(db_session: Session) -> None:
@@ -103,9 +101,7 @@ def test_an_ignored_pin_keeps_its_slot_when_the_visible_ones_move(
     # client never sees it and can't name it.
     task_b = tasks_service.get_task(db_session, b)
     assert task_b is not None
-    tasks_service.update_task(
-        db_session, task_b, {"deferred_until": TARGET + timedelta(days=1)}
-    )
+    tasks_service.update_task(db_session, task_b, {"deferred_until": TARGET + timedelta(days=1)})
     db_session.commit()
 
     _reorder(db_session, pc.id, pa.id)
@@ -172,9 +168,7 @@ def test_reorder_refuses_commitments_strangers_and_duplicates(
         ([], "at least one"),
     ]:
         with pytest.raises(focus_plan_service.FocusEntryError, match=message):
-            focus_plan_service.reorder_pins(
-                db_session, plan_date=TARGET, entry_ids=entry_ids
-            )
+            focus_plan_service.reorder_pins(db_session, plan_date=TARGET, entry_ids=entry_ids)
 
 
 def test_a_timed_pin_that_floated_can_be_reordered(db_session: Session) -> None:
@@ -190,9 +184,7 @@ def test_a_timed_pin_that_floated_can_be_reordered(db_session: Session) -> None:
 # --- Route --------------------------------------------------------------------
 
 
-def test_route_reorders_and_returns_the_new_order(
-    client: TestClient, db_session: Session
-) -> None:
+def test_route_reorders_and_returns_the_new_order(client: TestClient, db_session: Session) -> None:
     a, b = (_task(db_session, name) for name in ("a", "b"))
     pa, pb = (_pin(db_session, task_id) for task_id in (a, b))
 

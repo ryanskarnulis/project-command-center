@@ -93,9 +93,7 @@ def test_due_date_clash_points_at_the_occurrence(tool_db: sessionmaker[Session])
         tasks_service.mark_done(db, first)
         db.commit()
         first_id = first.id
-        second = max(
-            tasks_service.list_tasks(db, project.id), key=lambda t: t.due_date or date.min
-        )
+        second = max(tasks_service.list_tasks(db, project.id), key=lambda t: t.due_date or date.min)
         second_id = second.id
 
     refusal = _refuse("update_task", {"task_id": second_id, "due_date": "2026-07-01"})
@@ -108,9 +106,7 @@ def test_not_found_says_where_to_look(tool_db: sessionmaker[Session]) -> None:
     refusal = _refuse("get_task", {"task_id": 999})
     assert refusal.retry == "different_args"
     assert "search" in refusal.details["next"]
-    assert _refuse("restore_task", {"task_id": 999}).details["next"].startswith(
-        "See list_trash"
-    )
+    assert _refuse("restore_task", {"task_id": 999}).details["next"].startswith("See list_trash")
 
 
 def test_every_failure_reaches_the_model_in_one_shape(

@@ -82,16 +82,12 @@ def test_violates_unique_columns_matches_active_occurrence(
     assert violates_unique_columns(exc, "tasks", ("due_date", "recurrence_id"))
     assert not violates_unique_columns(exc, "tasks", ("recurrence_id",))
     assert not violates_unique_columns(exc, "tasks", ("recurrence_id", "title"))
-    assert not violates_unique_columns(
-        exc, "task_dependencies", ("recurrence_id", "due_date")
-    )
+    assert not violates_unique_columns(exc, "task_dependencies", ("recurrence_id", "due_date"))
 
 
 def test_violates_unique_columns_matches_active_edge(db_session: Session) -> None:
     exc = _duplicate_edge_error(db_session)
-    assert violates_unique_columns(
-        exc, "task_dependencies", ("task_id", "depends_on_task_id")
-    )
+    assert violates_unique_columns(exc, "task_dependencies", ("task_id", "depends_on_task_id"))
     assert not violates_unique_columns(exc, "task_dependencies", ("task_id",))
 
 
@@ -116,9 +112,7 @@ def test_create_next_occurrence_returns_the_winner_after_a_stale_read(
         title="water the plants",
         due_date=date(2026, 7, 25),
     )
-    tasks_service.update_task(
-        db_session, parent, {"repeat_interval": {"unit": "day", "every": 1}}
-    )
+    tasks_service.update_task(db_session, parent, {"repeat_interval": {"unit": "day", "every": 1}})
     db_session.flush()
     assert parent.recurrence_id is not None
     winner = recurrence_service.create_next_occurrence(db_session, parent)
@@ -136,9 +130,7 @@ def test_create_next_occurrence_returns_the_winner_after_a_stale_read(
         return real(*args, **kwargs)
 
     monkeypatch.setattr(recurrence_service, "find_live_occurrence_on", stale)
-    monkeypatch.setattr(
-        recurrence_service, "_find_skipped_occurrence_on", lambda *a, **k: None
-    )
+    monkeypatch.setattr(recurrence_service, "_find_skipped_occurrence_on", lambda *a, **k: None)
 
     assert recurrence_service.create_next_occurrence(db_session, parent).id == winner.id
 

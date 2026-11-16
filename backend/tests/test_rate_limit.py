@@ -56,18 +56,14 @@ def test_buckets_are_independent(stub_settings: None) -> None:
 
     @app.get(
         "/a",
-        dependencies=[
-            Depends(rate_limit.rate_limit("a", per_min_attr="rate_limit_test_per_min"))
-        ],
+        dependencies=[Depends(rate_limit.rate_limit("a", per_min_attr="rate_limit_test_per_min"))],
     )
     def _a() -> dict[str, bool]:
         return {"ok": True}
 
     @app.get(
         "/b",
-        dependencies=[
-            Depends(rate_limit.rate_limit("b", per_min_attr="rate_limit_test_per_min"))
-        ],
+        dependencies=[Depends(rate_limit.rate_limit("b", per_min_attr="rate_limit_test_per_min"))],
     )
     def _b() -> dict[str, bool]:
         return {"ok": True}

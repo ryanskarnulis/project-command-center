@@ -100,9 +100,7 @@ def record_task_events(
     )
 
 
-def list_events(
-    db: Session, project_id: int, *, limit: int = 50
-) -> Sequence[ActivityEvent]:
+def list_events(db: Session, project_id: int, *, limit: int = 50) -> Sequence[ActivityEvent]:
     """Most-recent-first events for one project, capped at ``limit``.
 
     Writes its own ``select`` rather than using ``services.common.active`` because

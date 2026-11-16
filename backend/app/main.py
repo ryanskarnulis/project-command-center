@@ -68,9 +68,7 @@ app.include_router(api_router, prefix="/api")
 
 
 @app.exception_handler(IntegrityError)
-async def integrity_conflict(
-    request: Request, exc: IntegrityError
-) -> JSONResponse:
+async def integrity_conflict(request: Request, exc: IntegrityError) -> JSONResponse:
     """A database constraint that reached the transport is a conflict, not a crash.
 
     Services translate the constraints they know about into domain errors with

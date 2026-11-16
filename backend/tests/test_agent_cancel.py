@@ -227,9 +227,7 @@ def test_cancel_endpoint_stops_the_in_flight_run_with_a_truthful_200(
     _file_tools: None,
 ) -> None:
     conversation_id = file_client.post("/api/agent/conversations", json={}).json()["id"]
-    provider = _GatedProvider(
-        [_calls(("create_task", {"title": "Proposed after Stop"}))]
-    )
+    provider = _GatedProvider([_calls(("create_task", {"title": "Proposed after Stop"}))])
     app.dependency_overrides[routes_agent.get_agent_loop] = lambda: AgentLoop(provider)
 
     posted: dict[str, Any] = {}
@@ -334,10 +332,7 @@ def test_cancel_404s_for_missing_and_deleted_conversations(client: TestClient) -
 
     conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
     assert client.delete(f"/api/agent/conversations/{conversation_id}").status_code == 204
-    assert (
-        client.post(f"/api/agent/conversations/{conversation_id}/cancel").status_code
-        == 404
-    )
+    assert client.post(f"/api/agent/conversations/{conversation_id}/cancel").status_code == 404
 
 
 def test_cancel_with_nothing_running_is_a_no_op(client: TestClient) -> None:

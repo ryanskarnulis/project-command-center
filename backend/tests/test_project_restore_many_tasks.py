@@ -42,9 +42,7 @@ def _count(db_session: Session, *conditions: ColumnElement[bool]) -> int:
 
 
 def _archived(db_session: Session, pid: int) -> int:
-    return _count(
-        db_session, Task.deleted_at.is_not(None), Task.deleted_with_project_id == pid
-    )
+    return _count(db_session, Task.deleted_at.is_not(None), Task.deleted_with_project_id == pid)
 
 
 def _active(db_session: Session, pid: int) -> int:

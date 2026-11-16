@@ -84,9 +84,7 @@ def require_next_due_date(due_date: date, interval: Mapping[str, Any]) -> date:
     return next_due
 
 
-def next_occurrence_date(
-    task: Task, effective_status: TaskWorkflowStatus
-) -> date | None:
+def next_occurrence_date(task: Task, effective_status: TaskWorkflowStatus) -> date | None:
     """When this recurring task repeats next, or ``None`` if it never will.
 
     Derived for the read payload so the UI can show "next <date>" beside the
@@ -198,9 +196,7 @@ def _clone_dependency_edges(db: Session, clone_ids: Mapping[int, int]) -> None:
         .all()
     )
     for edge in edges:
-        deps_service.add_dependency(
-            db, clone_ids[edge.task_id], clone_ids[edge.depends_on_task_id]
-        )
+        deps_service.add_dependency(db, clone_ids[edge.task_id], clone_ids[edge.depends_on_task_id])
 
 
 def find_live_occurrence_on(
@@ -224,9 +220,7 @@ def find_live_occurrence_on(
     return db.execute(stmt.order_by(Task.id.asc())).scalars().first()
 
 
-def _find_skipped_occurrence_on(
-    db: Session, recurrence_id: str, due_date: date
-) -> Task | None:
+def _find_skipped_occurrence_on(db: Session, recurrence_id: str, due_date: date) -> Task | None:
     """The series' *skipped* occurrence due on ``due_date``, or ``None``.
 
     A skipped row is soft-deleted but still *happened* as a scheduling decision:
@@ -436,9 +430,7 @@ def skip_occurrence(db: Session, task: Task) -> Task:
     nothing to roll forward to.
     """
     if task.repeat_interval is None or task.due_date is None:
-        raise RecurrenceError(
-            "Only a recurring task with a due date can be skipped"
-        )
+        raise RecurrenceError("Only a recurring task with a due date can be skipped")
     # Skip and completion roll forward by the same rule — advance past explicitly
     # skipped dates, reuse a live row already sitting on the target date, otherwise
     # insert one — so both always hand back a live, actionable occurrence.
@@ -474,9 +466,7 @@ def _mark_skipped(db: Session, task: Task) -> None:
     log_task_event(db, task, "skipped")
 
 
-def find_skipped_occurrence_on(
-    db: Session, recurrence_id: str, due_date: date
-) -> Task | None:
+def find_skipped_occurrence_on(db: Session, recurrence_id: str, due_date: date) -> Task | None:
     """Public alias of ``_find_skipped_occurrence_on`` for the un-skip undo."""
     return _find_skipped_occurrence_on(db, recurrence_id, due_date)
 
@@ -509,11 +499,7 @@ def get_series(db: Session, recurrence_id: str) -> list[Task]:
 
 def _series_rows(db: Session, recurrence_id: str) -> list[Task]:
     """Every row sharing this ``recurrence_id``, trashed and skipped ones included."""
-    return list(
-        db.execute(select(Task).where(Task.recurrence_id == recurrence_id))
-        .scalars()
-        .all()
-    )
+    return list(db.execute(select(Task).where(Task.recurrence_id == recurrence_id)).scalars().all())
 
 
 def stop_recurrence(db: Session, task: Task) -> Task:

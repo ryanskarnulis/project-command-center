@@ -93,9 +93,7 @@ def _effective_status(task: Task, rollups: Rollups) -> TaskWorkflowStatus:
     return rollups[task.id].workflow_status
 
 
-def _rank_key(
-    task: Task, target_date: date, rollups: Rollups
-) -> tuple[int, int, int, int, int]:
+def _rank_key(task: Task, target_date: date, rollups: Rollups) -> tuple[int, int, int, int, int]:
     """Deterministic sort key (ascending). The v1 focus-ranking rules.
 
     Order: in-progress first, then due urgency, then priority, then shorter tasks
@@ -292,12 +290,8 @@ def _pack(
     for pin in timed:
         assert pin.entry.start_minute is not None
         minutes, assumed = _effective_estimate(pin.task, rollups)
-        _schedule(
-            pin.task, minutes, assumed, None, pin.entry.start_minute, pin.entry, fixed=True
-        )
-        fixed_intervals.append(
-            (pin.entry.start_minute, pin.entry.start_minute + minutes)
-        )
+        _schedule(pin.task, minutes, assumed, None, pin.entry.start_minute, pin.entry, fixed=True)
+        fixed_intervals.append((pin.entry.start_minute, pin.entry.start_minute + minutes))
     gaps = _free_gaps(start_minutes, window_end, fixed_intervals)
     # Where a floating pin that fits no gap goes: after the window and every
     # fixed block, one after another.
@@ -309,9 +303,7 @@ def _pack(
         if block_start is None:
             block_start = late_cursor
             late_cursor += minutes
-        _schedule(
-            pin.task, minutes, assumed, None, block_start, pin.entry, pin_order=order
-        )
+        _schedule(pin.task, minutes, assumed, None, block_start, pin.entry, pin_order=order)
 
     for task in ranked:
         minutes, assumed = _effective_estimate(task, rollups)
@@ -391,9 +383,7 @@ def get_focus_plan(
     # Non-deleted task ids (done ones included) so an orphan — a live child whose
     # parent is soft-deleted — is promoted to top-level here instead of vanishing
     # from the plan, while a subtask of a merely-completed parent stays nested.
-    active_ids = set(
-        db.execute(select(Task.id).where(Task.deleted_at.is_(None))).scalars()
-    )
+    active_ids = set(db.execute(select(Task.id).where(Task.deleted_at.is_(None))).scalars())
     source = [
         task
         for task in tasks_service.list_tasks(db, exclude_done=True)
@@ -534,11 +524,7 @@ def _unfinished_dependencies_for(
     if not task_ids:
         return {}
     edges_by_task = deps_service.list_dependencies_for(db, task_ids)
-    blocker_ids = {
-        edge.depends_on_task_id
-        for edges in edges_by_task.values()
-        for edge in edges
-    }
+    blocker_ids = {edge.depends_on_task_id for edges in edges_by_task.values() for edge in edges}
     statuses = deps_service.effective_statuses(db, blocker_ids)
     blockers = tasks_service.get_tasks(db, blocker_ids)
 

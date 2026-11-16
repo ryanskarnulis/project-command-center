@@ -98,15 +98,11 @@ def test_active_occurrence_migration_resolves_existing_duplicates(
         with engine.begin() as conn:
             live = conn.execute(
                 text(
-                    "SELECT id, title FROM tasks "
-                    "WHERE recurrence_id = 'r1' AND deleted_at IS NULL"
+                    "SELECT id, title FROM tasks WHERE recurrence_id = 'r1' AND deleted_at IS NULL"
                 )
             ).all()
             trashed = conn.execute(
-                text(
-                    "SELECT id FROM tasks "
-                    "WHERE recurrence_id = 'r1' AND deleted_at IS NOT NULL"
-                )
+                text("SELECT id FROM tasks WHERE recurrence_id = 'r1' AND deleted_at IS NOT NULL")
             ).all()
             events = conn.execute(
                 text(
@@ -129,9 +125,7 @@ def test_active_occurrence_migration_resolves_existing_duplicates(
 
     assert [title for _id, title in live] == ["keeper"]
     assert len(trashed) == 2
-    assert {entity_id for entity_id, _a, _s in events} == {
-        task_id for task_id, in trashed
-    }
+    assert {entity_id for entity_id, _a, _s in events} == {task_id for (task_id,) in trashed}
     assert all("duplicate recurring" in summary for _e, _a, summary in events)
 
 
@@ -207,18 +201,16 @@ def test_active_occurrence_migration_cascades_to_checklist_subtasks(
                 )
             ).all()
             events = conn.execute(
-                text(
-                    "SELECT entity_id FROM activity_events WHERE action = 'deleted'"
-                )
+                text("SELECT entity_id FROM activity_events WHERE action = 'deleted'")
             ).all()
     finally:
         engine.dispose()
 
-    assert [task_id for task_id, in live] == [1, 5]
-    assert [task_id for task_id, in trashed] == [2, 3, 4]
+    assert [task_id for (task_id,) in live] == [1, 5]
+    assert [task_id for (task_id,) in trashed] == [2, 3, 4]
     assert orphans == []
     # Every trashed row is auditable and therefore restorable from the trash UI.
-    assert {task_id for task_id, in events} == {2, 3, 4}
+    assert {task_id for (task_id,) in events} == {2, 3, 4}
 
 
 def test_heal_revision_cascades_leaked_subtasks_on_upgraded_databases(
@@ -315,8 +307,8 @@ def test_heal_revision_cascades_leaked_subtasks_on_upgraded_databases(
     finally:
         engine.dispose()
 
-    assert [task_id for task_id, in live] == [5]
-    assert [task_id for task_id, in events] == [1, 2, 3]
+    assert [task_id for (task_id,) in live] == [5]
+    assert [task_id for (task_id,) in events] == [1, 2, 3]
     assert live_again == live
 
 
@@ -440,9 +432,7 @@ def test_always_filed_migration_backfills_legacy_unfiled_tasks(tmp_path: Path) -
             general_id = conn.execute(
                 text("SELECT id FROM projects WHERE system_key = 'general'")
             ).scalar_one()
-            filed = conn.execute(
-                text("SELECT title, project_id FROM tasks ORDER BY id")
-            ).all()
+            filed = conn.execute(text("SELECT title, project_id FROM tasks ORDER BY id")).all()
             still_unfiled = conn.execute(
                 text("SELECT COUNT(*) FROM tasks WHERE project_id IS NULL")
             ).scalar_one()
@@ -522,9 +512,7 @@ def test_focus_sessions_migration_upgrades_enforces_and_downgrades(
 
 
 _SEARCH_FTS_TRIGGERS = {
-    f"{table}_fts_{suffix}"
-    for table in ("tasks", "projects")
-    for suffix in ("ai", "ad", "au")
+    f"{table}_fts_{suffix}" for table in ("tasks", "projects") for suffix in ("ai", "ad", "au")
 }
 
 

@@ -75,7 +75,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.ai import loop as agent_loop  # noqa: E402
 from app.ai import trace as run_trace  # noqa: E402
-from app.ai.model_profile import ModelProfile, load_profile  # noqa: E402
+from app.ai.model_profile import TURN, ModelProfile, load_profile  # noqa: E402
 from app.ai.providers.llamacpp import (  # noqa: E402
     ChatResult,
     LlamaCppProvider,
@@ -218,7 +218,7 @@ def arm_profile(arm: Arm, default_model: str) -> ModelProfile:
     #418)."""
     profile = load_profile(arm.profile or arm.model or default_model)
     if arm.temperature is not None:
-        profile = profile.model_copy(update={"turn_temperature": arm.temperature})
+        profile = profile.with_phase(TURN, temperature=arm.temperature)
     return profile
 
 
@@ -522,7 +522,7 @@ def describe_arm(arm: Arm, default_model: str, item: Item) -> str:
     system = str(call.messages[0]["content"])
     return (
         f"arm {arm.name}: model={model} profile={profile.name} "
-        f"sampling={profile.sampling.wire()} max_tokens={call.max_tokens} "
+        f"sampling={dict(profile.sampling)} max_tokens={call.max_tokens} "
         f"system_sha={run_trace.sha256(system)[:12]} "
         f"tools_sha={run_trace.tool_schemas_sha256(list(call.tools))[:12]} "
         f"tools={len(call.tools)}"

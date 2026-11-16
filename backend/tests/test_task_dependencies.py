@@ -109,10 +109,7 @@ def test_routes_completing_blocked_task_409(client: TestClient) -> None:
 
     # Both the POST /done and PATCH workflow_status paths are blocked.
     assert client.post(f"/api/tasks/{a}/done").status_code == 409
-    assert (
-        client.patch(f"/api/tasks/{a}", json={"workflow_status": "done"}).status_code
-        == 409
-    )
+    assert client.patch(f"/api/tasks/{a}", json={"workflow_status": "done"}).status_code == 409
 
     # Finishing the blocker unblocks completion.
     assert client.post(f"/api/tasks/{b}/done").status_code == 200
@@ -123,9 +120,7 @@ def test_routes_add_list_remove_and_cycle_409(client: TestClient) -> None:
     a = client.post("/api/tasks", json={"title": "a"}).json()["id"]
     b = client.post("/api/tasks", json={"title": "b"}).json()["id"]
 
-    added = client.post(
-        f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b}
-    )
+    added = client.post(f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b})
     assert added.status_code == 201
     body = added.json()
     assert body["depends_on_task_id"] == b
@@ -145,9 +140,7 @@ def test_routes_add_list_remove_and_cycle_409(client: TestClient) -> None:
     assert dependent_body[0]["dependent_done"] is False
 
     # b -> a would cycle.
-    cycle = client.post(
-        f"/api/tasks/{b}/dependencies", json={"depends_on_task_id": a}
-    )
+    cycle = client.post(f"/api/tasks/{b}/dependencies", json={"depends_on_task_id": a})
     assert cycle.status_code == 409
 
     edge_id = body["id"]
@@ -160,15 +153,11 @@ def test_remove_dependency_frees_active_edge_for_readd(client: TestClient) -> No
     a = client.post("/api/tasks", json={"title": "a"}).json()["id"]
     b = client.post("/api/tasks", json={"title": "b"}).json()["id"]
 
-    first = client.post(
-        f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b}
-    ).json()
+    first = client.post(f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b}).json()
     client.delete(f"/api/tasks/{a}/dependencies/{first['id']}")
 
     # The partial unique index only covers active rows, so re-adding succeeds.
-    readd = client.post(
-        f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b}
-    )
+    readd = client.post(f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b})
     assert readd.status_code == 201
 
 
@@ -243,9 +232,7 @@ def test_top_level_blocker_counts_ignore_done_and_deleted_tasks(
     blocker = _task(db_session, "active blocker")
     active = _task(db_session, "active downstream")
     deleted = _task(db_session, "deleted downstream")
-    done_blocker = _task(
-        db_session, "done blocker", workflow_status=TaskWorkflowStatus.done
-    )
+    done_blocker = _task(db_session, "done blocker", workflow_status=TaskWorkflowStatus.done)
     downstream_of_done = _task(db_session, "downstream of done blocker")
 
     deps_service.add_dependency(db_session, active, blocker)
@@ -288,9 +275,7 @@ def test_done_dependency_is_not_blocking(client: TestClient) -> None:
 
 
 def _child(db: Session, parent_id: int, title: str) -> int:
-    task = tasks_service.create_task(
-        db, project_id=None, title=title, parent_task_id=parent_id
-    )
+    task = tasks_service.create_task(db, project_id=None, title=title, parent_task_id=parent_id)
     db.commit()
     return task.id
 
@@ -443,9 +428,7 @@ def test_add_dependency_to_done_checklist_parent_rejected(
 
 
 def test_add_dependency_to_in_progress_task_allowed(db_session: Session) -> None:
-    a = _task(
-        db_session, "in progress", workflow_status=TaskWorkflowStatus.in_progress
-    )
+    a = _task(db_session, "in progress", workflow_status=TaskWorkflowStatus.in_progress)
     b = _task(db_session, "blocker")
     edge = deps_service.add_dependency(db_session, a, b)
     db_session.commit()
@@ -457,9 +440,7 @@ def test_add_dependency_to_done_task_rejected_over_http(client: TestClient) -> N
     a = client.post("/api/tasks", json={"title": "a"}).json()["id"]
     b = client.post("/api/tasks", json={"title": "b"}).json()["id"]
     client.post(f"/api/tasks/{a}/done")
-    resp = client.post(
-        f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b}
-    )
+    resp = client.post(f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b})
     assert resp.status_code == 409
 
 
@@ -509,9 +490,7 @@ def test_remove_dependency_after_blocker_trashed_still_logs(
     deps_service.remove_dependency(db_session, edge)
     db_session.commit()
 
-    assert _removed_events(db_session, project_id) == [
-        'Task "deploy" no longer waits on "build"'
-    ]
+    assert _removed_events(db_session, project_id) == ['Task "deploy" no longer waits on "build"']
     assert deps_service.list_dependencies(db_session, dependent.id) == []
     assert tasks_service.get_task(db_session, dependent.id) is not None
 
@@ -529,9 +508,7 @@ def test_remove_dependency_after_dependent_trashed_still_logs(
     deps_service.remove_dependency(db_session, edge)
     db_session.commit()
 
-    assert _removed_events(db_session, project_id) == [
-        'Task "deploy" no longer waits on "build"'
-    ]
+    assert _removed_events(db_session, project_id) == ['Task "deploy" no longer waits on "build"']
 
 
 def test_remove_dependency_after_blocker_trashed_attributes_agent_actor(
@@ -561,15 +538,11 @@ def test_routes_remove_dependency_after_blocker_trashed_logs_user_actor(
     client: TestClient,
 ) -> None:
     project_id = client.post("/api/projects", json={"name": "Ship"}).json()["id"]
-    a = client.post(
-        "/api/tasks", json={"title": "deploy", "project_id": project_id}
-    ).json()["id"]
-    b = client.post(
-        "/api/tasks", json={"title": "build", "project_id": project_id}
-    ).json()["id"]
-    edge_id = client.post(
-        f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b}
-    ).json()["id"]
+    a = client.post("/api/tasks", json={"title": "deploy", "project_id": project_id}).json()["id"]
+    b = client.post("/api/tasks", json={"title": "build", "project_id": project_id}).json()["id"]
+    edge_id = client.post(f"/api/tasks/{a}/dependencies", json={"depends_on_task_id": b}).json()[
+        "id"
+    ]
 
     assert client.delete(f"/api/tasks/{b}").status_code == 204
     assert client.delete(f"/api/tasks/{a}/dependencies/{edge_id}").status_code == 204

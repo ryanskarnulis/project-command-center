@@ -83,9 +83,7 @@ class UnskipUndo(MutationModel):
 
     skipped_due_date: date
     superseded_task_id: EntityId
-    previous_due_dates: Annotated[
-        list[RescheduledDate], Field(max_length=MAX_PURGE_IDS)
-    ]
+    previous_due_dates: Annotated[list[RescheduledDate], Field(max_length=MAX_PURGE_IDS)]
 
 
 class TaskRestoreUndo(MutationModel):

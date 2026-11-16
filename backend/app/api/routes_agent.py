@@ -78,9 +78,7 @@ def get_agent_loop() -> Generator[AgentLoop, None, None]:
 def _get_or_404(db: Session, conversation_id: int) -> Conversation:
     conversation = conversations_service.get_conversation(db, conversation_id)
     if conversation is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
     return conversation
 
 
@@ -151,17 +149,13 @@ def get_conversation(
         messages=[MessageRead.model_validate(message) for message in messages],
         message_count=conversations_service.count_messages(db, conversation.id),
         has_more=bool(messages)
-        and conversations_service.has_messages_before(
-            db, conversation.id, messages[0].id
-        ),
+        and conversations_service.has_messages_before(db, conversation.id, messages[0].id),
         run_in_flight=started_at is not None,
         run_started_at=started_at,
     )
 
 
-@router.delete(
-    "/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT
-)
+@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_conversation(conversation_id: EntityId, db: Session = Depends(get_db_write)) -> None:
     """Soft-delete an idle conversation; **409** while a run is in flight (#149).
 
@@ -329,9 +323,7 @@ def _confirm_refused(kind: str) -> JSONResponse:
 @router.post(
     "/conversations/{conversation_id}/messages",
     response_model=MessageExchange,
-    dependencies=[
-        Depends(rate_limit("agent_messages", per_min_attr="agent_messages_per_min"))
-    ],
+    dependencies=[Depends(rate_limit("agent_messages", per_min_attr="agent_messages_per_min"))],
 )
 def post_message(
     conversation_id: EntityId,
@@ -487,15 +479,11 @@ def post_message(
                 stop_reason=exc.result.stop_reason,
                 error=str(exc),
             )
-            failed = conversations_service.append_assistant_message(
-                db, conversation, exc.result
-            )
+            failed = conversations_service.append_assistant_message(db, conversation, exc.result)
             db.commit()
             return _failure_response(exc.http_status, str(exc), failed)
 
-        assistant_message = conversations_service.append_assistant_message(
-            db, conversation, run
-        )
+        assistant_message = conversations_service.append_assistant_message(db, conversation, run)
         db.commit()
         if run.confirm is not None:
             run.confirm.message_id = assistant_message.id
@@ -544,12 +532,8 @@ def _run_confirmed(
     )
 
 
-@router.post(
-    "/conversations/{conversation_id}/cancel", response_model=RunCancelRead
-)
-def cancel_run(
-    conversation_id: EntityId, reader: Session = Depends(get_db)
-) -> RunCancelRead:
+@router.post("/conversations/{conversation_id}/cancel", response_model=RunCancelRead)
+def cancel_run(conversation_id: EntityId, reader: Session = Depends(get_db)) -> RunCancelRead:
     """Ask this conversation's in-flight run to stop; **404** if no such thread.
 
     Idempotent and never blocks: it only sets the running run's cancel event

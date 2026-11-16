@@ -42,9 +42,7 @@ async def mcp_client() -> AsyncIterator[ClientSession]:
     pytest fixture's teardown runs in a different task — so this cannot be an
     async fixture.
     """
-    async with create_connected_server_and_client_session(
-        mcp._mcp_server
-    ) as client:
+    async with create_connected_server_and_client_session(mcp._mcp_server) as client:
         yield client
 
 
@@ -114,9 +112,7 @@ async def test_restore_task_can_undo_a_whole_trash_cascade(
     async with mcp_client() as client:
         project = await _call(client, "create_project", {"name": "Undo"})
         project_id = project["id"]
-        parent = await _call(
-            client, "create_task", {"title": "P", "project_id": project_id}
-        )
+        parent = await _call(client, "create_task", {"title": "P", "project_id": project_id})
         child = await _call(
             client,
             "create_task",
@@ -148,12 +144,8 @@ async def test_dependency_tools_block_and_audit(
     async with mcp_client() as client:
         project = await _call(client, "create_project", {"name": "Deps"})
         project_id = project["id"]
-        first = await _call(
-            client, "create_task", {"title": "Ship it", "project_id": project_id}
-        )
-        second = await _call(
-            client, "create_task", {"title": "Test it", "project_id": project_id}
-        )
+        first = await _call(client, "create_task", {"title": "Ship it", "project_id": project_id})
+        second = await _call(client, "create_task", {"title": "Test it", "project_id": project_id})
 
         edge = await _call(
             client,
@@ -243,16 +235,12 @@ async def test_recurrence_tools_skip_and_stop(
         )
         assert recurring["next_occurrence_date"] == "2026-07-17"
 
-        next_occurrence = await _call(
-            client, "skip_occurrence", {"task_id": task["id"]}
-        )
+        next_occurrence = await _call(client, "skip_occurrence", {"task_id": task["id"]})
         assert next_occurrence["id"] != task["id"]
         assert next_occurrence["due_date"] == "2026-07-17"
         assert next_occurrence["recurrence_id"] == recurring["recurrence_id"]
 
-        stopped = await _call(
-            client, "stop_recurrence", {"task_id": next_occurrence["id"]}
-        )
+        stopped = await _call(client, "stop_recurrence", {"task_id": next_occurrence["id"]})
         assert stopped["repeat_interval"] is None
 
         # Now non-recurring: both tools reject it with the service's reason.

@@ -507,7 +507,9 @@ class LlamaCppProvider:
         try:
             completion = _WireCompletion.model_validate(turn.completion())
         except ValidationError as exc:
-            raise ProviderResponseError(f"llama-server stream failed wire validation: {exc}") from exc
+            raise ProviderResponseError(
+                f"llama-server stream failed wire validation: {exc}"
+            ) from exc
         choice = completion.choices[0]
         log.info(
             "llm_response",
@@ -571,7 +573,7 @@ class LlamaCppProvider:
             # is the server's default. llama-server accepts ``top_k`` and
             # ``chat_template_kwargs`` as plain body fields (no SDK
             # extra_body indirection needed).
-            **self._profile.sampling.wire(),
+            **self._profile.sampling,
         }
         if temperature is not None:
             payload["temperature"] = temperature
@@ -691,9 +693,7 @@ class LlamaCppProvider:
         try:
             return self._capture.begin()
         except Exception as exc:
-            logger.warning(
-                "context_capture_failed", error=str(exc), error_type=type(exc).__name__
-            )
+            logger.warning("context_capture_failed", error=str(exc), error_type=type(exc).__name__)
             return None
 
     def _capture_call(
@@ -731,9 +731,7 @@ class LlamaCppProvider:
                 },
             )
         except Exception as exc:
-            logger.warning(
-                "context_capture_failed", error=str(exc), error_type=type(exc).__name__
-            )
+            logger.warning("context_capture_failed", error=str(exc), error_type=type(exc).__name__)
 
     def _render_template(self, body: bytes) -> dict[str, str]:
         """The prompt string llama-server's chat template renders from ``body``.

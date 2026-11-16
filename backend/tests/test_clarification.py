@@ -193,7 +193,10 @@ def test_the_newest_ask_stays_open_through_reads_and_chat() -> None:
     assert closed == ""
     assert question == OpenQuestion(
         "Mark the dentist one as done.",
-        (Candidate(4, "Book dentist appointment", "t1"), Candidate(5, "Pay the dentist bill", "t2")),
+        (
+            Candidate(4, "Book dentist appointment", "t1"),
+            Candidate(5, "Pay the dentist bill", "t2"),
+        ),
     )
 
 
@@ -217,9 +220,13 @@ def test_a_candidate_trashed_or_edited_since_closes_it() -> None:
 def test_still_open_checks_live_rows(tool_db: sessionmaker[Session]) -> None:
     book, pay = _seed_dentists(tool_db)
     rows = registry.call_tool("ask_user", {"task_ids": [book, pay]}, actor="agent:loop")
-    found = (OpenQuestion("x", clarification.candidates_of(json.dumps(
-        [row.model_dump(mode="json") for row in rows]
-    ))), "")
+    found = (
+        OpenQuestion(
+            "x",
+            clarification.candidates_of(json.dumps([row.model_dump(mode="json") for row in rows])),
+        ),
+        "",
+    )
     assert state_block.still_open(found)[0] is not None
 
     with tool_db() as db:

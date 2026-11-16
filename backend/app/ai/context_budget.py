@@ -103,9 +103,7 @@ def estimate_tokens(text: str) -> int:
     return -(-len(text) // CHARS_PER_TOKEN)
 
 
-def history_token_budget(
-    *, prompt_overhead_tokens: int = DEFAULT_PROMPT_OVERHEAD_TOKENS
-) -> int:
+def history_token_budget(*, prompt_overhead_tokens: int = DEFAULT_PROMPT_OVERHEAD_TOKENS) -> int:
     """Tokens of prior conversation one request may carry.
 
     ``prompt_overhead_tokens`` is everything in the request that is *not*
@@ -126,9 +124,7 @@ def history_token_budget(
     return max(0, min(window_headroom, PREFILL_BUDGET_TOKENS))
 
 
-def fit_history(
-    history: Sequence[dict[str, Any]], *, budget_tokens: int
-) -> list[dict[str, Any]]:
+def fit_history(history: Sequence[dict[str, Any]], *, budget_tokens: int) -> list[dict[str, Any]]:
     """The newest coherent suffix of ``history`` that fits ``budget_tokens``.
 
     Deterministic and idempotent: walk from the newest turn backwards, keep

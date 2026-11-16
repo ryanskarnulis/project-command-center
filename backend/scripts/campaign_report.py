@@ -129,7 +129,10 @@ def check_fingerprints(files: Iterable[tuple[str, int | None, Iterable[dict[str,
         for record in records:
             kind = record.get("kind")
             if kind == "frontier":
-                what, value = f"scenario {record['scenario']!r} fingerprint", record.get("fingerprint")
+                what, value = (
+                    f"scenario {record['scenario']!r} fingerprint",
+                    record.get("fingerprint"),
+                )
             elif kind == "frontier_header":
                 what, value = "split", record.get("split")
             else:

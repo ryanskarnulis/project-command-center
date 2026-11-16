@@ -44,8 +44,10 @@ def agent_view(outcome: Any) -> Any:
     if isinstance(outcome, ProjectRead):
         with runtime.session_factory() as db:
             return project_view(outcome, dashboard.open_task_counts(db), detail=True)
-    if isinstance(outcome, list) and outcome and all(
-        isinstance(item, ProjectRead) for item in outcome
+    if (
+        isinstance(outcome, list)
+        and outcome
+        and all(isinstance(item, ProjectRead) for item in outcome)
     ):
         with runtime.session_factory() as db:
             counts = dashboard.open_task_counts(db)

@@ -86,9 +86,7 @@ def _row_count(db: Session) -> int:
         (EVERY_OTHER_TUE_THU, date(2026, 6, 17), date(2026, 6, 30), True),
     ],
 )
-def test_occurs_on(
-    interval: dict[str, Any], start: date, day: date, expected: bool
-) -> None:
+def test_occurs_on(interval: dict[str, Any], start: date, day: date, expected: bool) -> None:
     series = FocusPlanEntry(plan_date=start, repeat_interval=interval)
     assert focus_plan_service.occurs_on(series, day) is expected
 
@@ -290,9 +288,7 @@ def test_routes_add_a_daily_commitment_and_skip_a_day(client: TestClient) -> Non
         (series["id"], DAILY)
     ]
 
-    skipped = client.post(
-        f"/api/focus/entries/{series['id']}/skip", json={"plan_date": later}
-    )
+    skipped = client.post(f"/api/focus/entries/{series['id']}/skip", json={"plan_date": later})
     assert skipped.status_code == 200
     skip = skipped.json()
     assert (skip["series_id"], skip["plan_date"], skip["title"]) == (
@@ -324,9 +320,7 @@ def test_a_skipped_occurrence_is_listed_flagged_and_un_skips(client: TestClient)
     day = (START + timedelta(days=3)).isoformat()
     assert client.get("/api/focus", params={"date": day}).json()["skipped_commitments"] == []
 
-    skip = client.post(
-        f"/api/focus/entries/{series['id']}/skip", json={"plan_date": day}
-    ).json()
+    skip = client.post(f"/api/focus/entries/{series['id']}/skip", json={"plan_date": day}).json()
     plan = client.get("/api/focus", params={"date": day, "start_time": "09:00"}).json()
     # Skipped: out of the live list and taking no time, but listed with its skip.
     assert plan["commitments"] == []

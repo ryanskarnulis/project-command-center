@@ -61,10 +61,7 @@ def count_deleted(db: Session, model: type[ModelT]) -> int:
     when there are more trashed rows than the ``/trash`` list page returns.
     """
     return (
-        db.scalar(
-            select(func.count()).select_from(model).where(model.deleted_at.is_not(None))
-        )
-        or 0
+        db.scalar(select(func.count()).select_from(model).where(model.deleted_at.is_not(None))) or 0
     )
 
 

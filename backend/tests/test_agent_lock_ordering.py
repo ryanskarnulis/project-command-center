@@ -70,18 +70,14 @@ class _WritingLoop:
         self._follower_arrived.wait(timeout=FOLLOWER_ARRIVAL_SECONDS)
         try:
             with runtime.tool_session("create_task") as db:
-                tasks_service.create_task(
-                    db, project_id=None, title="written mid-run"
-                )
+                tasks_service.create_task(db, project_id=None, title="written mid-run")
         except BaseException as exc:  # noqa: BLE001 - reported to the test
             self.error = exc
             raise
         return AgentRunResult(
             reply="done",
             stop_reason="completed",
-            tool_calls=[
-                ToolCallRecord(tool="create_task", arguments={}, result="{}")
-            ],
+            tool_calls=[ToolCallRecord(tool="create_task", arguments={}, result="{}")],
             iterations=1,
             messages=[],
         )

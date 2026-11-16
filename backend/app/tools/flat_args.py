@@ -140,9 +140,7 @@ def flat_args(
     for name, info in payload_model.model_fields.items():
         annotation = overrides.get(name, info.annotation)
         fields[name] = (annotation, FieldInfo.merge_field_infos(info, annotation=annotation))
-    model = create_model(
-        f"{tool_name}Arguments", __base__=FlatArgs, **fields
-    )
+    model = create_model(f"{tool_name}Arguments", __base__=FlatArgs, **fields)
     model.tool_name = tool_name
     model.payload_model = payload_model
     model.payload_param = payload_param

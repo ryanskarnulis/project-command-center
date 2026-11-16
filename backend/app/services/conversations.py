@@ -29,9 +29,7 @@ logger = structlog.get_logger(__name__)
 MAX_DERIVED_TITLE_LENGTH = 60
 
 
-def list_conversations(
-    db: Session, *, limit: int = 50, offset: int = 0
-) -> Sequence[Conversation]:
+def list_conversations(db: Session, *, limit: int = 50, offset: int = 0) -> Sequence[Conversation]:
     """A window of active conversations, most recently touched first.
 
     The ordering is total (``updated_at`` desc, then ``id`` desc), so
@@ -76,9 +74,7 @@ def create_conversation(db: Session, *, title: str | None = None) -> Conversatio
         entity_type="conversation",
         entity_id=conversation.id,
         action="created",
-        summary=(
-            f'Conversation "{title}" started' if title else "Conversation started"
-        ),
+        summary=(f'Conversation "{title}" started' if title else "Conversation started"),
     )
     return conversation
 
@@ -166,9 +162,7 @@ def list_messages(
     if limit is None:
         return db.execute(query.order_by(ConversationMessage.id)).scalars().all()
     newest_first = (
-        db.execute(query.order_by(ConversationMessage.id.desc()).limit(limit))
-        .scalars()
-        .all()
+        db.execute(query.order_by(ConversationMessage.id.desc()).limit(limit)).scalars().all()
     )
     return list(reversed(newest_first))
 
@@ -212,16 +206,12 @@ def history_for_loop(db: Session, conversation_id: int) -> list[dict[str, Any]]:
     ``HISTORY_SCAN_LIMIT`` rows; recall caps each of its parts again.
     """
     turns: list[dict[str, Any]] = []
-    for message in list_messages(
-        db, conversation_id, limit=context_budget.HISTORY_SCAN_LIMIT
-    ):
+    for message in list_messages(db, conversation_id, limit=context_budget.HISTORY_SCAN_LIMIT):
         turn: dict[str, Any] = {"role": message.role.value, "content": message.content}
         if message.tool_calls:
             turn["tool_calls"] = message.tool_calls
         turns.append(turn)
-    return context_budget.fit_history(
-        turns, budget_tokens=context_budget.history_token_budget()
-    )
+    return context_budget.fit_history(turns, budget_tokens=context_budget.history_token_budget())
 
 
 def find_exchange(
@@ -298,11 +288,7 @@ def append_assistant_message(
         conversation_id=conversation.id,
         role=ConversationRole.assistant,
         content=run.reply,
-        tool_calls=(
-            [record.model_dump() for record in run.tool_calls]
-            if run.tool_calls
-            else None
-        ),
+        tool_calls=([record.model_dump() for record in run.tool_calls] if run.tool_calls else None),
         stop_reason=run.stop_reason,
     )
     conversation.updated_at = utcnow()

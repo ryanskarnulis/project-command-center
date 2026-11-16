@@ -83,9 +83,7 @@ def _held(conversation_id: int, wait_seconds: float, detail: str) -> Iterator[No
 
 
 @contextmanager
-def conversation_run_lock(
-    conversation_id: int, *, wait_seconds: float
-) -> Iterator[None]:
+def conversation_run_lock(conversation_id: int, *, wait_seconds: float) -> Iterator[None]:
     """Hold this conversation's run lock, or raise 409 if the wait runs out.
 
     A concurrent run on the same conversation blocks here until the holder

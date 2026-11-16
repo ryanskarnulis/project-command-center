@@ -18,12 +18,13 @@ Revises: d8e1dce821f8
 Create Date: 2026-07-24 10:24:15.467455
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = '05f72f546249'
-down_revision: Union[str, None] = 'd8e1dce821f8'
+revision: str = "05f72f546249"
+down_revision: Union[str, None] = "d8e1dce821f8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

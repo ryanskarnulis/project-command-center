@@ -103,9 +103,7 @@ def test_subtask_of_a_merely_completed_parent_stays_nested(
 ) -> None:
     # An active-but-done parent still owns its subtask: the child must NOT be
     # promoted to a top-level plan row (only a *trashed* parent orphans it).
-    parent_id = _task(
-        db_session, "done parent", workflow_status=TaskWorkflowStatus.done
-    )
+    parent_id = _task(db_session, "done parent", workflow_status=TaskWorkflowStatus.done)
     subtask = tasks_service.create_task(
         db_session, project_id=None, title="nested", parent_task_id=parent_id
     )
@@ -142,9 +140,7 @@ def test_in_progress_outranks_open_at_equal_due_and_priority(
     db_session: Session,
 ) -> None:
     open_task = _task(db_session, "open")
-    in_progress = _task(
-        db_session, "wip", workflow_status=TaskWorkflowStatus.in_progress
-    )
+    in_progress = _task(db_session, "wip", workflow_status=TaskWorkflowStatus.in_progress)
 
     plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
 
@@ -217,9 +213,7 @@ def test_overflow_in_ranked_order_when_capacity_full(db_session: Session) -> Non
     second = _task(db_session, "second", priority=TaskPriority.high, estimated_minutes=60)
     third = _task(db_session, "third", priority=TaskPriority.low, estimated_minutes=60)
 
-    plan = focus_service.get_focus_plan(
-        db_session, target_date=TARGET, available_minutes=90
-    )
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET, available_minutes=90)
 
     assert [b.task_id for b in plan.scheduled] == [first]
     assert [o.task_id for o in plan.overflow] == [second, third]
@@ -231,16 +225,10 @@ def test_backfill_schedules_smaller_task_when_top_task_overflows(
 ) -> None:
     # An oversized top-ranked task must not strand the rest of the day: smaller
     # lower-ranked tasks still backfill the remaining capacity.
-    oversized = _task(
-        db_session, "oversized", priority=TaskPriority.urgent, estimated_minutes=720
-    )
-    small = _task(
-        db_session, "small", priority=TaskPriority.low, estimated_minutes=30
-    )
+    oversized = _task(db_session, "oversized", priority=TaskPriority.urgent, estimated_minutes=720)
+    small = _task(db_session, "small", priority=TaskPriority.low, estimated_minutes=30)
 
-    plan = focus_service.get_focus_plan(
-        db_session, target_date=TARGET, available_minutes=360
-    )
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET, available_minutes=360)
 
     assert [b.task_id for b in plan.scheduled] == [small]
     assert [o.task_id for o in plan.overflow] == [oversized]
@@ -253,26 +241,32 @@ def test_oversized_parent_falls_back_to_fitting_subtasks(
     # A parent too large for the remaining capacity gets its open subtasks tried
     # in its rank slot; those that fit are scheduled with the parent label, and
     # the parent overflows with the count.
-    parent = _task(
-        db_session, "big parent", priority=TaskPriority.urgent, estimated_minutes=720
-    )
+    parent = _task(db_session, "big parent", priority=TaskPriority.urgent, estimated_minutes=720)
     fits = tasks_service.create_task(
-        db_session, project_id=None, title="fits", parent_task_id=parent,
+        db_session,
+        project_id=None,
+        title="fits",
+        parent_task_id=parent,
         estimated_minutes=60,
     )
     too_big = tasks_service.create_task(
-        db_session, project_id=None, title="too big", parent_task_id=parent,
+        db_session,
+        project_id=None,
+        title="too big",
+        parent_task_id=parent,
         estimated_minutes=600,
     )
     done = tasks_service.create_task(
-        db_session, project_id=None, title="done", parent_task_id=parent,
-        workflow_status=TaskWorkflowStatus.done, estimated_minutes=15,
+        db_session,
+        project_id=None,
+        title="done",
+        parent_task_id=parent,
+        workflow_status=TaskWorkflowStatus.done,
+        estimated_minutes=15,
     )
     db_session.commit()
 
-    plan = focus_service.get_focus_plan(
-        db_session, target_date=TARGET, available_minutes=120
-    )
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET, available_minutes=120)
 
     scheduled_ids = [b.task_id for b in plan.scheduled]
     assert fits.id in scheduled_ids
@@ -302,9 +296,7 @@ def test_deferred_task_excluded_until_deferral_passes(db_session: Session) -> No
     assert deferred not in [o.task_id for o in plan.overflow]
 
     # Once the target date reaches deferred_until, the task is back in the plan.
-    later = focus_service.get_focus_plan(
-        db_session, target_date=TARGET + timedelta(days=1)
-    )
+    later = focus_service.get_focus_plan(db_session, target_date=TARGET + timedelta(days=1))
     assert deferred in [b.task_id for b in later.scheduled]
 
 
@@ -312,9 +304,7 @@ def test_block_times_are_sequential_from_start(db_session: Session) -> None:
     _task(db_session, "a", priority=TaskPriority.urgent, estimated_minutes=30)
     _task(db_session, "b", priority=TaskPriority.high, estimated_minutes=45)
 
-    plan = focus_service.get_focus_plan(
-        db_session, target_date=TARGET, start_time="09:00"
-    )
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET, start_time="09:00")
 
     assert plan.scheduled[0].start_time == "09:00"
     assert plan.scheduled[0].end_time == "09:30"
@@ -353,9 +343,7 @@ def test_scheduled_and_overflow_flag_recurring(db_session: Session) -> None:
     rec = _task(db_session, "rec", due_date=TARGET, estimated_minutes=30)
     task = tasks_service.get_task(db_session, rec)
     assert task is not None
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
 
     # Scheduled: the recurring block is flagged, the plain one isn't.
@@ -365,9 +353,7 @@ def test_scheduled_and_overflow_flag_recurring(db_session: Session) -> None:
     assert scheduled[plain] is False
 
     # Overflow carries the flag too (tiny capacity forces both to overflow).
-    tight = focus_service.get_focus_plan(
-        db_session, target_date=TARGET, available_minutes=15
-    )
+    tight = focus_service.get_focus_plan(db_session, target_date=TARGET, available_minutes=15)
     overflow = {o.task_id: o.is_recurring for o in tight.overflow}
     assert overflow[rec] is True
     assert overflow[plain] is False
@@ -380,9 +366,7 @@ def test_blocked_details_report_effective_checklist_status(
     first = tasks_service.create_task(
         db_session, project_id=None, title="step 1", parent_task_id=blocker
     )
-    tasks_service.create_task(
-        db_session, project_id=None, title="step 2", parent_task_id=blocker
-    )
+    tasks_service.create_task(db_session, project_id=None, title="step 2", parent_task_id=blocker)
     dependent = _task(db_session, "downstream")
     deps_service.add_dependency(db_session, dependent, blocker)
     db_session.commit()
@@ -469,9 +453,7 @@ def test_a_rolled_up_done_subtask_is_not_offered_as_a_stand_in(
     """A nested checklist whose own children are all done is finished work."""
     parent = _task(db_session, "outer")
     inner = _subtask(db_session, parent, "inner checklist")
-    _subtask(
-        db_session, inner, "inner step", workflow_status=TaskWorkflowStatus.done
-    )
+    _subtask(db_session, inner, "inner step", workflow_status=TaskWorkflowStatus.done)
     _subtask(db_session, parent, "too big", estimated_minutes=400)
 
     plan = focus_service.get_focus_plan(db_session, target_date=TARGET)
@@ -493,9 +475,7 @@ def test_a_blocked_subtask_is_not_offered_as_a_stand_in(db_session: Session) -> 
     deps_service.add_dependency(db_session, blocked_sub, blocker)
     db_session.commit()
 
-    plan = focus_service.get_focus_plan(
-        db_session, target_date=TARGET, available_minutes=120
-    )
+    plan = focus_service.get_focus_plan(db_session, target_date=TARGET, available_minutes=120)
 
     scheduled_ids = [b.task_id for b in plan.scheduled]
     assert open_sub in scheduled_ids

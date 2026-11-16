@@ -174,9 +174,9 @@ def test_stop_routes(client: TestClient) -> None:
     plan = client.get("/api/focus", params={"date": _day(1).isoformat()}).json()
     assert plan["commitments"][0]["stop_date"] == _day(2).isoformat()
     assert plan["commitments"][0]["series_start_date"] == START.isoformat()
-    assert client.get("/api/focus", params={"date": _day(2).isoformat()}).json()[
-        "commitments"
-    ] == []
+    assert (
+        client.get("/api/focus", params={"date": _day(2).isoformat()}).json()["commitments"] == []
+    )
 
     assert client.put(url, json={"stop_date": None}).json()["stop_date"] is None
     assert client.put(url, json={"stop_date": START.isoformat()}).status_code == 409
@@ -213,9 +213,7 @@ def test_editing_one_occurrence_leaves_the_other_days(db_session: Session) -> No
 
 def test_editing_an_edited_day_changes_its_edit(db_session: Session) -> None:
     series = _series(db_session)
-    first = focus_plan_service.edit_occurrence(
-        db_session, series, _day(1), {"start_time": "11:00"}
-    )
+    first = focus_plan_service.edit_occurrence(db_session, series, _day(1), {"start_time": "11:00"})
     second = focus_plan_service.edit_occurrence(
         db_session, series, _day(1), {"title": "Standup + demo", "duration_minutes": 45}
     )
@@ -335,13 +333,11 @@ def test_occurrence_routes(client: TestClient) -> None:
         15,
     )
     plan = client.get("/api/focus", params={"date": day}).json()
-    assert [(c["entry_id"], c["override_entry_id"], c["start_time"]) for c in plan["commitments"]] == [
-        (series["id"], override["id"], "11:00")
-    ]
+    assert [
+        (c["entry_id"], c["override_entry_id"], c["start_time"]) for c in plan["commitments"]
+    ] == [(series["id"], override["id"], "11:00")]
     # The override edits like any entry, for its day only.
-    patched = client.patch(
-        f"/api/focus/entries/{override['id']}", json={"duration_minutes": 30}
-    )
+    patched = client.patch(f"/api/focus/entries/{override['id']}", json={"duration_minutes": 30})
     assert patched.status_code == 200 and patched.json()["duration_minutes"] == 30
     # Reset to the series, and back.
     assert client.delete(f"/api/focus/entries/{override['id']}").status_code == 200

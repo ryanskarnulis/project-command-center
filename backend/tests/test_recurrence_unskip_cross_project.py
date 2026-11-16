@@ -39,9 +39,7 @@ def _skipped_cross_project_checklist(db: Session) -> tuple[int, int, int, str]:
         db, project_id=project_a.id, title="weekly checklist", due_date=date(2026, 7, 1)
     )
     db.commit()
-    tasks_service.update_task(
-        db, parent, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db, parent, {"repeat_interval": {"unit": "week", "every": 1}})
     db.commit()
     recurrence_id = parent.recurrence_id
     assert recurrence_id is not None
@@ -67,9 +65,7 @@ def _unskip(db: Session, task_id: int) -> tuple[Task, TaskRestoreUndo]:
 def test_unskip_supersedes_the_whole_original_occurrence_across_projects(
     db_session: Session,
 ) -> None:
-    parent_id, child_id, project_b_id, recurrence_id = _skipped_cross_project_checklist(
-        db_session
-    )
+    parent_id, child_id, project_b_id, recurrence_id = _skipped_cross_project_checklist(db_session)
     trash_before = task_trash.count_standalone_deleted_tasks(db_session)
     live, _ = _unskip(db_session, parent_id)
 
@@ -99,9 +95,10 @@ def test_unskip_supersedes_the_whole_original_occurrence_across_projects(
     assert child.parent_task_id == parent_id
     # The date is no longer skipped: the live occurrence holds it.
     assert parent.skipped_at is None
-    assert task_recurrence.find_skipped_occurrence_on(
-        db_session, recurrence_id, date(2026, 7, 1)
-    ) is None
+    assert (
+        task_recurrence.find_skipped_occurrence_on(db_session, recurrence_id, date(2026, 7, 1))
+        is None
+    )
 
     # And neither is stranded in the trash as a restorable duplicate (#212).
     trashed_ids = {t.id for t in task_trash.list_deleted_tasks(db_session)}
@@ -117,9 +114,7 @@ def test_unskip_keeps_the_original_rows_focus_entries(db_session: Session) -> No
         db_session, project_id=project.id, title="daily", due_date=date(2026, 7, 1)
     )
     db_session.commit()
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "day", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "day", "every": 1}})
     entry = focus_plan.pin_task(db_session, plan_date=date(2026, 7, 1), task=task)
     db_session.commit()
     task_id, entry_id = task.id, entry.id
@@ -134,9 +129,7 @@ def test_unskip_keeps_the_original_rows_focus_entries(db_session: Session) -> No
 
 @pytest.mark.parametrize("which", ["parent", "child"])
 def test_a_superseded_row_refuses_restore(db_session: Session, which: str) -> None:
-    parent_id, child_id, _, recurrence_id = _skipped_cross_project_checklist(
-        db_session
-    )
+    parent_id, child_id, _, recurrence_id = _skipped_cross_project_checklist(db_session)
     live, _ = _unskip(db_session, parent_id)
     target_id = parent_id if which == "parent" else child_id
 
@@ -200,9 +193,7 @@ def test_restore_subtasks_unskip_does_not_touch_the_superseded_checklist(
 def test_undo_unskip_turns_the_original_back_into_the_skipped_occurrence(
     db_session: Session,
 ) -> None:
-    parent_id, child_id, _, recurrence_id = _skipped_cross_project_checklist(
-        db_session
-    )
+    parent_id, child_id, _, recurrence_id = _skipped_cross_project_checklist(db_session)
     live, undo = _unskip(db_session, parent_id)
     assert undo.unskip is not None
     assert undo.unskip.superseded_task_id == parent_id

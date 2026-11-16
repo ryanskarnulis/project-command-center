@@ -372,11 +372,7 @@ def _mutations(result: AgentRunResult) -> list[ToolCallRecord]:
 
 
 def _successful(result: AgentRunResult, tool: str) -> list[ToolCallRecord]:
-    return [
-        record
-        for record in result.tool_calls
-        if record.tool == tool and record.error is None
-    ]
+    return [record for record in result.tool_calls if record.tool == tool and record.error is None]
 
 
 _KNOWN_TOOLS = frozenset(tool.name for tool in registry.all_tools())
@@ -621,9 +617,7 @@ class Sample:
     """One sample's world: a fresh in-memory DB the loop's tool sessions are
     pointed at, the sample's seed, and what its run turned out to be."""
 
-    def __init__(
-        self, scenario: str, index: int, seed: int | None, position: int = 0
-    ) -> None:
+    def __init__(self, scenario: str, index: int, seed: int | None, position: int = 0) -> None:
         self.scenario = scenario
         self.index = index
         self.seed = seed
@@ -742,9 +736,7 @@ class Sample:
         ``body`` adds delegate v1.2 fields (``context``, ``mode``) to the message."""
         started = time.monotonic()
         self.prompt = content
-        response = client.post(
-            url, json={"content": content, **(body or {})}, headers=headers
-        )
+        response = client.post(url, json={"content": content, **(body or {})}, headers=headers)
         if response.status_code != 200:
             try:
                 detail = str(response.json().get("detail"))
@@ -776,8 +768,7 @@ class Sample:
         A delegate's handoff (#482) is code's record, true by construction:
         its one model-written part, the planner's note, is what is read."""
         self.calls.extend(
-            ToolCall(r.tool, r.arguments, r.result, r.error, r.refusal)
-            for r in result.tool_calls
+            ToolCall(r.tool, r.arguments, r.result, r.error, r.refusal) for r in result.tool_calls
         )
         self.shown.extend(result.gathered)
         evidence = Evidence.of(self.calls, date.today(), self.shown)
@@ -918,7 +909,9 @@ class Sample:
                         seconds=time.monotonic() - step_started,
                         world=world,
                         events=world.events[len(previous.events) :],
-                        typed_record=tuple(response.json()["assistant_message"].get("record") or ()),
+                        typed_record=tuple(
+                            response.json()["assistant_message"].get("record") or ()
+                        ),
                         needs_input=response.json()["assistant_message"].get("needs_input"),
                     )
                     state.steps.append(step)
@@ -1096,9 +1089,7 @@ def _gate(scenario: str, body: Callable[[Sample], None], *, tier: str | None = N
                 why = error or f"HTTP {sample.status_code} {sample.stop_reason}: {sample.detail}"
                 failures.append(f"run {taken}: {why}")
         blocks.append((block_passed, block_runs))
-        result = RateResult.from_blocks(
-            blocks=blocks, failures=failures, floor=floor, infra=infra
-        )
+        result = RateResult.from_blocks(blocks=blocks, failures=failures, floor=floor, infra=infra)
         if result.decision is not Decision.UNDECIDED or result.runs >= _MAX_RUNS:
             break
 
@@ -1162,9 +1153,11 @@ def _create_task_with_fields(sample: Sample) -> None:
         assert task.project_id == errands_id
         assert task.priority.value == "high"
         assert task.due_date == date.today() + timedelta(days=1)
-        events = db.execute(
-            select(ActivityEvent).where(ActivityEvent.entity_type == "task")
-        ).scalars().all()
+        events = (
+            db.execute(select(ActivityEvent).where(ActivityEvent.entity_type == "task"))
+            .scalars()
+            .all()
+        )
         assert events and all(e.actor == LOOP_ACTOR for e in events)
 
 
@@ -1195,10 +1188,7 @@ def _find_and_complete(sample: Sample) -> None:
         _is_read(tool) for tool in tools[:first_complete]
     ), f"no read before complete_task in {tools}, gathered {gathered}"
     with sample.db() as db:
-        tasks = {
-            t.title: t.workflow_status
-            for t in db.execute(select(Task)).scalars().all()
-        }
+        tasks = {t.title: t.workflow_status for t in db.execute(select(Task)).scalars().all()}
         assert tasks["Book dentist appointment"] == TaskWorkflowStatus.done
         assert tasks["Fix the leaking kitchen tap"] == TaskWorkflowStatus.open
         assert tasks["Rake the leaves"] == TaskWorkflowStatus.open
@@ -1224,8 +1214,7 @@ def _reschedule(sample: Sample) -> None:
         db.commit()
 
     result = sample.run(
-        "Change the due date of the quarterly report to "
-        f"{target_due.isoformat()}.",
+        f"Change the due date of the quarterly report to {target_due.isoformat()}.",
     )
 
     assert result.stop_reason == "completed"
@@ -1242,9 +1231,7 @@ def _delete_is_soft_and_restorable(sample: Sample) -> None:
     """The only delete the agent has is the trash; the row must be restorable."""
     with sample.db() as db:
         general = projects_service.create_project(db, name="Scratch")
-        task = tasks_service.create_task(
-            db, project_id=general.id, title="Old draft"
-        )
+        task = tasks_service.create_task(db, project_id=general.id, title="Old draft")
         task_id = task.id
         project_id = general.id
         db.commit()
@@ -1255,14 +1242,14 @@ def _delete_is_soft_and_restorable(sample: Sample) -> None:
     assert _successful(result, "trash_task"), "expected a successful trash_task"
     with sample.db() as db:
         # Gone from the active set, present in the trash, restorable.
-        assert db.execute(
-            select(Task).where(Task.deleted_at.is_(None))
-        ).scalars().all() == []
+        assert db.execute(select(Task).where(Task.deleted_at.is_(None))).scalars().all() == []
         trashed = task_trash.get_deleted_task(db, task_id)
         assert trashed is not None and trashed.deleted_at is not None
-        deleted_events = db.execute(
-            select(ActivityEvent).where(ActivityEvent.action == "deleted")
-        ).scalars().all()
+        deleted_events = (
+            db.execute(select(ActivityEvent).where(ActivityEvent.action == "deleted"))
+            .scalars()
+            .all()
+        )
         assert deleted_events and all(e.actor == LOOP_ACTOR for e in deleted_events)
 
     # "Restorable" for real: restore through the service the restore_task tool
@@ -1273,31 +1260,31 @@ def _delete_is_soft_and_restorable(sample: Sample) -> None:
         task_trash.restore_task(db, trashed)
         db.commit()
     with sample.db() as db:
-        active_tasks = db.execute(
-            select(Task).where(Task.deleted_at.is_(None))
-        ).scalars().all()
+        active_tasks = db.execute(select(Task).where(Task.deleted_at.is_(None))).scalars().all()
         assert [t.id for t in active_tasks] == [task_id]
         restored = active_tasks[0]
         assert restored.deleted_at is None
         assert restored.title == "Old draft"
         assert restored.project_id == project_id
         assert task_trash.get_deleted_task(db, task_id) is None
-        restored_events = db.execute(
-            select(ActivityEvent).where(
-                ActivityEvent.entity_type == "task",
-                ActivityEvent.entity_id == task_id,
-                ActivityEvent.action == "restored",
+        restored_events = (
+            db.execute(
+                select(ActivityEvent).where(
+                    ActivityEvent.entity_type == "task",
+                    ActivityEvent.entity_id == task_id,
+                    ActivityEvent.action == "restored",
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(restored_events) == 1
 
 
 # Numbers a reply states, digits or spelled out (temp 1.0 may write "three").
 _NUMBER_WORDS = {
     word: value
-    for value, word in enumerate(
-        "zero one two three four five six seven eight nine ten".split()
-    )
+    for value, word in enumerate("zero one two three four five six seven eight nine ten".split())
 }
 _NUMBER_RE = re.compile(r"\b(\d+|" + "|".join(_NUMBER_WORDS) + r")\b", re.IGNORECASE)
 
@@ -1370,14 +1357,10 @@ def _honest_about_missing_task(sample: Sample) -> None:
     assert not _successful(result, "complete_task")
     assert not _successful(result, "create_task")
     with sample.db() as db:
-        assert (
-            db.execute(select(func.count()).select_from(Task)).scalar_one() == 0
-        )
+        assert db.execute(select(func.count()).select_from(Task)).scalar_one() == 0
         assert _event_count(db) == events_before
         # And no project was invented either.
-        assert (
-            db.execute(select(func.count()).select_from(Project)).scalar_one() == 1
-        )
+        assert db.execute(select(func.count()).select_from(Project)).scalar_one() == 1
 
     # Search-frugality tripwire (#329). Under llama-swap (2026-10-18, 32
     # runs) the concession takes 2-5 iterations / 1-4 reads (search, then up
@@ -1393,8 +1376,7 @@ def _honest_about_missing_task(sample: Sample) -> None:
     )
     reads = [tool for tool in tools if _is_read(tool)]
     assert len(reads) <= _MISSING_MAX_READS, (
-        f"over-searched: {len(reads)} read calls "
-        f"(ceiling {_MISSING_MAX_READS}) via {tools}"
+        f"over-searched: {len(reads)} read calls (ceiling {_MISSING_MAX_READS}) via {tools}"
     )
 
 
@@ -1422,9 +1404,7 @@ def _delegate_actor_attribution(sample: Sample) -> None:
         app.dependency_overrides[routes_agent.get_agent_loop] = lambda: loop
         # A user-made conversation (no header): its own audit row stays the user's.
         conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
-        last_event_before = db_session.execute(
-            select(func.max(ActivityEvent.id))
-        ).scalar_one()
+        last_event_before = db_session.execute(select(func.max(ActivityEvent.id))).scalar_one()
         db_session.rollback()  # end the read; the run's tool sessions share the connection
 
         response = sample.post_message(
@@ -1448,18 +1428,18 @@ def _delegate_actor_attribution(sample: Sample) -> None:
             r.tool for r in result.tool_calls
         ]
 
-        tasks = db_session.execute(
-            select(Task).where(Task.deleted_at.is_(None))
-        ).scalars().all()
+        tasks = db_session.execute(select(Task).where(Task.deleted_at.is_(None))).scalars().all()
         assert len(tasks) == 1, f"expected one task, got {[t.title for t in tasks]}"
         task = tasks[0]
         assert "plumber" in task.title.lower()
         assert task.project_id == home_id
         # Every event the run wrote is the delegate's — never the loop's own
         # identity, the MCP default, or the (null) user.
-        run_events = db_session.execute(
-            select(ActivityEvent).where(ActivityEvent.id > last_event_before)
-        ).scalars().all()
+        run_events = (
+            db_session.execute(select(ActivityEvent).where(ActivityEvent.id > last_event_before))
+            .scalars()
+            .all()
+        )
         assert run_events, "the run wrote no activity events"
         assert all(e.actor == delegate for e in run_events), [
             (e.entity_type, e.action, e.actor) for e in run_events
@@ -1470,9 +1450,11 @@ def _delegate_actor_attribution(sample: Sample) -> None:
         )
         # Writes outside the delegated run are not re-attributed: the
         # conversation's creation (and the seed) stay the user's.
-        prior = db_session.execute(
-            select(ActivityEvent).where(ActivityEvent.id <= last_event_before)
-        ).scalars().all()
+        prior = (
+            db_session.execute(select(ActivityEvent).where(ActivityEvent.id <= last_event_before))
+            .scalars()
+            .all()
+        )
         assert prior and all(e.actor is None for e in prior)
 
 
@@ -1510,15 +1492,11 @@ def _focus_pin_and_commitment(sample: Sample) -> None:
         db.commit()
         last_seed_event = _last_event_id(db)
 
-    result = sample.run(
-        "Pin the dentist task to my day at 2pm, and block 12 to 1 for lunch."
-    )
+    result = sample.run("Pin the dentist task to my day at 2pm, and block 12 to 1 for lunch.")
 
     assert result.stop_reason == "completed"
     assert _successful(result, "pin_focus_task"), "expected a successful pin_focus_task"
-    assert _successful(result, "add_focus_commitment"), (
-        "expected a successful add_focus_commitment"
-    )
+    assert _successful(result, "add_focus_commitment"), "expected a successful add_focus_commitment"
     with sample.db() as db:
         entries = focus_plan_service.list_entries(db, today)
         pins = [e for e in entries if e.task_id is not None]
@@ -1532,9 +1510,11 @@ def _focus_pin_and_commitment(sample: Sample) -> None:
         assert (lunch.start_minute, lunch.duration_minutes) == (12 * 60, 60)
         assert lunch.repeat_interval is None, "a one-off lunch block must not repeat"
         # Nothing landed on another day either.
-        all_live = db.execute(
-            select(FocusPlanEntry).where(FocusPlanEntry.deleted_at.is_(None))
-        ).scalars().all()
+        all_live = (
+            db.execute(select(FocusPlanEntry).where(FocusPlanEntry.deleted_at.is_(None)))
+            .scalars()
+            .all()
+        )
         assert len(all_live) == 2, [(e.plan_date, e.title, e.task_id) for e in all_live]
         _assert_run_events_are_the_loops(db, last_seed_event)
 
@@ -1547,9 +1527,7 @@ def _focus_remove_is_soft(sample: Sample) -> None:
         dentist = tasks_service.create_task(
             db, project_id=home.id, title="Book dentist appointment"
         )
-        pin = focus_plan_service.pin_task(
-            db, plan_date=today, task=dentist, start_minute=14 * 60
-        )
+        pin = focus_plan_service.pin_task(db, plan_date=today, task=dentist, start_minute=14 * 60)
         lunch = focus_plan_service.add_commitment(
             db, plan_date=today, title="Lunch", start_minute=12 * 60, duration_minutes=60
         )
@@ -1560,9 +1538,7 @@ def _focus_remove_is_soft(sample: Sample) -> None:
     result = sample.run("Take lunch off my plan for today.")
 
     assert result.stop_reason == "completed"
-    assert _successful(result, "remove_focus_entry"), (
-        "expected a successful remove_focus_entry"
-    )
+    assert _successful(result, "remove_focus_entry"), "expected a successful remove_focus_entry"
     with sample.db() as db:
         assert [e.id for e in focus_plan_service.list_entries(db, today)] == [pin_id]
         removed = focus_plan_service.get_deleted_entry(db, lunch_id)
@@ -1640,7 +1616,7 @@ def _dependency_add(sample: Sample) -> None:
 
 
 def _dependency_edge(sample: Sample, ask: str) -> None:
-    """"X is blocked by Y": one edge, pointing the right way (#385).
+    """ "X is blocked by Y": one edge, pointing the right way (#385).
 
     Direction is the trap: ``add_dependency(task_id, depends_on_task_id)``
     makes ``task_id`` wait, so the blocked task is the first argument.
@@ -1659,12 +1635,14 @@ def _dependency_edge(sample: Sample, ask: str) -> None:
     assert result.stop_reason == "completed"
     assert _successful(result, "add_dependency"), "expected a successful add_dependency"
     with sample.db() as db:
-        edges = db.execute(
-            select(TaskDependency).where(TaskDependency.deleted_at.is_(None))
-        ).scalars().all()
-        assert [(e.task_id, e.depends_on_task_id) for e in edges] == [
-            (paint_id, primer_id)
-        ], f"edges (waiter, blocker): {[(e.task_id, e.depends_on_task_id) for e in edges]}"
+        edges = (
+            db.execute(select(TaskDependency).where(TaskDependency.deleted_at.is_(None)))
+            .scalars()
+            .all()
+        )
+        assert [(e.task_id, e.depends_on_task_id) for e in edges] == [(paint_id, primer_id)], (
+            f"edges (waiter, blocker): {[(e.task_id, e.depends_on_task_id) for e in edges]}"
+        )
         assert deps_service.is_blocked(db, paint_id)
         assert not deps_service.is_blocked(db, primer_id)
         _assert_run_events_are_the_loops(db, last_seed_event)
@@ -1683,25 +1661,22 @@ def _dependency_remove(sample: Sample) -> None:
         db.commit()
         last_seed_event = _last_event_id(db)
 
-    result = sample.run(
-        '"Paint the walls" doesn\'t need to wait on "Sweep the floor" any more.'
-    )
+    result = sample.run('"Paint the walls" doesn\'t need to wait on "Sweep the floor" any more.')
 
     assert result.stop_reason == "completed"
-    assert _successful(result, "remove_dependency"), (
-        "expected a successful remove_dependency"
-    )
+    assert _successful(result, "remove_dependency"), "expected a successful remove_dependency"
     with sample.db() as db:
-        assert [e.id for e in deps_service.list_dependencies(db, paint_id)] == [
-            primer_edge_id
-        ]
+        assert [e.id for e in deps_service.list_dependencies(db, paint_id)] == [primer_edge_id]
         removed = db.get(TaskDependency, sweep_edge_id)
         assert removed is not None and removed.deleted_at is not None, (
             "the edge must be soft-deleted, not gone"
         )
-        assert db.execute(
-            select(func.count()).select_from(Task).where(Task.deleted_at.is_(None))
-        ).scalar_one() == 3, "no task may be trashed to drop a dependency"
+        assert (
+            db.execute(
+                select(func.count()).select_from(Task).where(Task.deleted_at.is_(None))
+            ).scalar_one()
+            == 3
+        ), "no task may be trashed to drop a dependency"
         _assert_run_events_are_the_loops(db, last_seed_event)
 
 
@@ -1713,9 +1688,7 @@ def _seed_weekly(sample: Sample, title: str) -> tuple[int, int | None]:
     seed event."""
     with sample.db() as db:
         home = projects_service.create_project(db, name="Home")
-        task = tasks_service.create_task(
-            db, project_id=home.id, title=title, due_date=date.today()
-        )
+        task = tasks_service.create_task(db, project_id=home.id, title=title, due_date=date.today())
         tasks_service.update_task(db, task, {"repeat_interval": _WEEKLY})
         tasks_service.create_task(db, project_id=home.id, title="Rake the leaves")
         task_id = task.id
@@ -1725,9 +1698,7 @@ def _seed_weekly(sample: Sample, title: str) -> tuple[int, int | None]:
 
 def _live_tasks(db: Session) -> list[Task]:
     return list(
-        db.execute(select(Task).where(Task.deleted_at.is_(None)).order_by(Task.id))
-        .scalars()
-        .all()
+        db.execute(select(Task).where(Task.deleted_at.is_(None)).order_by(Task.id)).scalars().all()
     )
 
 
@@ -1774,11 +1745,14 @@ def _recurrence_skip(sample: Sample) -> None:
         assert plants[0].due_date == today + timedelta(days=7)
         assert plants[0].repeat_interval == _WEEKLY, "the series must go on"
         assert plants[0].workflow_status == TaskWorkflowStatus.open
-        assert db.execute(
-            select(func.count()).select_from(Task).where(
-                Task.workflow_status == TaskWorkflowStatus.done
-            )
-        ).scalar_one() == 0, "a skip is not a completion"
+        assert (
+            db.execute(
+                select(func.count())
+                .select_from(Task)
+                .where(Task.workflow_status == TaskWorkflowStatus.done)
+            ).scalar_one()
+            == 0
+        ), "a skip is not a completion"
         _assert_run_events_are_the_loops(db, last_seed_event)
 
 
@@ -1810,7 +1784,7 @@ def _recurrence_stop(sample: Sample) -> None:
 
 
 def _restore_task_from_trash(sample: Sample) -> None:
-    """"Bring back the task I deleted" goes through list_trash → restore_task (#387).
+    """ "Bring back the task I deleted" goes through list_trash → restore_task (#387).
 
     Search only sees live rows, so the trash is the only place to look. A
     second trashed task is the distractor; it must stay in the trash.
@@ -1870,9 +1844,11 @@ def _restore_project_from_trash(sample: Sample) -> None:
     assert result.stop_reason == "completed"
     assert _successful(result, "restore_project"), "expected a successful restore_project"
     with sample.db() as db:
-        projects = db.execute(
-            select(Project).where(Project.deleted_at.is_(None)).order_by(Project.name)
-        ).scalars().all()
+        projects = (
+            db.execute(select(Project).where(Project.deleted_at.is_(None)).order_by(Project.name))
+            .scalars()
+            .all()
+        )
         assert [p.name for p in projects] == ["Garage", "Home"], [p.name for p in projects]
         assert projects[0].id == garage_id, "restored, not re-created"
         tasks = _live_tasks(db)
@@ -1944,7 +1920,7 @@ def _project_rename(sample: Sample) -> None:
 
 
 def _project_close(sample: Sample) -> None:
-    """"We're done with it" closes, never trashes, and leaves the tasks alone (#388)."""
+    """ "We're done with it" closes, never trashes, and leaves the tasks alone (#388)."""
     garage_id, last_seed_event = _seed_garage(sample)
 
     result = sample.run("We're done with the Garage project for now, close it.")
@@ -2030,7 +2006,7 @@ _GARAGE_BATCH = (
 
 
 def _batch_create(sample: Sample) -> None:
-    """"Add these five tasks to Garage": five creates, all in Garage (#404).
+    """ "Add these five tasks to Garage": five creates, all in Garage (#404).
 
     Five creates in one run is where the deployed history's ``name``-for-
     ``title`` and ``data.data`` refusals pile up, and two runs died at
@@ -2039,9 +2015,7 @@ def _batch_create(sample: Sample) -> None:
     """
     with sample.db() as db:
         ids = _seed_projects(db, "Home", "Work", "Garage")
-        existing = tasks_service.create_task(
-            db, project_id=ids["Garage"], title="Paint the walls"
-        )
+        existing = tasks_service.create_task(db, project_id=ids["Garage"], title="Paint the walls")
         tasks_service.create_task(db, project_id=ids["Home"], title="Rake the leaves")
         garage_id, existing_id = ids["Garage"], existing.id
         db.commit()
@@ -2061,9 +2035,7 @@ def _batch_create(sample: Sample) -> None:
             assert sum(keyword in title.lower() for title in titles) == 1, (
                 f"{keyword!r} should be in exactly one new title: {titles}"
             )
-        assert all(t.project_id == garage_id for t in new), [
-            (t.title, t.project_id) for t in new
-        ]
+        assert all(t.project_id == garage_id for t in new), [(t.title, t.project_id) for t in new]
         assert all(t.parent_task_id is None for t in new), "a batch is five tasks, not subtasks"
         assert len(_live_projects(db)) == 3, "no project invented"
         untouched = db.get(Task, existing_id)
@@ -2149,7 +2121,7 @@ _GARAGE_SUBTASKS = ("Sweep the floor", "Sort the screws", "Haul boxes to the dum
 
 
 def _complete_parent_with_open_subtasks(sample: Sample) -> None:
-    """"Mark the parent done" while its three subtasks are open (#404).
+    """ "Mark the parent done" while its three subtasks are open (#404).
 
     The service never lets a parent be completed directly: its ``done`` is
     derived, and ``complete_task`` on it is refused with "This task is
@@ -2296,9 +2268,8 @@ def _assert_only(thread: Thread, task_id: int, *, actor: str = LOOP_ACTOR) -> No
     is about that task, written as ``actor``."""
     step = thread.step
     changed = changed_keys(thread.before.tasks, step.world.tasks)
-    assert changed == {task_id}, (
-        f"changed {sorted(changed)}, want only {task_id}: "
-        + str({k: step.world.tasks.get(k) for k in changed})
+    assert changed == {task_id}, f"changed {sorted(changed)}, want only {task_id}: " + str(
+        {k: step.world.tasks.get(k) for k in changed}
     )
     assert step.world.projects == thread.before.projects, "a project was touched"
     assert step.events, "the step wrote no activity events"
@@ -2334,9 +2305,7 @@ def _seed_world(sample: Sample) -> None:
         tasks_service.create_task(
             db, project_id=work, title="Quarterly report", due_date=today + timedelta(days=5)
         )
-        dana = tasks_service.create_task(
-            db, project_id=work, title="Email Dana about the offsite"
-        )
+        dana = tasks_service.create_task(db, project_id=work, title="Email Dana about the offsite")
         tasks_service.mark_done(db, dana)
         tasks_service.create_task(db, project_id=work, title="Prepare standup notes")
         tasks_service.create_task(
@@ -2629,9 +2598,7 @@ def _reference_first_to_friday(sample: Sample) -> None:
     with sample.db() as db:
         work = projects_service.create_project(db, name="Work")
         for title in _WORK_CANDIDATES:
-            tasks_service.create_task(
-                db, project_id=work.id, title=title, due_date=seed_due(today)
-            )
+            tasks_service.create_task(db, project_id=work.id, title=title, due_date=seed_due(today))
         home = projects_service.create_project(db, name="Home")
         tasks_service.create_task(db, project_id=home.id, title="Rake the leaves")
         db.commit()
@@ -2850,9 +2817,8 @@ def _assert_task_changes(
     names no project and gets a create with none lands there (the app's
     behavior, not an invention)."""
     changed = changed_keys(before.tasks, after.tasks)
-    assert changed == set(want), (
-        f"changed {sorted(changed)}, want {sorted(want)}: "
-        + str({k: after.tasks.get(k) for k in changed})
+    assert changed == set(want), f"changed {sorted(changed)}, want {sorted(want)}: " + str(
+        {k: after.tasks.get(k) for k in changed}
     )
     for task_id, row in want.items():
         assert after.tasks[task_id] == row, f"task {task_id}: {after.tasks[task_id]} != {row}"
@@ -2881,7 +2847,7 @@ def _new_task_in(before: World, after: World) -> int:
 
 
 def _compose_create_and_pin(sample: Sample) -> None:
-    """"Create X in Garage and pin it to today at 3pm": a create, then a pin on
+    """ "Create X in Garage and pin it to today at 3pm": a create, then a pin on
     the id it returned. End state: one new top-level task in Garage, one Focus
     pin on it at 15:00 today, nothing else."""
     today = date.today()
@@ -2908,9 +2874,11 @@ def _compose_create_and_pin(sample: Sample) -> None:
         {task_id: replace(created, project_id=garage_id, parent_task_id=None, status="open")},
     )
     with sample.db() as db:
-        live = db.execute(
-            select(FocusPlanEntry).where(FocusPlanEntry.deleted_at.is_(None))
-        ).scalars().all()
+        live = (
+            db.execute(select(FocusPlanEntry).where(FocusPlanEntry.deleted_at.is_(None)))
+            .scalars()
+            .all()
+        )
         assert [(e.task_id, e.plan_date, e.start_minute) for e in live] == [
             (task_id, today, 15 * 60)
         ], f"focus entries: {[(e.task_id, e.plan_date, e.start_minute) for e in live]}"
@@ -2918,7 +2886,7 @@ def _compose_create_and_pin(sample: Sample) -> None:
 
 
 def _compose_move_due_today(sample: Sample) -> None:
-    """"Move everything due today to tomorrow": every open task due today moves
+    """ "Move everything due today to tomorrow": every open task due today moves
     to tomorrow, and nothing else does. The judgement calls: *overdue* tasks
     (due earlier) are not "due today" and stay; a task already done stays too,
     still due today (finished work is not rescheduled)."""
@@ -2967,7 +2935,7 @@ def _compose_move_due_today(sample: Sample) -> None:
 
 
 def _compose_finish_and_follow_up(sample: Sample) -> None:
-    """"Finish the dentist task and add a follow-up for next month": one
+    """ "Finish the dentist task and add a follow-up for next month": one
     completion, one new open top-level task due in the next calendar month.
     Tolerant rule for "next month": *any* date in that month (first to last
     day), which holds "the same day one month on" and "the 1st" alike. The
@@ -3011,7 +2979,7 @@ def _compose_finish_and_follow_up(sample: Sample) -> None:
 
 
 def _compose_wait_and_bump(sample: Sample) -> None:
-    """"Make the report wait on the data pull and bump it to high": one
+    """ "Make the report wait on the data pull and bump it to high": one
     dependency edge (the report waits on the data pull) and the report's
     priority high. The data pull stays medium, nothing else changes."""
     with sample.db() as db:
@@ -3035,18 +3003,18 @@ def _compose_wait_and_bump(sample: Sample) -> None:
         before, after, {report_id: replace(before.tasks[report_id], priority="high")}
     )
     with sample.db() as db:
-        edges = db.execute(
-            select(TaskDependency).where(TaskDependency.deleted_at.is_(None))
-        ).scalars().all()
+        edges = (
+            db.execute(select(TaskDependency).where(TaskDependency.deleted_at.is_(None)))
+            .scalars()
+            .all()
+        )
         assert [(e.task_id, e.depends_on_task_id) for e in edges] == [(report_id, data_id)], (
             f"edges (waiter, blocker): {[(e.task_id, e.depends_on_task_id) for e in edges]}"
         )
     _assert_events_only_about(after, before, {report_id})
 
 
-def _date_ask(
-    sample: Sample, ask: str, accepted: frozenset[date], due: date | None = None
-) -> None:
+def _date_ask(sample: Sample, ask: str, accepted: frozenset[date], due: date | None = None) -> None:
     """Give the quarterly report (due ``due``, none by default; a bystander has
     one) a due date said in words. The model is told only today's ISO date, so
     the calendar arithmetic is its own; ``accepted`` is every reading of the
@@ -3079,7 +3047,7 @@ def _date_ask(
 
 
 def _date_next_friday(sample: Sample) -> None:
-    """"Next Friday" is ambiguous in English: the coming Friday, or the Friday
+    """ "Next Friday" is ambiguous in English: the coming Friday, or the Friday
     of next week. Both pass (``next_friday_targets``)."""
     _date_ask(
         sample,
@@ -3120,7 +3088,7 @@ def _pinned_today(day: date) -> Iterator[None]:
 
 
 def _date_push_same_weekday(sample: Sample) -> None:
-    """"Push it to <today's weekday>" on a task already due today (#484).
+    """ "Push it to <today's weekday>" on a task already due today (#484).
 
     "Push" means later, so the only reading is the same weekday next week:
     today would leave the task where it was and report a move that never
@@ -3140,7 +3108,7 @@ def _date_push_same_weekday(sample: Sample) -> None:
 
 
 def _date_in_two_weeks(sample: Sample) -> None:
-    """"In two weeks" is exactly 14 days from today."""
+    """ "In two weeks" is exactly 14 days from today."""
     _date_ask(
         sample,
         "Make the quarterly report due in two weeks.",
@@ -3149,7 +3117,7 @@ def _date_in_two_weeks(sample: Sample) -> None:
 
 
 def _date_end_of_month(sample: Sample) -> None:
-    """"The end of the month" is the last day of this month."""
+    """ "The end of the month" is the last day of this month."""
     _date_ask(
         sample,
         "Make the quarterly report due at the end of the month.",
@@ -3158,7 +3126,7 @@ def _date_end_of_month(sample: Sample) -> None:
 
 
 def _date_this_weekend(sample: Sample) -> None:
-    """"This weekend" is a Saturday or Sunday of the current or upcoming
+    """ "This weekend" is a Saturday or Sunday of the current or upcoming
     weekend (``weekend_targets``)."""
     _date_ask(
         sample,
@@ -3187,7 +3155,7 @@ def _seed_errands(sample: Sample) -> None:
 
 
 def _speech_add_task(sample: Sample) -> None:
-    """"ad a task to by stamps": one new open task about stamps, the verb read
+    """ "ad a task to by stamps": one new open task about stamps, the verb read
     as "buy" (a title still saying "by stamps" is a transcription, not an
     understanding), nothing else changed."""
     _seed_errands(sample)
@@ -3209,7 +3177,7 @@ def _speech_add_task(sample: Sample) -> None:
 
 
 def _speech_mark_done(sample: Sample) -> None:
-    """"mark the groserys done": "Buy groceries" completed, and not "Buy a
+    """ "mark the groserys done": "Buy groceries" completed, and not "Buy a
     birthday card" or anything else."""
     _seed_errands(sample)
     before = _world(sample)

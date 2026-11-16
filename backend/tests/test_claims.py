@@ -535,9 +535,7 @@ def test_read_tools_are_the_registrys() -> None:
 
 def test_a_title_saying_done_is_not_a_completion() -> None:
     renamed = _evidence(
-        _call(
-            "update_task", {"task_id": 1, "title": "Done list"}, _task(1, "Done list")
-        )
+        _call("update_task", {"task_id": 1, "title": "Done list"}, _task(1, "Done list"))
     )
     assert not renamed.completed()
     assert any(c.family == "completed" for c in unbacked(read_claims("Marked it done.", renamed)))
@@ -786,10 +784,12 @@ PROJECT_TRASHED_WITH_COUNT = _evidence(
 
 
 def test_a_trash_answer_backs_its_task_count() -> None:
-    """"its 3 tasks" is backed once the trash answer says 3; a different
+    """ "its 3 tasks" is backed once the trash answer says 3; a different
     number is not, and the old answer with no number backs none."""
     said = "Trashed the Kitchen project and its 3 tasks."
     assert not unbacked(read_claims(said, PROJECT_TRASHED_WITH_COUNT))
-    wrong = unbacked(read_claims("Trashed the Kitchen project and its 4 tasks.", PROJECT_TRASHED_WITH_COUNT))
+    wrong = unbacked(
+        read_claims("Trashed the Kitchen project and its 4 tasks.", PROJECT_TRASHED_WITH_COUNT)
+    )
     assert [claim.family for claim in wrong] == ["count"]
     assert [claim.family for claim in unbacked(read_claims(said, PROJECT_TRASHED))] == ["count"]

@@ -46,9 +46,7 @@ def _conflicting_project_trash(db: Session) -> tuple[Project, str, int]:
     first = tasks_service.create_task(
         db, project_id=project_b.id, title="water plants", due_date=date(2026, 7, 1)
     )
-    tasks_service.update_task(
-        db, first, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db, first, {"repeat_interval": {"unit": "week", "every": 1}})
     db.commit()
     recurrence_id = first.recurrence_id
     assert recurrence_id is not None
@@ -103,9 +101,7 @@ def test_restore_project_without_tasks_still_works(db_session: Session) -> None:
     # restoring the project alone stays open.
     project_a, recurrence_id, successor_id = _conflicting_project_trash(db_session)
 
-    restored, count = projects_service.restore_project(
-        db_session, project_a, restore_tasks=False
-    )
+    restored, count = projects_service.restore_project(db_session, project_a, restore_tasks=False)
     db_session.commit()
 
     assert count == 0
@@ -121,9 +117,7 @@ def test_restore_project_after_clearing_the_conflict_works(
     tasks_service.soft_delete_task(db_session, blocker)
     db_session.commit()
 
-    _restored, count = projects_service.restore_project(
-        db_session, project_a, restore_tasks=True
-    )
+    _restored, count = projects_service.restore_project(db_session, project_a, restore_tasks=True)
     db_session.commit()
 
     assert count == 1
@@ -138,9 +132,7 @@ def test_restore_project_route_returns_actionable_409(
 ) -> None:
     project_a, recurrence_id, _successor_id = _conflicting_project_trash(db_session)
 
-    response = client.post(
-        f"/api/projects/{project_a.id}/restore", params={"restore_tasks": True}
-    )
+    response = client.post(f"/api/projects/{project_a.id}/restore", params={"restore_tasks": True})
 
     assert response.status_code == 409
     assert "2026-07-08" in response.json()["detail"]

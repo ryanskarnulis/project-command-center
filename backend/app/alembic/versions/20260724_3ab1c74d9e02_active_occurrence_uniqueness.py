@@ -30,13 +30,14 @@ Revises: 05f72f546249
 Create Date: 2026-07-24 11:55:02.118433
 
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = '3ab1c74d9e02'
-down_revision: Union[str, None] = '05f72f546249'
+revision: str = "3ab1c74d9e02"
+down_revision: Union[str, None] = "05f72f546249"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

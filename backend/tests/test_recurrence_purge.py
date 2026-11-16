@@ -37,25 +37,17 @@ def _effective(db: Session, task: Task) -> TaskWorkflowStatus:
 
 
 def _live_series(db: Session, recurrence_id: str) -> list[Task]:
-    return [
-        t
-        for t in task_recurrence.get_series(db, recurrence_id)
-        if t.deleted_at is None
-    ]
+    return [t for t in task_recurrence.get_series(db, recurrence_id) if t.deleted_at is None]
 
 
-def _recurring_parent_with_children(
-    db: Session, n: int = 2
-) -> tuple[Task, list[Task], str]:
+def _recurring_parent_with_children(db: Session, n: int = 2) -> tuple[Task, list[Task], str]:
     """A weekly recurring parent (due 06-01) with ``n`` open children."""
     project = projects_service.create_project(db, name="Recurring purge")
     parent = tasks_service.create_task(
         db, project_id=project.id, title="weekly checklist", due_date=date(2026, 6, 1)
     )
     db.commit()
-    tasks_service.update_task(
-        db, parent, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db, parent, {"repeat_interval": {"unit": "week", "every": 1}})
     db.commit()
     recurrence_id = parent.recurrence_id
     assert recurrence_id is not None
@@ -133,9 +125,7 @@ def test_purging_trashed_blocker_leaves_series_with_open_successor(
     # recurring task; purging it removes the dependency edge too, and must not move
     # the series backwards or spawn a duplicate.
     parent, children, recurrence_id = _recurring_parent_with_children(db_session, n=1)
-    blocker = tasks_service.create_task(
-        db_session, project_id=parent.project_id, title="blocker"
-    )
+    blocker = tasks_service.create_task(db_session, project_id=parent.project_id, title="blocker")
     db_session.commit()
     deps_service.add_dependency(db_session, task_id=parent.id, depends_on_id=blocker.id)
     db_session.commit()
@@ -173,12 +163,8 @@ def test_purging_trashed_child_of_open_recurring_parent_spawns_nothing(
     db_session.commit()
 
     assert _effective(db_session, parent) != TaskWorkflowStatus.done
-    assert [t.due_date for t in _live_series(db_session, recurrence_id)] == [
-        date(2026, 6, 1)
-    ]
+    assert [t.due_date for t in _live_series(db_session, recurrence_id)] == [date(2026, 6, 1)]
     rows = (
-        db_session.execute(select(Task).where(Task.recurrence_id == recurrence_id))
-        .scalars()
-        .all()
+        db_session.execute(select(Task).where(Task.recurrence_id == recurrence_id)).scalars().all()
     )
     assert len(rows) == 1  # no successor row at all, live or trashed

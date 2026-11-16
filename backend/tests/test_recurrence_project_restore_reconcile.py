@@ -41,9 +41,7 @@ def _stalled_project_trash(db: Session) -> tuple[Project, str, int]:
     original = tasks_service.create_task(
         db, project_id=project.id, title="water plants", due_date=date(2026, 7, 1)
     )
-    tasks_service.update_task(
-        db, original, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db, original, {"repeat_interval": {"unit": "week", "every": 1}})
     db.commit()
     recurrence_id = original.recurrence_id
     assert recurrence_id is not None
@@ -80,9 +78,7 @@ def _stalled_project_trash(db: Session) -> tuple[Project, str, int]:
 def test_restore_project_respawns_missing_successor(db_session: Session) -> None:
     project, recurrence_id, original_id = _stalled_project_trash(db_session)
 
-    _restored, count = projects_service.restore_project(
-        db_session, project, restore_tasks=True
-    )
+    _restored, count = projects_service.restore_project(db_session, project, restore_tasks=True)
     db_session.commit()
 
     assert count == 1
@@ -117,22 +113,16 @@ def test_restore_project_is_idempotent_for_open_and_plain_tasks(
     trashed = projects_service.get_deleted_project(db_session, project.id)
     assert trashed is not None
 
-    _restored, count = projects_service.restore_project(
-        db_session, trashed, restore_tasks=True
-    )
+    _restored, count = projects_service.restore_project(db_session, trashed, restore_tasks=True)
     db_session.commit()
 
     assert count == 2
     # The open occurrence did not spawn a successor.
-    assert [t.due_date for t in _live_series(db_session, recurrence_id)] == [
-        date(2026, 7, 1)
-    ]
+    assert [t.due_date for t in _live_series(db_session, recurrence_id)] == [date(2026, 7, 1)]
     active_titles = {
         t.title
         for t in db_session.execute(
-            select(Task).where(
-                Task.project_id == project.id, Task.deleted_at.is_(None)
-            )
+            select(Task).where(Task.project_id == project.id, Task.deleted_at.is_(None))
         )
         .scalars()
         .all()
@@ -148,9 +138,7 @@ def test_restore_project_route_respawns_missing_successor(
 ) -> None:
     project, recurrence_id, _original_id = _stalled_project_trash(db_session)
 
-    response = client.post(
-        f"/api/projects/{project.id}/restore", params={"restore_tasks": True}
-    )
+    response = client.post(f"/api/projects/{project.id}/restore", params={"restore_tasks": True})
 
     assert response.status_code == 200
     db_session.expire_all()

@@ -134,10 +134,5 @@ def test_delete_succeeds_once_the_run_has_finished(
         ).status_code
         == 200
     )
-    assert (
-        file_client.delete(f"/api/agent/conversations/{conversation_id}").status_code
-        == 204
-    )
-    assert (
-        file_client.get(f"/api/agent/conversations/{conversation_id}").status_code == 404
-    )
+    assert file_client.delete(f"/api/agent/conversations/{conversation_id}").status_code == 204
+    assert file_client.get(f"/api/agent/conversations/{conversation_id}").status_code == 404

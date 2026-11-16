@@ -42,9 +42,7 @@ def test_repeat_interval_rejects_unknown_unit() -> None:
 
 def _make_task(db: Session, *, due: date | None) -> Task:
     project = projects_service.create_project(db, name="Recurring")
-    task = tasks_service.create_task(
-        db, project_id=project.id, title="water plants", due_date=due
-    )
+    task = tasks_service.create_task(db, project_id=project.id, title="water plants", due_date=due)
     db.commit()
     return task
 
@@ -79,9 +77,7 @@ def _live_series(db: Session, recurrence_id: str) -> list[Task]:
 
 
 def _active_count(db: Session) -> int:
-    return len(
-        db.execute(select(Task).where(Task.deleted_at.is_(None))).scalars().all()
-    )
+    return len(db.execute(select(Task).where(Task.deleted_at.is_(None))).scalars().all())
 
 
 # --- Service behavior (Chunk C) ---------------------------------------------
@@ -91,9 +87,7 @@ def test_complete_non_recurring_creates_no_new_task(db_session: Session) -> None
     task = _make_task(db_session, due=date(2026, 6, 1))
     before = _active_count(db_session)
 
-    tasks_service.update_task(
-        db_session, task, {"workflow_status": TaskWorkflowStatus.done}
-    )
+    tasks_service.update_task(db_session, task, {"workflow_status": TaskWorkflowStatus.done})
     db_session.commit()
 
     assert _active_count(db_session) == before
@@ -103,9 +97,7 @@ def test_setting_repeat_first_time_mints_recurrence_id(db_session: Session) -> N
     task = _make_task(db_session, due=date(2026, 6, 1))
     assert task.recurrence_id is None
 
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
 
     assert task.repeat_interval == {"unit": "week", "every": 1}
@@ -114,16 +106,12 @@ def test_setting_repeat_first_time_mints_recurrence_id(db_session: Session) -> N
 
 def test_complete_recurring_creates_next_occurrence(db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))  # a Monday
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
 
-    tasks_service.update_task(
-        db_session, task, {"workflow_status": TaskWorkflowStatus.done}
-    )
+    tasks_service.update_task(db_session, task, {"workflow_status": TaskWorkflowStatus.done})
     db_session.commit()
 
     series = _series(db_session, recurrence_id)
@@ -141,9 +129,7 @@ def test_mark_done_creates_next_occurrence(db_session: Session) -> None:
     # The task lists/cards complete via mark_done (POST /tasks/{id}/done), not the
     # detail page's PATCH. That path must spawn the next occurrence too.
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
@@ -171,9 +157,7 @@ def test_mark_done_non_recurring_creates_no_new_task(db_session: Session) -> Non
 
 def test_skip_soft_deletes_current_and_rolls_forward(db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
@@ -203,9 +187,7 @@ def test_reopen_and_recomplete_does_not_duplicate_occurrence(
     # successor is resolved by (recurrence_id, due date), so the re-completion
     # finds 06-08 and returns it instead of inserting a twin.
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
@@ -231,9 +213,7 @@ def test_recomplete_does_not_respawn_a_skipped_occurrence(db_session: Session) -
     # decision, so the successor guard counts it: re-completing the predecessor
     # must not resurrect a date the user explicitly said didn't happen.
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
@@ -268,9 +248,7 @@ def _two_live_occurrences(db_session: Session) -> tuple[str, Task, Task]:
     already hold another row (trashed or skipped).
     """
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
@@ -293,9 +271,7 @@ def test_skip_returns_live_successor_when_next_date_active(
 
     assert next_occurrence.id == second.id
     assert next_occurrence.deleted_at is None
-    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
-        date(2026, 6, 8)
-    ]
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [date(2026, 6, 8)]
 
 
 def test_skip_into_normally_trashed_next_date_creates_live_occurrence(
@@ -314,9 +290,7 @@ def test_skip_into_normally_trashed_next_date_creates_live_occurrence(
     assert next_occurrence.due_date == date(2026, 6, 8)
     assert next_occurrence.deleted_at is None
     assert next_occurrence.id != second.id  # a fresh live row, not the trashed one
-    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
-        date(2026, 6, 8)
-    ]
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [date(2026, 6, 8)]
 
 
 def test_skip_past_skipped_next_date_returns_live_beyond(
@@ -337,9 +311,7 @@ def test_skip_past_skipped_next_date_returns_live_beyond(
     assert next_occurrence.due_date == date(2026, 6, 15)
     assert next_occurrence.deleted_at is None
     # No live row revived on the explicitly-skipped 06-08.
-    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
-        date(2026, 6, 15)
-    ]
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [date(2026, 6, 15)]
 
 
 def test_restore_trashed_occurrence_after_skip_replaced_it_conflicts(
@@ -384,9 +356,7 @@ def test_restore_conflict_resolves_after_trashing_the_replacement(
     db_session.commit()
 
     assert restored.id == second.id
-    assert [t.id for t in _series(db_session, recurrence_id) if t.deleted_at is None] == [
-        second.id
-    ]
+    assert [t.id for t in _series(db_session, recurrence_id) if t.deleted_at is None] == [second.id]
 
 
 def test_restore_route_returns_409_on_occurrence_conflict(
@@ -409,9 +379,7 @@ def test_restore_route_returns_409_on_occurrence_conflict(
 
 def test_next_occurrence_date_advances_open_recurring(db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
 
     assert _next_date(db_session, task) == date(2026, 6, 8)
@@ -425,14 +393,10 @@ def test_next_occurrence_date_none_without_interval(db_session: Session) -> None
 
 def test_next_occurrence_date_none_when_done(db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     # Completing spawns the successor and marks this row done — no "next" here.
-    tasks_service.update_task(
-        db_session, task, {"workflow_status": TaskWorkflowStatus.done}
-    )
+    tasks_service.update_task(db_session, task, {"workflow_status": TaskWorkflowStatus.done})
     db_session.commit()
 
     assert _next_date(db_session, task) is None
@@ -442,9 +406,7 @@ def test_task_read_exposes_next_occurrence_date(db_session: Session) -> None:
     from app.api.task_reads import read_with_blocked
 
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
 
     read = read_with_blocked(db_session, task)
@@ -463,9 +425,7 @@ def test_skip_non_recurring_task_raises(db_session: Session) -> None:
 
 def test_clearing_repeat_stops_future_occurrences(db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
 
     tasks_service.update_task(db_session, task, {"repeat_interval": None})
@@ -474,9 +434,7 @@ def test_clearing_repeat_stops_future_occurrences(db_session: Session) -> None:
     assert task.recurrence_id is not None
     before = _active_count(db_session)
 
-    tasks_service.update_task(
-        db_session, task, {"workflow_status": TaskWorkflowStatus.done}
-    )
+    tasks_service.update_task(db_session, task, {"workflow_status": TaskWorkflowStatus.done})
     db_session.commit()
 
     assert _active_count(db_session) == before
@@ -484,16 +442,12 @@ def test_clearing_repeat_stops_future_occurrences(db_session: Session) -> None:
 
 def test_month_interval_clamps_to_short_month(db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 1, 31))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "month", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "month", "every": 1}})
     db_session.commit()
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
 
-    tasks_service.update_task(
-        db_session, task, {"workflow_status": TaskWorkflowStatus.done}
-    )
+    tasks_service.update_task(db_session, task, {"workflow_status": TaskWorkflowStatus.done})
     db_session.commit()
 
     occurrence = _series(db_session, recurrence_id)[-1]
@@ -503,21 +457,15 @@ def test_month_interval_clamps_to_short_month(db_session: Session) -> None:
 def _three_occurrence_series(db_session: Session) -> tuple[str, Sequence[Task]]:
     """A weekly series: due 06-01 (done), 06-08 (done), 06-15 (open)."""
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
 
-    tasks_service.update_task(
-        db_session, task, {"workflow_status": TaskWorkflowStatus.done}
-    )
+    tasks_service.update_task(db_session, task, {"workflow_status": TaskWorkflowStatus.done})
     db_session.commit()
     second = _series(db_session, recurrence_id)[-1]
-    tasks_service.update_task(
-        db_session, second, {"workflow_status": TaskWorkflowStatus.done}
-    )
+    tasks_service.update_task(db_session, second, {"workflow_status": TaskWorkflowStatus.done})
     db_session.commit()
     return recurrence_id, _series(db_session, recurrence_id)
 
@@ -531,9 +479,7 @@ def test_edit_scope_future_patches_forward_rows_only(db_session: Session) -> Non
         date(2026, 6, 15),
     ]
 
-    tasks_service.update_task(
-        db_session, second, {"title": "deep clean", "edit_scope": "future"}
-    )
+    tasks_service.update_task(db_session, second, {"title": "deep clean", "edit_scope": "future"})
     db_session.commit()
 
     refreshed = _series(db_session, recurrence_id)
@@ -547,9 +493,7 @@ def test_edit_scope_this_patches_only_target_row(db_session: Session) -> None:
     recurrence_id, series = _three_occurrence_series(db_session)
     second = series[1]
 
-    tasks_service.update_task(
-        db_session, second, {"title": "deep clean", "edit_scope": "this"}
-    )
+    tasks_service.update_task(db_session, second, {"title": "deep clean", "edit_scope": "this"})
     db_session.commit()
 
     refreshed = _series(db_session, recurrence_id)
@@ -629,9 +573,7 @@ def test_edit_scope_future_rejects_estimate_when_future_row_has_children(
     assert tasks_service.get_rollup(db_session, parent).estimated_minutes is None
 
     # The same edit scoped to this occurrence only still works.
-    tasks_service.update_task(
-        db_session, second, {"estimated_minutes": 120, "edit_scope": "this"}
-    )
+    tasks_service.update_task(db_session, second, {"estimated_minutes": 120, "edit_scope": "this"})
     db_session.commit()
     assert second.estimated_minutes == 120
 
@@ -642,9 +584,7 @@ def test_edit_scope_future_forwards_estimate_when_no_row_has_children(
     recurrence_id, series = _three_occurrence_series(db_session)
     _first, second, _third = series
 
-    tasks_service.update_task(
-        db_session, second, {"estimated_minutes": 45, "edit_scope": "future"}
-    )
+    tasks_service.update_task(db_session, second, {"estimated_minutes": 45, "edit_scope": "future"})
     db_session.commit()
 
     refreshed = {t.due_date: t.estimated_minutes for t in _series(db_session, recurrence_id)}
@@ -665,9 +605,7 @@ def test_edit_scope_future_logs_event_per_occurrence(db_session: Session) -> Non
     events = activity_service.list_events(db_session, project_id, limit=200)
     last_event_id = events[0].id if events else 0
 
-    tasks_service.update_task(
-        db_session, second, {"title": "deep clean", "edit_scope": "future"}
-    )
+    tasks_service.update_task(db_session, second, {"title": "deep clean", "edit_scope": "future"})
     db_session.commit()
 
     new_updated_ids = {
@@ -714,9 +652,7 @@ def test_clearing_due_date_on_recurring_task_is_rejected(db_session: Session) ->
     # that never spawns and can't be skipped. The guard checks the post-patch view,
     # so an omitted repeat_interval doesn't sneak past it.
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
 
     with pytest.raises(tasks_service.RecurrenceError):
@@ -732,14 +668,10 @@ def test_clearing_due_date_and_repeat_together_succeeds(db_session: Session) -> 
     # Clearing both at once is fine: with the recurrence gone there's no series to
     # leave stranded.
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
 
-    tasks_service.update_task(
-        db_session, task, {"due_date": None, "repeat_interval": None}
-    )
+    tasks_service.update_task(db_session, task, {"due_date": None, "repeat_interval": None})
     db_session.commit()
 
     assert task.due_date is None
@@ -750,9 +682,7 @@ def test_patch_clear_due_date_on_recurring_returns_422_over_http(
     client: TestClient, db_session: Session
 ) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
 
     res = client.patch(f"/api/tasks/{task.id}", json={"due_date": None})
@@ -773,17 +703,13 @@ def test_patch_repeat_without_due_date_returns_422_over_http(
     assert res.status_code == 422
 
 
-def test_skip_non_recurring_returns_422_over_http(
-    client: TestClient, db_session: Session
-) -> None:
+def test_skip_non_recurring_returns_422_over_http(client: TestClient, db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
 
     res = client.post(f"/api/tasks/{task.id}/skip")
 
     assert res.status_code == 422
-    assert res.json()["detail"] == (
-        "Only a recurring task with a due date can be skipped"
-    )
+    assert res.json()["detail"] == ("Only a recurring task with a due date can be skipped")
 
 
 # --- Series management (Recurring series management slice) -------------------
@@ -793,16 +719,12 @@ def test_get_series_includes_skipped_in_due_date_order(db_session: Session) -> N
     # A weekly series: complete the first (06-01 done, spawns 06-08 open), then
     # skip the second (06-08 soft-deleted, spawns 06-15 open).
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
 
-    tasks_service.update_task(
-        db_session, task, {"workflow_status": TaskWorkflowStatus.done}
-    )
+    tasks_service.update_task(db_session, task, {"workflow_status": TaskWorkflowStatus.done})
     db_session.commit()
     second = _series(db_session, recurrence_id)[-1]
     task_recurrence.skip_occurrence(db_session, second)
@@ -826,9 +748,7 @@ def test_restore_skipped_occurrence_unskips_without_duplicating(
     # restore it. Restore must NOT add a second live row; instead the live
     # occurrence is pulled back to 06-01 and the skipped row is hard-deleted.
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
@@ -869,9 +789,7 @@ def test_restore_earlier_of_consecutive_skips_keeps_the_series_moving(
     # Completion must roll forward past that skip instead of stopping on it, or the
     # series is left with no live, actionable occurrence at all.
     task = _make_task(db_session, due=date(2026, 1, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "day", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "day", "every": 1}})
     db_session.commit()
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
@@ -954,9 +872,7 @@ def test_restore_recurring_with_no_live_occurrence_plain_restore(
     # A recurring task whose series has no other live occurrence: the duplicate
     # hazard doesn't apply, so restore is a plain un-delete (not a purge).
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     tasks_service.soft_delete_task(db_session, task)
     db_session.commit()
@@ -970,9 +886,7 @@ def test_restore_recurring_with_no_live_occurrence_plain_restore(
 
 def test_stop_recurrence_clears_repeat_keeps_id(db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
@@ -1046,9 +960,7 @@ def test_stop_recurrence_clears_trashed_occurrence_too(db_session: Session) -> N
     db_session.commit()
 
     all_rows = (
-        db_session.execute(select(Task).where(Task.recurrence_id == recurrence_id))
-        .scalars()
-        .all()
+        db_session.execute(select(Task).where(Task.recurrence_id == recurrence_id)).scalars().all()
     )
     assert len(all_rows) == 3  # the trashed row is in scope, not filtered out
     assert all(t.repeat_interval is None for t in all_rows)
@@ -1068,9 +980,7 @@ def test_stop_recurrence_twice_raises(db_session: Session) -> None:
 
 def test_get_series_over_http(client: TestClient, db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
 
     res = client.get(f"/api/tasks/{task.id}/series")
@@ -1081,9 +991,7 @@ def test_get_series_over_http(client: TestClient, db_session: Session) -> None:
     assert body["occurrences"][0]["id"] == task.id
 
 
-def test_get_series_non_recurring_returns_422(
-    client: TestClient, db_session: Session
-) -> None:
+def test_get_series_non_recurring_returns_422(client: TestClient, db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
 
     res = client.get(f"/api/tasks/{task.id}/series")
@@ -1093,14 +1001,10 @@ def test_get_series_non_recurring_returns_422(
 # --- Recurring checklist tasks (recurrence + subtasks) ----------------------
 
 
-def _recurring_parent_with_children(
-    db: Session, n: int = 2
-) -> tuple[Task, list[Task], str]:
+def _recurring_parent_with_children(db: Session, n: int = 2) -> tuple[Task, list[Task], str]:
     """A weekly recurring parent (due 06-01) with ``n`` accepted open children."""
     parent = _make_task(db, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db, parent, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db, parent, {"repeat_interval": {"unit": "week", "every": 1}})
     db.commit()
     recurrence_id = parent.recurrence_id
     assert recurrence_id is not None
@@ -1167,9 +1071,10 @@ def test_skip_checklist_occurrence_cascades_to_subtree(db_session: Session) -> N
     # The series still rolled forward, with a freshly-cloned subtree under the new
     # occurrence (the skip cascade doesn't touch the next occurrence's clones).
     assert next_occurrence.due_date == date(2026, 6, 8)
-    assert sorted(
-        c.title for c in tasks_service.list_subtasks(db_session, next_occurrence.id)
-    ) == ["c0", "c1"]
+    assert sorted(c.title for c in tasks_service.list_subtasks(db_session, next_occurrence.id)) == [
+        "c0",
+        "c1",
+    ]
 
 
 def test_completing_last_child_spawns_checklist_occurrence(
@@ -1238,9 +1143,7 @@ def test_completing_last_child_via_patch_spawns_occurrence(
 ) -> None:
     _parent, children, recurrence_id = _recurring_parent_with_children(db_session)
     for child in children:
-        tasks_service.update_task(
-            db_session, child, {"workflow_status": TaskWorkflowStatus.done}
-        )
+        tasks_service.update_task(db_session, child, {"workflow_status": TaskWorkflowStatus.done})
         db_session.commit()
 
     assert len(_series(db_session, recurrence_id)) == 2
@@ -1248,9 +1151,7 @@ def test_completing_last_child_via_patch_spawns_occurrence(
 
 def test_checklist_clones_grandchildren(db_session: Session) -> None:
     parent = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, parent, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, parent, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     recurrence_id = parent.recurrence_id
     assert recurrence_id is not None
@@ -1363,9 +1264,7 @@ def test_recurring_parent_direct_mark_done_still_rejected(
 
 def test_stop_recurrence_over_http(client: TestClient, db_session: Session) -> None:
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
 
     res = client.post(f"/api/tasks/{task.id}/stop-recurrence")
@@ -1402,9 +1301,7 @@ def test_unskip_leaves_dependency_edges_on_the_superseded_row(
     # must not inherit a phantom block.
     blocker = _make_task(db_session, due=None)
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     deps_service.add_dependency(db_session, task_id=task.id, depends_on_id=blocker.id)
     db_session.commit()
@@ -1426,9 +1323,7 @@ def test_unskip_leaves_dependency_edges_on_the_superseded_row(
     assert skipped.deleted_at is not None and skipped.superseded_at is not None
     # ...its edge is untouched on the trashed row, and blocks nothing live.
     edges = db_session.execute(select(TaskDependency)).scalars().all()
-    assert [(e.task_id, e.depends_on_task_id) for e in edges] == [
-        (skipped_id, blocker.id)
-    ]
+    assert [(e.task_id, e.depends_on_task_id) for e in edges] == [(skipped_id, blocker.id)]
     assert not deps_service.is_blocked(db_session, restored.id)
 
 
@@ -1437,14 +1332,10 @@ def test_unskip_with_dependent_task_present(db_session: Session) -> None:
     # blocker no longer blocks); un-skipping supersedes the skipped row, which
     # stays trashed with its edge (#457). T must not stay phantom-blocked.
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     dependent = _make_task(db_session, due=None)
-    deps_service.add_dependency(
-        db_session, task_id=dependent.id, depends_on_id=task.id
-    )
+    deps_service.add_dependency(db_session, task_id=dependent.id, depends_on_id=task.id)
     db_session.commit()
     skipped_id = task.id
     assert deps_service.is_blocked(db_session, dependent.id)
@@ -1457,9 +1348,7 @@ def test_unskip_with_dependent_task_present(db_session: Session) -> None:
     db_session.commit()
 
     edges = db_session.execute(select(TaskDependency)).scalars().all()
-    assert [(e.task_id, e.depends_on_task_id) for e in edges] == [
-        (dependent.id, skipped_id)
-    ]
+    assert [(e.task_id, e.depends_on_task_id) for e in edges] == [(dependent.id, skipped_id)]
     assert not deps_service.is_blocked(db_session, dependent.id)
     assert restored.due_date == date(2026, 6, 1)
 
@@ -1475,9 +1364,7 @@ def test_unskip_with_dependent_task_present(db_session: Session) -> None:
 def _weekly_leaf_with_successor(db: Session) -> tuple[Task, Task, str]:
     """A completed weekly occurrence (06-01) and the successor it spawned (06-08)."""
     task = _make_task(db, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db.commit()
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
@@ -1577,9 +1464,7 @@ def test_restore_skipped_occurrence_without_successor_clears_skipped_at(
     # No live sibling to rewind onto, so the skipped row restores in place — and
     # must not come back still flagged as skipped while it's active.
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     successor = task_recurrence.skip_occurrence(db_session, task)
     db_session.commit()
@@ -1639,9 +1524,7 @@ def test_attaching_recurrence_to_a_done_task_spawns_successor(
     tasks_service.mark_done(db_session, task)
     db_session.commit()
 
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
 
     recurrence_id = task.recurrence_id
@@ -1709,13 +1592,9 @@ def test_removing_last_blocker_spawns_recurring_checklist(
     # the blocker was already handled; *removing* the edge is the same transition
     # into effective completion and must roll the series forward too.
     parent, children, recurrence_id = _recurring_parent_with_children(db_session, n=1)
-    blocker = tasks_service.create_task(
-        db_session, project_id=parent.project_id, title="blocker"
-    )
+    blocker = tasks_service.create_task(db_session, project_id=parent.project_id, title="blocker")
     db_session.commit()
-    edge = deps_service.add_dependency(
-        db_session, task_id=parent.id, depends_on_id=blocker.id
-    )
+    edge = deps_service.add_dependency(db_session, task_id=parent.id, depends_on_id=blocker.id)
     db_session.commit()
     tasks_service.mark_done(db_session, children[0])
     db_session.commit()
@@ -1735,16 +1614,10 @@ def test_removing_last_blocker_spawns_recurring_checklist(
 
 def test_removing_a_non_final_blocker_spawns_nothing(db_session: Session) -> None:
     parent, children, recurrence_id = _recurring_parent_with_children(db_session, n=1)
-    first = tasks_service.create_task(
-        db_session, project_id=parent.project_id, title="b1"
-    )
-    second = tasks_service.create_task(
-        db_session, project_id=parent.project_id, title="b2"
-    )
+    first = tasks_service.create_task(db_session, project_id=parent.project_id, title="b1")
+    second = tasks_service.create_task(db_session, project_id=parent.project_id, title="b2")
     db_session.commit()
-    edge = deps_service.add_dependency(
-        db_session, task_id=parent.id, depends_on_id=first.id
-    )
+    edge = deps_service.add_dependency(db_session, task_id=parent.id, depends_on_id=first.id)
     deps_service.add_dependency(db_session, task_id=parent.id, depends_on_id=second.id)
     db_session.commit()
     tasks_service.mark_done(db_session, children[0])
@@ -1763,9 +1636,7 @@ def test_trashing_last_blocker_spawns_recurring_checklist(
     # Same door as removing the edge: the blocker leaving via the trash unblocks the
     # checklist just as effectively.
     parent, children, recurrence_id = _recurring_parent_with_children(db_session, n=1)
-    blocker = tasks_service.create_task(
-        db_session, project_id=parent.project_id, title="blocker"
-    )
+    blocker = tasks_service.create_task(db_session, project_id=parent.project_id, title="blocker")
     db_session.commit()
     deps_service.add_dependency(db_session, task_id=parent.id, depends_on_id=blocker.id)
     db_session.commit()
@@ -1868,12 +1739,8 @@ def test_reconcile_spawns_at_most_once_across_dependency_diamond(
     root = tasks_service.create_task(db_session, project_id=None, title="root")
     db_session.commit()
     for blocker in (left, right):
-        deps_service.add_dependency(
-            db_session, task_id=head.id, depends_on_id=blocker.id
-        )
-        deps_service.add_dependency(
-            db_session, task_id=blocker.id, depends_on_id=root.id
-        )
+        deps_service.add_dependency(db_session, task_id=head.id, depends_on_id=blocker.id)
+        deps_service.add_dependency(db_session, task_id=blocker.id, depends_on_id=root.id)
     db_session.commit()
     tasks_service.mark_done(db_session, children[0])
     db_session.commit()
@@ -1923,9 +1790,9 @@ def test_soft_deleted_rows_are_exempt_from_uniqueness(db_session: Session) -> No
     db_session.commit()
     tasks_service.reopen_task(db_session, task)
     db_session.commit()
-    replacement = tasks_service.mark_done(db_session, task) and _live_series(
-        db_session, recurrence_id
-    )[-1]
+    replacement = (
+        tasks_service.mark_done(db_session, task) and _live_series(db_session, recurrence_id)[-1]
+    )
     tasks_service.soft_delete_task(db_session, replacement)
     db_session.commit()
 
@@ -1962,16 +1829,12 @@ def test_trashing_recurring_parent_does_not_spawn_successor(
         parent_task_id=task.id,
     )
     db_session.commit()
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None
     # The open child holds the series: no successor yet.
-    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
-        date(2026, 7, 25)
-    ]
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [date(2026, 7, 25)]
 
     tasks_service.soft_delete_task(db_session, task)
     db_session.commit()
@@ -2005,9 +1868,7 @@ def test_project_delete_spawns_successor_for_cross_project_child(
     db_session.commit()
     # The open cross-project child holds the series open.
     assert _effective(db_session, parent) is not TaskWorkflowStatus.done
-    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
-        date(2026, 6, 1)
-    ]
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [date(2026, 6, 1)]
 
     projects_service.soft_delete_project(db_session, other)
     db_session.commit()
@@ -2028,18 +1889,14 @@ def test_project_delete_spawns_successor_for_cross_project_blocker(
     # deleted project, so deleting that project unblocks the recurring task in B.
     parent, children, recurrence_id = _recurring_parent_with_children(db_session, n=1)
     other = projects_service.create_project(db_session, name="Blockers")
-    blocker = tasks_service.create_task(
-        db_session, project_id=other.id, title="external blocker"
-    )
+    blocker = tasks_service.create_task(db_session, project_id=other.id, title="external blocker")
     db_session.commit()
     deps_service.add_dependency(db_session, task_id=parent.id, depends_on_id=blocker.id)
     db_session.commit()
     tasks_service.mark_done(db_session, children[0])
     db_session.commit()
     # Rolled up done but blocked: no successor yet.
-    assert [t.due_date for t in _series(db_session, recurrence_id)] == [
-        date(2026, 6, 1)
-    ]
+    assert [t.due_date for t in _series(db_session, recurrence_id)] == [date(2026, 6, 1)]
 
     projects_service.soft_delete_project(db_session, other)
     db_session.commit()
@@ -2080,9 +1937,7 @@ def test_creating_an_already_done_only_child_spawns_successor(
     # a recurring parent's roll-up done with no status write anywhere, so create
     # has to reconcile too.
     parent = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, parent, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, parent, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     recurrence_id = parent.recurrence_id
     assert recurrence_id is not None
@@ -2176,9 +2031,7 @@ def test_reparenting_completed_occurrence_under_successor_rolls_forward(
     # double-fire), so update_task has to seed the *new* parent explicitly or the
     # series silently stalls with no 07-15 occurrence.
     task = _make_task(db_session, due=date(2026, 7, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     recurrence_id = task.recurrence_id
     assert recurrence_id is not None

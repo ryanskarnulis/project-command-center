@@ -181,8 +181,7 @@ def detail(record: dict[str, Any]) -> str:
             for m in gathered.get("matches") or []
         )
         lines.append(
-            f"  gather:  {gathered.get('source')} {gathered.get('ms')}ms"
-            f" -> {found or 'no matches'}"
+            f"  gather:  {gathered.get('source')} {gathered.get('ms')}ms -> {found or 'no matches'}"
         )
     if record.get("state_block"):
         lines.append("  state block:")

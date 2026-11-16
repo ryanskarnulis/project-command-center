@@ -477,14 +477,8 @@ def list_dependencies(task_id: EntityId) -> TaskDependenciesRead:
             db, [e.task_id for e in dependent_edges]
         )
         return TaskDependenciesRead(
-            depends_on=[
-                dependency_read(db, e, depends_on_effective)
-                for e in depends_on_edges
-            ],
-            dependents=[
-                dependent_read(db, e, dependent_effective)
-                for e in dependent_edges
-            ],
+            depends_on=[dependency_read(db, e, depends_on_effective) for e in depends_on_edges],
+            dependents=[dependent_read(db, e, dependent_effective) for e in dependent_edges],
         )
 
 
@@ -514,9 +508,7 @@ def remove_dependency(task_id: EntityId, dependency_id: EntityId) -> str:
                 f"Task {task_id} has no dependency {dependency_id}", refusals.FIND_DEPENDENCY
             )
         deps_service.remove_dependency(db, edge)
-        logger.info(
-            "tool_dependency_removed", task_id=task_id, dependency_id=dependency_id
-        )
+        logger.info("tool_dependency_removed", task_id=task_id, dependency_id=dependency_id)
         return f"Dependency {dependency_id} removed; task {task_id} no longer waits on task {edge.depends_on_task_id}"
 
 
@@ -577,9 +569,7 @@ _PROJECT_ALIASES = {"title": "name"}
 def create_project(data: ProjectCreate) -> ProjectRead:
     """Create a project."""
     with tool_session("create_project") as db:
-        project = projects_service.create_project(
-            db, name=data.name, description=data.description
-        )
+        project = projects_service.create_project(db, name=data.name, description=data.description)
         db.flush()
         logger.info("tool_project_created", project_id=project.id)
         return ProjectRead.model_validate(project)
@@ -645,9 +635,7 @@ def trash_project(project_id: EntityId) -> str:
 
 
 @_tool
-def restore_project(
-    project_id: EntityId, restore_tasks: bool = False
-) -> ProjectRestoreResult:
+def restore_project(project_id: EntityId, restore_tasks: bool = False) -> ProjectRestoreResult:
     """Restore a trashed project; restore_tasks also brings back the tasks trashed with it."""
     with tool_session("restore_project") as db:
         project = projects_service.get_deleted_project(db, project_id)
@@ -732,9 +720,7 @@ def pin_focus_task(
     """
     with tool_session("pin_focus_task") as db:
         task = _task_or_error(db, task_id)
-        start_minute = (
-            None if start_time is None else focus_plan_service.parse_time(start_time)
-        )
+        start_minute = None if start_time is None else focus_plan_service.parse_time(start_time)
         try:
             entry = focus_plan_service.pin_task(
                 db,
@@ -803,9 +789,7 @@ def skip_focus_occurrence(series_id: EntityId, plan_date: date_type) -> FocusEnt
 
 
 @_tool
-def stop_focus_series(
-    series_id: EntityId, stop_date: date_type | None = None
-) -> FocusEntryRead:
+def stop_focus_series(series_id: EntityId, stop_date: date_type | None = None) -> FocusEntryRead:
     """End a repeating Focus commitment from `stop_date` on; earlier days keep it.
 
     stop_date is the first day it no longer happens. Omit stop_date to lift an
@@ -899,15 +883,10 @@ def remove_focus_entry(entry_id: EntityId) -> str:
     with tool_session("remove_focus_entry") as db:
         entry = focus_plan_service.get_entry(db, entry_id)
         if entry is None:
-            raise refusals.not_found(
-                f"Focus entry {entry_id} not found", refusals.FIND_FOCUS_ENTRY
-            )
+            raise refusals.not_found(f"Focus entry {entry_id} not found", refusals.FIND_FOCUS_ENTRY)
         focus_plan_service.remove_entry(db, entry)
         logger.info("tool_focus_entry_removed", entry_id=entry_id)
-        return (
-            f"Focus entry {entry_id} removed "
-            f"(undo with restore_focus_entry({entry_id}))"
-        )
+        return f"Focus entry {entry_id} removed (undo with restore_focus_entry({entry_id}))"
 
 
 @_tool
@@ -945,8 +924,7 @@ def list_trash(limit: _ListLimit = 50) -> TrashRead:
                 for p in deleted_projects
             ],
             tasks=[
-                TaskRead.model_validate(t)
-                for t in task_trash.list_deleted_tasks(db, limit=limit)
+                TaskRead.model_validate(t) for t in task_trash.list_deleted_tasks(db, limit=limit)
             ],
         )
 

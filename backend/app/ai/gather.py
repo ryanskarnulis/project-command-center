@@ -383,9 +383,7 @@ class Searcher:
         try:
             gathered = self._gather(utterance)
         except Exception as exc:
-            logger.warning(
-                "gather_failed", error=str(exc), error_type=type(exc).__name__
-            )
+            logger.warning("gather_failed", error=str(exc), error_type=type(exc).__name__)
             gathered = Gathered()
         gathered.ms = (time.perf_counter() - started) * 1000
         return gathered
@@ -492,9 +490,7 @@ class Searcher:
             self.warm()
         except Exception as exc:
             self._last_failure = time.monotonic()
-            logger.warning(
-                "gather_warm_crashed", error=str(exc), error_type=type(exc).__name__
-            )
+            logger.warning("gather_warm_crashed", error=str(exc), error_type=type(exc).__name__)
 
 
 def rows(gathered: Gathered) -> list[dict[str, Any]]:
@@ -557,7 +553,9 @@ def _as_match(db: Session, row: dict[str, Any]) -> dict[str, Any]:
                 select(Task.id, Task.title).where(
                     Task.id.in_([e.depends_on_task_id for e in edges])
                 )
-            ).tuples().all()
+            )
+            .tuples()
+            .all()
         )
         match["waits_on"] = [
             {
@@ -583,9 +581,7 @@ def section(matches: Sequence[dict[str, Any]]) -> str | None:
 
 def searcher_from_settings() -> Searcher:
     settings = get_settings()
-    embedder = (
-        Embedder(settings.embeddings_base_url) if settings.embeddings_base_url else None
-    )
+    embedder = Embedder(settings.embeddings_base_url) if settings.embeddings_base_url else None
     return Searcher(
         embedder,
         build=settings.embeddings_build,

@@ -293,7 +293,9 @@ def _result_counts(value: Any) -> set[int]:
             found.update(
                 item
                 for key, item in node.items()
-                if str(key).endswith("_count") and isinstance(item, int) and not isinstance(item, bool)
+                if str(key).endswith("_count")
+                and isinstance(item, int)
+                and not isinstance(item, bool)
             )
     return found
 

@@ -83,9 +83,7 @@ _LIMIT_RUNS: dict[str, tuple[list[ChatResult], dict[str, Any]]] = {
 
 
 @pytest.mark.parametrize("stop_reason", sorted(_LIMIT_RUNS))
-def test_limit_stop_narrates_what_ran(
-    tool_db: sessionmaker[Session], stop_reason: str
-) -> None:
+def test_limit_stop_narrates_what_ran(tool_db: sessionmaker[Session], stop_reason: str) -> None:
     turns, options = _LIMIT_RUNS[stop_reason]
     provider = ScriptedProvider(turns, narrations=[_text(SUMMARY)])
     result = AgentLoop(provider, **options).run("Make tasks Alpha and Beta.")
@@ -474,8 +472,7 @@ def test_a_delegate_limit_stop_hands_off_why_it_stopped(
     reply = result.reply or ""
     assert 'Done:\n- #1 create_task {"title":"Alpha"} -> {"id": 1, "title": "Alpha"' in reply
     assert reply.endswith(
-        f"The run stopped because {run_record.LIMIT_REASONS[stop_reason]}. "
-        f"{run_record.LIMIT_NOTE}"
+        f"The run stopped because {run_record.LIMIT_REASONS[stop_reason]}. {run_record.LIMIT_NOTE}"
     )
 
 
@@ -551,9 +548,7 @@ def test_route_saves_the_handoff_for_a_delegate(
     like any reply, and its next run reads it as the last exchange's words.
     An ask of more than one change keeps the closing turn (#516), so its
     note is there to read."""
-    provider = ScriptedProvider(
-        [_calls(_alpha()), _text("Made Alpha."), _text("Nothing to do.")]
-    )
+    provider = ScriptedProvider([_calls(_alpha()), _text("Made Alpha."), _text("Nothing to do.")])
     app.dependency_overrides[routes_agent.get_agent_loop] = lambda: AgentLoop(provider)
     conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
     url = f"/api/agent/conversations/{conversation_id}/messages"
@@ -574,7 +569,7 @@ def test_route_saves_the_handoff_for_a_delegate(
     # The record is recall's own section; the last reply is the note beside it.
     assert (
         "The assistant said then (its words, not a record): \"The planner's note "
-        "(its reading of the results, not a record): \"Made Alpha.\"\"" in opening
+        '(its reading of the results, not a record): "Made Alpha.""' in opening
     )
     assert "PCC's record" not in opening
     assert 'create_task {"title":"Alpha"} -> id 1 "Alpha"' in opening

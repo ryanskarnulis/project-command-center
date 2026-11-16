@@ -26,9 +26,7 @@ def test_focus_route_happy_path(client: TestClient, db_session: Session) -> None
     assert [b["task_id"] for b in body["scheduled"]] == [task_id]
 
 
-def test_focus_route_defaults_to_server_today(
-    client: TestClient, db_session: Session
-) -> None:
+def test_focus_route_defaults_to_server_today(client: TestClient, db_session: Session) -> None:
     _task(db_session, "anything")
 
     response = client.get("/api/focus")
@@ -57,9 +55,7 @@ def test_focus_route_passes_through_start_and_capacity(
     assert len(body["overflow"]) == 1
 
 
-def test_focus_route_represents_next_day_times(
-    client: TestClient, db_session: Session
-) -> None:
+def test_focus_route_represents_next_day_times(client: TestClient, db_session: Session) -> None:
     _task(db_session, "overnight", estimated_minutes=360)
 
     response = client.get(
@@ -75,20 +71,14 @@ def test_focus_route_represents_next_day_times(
     assert block["end_day_offset"] == 1
 
 
-def test_focus_route_rejects_malformed_start_time(
-    client: TestClient, db_session: Session
-) -> None:
+def test_focus_route_rejects_malformed_start_time(client: TestClient, db_session: Session) -> None:
     assert client.get("/api/focus", params={"start_time": "25:00"}).status_code == 422
     assert client.get("/api/focus", params={"start_time": "9am"}).status_code == 422
 
 
-def test_focus_route_rejects_out_of_range_capacity(
-    client: TestClient, db_session: Session
-) -> None:
+def test_focus_route_rejects_out_of_range_capacity(client: TestClient, db_session: Session) -> None:
     assert client.get("/api/focus", params={"available_minutes": -1}).status_code == 422
-    assert (
-        client.get("/api/focus", params={"available_minutes": 5000}).status_code == 422
-    )
+    assert client.get("/api/focus", params={"available_minutes": 5000}).status_code == 422
 
 
 def test_focus_route_zero_capacity_schedules_nothing(
@@ -149,7 +139,5 @@ def test_focus_route_blocked_row_carries_dependency_detail(
     ]
 
 
-def test_focus_route_rejects_malformed_date(
-    client: TestClient, db_session: Session
-) -> None:
+def test_focus_route_rejects_malformed_date(client: TestClient, db_session: Session) -> None:
     assert client.get("/api/focus", params={"date": "not-a-date"}).status_code == 422

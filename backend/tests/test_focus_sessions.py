@@ -197,9 +197,7 @@ def test_the_log_is_per_day(db_session: Session) -> None:
     task = tasks_service.get_task(db_session, _task(db_session, "a"))
     assert task is not None
     service.finish_block(db_session, plan_date=TARGET, task=task, minutes=10, planned_minutes=30)
-    service.finish_block(
-        db_session, plan_date=NEXT_DAY, task=task, minutes=20, planned_minutes=30
-    )
+    service.finish_block(db_session, plan_date=NEXT_DAY, task=task, minutes=20, planned_minutes=30)
     db_session.commit()
     assert [b.minutes for b in service.session_log(db_session, TARGET).finished] == [10]
     assert [b.minutes for b in service.session_log(db_session, NEXT_DAY).finished] == [20]
@@ -238,9 +236,7 @@ def test_purging_the_task_takes_its_session_rows(db_session: Session) -> None:
 # --- Routes -------------------------------------------------------------------
 
 
-def test_routes_round_trip_the_clock_and_the_log(
-    client: TestClient, db_session: Session
-) -> None:
+def test_routes_round_trip_the_clock_and_the_log(client: TestClient, db_session: Session) -> None:
     task_id = _task(db_session, "write")
     assert client.get("/api/focus/clock").json() is None
 
@@ -301,7 +297,12 @@ def test_routes_validate(client: TestClient, db_session: Session) -> None:
     task_id = _task(db_session, "a")
     missing = client.put(
         "/api/focus/clock",
-        json={"plan_date": TARGET.isoformat(), "task_id": 99999, "state": "running", "elapsed_ms": 0},
+        json={
+            "plan_date": TARGET.isoformat(),
+            "task_id": 99999,
+            "state": "running",
+            "elapsed_ms": 0,
+        },
     )
     assert missing.status_code == 404
     for bad in (

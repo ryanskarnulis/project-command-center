@@ -172,9 +172,7 @@ def test_repinning_moves_the_existing_pin(db_session: Session) -> None:
 
 
 @pytest.mark.parametrize("state", ["done", "deferred", "blocked", "trashed"])
-def test_a_pin_whose_task_left_the_day_is_ignored(
-    db_session: Session, state: str
-) -> None:
+def test_a_pin_whose_task_left_the_day_is_ignored(db_session: Session, state: str) -> None:
     task_id = _task(db_session, "pinned", estimated_minutes=30)
     entry = _pin(db_session, task_id, "10:00")
     task = tasks_service.get_task(db_session, task_id)
@@ -182,9 +180,7 @@ def test_a_pin_whose_task_left_the_day_is_ignored(
     if state == "done":
         tasks_service.mark_done(db_session, task)
     elif state == "deferred":
-        tasks_service.update_task(
-            db_session, task, {"deferred_until": TARGET + timedelta(days=1)}
-        )
+        tasks_service.update_task(db_session, task, {"deferred_until": TARGET + timedelta(days=1)})
     elif state == "blocked":
         blocker = _task(db_session, "blocker")
         deps_service.add_dependency(db_session, task_id, blocker)
@@ -236,11 +232,15 @@ def test_writes_are_audited(db_session: Session) -> None:
     focus_plan_service.restore_entry(db_session, entry)
     db_session.commit()
 
-    actions = db_session.execute(
-        select(ActivityEvent.action)
-        .where(ActivityEvent.entity_type == "focus_entry")
-        .order_by(ActivityEvent.id)
-    ).scalars().all()
+    actions = (
+        db_session.execute(
+            select(ActivityEvent.action)
+            .where(ActivityEvent.entity_type == "focus_entry")
+            .order_by(ActivityEvent.id)
+        )
+        .scalars()
+        .all()
+    )
     assert actions == ["created", "deleted", "restored"]
 
 
@@ -285,9 +285,7 @@ def test_purging_a_task_takes_its_pins_with_it(db_session: Session) -> None:
 # --- Routes -------------------------------------------------------------------
 
 
-def test_routes_pin_move_unpin_and_restore(
-    client: TestClient, db_session: Session
-) -> None:
+def test_routes_pin_move_unpin_and_restore(client: TestClient, db_session: Session) -> None:
     task_id = _task(db_session, "routed", estimated_minutes=30)
 
     created = client.post(
@@ -346,9 +344,7 @@ def test_commitment_validation_422s(client: TestClient, payload: dict[str, Any])
     assert response.status_code == 422
 
 
-def test_pin_route_rejects_a_missing_or_done_task(
-    client: TestClient, db_session: Session
-) -> None:
+def test_pin_route_rejects_a_missing_or_done_task(client: TestClient, db_session: Session) -> None:
     done = _task(db_session, "done", workflow_status=TaskWorkflowStatus.done)
     base = {"plan_date": TARGET.isoformat()}
     assert client.post("/api/focus/pins", json={**base, "task_id": 9999}).status_code == 404
@@ -408,9 +404,13 @@ def test_agent_tools_pin_commit_remove_and_restore(
     assert restored.deleted_at is None
 
     with tool_db() as check:
-        actors = check.execute(
-            select(ActivityEvent.actor).where(ActivityEvent.entity_type == "focus_entry")
-        ).scalars().all()
+        actors = (
+            check.execute(
+                select(ActivityEvent.actor).where(ActivityEvent.entity_type == "focus_entry")
+            )
+            .scalars()
+            .all()
+        )
     assert set(actors) == {"agent:test"}
 
 
@@ -481,9 +481,7 @@ def test_agent_tools_repeat_skip_edit_and_stop(tool_db: sessionmaker[Session]) -
     assert stopped.stop_date is not None
     assert titles(day) == ["Standup"]
     assert titles(third_day) == []
-    lifted = registry.call_tool(
-        "stop_focus_series", {"series_id": series.id}, actor="agent:test"
-    )
+    lifted = registry.call_tool("stop_focus_series", {"series_id": series.id}, actor="agent:test")
     assert lifted.stop_date is None
 
     # Undoing the skip through remove_focus_entry brings that day back.

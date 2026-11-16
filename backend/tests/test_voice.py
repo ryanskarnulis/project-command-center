@@ -64,15 +64,11 @@ class FakeSpeechServer:
             body = self.body if self.body is not None else {"text": self.text}
             return httpx.Response(200, json=body)
         if request.url.path.endswith("/audio/speech"):
-            return httpx.Response(
-                200, content=self.audio, headers={"content-type": "audio/mpeg"}
-            )
+            return httpx.Response(200, content=self.audio, headers={"content-type": "audio/mpeg"})
         return httpx.Response(404)
 
     def client(self, base_url: str = "http://speech:8400/v1") -> httpx.Client:
-        return httpx.Client(
-            base_url=base_url, transport=httpx.MockTransport(self._handler)
-        )
+        return httpx.Client(base_url=base_url, transport=httpx.MockTransport(self._handler))
 
 
 # --- SpeechClient unit --------------------------------------------------------
@@ -109,8 +105,7 @@ def test_stt_prompt_covers_the_task_vocabulary() -> None:
 def test_speak_forwards_text_and_returns_audio_bytes() -> None:
     server = FakeSpeechServer(audio=b"kokoro-mp3")
     speech = SpeechClient(
-        vocabulary=VOCABULARY,
-        client=server.client(), tts_model="tts-test", tts_voice="af_test"
+        vocabulary=VOCABULARY, client=server.client(), tts_model="tts-test", tts_voice="af_test"
     )
     assert speech.speak("Task created.") == b"kokoro-mp3"
     (request,) = server.requests
@@ -148,9 +143,7 @@ def test_transcribe_unreachable_server_raises_request_error() -> None:
     def refuse(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
 
-    client = httpx.Client(
-        base_url="http://speech:8400/v1", transport=httpx.MockTransport(refuse)
-    )
+    client = httpx.Client(base_url="http://speech:8400/v1", transport=httpx.MockTransport(refuse))
     with pytest.raises(SpeechRequestError):
         SpeechClient(vocabulary=VOCABULARY, client=client).transcribe(b"opus-bytes")
 
@@ -217,8 +210,7 @@ def voice_client() -> Generator[TestClient, None, None]:
     """App client with a fake speech backend injected."""
     server = FakeSpeechServer()
     app.dependency_overrides[routes_voice.get_speech_client] = lambda: SpeechClient(
-        vocabulary=VOCABULARY,
-        client=server.client()
+        vocabulary=VOCABULARY, client=server.client()
     )
     with TestClient(app) as client:
         yield client
@@ -242,9 +234,7 @@ def test_speak_endpoint_returns_audio(voice_client: TestClient) -> None:
 
 
 def test_speak_rejects_blank_text(voice_client: TestClient) -> None:
-    assert (
-        voice_client.post("/api/voice/speak", json={"text": "   "}).status_code == 422
-    )
+    assert voice_client.post("/api/voice/speak", json={"text": "   "}).status_code == 422
 
 
 def test_transcribe_without_speech_service_is_503() -> None:
@@ -273,8 +263,7 @@ def test_speak_without_speech_service_is_503() -> None:
 def test_transcribe_upstream_failure_is_502() -> None:
     server = FakeSpeechServer(status=500)
     app.dependency_overrides[routes_voice.get_speech_client] = lambda: SpeechClient(
-        vocabulary=VOCABULARY,
-        client=server.client()
+        vocabulary=VOCABULARY, client=server.client()
     )
     try:
         with TestClient(app) as client:
@@ -290,8 +279,7 @@ def test_transcribe_upstream_failure_is_502() -> None:
 def test_speak_upstream_failure_is_502() -> None:
     server = FakeSpeechServer(status=503)
     app.dependency_overrides[routes_voice.get_speech_client] = lambda: SpeechClient(
-        vocabulary=VOCABULARY,
-        client=server.client()
+        vocabulary=VOCABULARY, client=server.client()
     )
     try:
         with TestClient(app) as client:
@@ -351,9 +339,7 @@ async def test_transcribe_does_not_block_the_event_loop() -> None:
 
     try:
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             beat = asyncio.create_task(ticker())
             response = await client.post(
                 "/api/voice/transcribe",
@@ -393,9 +379,7 @@ class RecordingSpeechClient:
 
 
 @pytest.fixture
-def recording_client() -> Generator[
-    tuple[TestClient, RecordingSpeechClient], None, None
-]:
+def recording_client() -> Generator[tuple[TestClient, RecordingSpeechClient], None, None]:
     speech = RecordingSpeechClient()
     app.dependency_overrides[routes_voice.get_speech_client] = lambda: speech
     with TestClient(app) as client:
@@ -508,9 +492,7 @@ def test_speak_accepts_text_at_the_exact_limit(
     recording_client: tuple[TestClient, RecordingSpeechClient],
 ) -> None:
     client, speech = recording_client
-    response = client.post(
-        "/api/voice/speak", json={"text": "a" * MAX_SPEAK_TEXT_LENGTH}
-    )
+    response = client.post("/api/voice/speak", json={"text": "a" * MAX_SPEAK_TEXT_LENGTH})
     assert response.status_code == 200
     assert speech.calls == ["speak"]
 
@@ -519,9 +501,7 @@ def test_speak_rejects_one_character_over_the_limit(
     recording_client: tuple[TestClient, RecordingSpeechClient],
 ) -> None:
     client, speech = recording_client
-    response = client.post(
-        "/api/voice/speak", json={"text": "a" * (MAX_SPEAK_TEXT_LENGTH + 1)}
-    )
+    response = client.post("/api/voice/speak", json={"text": "a" * (MAX_SPEAK_TEXT_LENGTH + 1)})
     assert response.status_code == 422
     assert speech.calls == []
 

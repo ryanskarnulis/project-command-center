@@ -90,7 +90,8 @@ _RECURRING = (
     "update_task",
     {
         "task_id": 3,
-        "repeat_interval": {"unit": "day", "every": 1}, "due_date": "2026-01-05",
+        "repeat_interval": {"unit": "day", "every": 1},
+        "due_date": "2026-01-05",
     },
 )
 

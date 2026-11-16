@@ -101,7 +101,9 @@ def test_a_read_is_remembered_by_the_rows_it_found_and_a_failed_one_not_at_all()
 def test_an_empty_read_says_it_found_nothing() -> None:
     history = [
         _user("Anything in trash?"),
-        _assistant("Nope.", ToolCallRecord(tool="list_trash", arguments={}, result='{"tasks": []}')),
+        _assistant(
+            "Nope.", ToolCallRecord(tool="list_trash", arguments={}, result='{"tasks": []}')
+        ),
     ]
     assert _record(history)[0].startswith("looked up then: list_trash {} -> found nothing")
 

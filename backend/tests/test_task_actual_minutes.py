@@ -43,9 +43,7 @@ def test_timed_completion_persists_and_exposes_actual_minutes(
     assert [e.summary for e in events] == ['Task "write report" completed in 47 min']
 
 
-def test_untimed_completion_leaves_actual_null(
-    client: TestClient, db_session: Session
-) -> None:
+def test_untimed_completion_leaves_actual_null(client: TestClient, db_session: Session) -> None:
     task = _task(db_session)
 
     done = client.post(f"/api/tasks/{task.id}/done")
@@ -74,9 +72,7 @@ def test_reopen_keeps_actual_and_next_timed_completion_overwrites(
     assert again.json()["actual_minutes"] == 12
 
 
-def test_repeat_completion_does_not_rewrite_actual(
-    client: TestClient, db_session: Session
-) -> None:
+def test_repeat_completion_does_not_rewrite_actual(client: TestClient, db_session: Session) -> None:
     task = _task(db_session)
     client.post(f"/api/tasks/{task.id}/done", json={"actual_minutes": 30})
 
@@ -109,13 +105,9 @@ def test_invalid_actual_minutes_rejected_and_task_unchanged(
     assert after["actual_minutes"] is None
 
 
-def test_zero_and_ceiling_are_accepted(
-    client: TestClient, db_session: Session
-) -> None:
+def test_zero_and_ceiling_are_accepted(client: TestClient, db_session: Session) -> None:
     first = _task(db_session, "instant")
-    second = tasks_service.create_task(
-        db_session, project_id=first.project_id, title="all day"
-    )
+    second = tasks_service.create_task(db_session, project_id=first.project_id, title="all day")
     db_session.commit()
 
     zero = client.post(f"/api/tasks/{first.id}/done", json={"actual_minutes": 0})

@@ -42,7 +42,7 @@ def tool_db(
         ("Sort the album 'Honey'", 'Sort the album "Honey"'),
         ("„Honey‟ and «Swim»", '"Honey" and «Swim»'),
         ("Sort 'Honey' and 'Swim'", 'Sort "Honey" and "Swim"'),
-        ("Sort 'Caribou's Honey'", "Sort \"Caribou's Honey\""),
+        ("Sort 'Caribou's Honey'", 'Sort "Caribou\'s Honey"'),
         # Apostrophes inside or at the edge of a word are never quotes.
         ("Don't forget Caribou's album", "Don't forget Caribou's album"),
         ("Don’t forget Caribou’s album", "Don’t forget Caribou’s album"),

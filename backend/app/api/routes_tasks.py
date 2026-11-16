@@ -28,17 +28,13 @@ router = APIRouter(tags=["tasks"])
 def _get_task_or_404(db: Session, task_id: int) -> Task:
     task = tasks_service.get_task(db, task_id)
     if task is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     return task
 
 
 def _ensure_project(db: Session, project_id: int) -> None:
     if projects_service.get_project(db, project_id) is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
 
 def _cycle_409(exc: tasks_service.TaskCycleError) -> HTTPException:
@@ -46,16 +42,12 @@ def _cycle_409(exc: tasks_service.TaskCycleError) -> HTTPException:
 
 
 def _recurrence_422(exc: tasks_service.RecurrenceError) -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
-    )
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
 
 
 def _depth_422(exc: tasks_service.TaskDepthError) -> HTTPException:
     """Nesting past ``MAX_SUBTASK_DEPTH`` is out-of-range input, not a conflict."""
-    return HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
-    )
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
 
 
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskRead])
@@ -190,15 +182,11 @@ def update_task(
     except tasks_service.TaskDepthError as exc:
         raise _depth_422(exc) from exc
     except (tasks_service.DerivedFieldError, tasks_service.BlockedTaskError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except tasks_service.OccurrenceConflictError as exc:
         # Caught before its RecurrenceError base: an occupied occurrence date is a
         # state conflict (409), not bad input (422). Mirrors the restore route.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except tasks_service.RecurrenceError as exc:
         raise _recurrence_422(exc) from exc
 
@@ -219,15 +207,11 @@ def mark_task_done(
     try:
         updated = tasks_service.mark_done(db, task, actual_minutes=actual_minutes)
     except (tasks_service.DerivedStatusError, tasks_service.BlockedTaskError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except tasks_service.OccurrenceConflictError as exc:
         # Caught before its RecurrenceError base, same split as the PATCH route: a
         # date already held by a live sibling is a state conflict, not bad input.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except tasks_service.RecurrenceError as exc:
         # Completing a recurring task spawns its successor, which can fail on a
         # domain rule — the successor's date falling past date.max (issue #232).
@@ -250,9 +234,7 @@ def skip_occurrence(task_id: EntityId, db: Session = Depends(get_db_write)) -> T
         raise _recurrence_422(exc) from exc
     db.commit()
     db.refresh(next_occurrence)
-    logger.info(
-        "task_occurrence_skipped", task_id=task_id, next_task_id=next_occurrence.id
-    )
+    logger.info("task_occurrence_skipped", task_id=task_id, next_task_id=next_occurrence.id)
     return read_with_blocked(db, next_occurrence)
 
 
@@ -292,9 +274,7 @@ def reopen_task(task_id: EntityId, db: Session = Depends(get_db_write)) -> TaskR
     try:
         updated = tasks_service.reopen_task(db, task)
     except tasks_service.DerivedStatusError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     db.commit()
     db.refresh(updated)
     logger.info("task_reopened", task_id=updated.id)
@@ -334,17 +314,13 @@ def restore_task(
     restored_subtask_count = 0
     try:
         if restore_subtasks:
-            restored, restored_subtask_count = task_trash.restore_task_subtree(
-                db, task
-            )
+            restored, restored_subtask_count = task_trash.restore_task_subtree(db, task)
         else:
             restored = task_trash.restore_task(db, task)
     except tasks_service.OccurrenceConflictError as exc:
         # A state conflict, not bad input: the date this occurrence wants is taken
         # by a live sibling. 409, not the 422 its RecurrenceError base would get.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     db.commit()
     db.refresh(restored)
     logger.info(

@@ -91,9 +91,7 @@ def _build_engine() -> Engine:
 engine: Engine = _build_engine()
 enable_sqlite_fk_enforcement(engine)
 
-SessionLocal: sessionmaker[Session] = sessionmaker(
-    autocommit=False, autoflush=False, bind=engine
-)
+SessionLocal: sessionmaker[Session] = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def get_db() -> Generator[Session, None, None]:

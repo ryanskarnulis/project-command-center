@@ -69,9 +69,7 @@ def test_malformed_route_still_not_found(client: TestClient) -> None:
 def test_valid_ids_are_unaffected(client: TestClient) -> None:
     project_id = _project_id(client)
     assert client.get(f"/api/projects/{project_id}").status_code == 200
-    created = client.post(
-        f"/api/projects/{project_id}/tasks", json={"title": "in range"}
-    )
+    created = client.post(f"/api/projects/{project_id}/tasks", json={"title": "in range"})
     assert created.status_code == 201
     task_id = created.json()["id"]
     assert client.get(f"/api/tasks/{task_id}").status_code == 200
@@ -95,9 +93,7 @@ def test_write_routes_reject_out_of_range_ids(client: TestClient) -> None:
 
 
 def _conversations(client: TestClient, offset: str) -> int:
-    return client.get(
-        "/api/agent/conversations", params={"limit": 1, "offset": offset}
-    ).status_code
+    return client.get("/api/agent/conversations", params={"limit": 1, "offset": offset}).status_code
 
 
 def test_max_in_range_offset_pages_past_the_end(client: TestClient) -> None:

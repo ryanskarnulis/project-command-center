@@ -89,9 +89,7 @@ def _removed_task_ids(
     for chunk in chunked(project_ids):
         roots.extend(
             db.execute(
-                select(Task.id).where(
-                    Task.deleted_at.is_not(None), Task.project_id.in_(chunk)
-                )
+                select(Task.id).where(Task.deleted_at.is_not(None), Task.project_id.in_(chunk))
             ).scalars()
         )
 
@@ -101,9 +99,7 @@ def _removed_task_ids(
         # subtree of a descendant is contained in its ancestor's.
         if root_id in removed:
             continue
-        task = db.execute(
-            deleted(Task).where(Task.id == root_id)
-        ).scalar_one_or_none()
+        task = db.execute(deleted(Task).where(Task.id == root_id)).scalar_one_or_none()
         if task is not None:
             removed.update(task_trash.deleted_subtree_ids(db, task))
     return removed
@@ -121,8 +117,7 @@ def _trashed_task_ids(db: Session, task_ids: Sequence[int]) -> list[int]:
     resolved: list[int] = []
     for chunk in chunked(task_ids):
         resolved.extend(
-            task.id
-            for task in db.execute(deleted(Task).where(Task.id.in_(chunk))).scalars()
+            task.id for task in db.execute(deleted(Task).where(Task.id.in_(chunk))).scalars()
         )
     return resolved
 
@@ -138,9 +133,7 @@ def _purgeable_project_ids(db: Session, project_ids: Sequence[int]) -> list[int]
     return [
         project.id
         for chunk in chunked(project_ids)
-        for project in db.execute(
-            deleted(Project).where(Project.id.in_(chunk))
-        ).scalars()
+        for project in db.execute(deleted(Project).where(Project.id.in_(chunk))).scalars()
         if not project.is_protected
     ]
 
@@ -176,21 +169,15 @@ def purge_selected(
     purge_task_ids = _trashed_task_ids(db, task_ids)
     purge_project_ids = _purgeable_project_ids(db, project_ids)
 
-    removed_task_ids = _removed_task_ids(
-        db, task_ids=purge_task_ids, project_ids=purge_project_ids
-    )
+    removed_task_ids = _removed_task_ids(db, task_ids=purge_task_ids, project_ids=purge_project_ids)
 
     for task_id in purge_task_ids:
-        task = db.execute(
-            deleted(Task).where(Task.id == task_id)
-        ).scalar_one_or_none()
+        task = db.execute(deleted(Task).where(Task.id == task_id)).scalar_one_or_none()
         if task is not None:
             task_trash.purge_task(db, task)
 
     for project_id in purge_project_ids:
-        project = db.execute(
-            deleted(Project).where(Project.id == project_id)
-        ).scalar_one_or_none()
+        project = db.execute(deleted(Project).where(Project.id == project_id)).scalar_one_or_none()
         if project is not None:
             projects_service.purge_project(db, project)
 
@@ -255,24 +242,20 @@ def _expired_task_roots(db: Session, cutoff: datetime) -> list[int]:
         {
             row.deleted_with_task_id
             for row in rows
-            if row.deleted_with_task_id is not None
-            and row.deleted_with_task_id not in expired
+            if row.deleted_with_task_id is not None and row.deleted_with_task_id not in expired
         }
     )
     unexpired_roots: set[int] = set()
     for chunk in chunked(pending_roots):
         unexpired_roots.update(
             db.execute(
-                select(Task.id).where(
-                    Task.id.in_(chunk), Task.deleted_at.is_not(None)
-                )
+                select(Task.id).where(Task.id.in_(chunk), Task.deleted_at.is_not(None))
             ).scalars()
         )
     return [
         row.id
         for row in rows
-        if row.deleted_with_task_id is None
-        or row.deleted_with_task_id not in unexpired_roots
+        if row.deleted_with_task_id is None or row.deleted_with_task_id not in unexpired_roots
     ]
 
 
@@ -296,9 +279,7 @@ def purge_expired(db: Session, *, now: datetime, retention_days: int) -> PurgeCo
         return PurgeCounts(projects=0, tasks=0)
     project_ids = list(
         db.execute(
-            select(Project.id).where(
-                Project.deleted_at.is_not(None), Project.deleted_at < cutoff
-            )
+            select(Project.id).where(Project.deleted_at.is_not(None), Project.deleted_at < cutoff)
         ).scalars()
     )
     return purge_selected(

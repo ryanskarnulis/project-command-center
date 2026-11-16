@@ -29,7 +29,9 @@ def _ago(days: float) -> datetime:
     return NOW - timedelta(days=days)
 
 
-def _trash_project(db: Session, name: str, days_ago: float, tasks: int = 0) -> tuple[int, list[int]]:
+def _trash_project(
+    db: Session, name: str, days_ago: float, tasks: int = 0
+) -> tuple[int, list[int]]:
     project = projects_service.create_project(db, name=name)
     task_ids = [
         tasks_service.create_task(db, project_id=project.id, title=f"{name} {i}").id
@@ -62,9 +64,7 @@ def _purge(db: Session, days: int = 30) -> trash_service.PurgeCounts:
 
 
 @pytest.fixture
-def retention_on_session(
-    db_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> Session:
+def retention_on_session(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> Session:
     """Route the job's write session onto the test DB, with a 30-day window."""
 
     @contextmanager
@@ -189,9 +189,9 @@ def test_run_once_records_purges_under_the_retention_actor(
     counts = trash_retention.run_once(now=NOW)
 
     assert counts == trash_service.PurgeCounts(projects=1, tasks=2)
-    events = db.execute(
-        select(ActivityEvent).where(ActivityEvent.action == "purged")
-    ).scalars().all()
+    events = (
+        db.execute(select(ActivityEvent).where(ActivityEvent.action == "purged")).scalars().all()
+    )
     assert {(e.entity_type, e.entity_id) for e in events} == {
         ("project", pid),
         ("task", task_ids[0]),
@@ -206,9 +206,7 @@ def test_run_once_does_nothing_when_disabled(
     monkeypatch.setattr(get_settings(), "trash_retention_days", 0)
     tid = _trash_task(retention_on_session, "Ancient", days_ago=3650)
 
-    assert trash_retention.run_once(now=NOW) == trash_service.PurgeCounts(
-        projects=0, tasks=0
-    )
+    assert trash_retention.run_once(now=NOW) == trash_service.PurgeCounts(projects=0, tasks=0)
     assert retention_on_session.get(Task, tid) is not None
 
 
@@ -228,9 +226,7 @@ def test_loop_survives_a_failing_pass() -> None:
 
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(
-            trash_retention.retention_loop(
-                run, first_delay=5, interval=60, sleep=fake_sleep
-            )
+            trash_retention.retention_loop(run, first_delay=5, interval=60, sleep=fake_sleep)
         )
 
     # The first pass raised; the loop logged it and kept going.

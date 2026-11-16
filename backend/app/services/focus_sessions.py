@@ -271,8 +271,7 @@ def finish_block(
             block,
             task,
             "updated",
-            f'Focus block "{task.title}" re-booked at {minutes} min'
-            f" on {plan_date.isoformat()}",
+            f'Focus block "{task.title}" re-booked at {minutes} min on {plan_date.isoformat()}',
         )
         return block
     block = FocusSession(

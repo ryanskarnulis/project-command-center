@@ -14,9 +14,7 @@ def _seed(db: Session) -> None:
     project = projects_service.create_project(
         db, name="Firewall Upgrade", description="network hardening"
     )
-    tasks_service.create_task(
-        db, project_id=project.id, title="Audit firewall rules"
-    )
+    tasks_service.create_task(db, project_id=project.id, title="Audit firewall rules")
     db.commit()
 
 
@@ -115,9 +113,7 @@ def test_search_ranks_exact_title_above_newer_description_match(
 def test_search_ranks_prefix_above_substring(db_session: Session) -> None:
     """A prefix match outranks a mid-string substring match, even when it's older."""
     project = projects_service.create_project(db_session, name="P")
-    tasks_service.create_task(
-        db_session, project_id=project.id, title="firewall audit"
-    )  # prefix
+    tasks_service.create_task(db_session, project_id=project.id, title="firewall audit")  # prefix
     tasks_service.create_task(
         db_session, project_id=project.id, title="check the firewall now"
     )  # substring, newer
@@ -185,9 +181,7 @@ def test_search_reports_effective_done_for_completed_checklist_parent(
     command bar keeps offering a finished checklist as a /done candidate.
     """
     project = projects_service.create_project(db_session, name="P")
-    parent = tasks_service.create_task(
-        db_session, project_id=project.id, title="firewall rollout"
-    )
+    parent = tasks_service.create_task(db_session, project_id=project.id, title="firewall rollout")
     tasks_service.create_task(
         db_session,
         project_id=project.id,
@@ -450,9 +444,7 @@ def test_search_index_follows_renames(db_session: Session) -> None:
     assert [t.title for t in search_service.search(db_session, "sanding decks").tasks] == [
         "Sand the deck"
     ]
-    assert [t.title for t in search_service.search(db_session, "grit").tasks] == [
-        "Sand the deck"
-    ]
+    assert [t.title for t in search_service.search(db_session, "grit").tasks] == ["Sand the deck"]
     assert search_service.search(db_session, "garage").projects == []
     assert [p.title for p in search_service.search(db_session, "backyards").projects] == [
         "Backyard"
@@ -519,7 +511,7 @@ def test_search_tolerates_query_syntax_characters(db_session: Session, query: st
 
 
 def test_search_operator_words_are_plain_words(db_session: Session) -> None:
-    """"NOT" / "NEAR" in a title are words to find, not FTS5 operators."""
+    """ "NOT" / "NEAR" in a title are words to find, not FTS5 operators."""
     project = projects_service.create_project(db_session, name="P")
     tasks_service.create_task(db_session, project_id=project.id, title="Stay NEAR the phone")
     tasks_service.create_task(db_session, project_id=project.id, title="Paint walls")

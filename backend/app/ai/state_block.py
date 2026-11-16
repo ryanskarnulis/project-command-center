@@ -125,9 +125,7 @@ def build(today: date, question: OpenQuestion | None = None) -> str:
         with runtime.session_factory() as db:
             snapshot = dashboard.get_agent_snapshot(db, today)
     except Exception as exc:
-        logger.warning(
-            "agent_state_block_failed", error=str(exc), error_type=type(exc).__name__
-        )
+        logger.warning("agent_state_block_failed", error=str(exc), error_type=type(exc).__name__)
     return render(today, snapshot, question)
 
 

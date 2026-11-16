@@ -65,11 +65,15 @@ def _per_project_counts(
             if task.project_id is not None:
                 counts[task.project_id] += 1
 
-    projects = db.execute(
-        active(Project)
-        .where(Project.closed_at.is_(None))
-        .order_by(Project.sort_order, Project.id)
-    ).scalars().all()
+    projects = (
+        db.execute(
+            active(Project)
+            .where(Project.closed_at.is_(None))
+            .order_by(Project.sort_order, Project.id)
+        )
+        .scalars()
+        .all()
+    )
     return [
         ProjectCounts(
             project=project,
@@ -136,9 +140,7 @@ def get_agent_snapshot(db: Session, today: date) -> AgentSnapshot:
     open_tasks = [
         task for task in tasks if rollups[task.id].workflow_status != TaskWorkflowStatus.done
     ]
-    overdue = [
-        task for task in open_tasks if task.due_date is not None and task.due_date < today
-    ]
+    overdue = [task for task in open_tasks if task.due_date is not None and task.due_date < today]
     overdue_counts: dict[int, int] = defaultdict(int)
     for task in overdue:
         if task.project_id is not None:

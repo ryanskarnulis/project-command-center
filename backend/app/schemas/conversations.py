@@ -17,9 +17,7 @@ MAX_AGENT_MESSAGE_LENGTH = 8_000
 
 AgentMessageText = Annotated[
     str,
-    StringConstraints(
-        strip_whitespace=True, min_length=1, max_length=MAX_AGENT_MESSAGE_LENGTH
-    ),
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_AGENT_MESSAGE_LENGTH),
 ]
 
 

@@ -21,12 +21,13 @@ Revises: 93c179708075
 Create Date: 2026-08-05 09:41:22.318664
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = '0b40bab55cb4'
-down_revision: Union[str, None] = '93c179708075'
+revision: str = "0b40bab55cb4"
+down_revision: Union[str, None] = "93c179708075"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

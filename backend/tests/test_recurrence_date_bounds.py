@@ -33,9 +33,7 @@ OVERFLOWING = [
 
 def _make_task(db: Session, *, due: date) -> Task:
     project = projects_service.create_project(db, name="Edge of time")
-    task = tasks_service.create_task(
-        db, project_id=project.id, title="water plants", due_date=due
-    )
+    task = tasks_service.create_task(db, project_id=project.id, title="water plants", due_date=due)
     db.commit()
     return task
 
@@ -44,9 +42,7 @@ def _make_task(db: Session, *, due: date) -> Task:
 
 
 @pytest.mark.parametrize(("interval", "due"), OVERFLOWING)
-def test_next_due_date_is_none_past_the_maximum(
-    interval: dict[str, Any], due: date
-) -> None:
+def test_next_due_date_is_none_past_the_maximum(interval: dict[str, Any], due: date) -> None:
     # day/week overflow raises OverflowError inside timedelta arithmetic, month
     # raises ValueError from ``date(10000, ...)``. Neither escapes any more.
     assert task_recurrence.next_due_date(due, interval) is None
@@ -75,9 +71,7 @@ def test_next_due_date_still_raises_on_an_unknown_unit() -> None:
 
 def test_require_next_due_date_reports_the_limit() -> None:
     with pytest.raises(tasks_service.RecurrenceError) as exc_info:
-        task_recurrence.require_next_due_date(
-            date(9999, 12, 31), {"unit": "day", "every": 1}
-        )
+        task_recurrence.require_next_due_date(date(9999, 12, 31), {"unit": "day", "every": 1})
 
     assert "9999-12-31" in str(exc_info.value)
 
@@ -105,9 +99,7 @@ def test_update_rejects_moving_a_recurring_task_past_the_maximum(
     # The other direction of the same rule: the interval is already stored and the
     # patch moves the due date, so the check runs against the post-patch view.
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
 
     with pytest.raises(tasks_service.RecurrenceError):
@@ -123,17 +115,13 @@ def test_moving_the_due_date_earlier_still_allows_the_recurrence(
     # The guard only rejects the unrepresentable case; a normal reschedule of a
     # recurring task is untouched.
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "month", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "month", "every": 1}})
     db_session.commit()
 
     tasks_service.update_task(db_session, task, {"due_date": date(2026, 7, 15)})
     db_session.commit()
 
-    assert task_recurrence.next_occurrence_date(task, TaskWorkflowStatus.open) == date(
-        2026, 8, 15
-    )
+    assert task_recurrence.next_occurrence_date(task, TaskWorkflowStatus.open) == date(2026, 8, 15)
 
 
 def test_future_scope_rejects_a_cadence_a_later_occurrence_cannot_carry(
@@ -145,9 +133,7 @@ def test_future_scope_rejects_a_cadence_a_later_occurrence_cannot_carry(
     # first — the only way to build that shape now that every other path is
     # guarded.
     task = _make_task(db_session, due=date(2026, 6, 1))
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     tasks_service.mark_done(db_session, task)
     db_session.commit()
@@ -160,9 +146,7 @@ def test_future_scope_rejects_a_cadence_a_later_occurrence_cannot_carry(
 
     # The message names the *sibling's* date: the acted-on row's own cadence is
     # representable, so this can only be the forward-scope guard.
-    with pytest.raises(
-        tasks_service.RecurrenceError, match="Repeating from 9999-12-31"
-    ):
+    with pytest.raises(tasks_service.RecurrenceError, match="Repeating from 9999-12-31"):
         tasks_service.update_task(
             db_session,
             task,
@@ -181,9 +165,7 @@ def test_future_scope_rejects_a_cadence_a_later_occurrence_cannot_carry(
 def test_rejected_patch_leaves_the_task_non_recurring_and_readable(
     client: TestClient, interval: dict[str, Any], due: date
 ) -> None:
-    created = client.post(
-        "/api/tasks", json={"title": "max-date", "due_date": due.isoformat()}
-    )
+    created = client.post("/api/tasks", json={"title": "max-date", "due_date": due.isoformat()})
     assert created.status_code == 201
     task_id = created.json()["id"]
 
@@ -221,9 +203,7 @@ def test_poisoned_row_reads_as_having_no_next_occurrence(db_session: Session) ->
     assert read_with_blocked(db_session, task).next_occurrence_date is None
 
 
-def test_poisoned_row_is_still_fetchable_over_http(
-    client: TestClient, db_session: Session
-) -> None:
+def test_poisoned_row_is_still_fetchable_over_http(client: TestClient, db_session: Session) -> None:
     task = _poisoned_task(db_session)
 
     response = client.get(f"/api/tasks/{task.id}")
@@ -251,9 +231,7 @@ def test_poisoned_row_can_be_repaired_by_moving_its_due_date(
 ) -> None:
     task = _poisoned_task(db_session)
 
-    response = client.patch(
-        f"/api/tasks/{task.id}", json={"due_date": "2026-06-01"}
-    )
+    response = client.patch(f"/api/tasks/{task.id}", json={"due_date": "2026-06-01"})
 
     assert response.status_code == 200
     assert response.json()["next_occurrence_date"] == "2026-06-02"

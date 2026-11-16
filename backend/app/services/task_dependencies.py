@@ -77,9 +77,7 @@ def list_dependents(db: Session, task_id: int) -> Sequence[TaskDependency]:
     )
 
 
-def list_dependencies_for(
-    db: Session, task_ids: Iterable[int]
-) -> dict[int, list[TaskDependency]]:
+def list_dependencies_for(db: Session, task_ids: Iterable[int]) -> dict[int, list[TaskDependency]]:
     """Batched ``list_dependencies``: active edges per task, in one query.
 
     For callers rendering many tasks' blockers at once (the focus plan's blocked
@@ -108,9 +106,7 @@ def _depends_on_ids(db: Session, task_id: int) -> list[int]:
     return [dep.depends_on_task_id for dep in list_dependencies(db, task_id)]
 
 
-def _closure(
-    db: Session, task_ids: Iterable[int], *, reverse: bool
-) -> dict[int, list[int]]:
+def _closure(db: Session, task_ids: Iterable[int], *, reverse: bool) -> dict[int, list[int]]:
     """Adjacency over the transitive closure of ``task_ids``, one query per level.
 
     ``reverse=False`` follows ``depends_on`` (what a task waits on);
@@ -166,9 +162,7 @@ def _dependent_closure(db: Session, task_ids: Iterable[int]) -> dict[int, list[i
     return _closure(db, task_ids, reverse=True)
 
 
-def _direct_dependencies(
-    db: Session, task_ids: Iterable[int]
-) -> dict[int, list[int]]:
+def _direct_dependencies(db: Session, task_ids: Iterable[int]) -> dict[int, list[int]]:
     """``task_id -> [depends_on_task_id]``, one hop only, in one query."""
     ordered = sorted(set(task_ids))
     adjacency: dict[int, list[int]] = {tid: [] for tid in ordered}
@@ -241,9 +235,7 @@ def _task_including_deleted(db: Session, task_id: int) -> Task | None:
     return db.execute(select(Task).where(Task.id == task_id)).scalar_one_or_none()
 
 
-def add_dependency(
-    db: Session, task_id: int, depends_on_id: int
-) -> TaskDependency:
+def add_dependency(db: Session, task_id: int, depends_on_id: int) -> TaskDependency:
     """Record that ``task_id`` must wait for ``depends_on_id`` to be done.
 
     Rejects self-edges, duplicates of an active edge, edges referencing a
@@ -258,9 +250,7 @@ def add_dependency(
     if task is None or depended is None:
         raise DependencyError("Both tasks must exist")
     if effective_statuses(db, [task_id]).get(task_id) == TaskWorkflowStatus.done:
-        raise CompletedTaskDependencyError(
-            "Can't add a dependency to a task that is already done"
-        )
+        raise CompletedTaskDependencyError("Can't add a dependency to a task that is already done")
     if depends_on_id in _depends_on_ids(db, task_id):
         raise DuplicateDependencyError("That dependency already exists")
     if _would_cycle(db, task_id, depends_on_id):
@@ -285,9 +275,7 @@ def add_dependency(
         # SQLite reports the constrained columns rather than the partial index
         # name, so `(task_id, depends_on_task_id)` is how
         # `uq_task_dependencies_active_edge` identifies itself.
-        if not violates_unique_columns(
-            exc, "task_dependencies", ("task_id", "depends_on_task_id")
-        ):
+        if not violates_unique_columns(exc, "task_dependencies", ("task_id", "depends_on_task_id")):
             raise
         raise DuplicateDependencyError("That dependency already exists") from exc
     db.refresh(edge)
@@ -332,9 +320,7 @@ def remove_dependency(db: Session, edge: TaskDependency) -> None:
     task_recurrence.reconcile(db, [edge.task_id])
 
 
-def effective_statuses(
-    db: Session, task_ids: Iterable[int]
-) -> dict[int, TaskWorkflowStatus]:
+def effective_statuses(db: Session, task_ids: Iterable[int]) -> dict[int, TaskWorkflowStatus]:
     """Blocked-aware, rolled-up workflow status per active task id.
 
     A thin view over ``tasks.compute_rollups``, which resolves roll-up and the
