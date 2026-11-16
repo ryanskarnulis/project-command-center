@@ -95,6 +95,15 @@ def test_transcribe_biases_whisper_with_the_pcc_vocabulary_prompt() -> None:
     assert STT_PROMPT.encode() in request.read()
 
 
+def test_transcribe_names_the_language_so_whisper_skips_detection() -> None:
+    # Detection is a third of the transcription time on CPU (speech#4).
+    server = FakeSpeechServer()
+    speech = SpeechClient(vocabulary=VOCABULARY, client=server.client())
+    speech.transcribe(b"opus-bytes")
+    (request,) = server.requests
+    assert b'name="language"\r\n\r\nen\r\n' in request.read()
+
+
 def test_stt_prompt_covers_the_task_vocabulary() -> None:
     # The prompt biases recognition toward PCC's domain phrasing; whisper also
     # mimics its formatting, so dates appear as they should transcribe.
