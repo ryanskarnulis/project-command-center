@@ -23,7 +23,6 @@ agent loop (next checkout), which is why the errors carry the tool name.
 
 from __future__ import annotations
 
-import json
 import time
 import uuid
 from collections.abc import Callable, Sequence
@@ -32,8 +31,29 @@ from typing import Any, TypeVar
 
 import httpx
 import structlog
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ValidationError
 
+# Re-exported: the fleet's chat wire, vendored (agent-standard/agentkit).
+from app.ai.agentkit.chat import (
+    ChatResult as ChatResult,
+    ProviderError as ProviderError,
+    ProviderFailure as ProviderFailure,
+    ProviderRequestError as ProviderRequestError,
+    ProviderResponseError as ProviderResponseError,
+    ServerStamp as ServerStamp,
+    StreamedTurn,
+    ToolCall as ToolCall,
+    ToolCallArgumentsError as ToolCallArgumentsError,
+    ToolSpec as ToolSpec,
+    Usage as Usage,
+    WireCompletion,
+    bad_status,
+    body_text,
+    chat_result,
+    parse_completion,
+    request_failed,
+    tool_result_message as tool_result_message,
+)
 from app.ai.context_capture import CallStamp, ContextCapture, context_capture_from_settings
 from app.ai.model_profile import ModelProfile, load_profile
 from app.config import get_settings
@@ -45,178 +65,6 @@ _CONNECT_TIMEOUT_SECONDS = 10.0
 # call's template. Rendering is string work with no generation behind it, so
 # this is a ceiling for a server that went away, never a wait anyone meets.
 _TEMPLATE_TIMEOUT_SECONDS = 5.0
-
-
-class ProviderError(Exception):
-    """Base for everything a completion attempt can raise."""
-
-
-class ProviderRequestError(ProviderError):
-    """No usable HTTP response: connect/timeout failure or a non-200 status."""
-
-
-class ProviderResponseError(ProviderError):
-    """The server answered 200 but the body failed validation."""
-
-
-class ToolCallArgumentsError(ProviderResponseError):
-    """The model emitted tool-call arguments that aren't a JSON object.
-
-    The server did answer, so the call's cost is known: ``usage`` and
-    ``server`` carry it for the run trace (#400), ``None`` when not given.
-    """
-
-    def __init__(
-        self,
-        tool_name: str,
-        detail: str,
-        *,
-        usage: Usage | None = None,
-        server: ServerStamp | None = None,
-    ) -> None:
-        super().__init__(f"tool call {tool_name!r}: {detail}")
-        self.tool_name = tool_name
-        self.usage = usage
-        self.server = server
-
-
-class ToolSpec(BaseModel):
-    """One callable tool: name, description, JSON Schema for the arguments."""
-
-    name: str
-    description: str
-    parameters: dict[str, Any]
-
-    def to_wire(self) -> dict[str, Any]:
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.parameters,
-            },
-        }
-
-
-class ToolCall(BaseModel):
-    """A tool call with its arguments already parsed from the wire's JSON string."""
-
-    id: str
-    name: str
-    arguments: dict[str, Any]
-
-
-class PromptTokensDetails(BaseModel):
-    cached_tokens: int | None = None
-
-
-class Usage(BaseModel):
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    total_tokens: int = 0
-    # llama-server reports the prompt tokens it reused from its KV cache here.
-    prompt_tokens_details: PromptTokensDetails | None = None
-
-    @property
-    def cached_tokens(self) -> int | None:
-        details = self.prompt_tokens_details
-        return None if details is None else details.cached_tokens
-
-
-class _WireTimings(BaseModel):
-    """llama-server's own clock for one call (a non-OpenAI extension)."""
-
-    prompt_ms: float | None = None
-    predicted_ms: float | None = None
-
-
-class ServerStamp(BaseModel):
-    """The server's own account of one call, for the run trace (#400).
-
-    ``model`` is what the server says it ran (the weights behind the alias),
-    ``fingerprint`` its build, ``server_ms`` its prompt plus generation time —
-    the call's wall clock minus this is queueing, transport and any cold load.
-    Every field is ``None`` when the server did not say.
-    """
-
-    model: str | None = None
-    fingerprint: str | None = None
-    server_ms: int | None = None
-
-
-class _WireFunction(BaseModel):
-    name: str
-    arguments: str | None = None
-
-
-class _WireToolCall(BaseModel):
-    id: str = ""
-    function: _WireFunction
-
-
-class _WireMessage(BaseModel):
-    content: str | None = None
-    # Gemma's chain-of-thought channel: validated so unexpected shapes fail
-    # loudly, but never surfaced as answer text and never sent back in history.
-    reasoning_content: str | None = None
-    tool_calls: list[_WireToolCall] = []
-
-
-class _WireChoice(BaseModel):
-    message: _WireMessage
-    finish_reason: str | None = None
-
-
-class _WireCompletion(BaseModel):
-    choices: list[_WireChoice] = Field(min_length=1)
-    usage: Usage | None = None
-    model: str | None = None
-    system_fingerprint: str | None = None
-    timings: _WireTimings | None = None
-
-    def stamp(self) -> ServerStamp:
-        server_ms: int | None = None
-        if self.timings is not None and (
-            self.timings.prompt_ms is not None or self.timings.predicted_ms is not None
-        ):
-            server_ms = round((self.timings.prompt_ms or 0.0) + (self.timings.predicted_ms or 0.0))
-        return ServerStamp(
-            model=self.model, fingerprint=self.system_fingerprint, server_ms=server_ms
-        )
-
-
-class ChatResult(BaseModel):
-    """One validated completion turn. ``content`` is answer text only."""
-
-    content: str | None
-    tool_calls: list[ToolCall]
-    finish_reason: str | None
-    usage: Usage | None
-    # The server's account of the call (#400); never sent back in history.
-    server: ServerStamp | None = None
-
-    def to_message(self) -> dict[str, Any]:
-        """This turn as an assistant message for the next request's history.
-
-        Tool arguments are re-serialized to the wire's JSON-string form;
-        ``reasoning_content`` deliberately never round-trips.
-        """
-        message: dict[str, Any] = {"role": "assistant", "content": self.content}
-        if self.tool_calls:
-            message["tool_calls"] = [
-                {
-                    "type": "function",
-                    "id": call.id,
-                    "function": {"name": call.name, "arguments": json.dumps(call.arguments)},
-                }
-                for call in self.tool_calls
-            ]
-        return message
-
-
-def tool_result_message(tool_call_id: str, content: str) -> dict[str, Any]:
-    """The ``role: tool`` message answering one :class:`ToolCall`."""
-    return {"role": "tool", "tool_call_id": tool_call_id, "content": content}
 
 
 TStructured = TypeVar("TStructured", bound=BaseModel)
@@ -232,70 +80,6 @@ class _Wire:
     request: httpx.Request | None = None
     response: httpx.Response | None = None
     streamed: list[str] | None = None
-
-
-class _StreamedTurn:
-    """One streamed completion put back together, chunk by chunk (#516).
-
-    ``first`` is the kind of the first meaningful delta: ``"content"`` (text
-    that is not only whitespace) or ``"tool_calls"``; ``None`` until one
-    arrives. Reasoning deltas are never meaningful: they are not answer text.
-    """
-
-    def __init__(self) -> None:
-        self.first: str | None = None
-        self.content = ""
-        self.reasoning = ""
-        self.calls: dict[int, dict[str, Any]] = {}
-        self.finish_reason: str | None = None
-        self.extra: dict[str, Any] = {}
-
-    def add(self, chunk: Any) -> None:
-        if not isinstance(chunk, dict):
-            raise ProviderResponseError("llama-server stream chunk is not an object")
-        for key in ("usage", "timings", "model", "system_fingerprint"):
-            if chunk.get(key) is not None:
-                self.extra[key] = chunk[key]
-        for choice in chunk.get("choices") or []:
-            if not isinstance(choice, dict):
-                raise ProviderResponseError("llama-server stream choice is not an object")
-            if choice.get("finish_reason"):
-                self.finish_reason = choice["finish_reason"]
-            delta = choice.get("delta") or {}
-            for part in delta.get("tool_calls") or []:
-                self.first = self.first or "tool_calls"
-                call = self.calls.setdefault(
-                    int(part.get("index", len(self.calls))),
-                    {"id": "", "function": {"name": "", "arguments": ""}},
-                )
-                call["id"] = part.get("id") or call["id"]
-                function = part.get("function") or {}
-                call["function"]["name"] += function.get("name") or ""
-                call["function"]["arguments"] += function.get("arguments") or ""
-            reasoning = delta.get("reasoning_content")
-            if isinstance(reasoning, str):
-                self.reasoning += reasoning
-            text = delta.get("content")
-            if isinstance(text, str) and text:
-                self.content += text
-                if text.strip():
-                    self.first = self.first or "content"
-
-    def completion(self) -> dict[str, Any]:
-        """The turn in the non-streamed wire shape :class:`_WireCompletion` reads."""
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "content": self.content or None,
-                        "reasoning_content": self.reasoning or None,
-                        "tool_calls": [self.calls[index] for index in sorted(self.calls)],
-                    },
-                    "finish_reason": self.finish_reason,
-                }
-            ],
-            **self.extra,
-        }
 
 
 class LlamaCppProvider:
@@ -391,7 +175,7 @@ class LlamaCppProvider:
             max_tokens=max_tokens,
             temperature=temperature,
         )
-        return self._post(payload, self._result, timeout=timeout)
+        return self._post(payload, chat_result, timeout=timeout)
 
     def peek(
         self,
@@ -462,54 +246,38 @@ class LlamaCppProvider:
         )
         wire.request = request
         started = time.monotonic()
-        turn = _StreamedTurn()
+        turn = StreamedTurn()
         streamed = wire.streamed if wire.streamed is not None else []
         try:
             response = self._client.send(request, stream=True)
         except httpx.HTTPError as exc:
             log.error("llm_request_failed", error=str(exc))
-            raise ProviderRequestError(f"llama-server request failed: {exc}") from exc
+            raise request_failed(exc) from exc
         wire.response = response
         try:
             if response.status_code != 200:
                 body = response.read().decode("utf-8", errors="replace")
                 streamed.append(body)
                 log.error("llm_request_failed", status=response.status_code)
-                raise ProviderRequestError(
-                    f"llama-server returned {response.status_code}: {body[:500]}"
-                )
+                raise bad_status(response.status_code, body)
             for line in response.iter_lines():
                 streamed.append(line)
-                if not line.startswith("data:"):
-                    continue
-                data = line[len("data:") :].strip()
-                if data == "[DONE]":
+                turn.feed(line)
+                if turn.done:
                     break
-                try:
-                    chunk = json.loads(data)
-                except json.JSONDecodeError as exc:
-                    raise ProviderResponseError(
-                        f"llama-server stream chunk is not JSON: {exc.msg}"
-                    ) from exc
-                turn.add(chunk)
                 if turn.first == "content":
                     # The model has begun its closing line: stop it here.
                     log.info("llm_peek_words", duration_ms=_ms(started))
                     return None
         except httpx.HTTPError as exc:
             log.error("llm_request_failed", error=str(exc))
-            raise ProviderRequestError(f"llama-server request failed: {exc}") from exc
+            raise request_failed(exc) from exc
         finally:
             response.close()
         if turn.first is None:
             log.info("llm_peek_empty", duration_ms=_ms(started))
             return None
-        try:
-            completion = _WireCompletion.model_validate(turn.completion())
-        except ValidationError as exc:
-            raise ProviderResponseError(
-                f"llama-server stream failed wire validation: {exc}"
-            ) from exc
+        completion = turn.completion()
         choice = completion.choices[0]
         log.info(
             "llm_response",
@@ -518,7 +286,7 @@ class LlamaCppProvider:
             finish_reason=choice.finish_reason,
             tool_calls=len(choice.message.tool_calls),
         )
-        return self._result(completion)
+        return chat_result(completion)
 
     def chat_structured(
         self,
@@ -544,8 +312,8 @@ class LlamaCppProvider:
             },
         }
 
-        def parse(completion: _WireCompletion) -> TStructured:
-            result = self._result(completion)
+        def parse(completion: WireCompletion) -> TStructured:
+            result = chat_result(completion)
             if result.content is None:
                 raise ProviderResponseError("structured completion returned no content")
             try:
@@ -592,7 +360,7 @@ class LlamaCppProvider:
     def _post(
         self,
         payload: dict[str, Any],
-        parse: Callable[[_WireCompletion], TParsed],
+        parse: Callable[[WireCompletion], TParsed],
         *,
         timeout: float | None = None,
     ) -> TParsed:
@@ -621,7 +389,7 @@ class LlamaCppProvider:
         payload: dict[str, Any],
         timeout: float | None,
         wire: _Wire | None,
-    ) -> _WireCompletion:
+    ) -> WireCompletion:
         """One request/response round trip, validated against the wire models.
 
         With ``wire`` given (capture on), the request is kept on it before it
@@ -660,22 +428,18 @@ class LlamaCppProvider:
             response = self._client.send(request)
         except httpx.HTTPError as exc:
             log.error("llm_request_failed", error=str(exc))
-            raise ProviderRequestError(f"llama-server request failed: {exc}") from exc
+            raise request_failed(exc) from exc
         if wire is not None:
             wire.response = response
         duration_ms = round((time.monotonic() - started) * 1000)
         if response.status_code != 200:
             log.error("llm_request_failed", status=response.status_code, duration_ms=duration_ms)
-            raise ProviderRequestError(
-                f"llama-server returned {response.status_code}: {response.text[:500]}"
-            )
+            raise bad_status(response.status_code, response.text)
         try:
-            completion = _WireCompletion.model_validate_json(response.text)
-        except ValidationError as exc:
+            completion = parse_completion(response.text)
+        except ProviderResponseError as exc:
             log.error("llm_response_invalid", duration_ms=duration_ms, error=str(exc))
-            raise ProviderResponseError(
-                f"llama-server response failed wire validation: {exc}"
-            ) from exc
+            raise
         choice = completion.choices[0]
         log.info(
             "llm_response",
@@ -713,13 +477,13 @@ class LlamaCppProvider:
                 # which a stream stopped early never had.
                 body = None if response is None else "\n".join(wire.streamed)
             else:
-                body = None if response is None else _body_text(response.content)
+                body = None if response is None else body_text(response.content)
             self._capture.record(
                 stamp,
                 {
                     "url": None if request is None else str(request.url),
                     "ms": round((time.monotonic() - started) * 1000),
-                    "request": None if request is None else _body_text(request.content),
+                    "request": None if request is None else body_text(request.content),
                     "status_code": None if response is None else response.status_code,
                     "response": body,
                     "error": "" if error is None else f"{type(error).__name__}: {error}",
@@ -759,42 +523,6 @@ class LlamaCppProvider:
         except Exception as exc:
             return {"error": f"{type(exc).__name__}: {exc}"}
 
-    @staticmethod
-    def _result(completion: _WireCompletion) -> ChatResult:
-        choice = completion.choices[0]
-        calls: list[ToolCall] = []
-        for wire_call in choice.message.tool_calls:
-            raw = wire_call.function.arguments
-            if raw is None or not raw.strip():
-                arguments: Any = {}
-            else:
-                try:
-                    arguments = json.loads(raw)
-                except json.JSONDecodeError as exc:
-                    raise ToolCallArgumentsError(
-                        wire_call.function.name,
-                        f"arguments are not valid JSON ({exc.msg})",
-                        usage=completion.usage,
-                        server=completion.stamp(),
-                    ) from exc
-            if not isinstance(arguments, dict):
-                raise ToolCallArgumentsError(
-                    wire_call.function.name,
-                    "arguments are not a JSON object",
-                    usage=completion.usage,
-                    server=completion.stamp(),
-                )
-            calls.append(
-                ToolCall(id=wire_call.id, name=wire_call.function.name, arguments=arguments)
-            )
-        return ChatResult(
-            content=choice.message.content,
-            tool_calls=calls,
-            finish_reason=choice.finish_reason,
-            usage=completion.usage,
-            server=completion.stamp(),
-        )
-
 
 def provider_from_settings(*, seed: int | None = None) -> LlamaCppProvider:
     """The provider as configured (``LLAMACPP_*`` env / ``.env``), capturing
@@ -812,12 +540,3 @@ def provider_from_settings(*, seed: int | None = None) -> LlamaCppProvider:
 
 def _ms(started: float) -> int:
     return round((time.monotonic() - started) * 1000)
-
-
-def _body_text(body: bytes) -> str:
-    """A wire body as the text it is. llama-server speaks UTF-8 both ways; a
-    body that is not is kept with its bad bytes replaced rather than lost."""
-    try:
-        return body.decode("utf-8")
-    except UnicodeDecodeError:
-        return body.decode("utf-8", errors="replace")
