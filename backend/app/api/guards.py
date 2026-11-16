@@ -64,7 +64,5 @@ def trashed_row_or_error(
     if trashed is not None:
         return trashed
     if active_lookup() is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=conflict_detail
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=conflict_detail)
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=absent_detail)

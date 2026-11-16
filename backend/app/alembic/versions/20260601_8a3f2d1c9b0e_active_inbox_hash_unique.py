@@ -5,6 +5,7 @@ Revises: 09002cc3cb7c
 Create Date: 2026-06-01 00:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -50,6 +51,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     with op.batch_alter_table("inbox_items", schema=None) as batch_op:
         batch_op.drop_index("uq_inbox_items_active_input_hash")
-        batch_op.create_index(
-            batch_op.f("ix_inbox_items_input_hash"), ["input_hash"], unique=False
-        )
+        batch_op.create_index(batch_op.f("ix_inbox_items_input_hash"), ["input_hash"], unique=False)

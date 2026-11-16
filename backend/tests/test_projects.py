@@ -68,9 +68,7 @@ def test_ensure_default_project_adopts_oldest_of_duplicate_names(
 
 def test_soft_delete_project_cascades_tasks(db_session: Session) -> None:
     project = projects_service.create_project(db_session, name="Firewall")
-    parent = tasks_service.create_task(
-        db_session, project_id=project.id, title="audit rules"
-    )
+    parent = tasks_service.create_task(db_session, project_id=project.id, title="audit rules")
     child = tasks_service.create_task(
         db_session,
         project_id=project.id,
@@ -107,9 +105,7 @@ def test_restore_project_without_tasks_surfaces_them_as_standalone_trash(
     # cleared so they move into the standalone Tasks trash, still individually
     # restorable into the now-active project.
     project = projects_service.create_project(db_session, name="Firewall")
-    parent = tasks_service.create_task(
-        db_session, project_id=project.id, title="audit rules"
-    )
+    parent = tasks_service.create_task(db_session, project_id=project.id, title="audit rules")
     child = tasks_service.create_task(
         db_session, project_id=project.id, title="child", parent_task_id=parent.id
     )
@@ -117,9 +113,7 @@ def test_restore_project_without_tasks_surfaces_them_as_standalone_trash(
     projects_service.soft_delete_project(db_session, project)
     db_session.commit()
 
-    _, count = projects_service.restore_project(
-        db_session, project, restore_tasks=False
-    )
+    _, count = projects_service.restore_project(db_session, project, restore_tasks=False)
     db_session.commit()
 
     assert count == 0
@@ -145,9 +139,7 @@ def test_restore_project_with_tasks_brings_back_the_subtree(
     db_session: Session,
 ) -> None:
     project = projects_service.create_project(db_session, name="Firewall")
-    parent = tasks_service.create_task(
-        db_session, project_id=project.id, title="audit rules"
-    )
+    parent = tasks_service.create_task(db_session, project_id=project.id, title="audit rules")
     child = tasks_service.create_task(
         db_session, project_id=project.id, title="child", parent_task_id=parent.id
     )
@@ -155,9 +147,7 @@ def test_restore_project_with_tasks_brings_back_the_subtree(
     projects_service.soft_delete_project(db_session, project)
     db_session.commit()
 
-    _, count = projects_service.restore_project(
-        db_session, project, restore_tasks=True
-    )
+    _, count = projects_service.restore_project(db_session, project, restore_tasks=True)
     db_session.commit()
 
     assert count == 2
@@ -175,9 +165,7 @@ def test_restore_project_with_tasks_logs_a_restored_event_per_task(
     # Restore is itemized like delete: each cascade task gets its own "restored"
     # event, so the audit trail isn't just a single project-level row.
     project = projects_service.create_project(db_session, name="Firewall")
-    parent = tasks_service.create_task(
-        db_session, project_id=project.id, title="audit rules"
-    )
+    parent = tasks_service.create_task(db_session, project_id=project.id, title="audit rules")
     child = tasks_service.create_task(
         db_session, project_id=project.id, title="child", parent_task_id=parent.id
     )
@@ -207,20 +195,14 @@ def test_restore_project_skips_independently_trashed_tasks(
     db_session: Session,
 ) -> None:
     project = projects_service.create_project(db_session, name="Firewall")
-    cascade = tasks_service.create_task(
-        db_session, project_id=project.id, title="active task"
-    )
-    independent = tasks_service.create_task(
-        db_session, project_id=project.id, title="pre-trashed"
-    )
+    cascade = tasks_service.create_task(db_session, project_id=project.id, title="active task")
+    independent = tasks_service.create_task(db_session, project_id=project.id, title="pre-trashed")
     tasks_service.soft_delete_task(db_session, independent)
     db_session.commit()
 
     projects_service.soft_delete_project(db_session, project)
     db_session.commit()
-    _, count = projects_service.restore_project(
-        db_session, project, restore_tasks=True
-    )
+    _, count = projects_service.restore_project(db_session, project, restore_tasks=True)
     db_session.commit()
 
     assert count == 1
@@ -241,9 +223,7 @@ def test_trashing_a_project_leaves_a_childs_foreign_descendant_active(
     # chain runs through B.
     project_a = projects_service.create_project(db_session, name="Alpha")
     project_b = projects_service.create_project(db_session, name="Bravo")
-    parent = tasks_service.create_task(
-        db_session, project_id=project_a.id, title="lives in A"
-    )
+    parent = tasks_service.create_task(db_session, project_id=project_a.id, title="lives in A")
     child_in_b = tasks_service.create_task(
         db_session,
         project_id=project_b.id,
@@ -272,9 +252,7 @@ def test_trashing_a_project_leaves_a_childs_foreign_descendant_active(
     assert grandchild_in_a.deleted_at is None
     assert grandchild_in_a.deleted_with_project_id is None
 
-    _, count = projects_service.restore_project(
-        db_session, project_b, restore_tasks=True
-    )
+    _, count = projects_service.restore_project(db_session, project_b, restore_tasks=True)
     db_session.commit()
 
     assert count == 1
@@ -290,9 +268,7 @@ def test_membership_trashed_task_is_hidden_from_the_standalone_task_trash(
     # trash. Its foreign-project descendant, left active, isn't in trash at all.
     project_a = projects_service.create_project(db_session, name="Alpha")
     project_b = projects_service.create_project(db_session, name="Bravo")
-    parent = tasks_service.create_task(
-        db_session, project_id=project_a.id, title="lives in A"
-    )
+    parent = tasks_service.create_task(db_session, project_id=project_a.id, title="lives in A")
     child_in_b = tasks_service.create_task(
         db_session,
         project_id=project_b.id,
@@ -314,18 +290,14 @@ def test_membership_trashed_task_is_hidden_from_the_standalone_task_trash(
     assert child_in_b.id not in trashed_ids
     db_session.refresh(grandchild_in_a)
     assert grandchild_in_a.deleted_at is None  # still active, never in trash
-    assert (
-        projects_service.count_tasks_deleted_with_project(db_session, project_b.id) == 1
-    )
+    assert projects_service.count_tasks_deleted_with_project(db_session, project_b.id) == 1
 
 
 def test_membership_cascade_deletes_each_task_once(db_session: Session) -> None:
     # The membership query returns each of the project's tasks exactly once, so a
     # parent and its same-project child are each soft-deleted (and logged) once.
     project = projects_service.create_project(db_session, name="Bravo")
-    parent = tasks_service.create_task(
-        db_session, project_id=project.id, title="parent in B"
-    )
+    parent = tasks_service.create_task(db_session, project_id=project.id, title="parent in B")
     child = tasks_service.create_task(
         db_session,
         project_id=project.id,
@@ -402,25 +374,19 @@ def test_project_update_rejects_explicit_null_name(client: TestClient) -> None:
     assert null_name.status_code == 422
 
     # ``description`` is nullable, so an explicit null still clears it.
-    null_description = client.patch(
-        f"/api/projects/{project_id}", json={"description": None}
-    )
+    null_description = client.patch(f"/api/projects/{project_id}", json={"description": None})
     assert null_description.status_code == 200
     assert null_description.json()["description"] is None
     assert null_description.json()["name"] == "Firewall"
 
     # An omitted ``name`` is untouched, not treated as a null.
-    omitted_name = client.patch(
-        f"/api/projects/{project_id}", json={"description": "rebuilt"}
-    )
+    omitted_name = client.patch(f"/api/projects/{project_id}", json={"description": "rebuilt"})
     assert omitted_name.status_code == 200
     assert omitted_name.json()["name"] == "Firewall"
     assert omitted_name.json()["description"] == "rebuilt"
 
 
-def test_delete_general_route_returns_409(
-    client: TestClient, db_session: Session
-) -> None:
+def test_delete_general_route_returns_409(client: TestClient, db_session: Session) -> None:
     general = projects_service.ensure_default_project(db_session)
     db_session.commit()
 
@@ -468,9 +434,7 @@ def test_new_project_appends_after_reorder(db_session: Session) -> None:
 
 def test_close_and_reopen_project(db_session: Session) -> None:
     project = projects_service.create_project(db_session, name="Old initiative")
-    task = tasks_service.create_task(
-        db_session, project_id=project.id, title="lingering task"
-    )
+    task = tasks_service.create_task(db_session, project_id=project.id, title="lingering task")
     db_session.commit()
 
     projects_service.close_project(db_session, project)

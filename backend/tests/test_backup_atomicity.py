@@ -128,9 +128,7 @@ def test_successful_run_publishes_one_complete_snapshot(tmp_path: Path) -> None:
 def test_failed_snapshot_leaves_nothing_that_looks_like_a_backup(tmp_path: Path) -> None:
     """A copy that dies mid-write must not surface under the snapshot name."""
     repo = make_repo(tmp_path)
-    broken = write_fake_python(
-        tmp_path, "broken-python.sh", 'printf \'truncated\' > "$3"\nexit 1'
-    )
+    broken = write_fake_python(tmp_path, "broken-python.sh", "printf 'truncated' > \"$3\"\nexit 1")
 
     result = run_backup(repo, PYTHON=str(broken))
 
@@ -143,7 +141,7 @@ def test_hard_kill_mid_write_never_publishes_a_snapshot(tmp_path: Path) -> None:
     """SIGKILL runs no trap; the partial then has to be invisible to the pruner."""
     repo = make_repo(tmp_path)
     stalled = write_fake_python(
-        tmp_path, "stalled-python.sh", 'printf \'truncated\' > "$3"\nsleep 30'
+        tmp_path, "stalled-python.sh", "printf 'truncated' > \"$3\"\nsleep 30"
     )
 
     process = subprocess.Popen(

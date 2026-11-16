@@ -174,7 +174,9 @@ _CANCELLED_ERROR = f"{run_record.NOT_RUN_PREFIX}the user stopped the agent run b
 
 # Recorded (and fed back) for a call after a landed ``ask_user`` in the same
 # turn (#420): the run ends on the question, so it never reached the registry.
-_ASKED_ERROR = f"{run_record.NOT_RUN_PREFIX}the run ended on a question to the user before this call"
+_ASKED_ERROR = (
+    f"{run_record.NOT_RUN_PREFIX}the run ended on a question to the user before this call"
+)
 
 # Recorded (and fed back) for the calls after a gated one that armed a
 # confirmation (#503): the run ends on the app's question.
@@ -199,6 +201,7 @@ def resolve_actor(header_value: str | None) -> str:
     if header_value is not None and header_value in DELEGATE_ACTORS:
         return header_value
     return LOOP_ACTOR
+
 
 # Two model phases, two prompts (#418; docs/agent-design.md "Planner and
 # narrator", ported from chess's split). PLANNER_PROMPT is the **planner's**:
@@ -529,9 +532,7 @@ class AgentRunFailed(Exception):
     timeout, 500 unexpected internal failure).
     """
 
-    def __init__(
-        self, result: AgentRunResult, *, http_status: int, message: str
-    ) -> None:
+    def __init__(self, result: AgentRunResult, *, http_status: int, message: str) -> None:
         super().__init__(message)
         self.result = result
         self.http_status = http_status
@@ -563,12 +564,11 @@ class AgentLoop:
         call (#415); ``None`` uses the process's shared one."""
         profile = getattr(provider, "profile", None)
         self._profile = profile if isinstance(profile, model_profile.ModelProfile) else None
+        turn = None if self._profile is None else self._profile.phase(model_profile.TURN)
         if max_tokens is None:
-            max_tokens = (
-                self._profile.turn_max_tokens if self._profile is not None else DEFAULT_MAX_TOKENS
-            )
+            max_tokens = turn.max_tokens if turn is not None else DEFAULT_MAX_TOKENS
         narrator_cap = (
-            self._profile.narrator_max_tokens
+            self._profile.phase(model_profile.NARRATOR).max_tokens
             if self._profile is not None
             else NARRATOR_MAX_TOKENS
         )
@@ -583,10 +583,8 @@ class AgentLoop:
         self._max_corrections = max_corrections
         self._max_tokens = max_tokens
         self._narrator_max_tokens = min(max_tokens, narrator_cap)
-        self._turn_thinking = self._profile is not None and self._profile.turn_thinking
-        self._turn_temperature = (
-            None if self._profile is None else self._profile.turn_temperature
-        )
+        self._turn_thinking = turn is not None and turn.thinking
+        self._turn_temperature = None if turn is None else turn.temperature
         self._max_tool_calls = max_tool_calls
         self._tracer = tracer if tracer is not None else run_trace.tracer_from_settings()
         self._searcher = searcher if searcher is not None else gather.default_searcher()
@@ -929,16 +927,12 @@ class AgentLoop:
             if cancel is not None and cancel.is_set():
                 # Stopped before this turn's provider call. ``iteration - 1``
                 # provider turns actually ran.
-                return self._finish(
-                    "cancelled", None, records, iteration - 1, messages
-                )
+                return self._finish("cancelled", None, records, iteration - 1, messages)
             if deadline is not None and time.monotonic() >= deadline:
                 # Out of time before this turn's provider call — stop with the
                 # tool calls that already ran (they stay committed and undoable).
                 raise self._out_of_time(records, iteration, messages)
-            call_timeout = (
-                None if deadline is None else max(0.0, deadline - time.monotonic())
-            )
+            call_timeout = None if deadline is None else max(0.0, deadline - time.monotonic())
             if iteration == 1 and call_timeout is not None:
                 # The budget left as the first model call starts, for the trace.
                 trace.limits["deadline_s"] = round(call_timeout, 1)
@@ -1053,9 +1047,7 @@ class AgentLoop:
                         error=_CANCELLED_ERROR,
                         reason="cancelled",
                     )
-                    return self._finish(
-                        "cancelled", None, records, iteration, messages
-                    )
+                    return self._finish("cancelled", None, records, iteration, messages)
                 if deadline is not None and time.monotonic() >= deadline:
                     # Out of time before *starting* this call. Record the calls
                     # we refused (truthful trajectory: they never touched the
@@ -1146,9 +1138,7 @@ class AgentLoop:
                         error=_CRASHED_BATCH_ERROR,
                         reason="internal_error",
                     )
-                    raise self._internal_failed(
-                        exc, records, iteration, messages
-                    ) from exc
+                    raise self._internal_failed(exc, records, iteration, messages) from exc
                 records.append(record)
                 if record.error is None:
                     record._answer = feedback
@@ -1183,9 +1173,7 @@ class AgentLoop:
                 )
             if over_cap:
                 # The next turn could only be refused more of the same.
-                return self._limit_stop(
-                    "tool_call_limit", ctx, records, iteration, messages
-                )
+                return self._limit_stop("tool_call_limit", ctx, records, iteration, messages)
             if schema_error_this_turn:
                 corrections += 1
                 trace.corrections = corrections
@@ -1417,13 +1405,9 @@ class AgentLoop:
         bound request id.
         """
         records.append(
-            ToolCallRecord(
-                tool=call.name, arguments=call.arguments, error=_INTERNAL_ERROR
-            )
+            ToolCallRecord(tool=call.name, arguments=call.arguments, error=_INTERNAL_ERROR)
         )
-        messages.append(
-            tool_result_message(call.id, _refusal_text(_INTERNAL_ERROR, RETRY_NEVER))
-        )
+        messages.append(tool_result_message(call.id, _refusal_text(_INTERNAL_ERROR, RETRY_NEVER)))
         logger.exception(
             "agent_tool_call_crashed",
             tool=call.name,
@@ -1513,7 +1497,9 @@ class AgentLoop:
         iterations: int,
         messages: list[dict[str, Any]],
     ) -> AgentRunFailed:
-        return cls._failed("timed_out", "agent run exceeded its time budget", records, iterations, messages)
+        return cls._failed(
+            "timed_out", "agent run exceeded its time budget", records, iterations, messages
+        )
 
     @classmethod
     def _provider_failed(
@@ -1523,7 +1509,9 @@ class AgentLoop:
         iterations: int,
         messages: list[dict[str, Any]],
     ) -> AgentRunFailed:
-        return cls._failed("provider_error", f"agent run failed: {exc}", records, iterations, messages)
+        return cls._failed(
+            "provider_error", f"agent run failed: {exc}", records, iterations, messages
+        )
 
     @classmethod
     def _internal_failed(
@@ -1563,9 +1551,7 @@ class AgentLoop:
             iterations=iterations,
             messages=messages,
         )
-        return AgentRunFailed(
-            result, http_status=_FAILURE_STATUS[stop_reason], message=message
-        )
+        return AgentRunFailed(result, http_status=_FAILURE_STATUS[stop_reason], message=message)
 
 
 def _exchange_key(name: str, arguments: dict[str, Any], answer: str) -> tuple[str, str, str]:
@@ -1580,13 +1566,9 @@ def _exchange_key(name: str, arguments: dict[str, Any], answer: str) -> tuple[st
     return name, json.dumps(arguments, sort_keys=True, default=str), answer
 
 
-def _refusal_text(
-    error: str, retry: Retry, details: dict[str, Any] | None = None
-) -> str:
+def _refusal_text(error: str, retry: Retry, details: dict[str, Any] | None = None) -> str:
     """A failed call's ``role: tool`` answer, the one shape every failure takes (#413)."""
-    return json.dumps(
-        {"ok": False, "error": error, "retry": retry, **(details or {})}, default=str
-    )
+    return json.dumps({"ok": False, "error": error, "retry": retry, **(details or {})}, default=str)
 
 
 def _ms_since(started: float) -> int:
@@ -1599,8 +1581,7 @@ def _ms_since(started: float) -> int:
 def _validation_summary(exc: ValidationError) -> str:
     """Pydantic's error list as one compact line the model can read."""
     return "; ".join(
-        f"{'.'.join(str(loc) for loc in error['loc'])}: {error['msg']}"
-        for error in exc.errors()
+        f"{'.'.join(str(loc) for loc in error['loc'])}: {error['msg']}" for error in exc.errors()
     )
 
 

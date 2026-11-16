@@ -101,15 +101,11 @@ def _conflict(exc: focus_plan_service.FocusEntryError) -> HTTPException:
 def _entry_or_404(db: Session, entry_id: int) -> FocusPlanEntry:
     entry = focus_plan_service.get_entry(db, entry_id)
     if entry is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Focus entry not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Focus entry not found")
     return entry
 
 
-@router.post(
-    "/focus/pins", response_model=FocusEntryRead, status_code=status.HTTP_201_CREATED
-)
+@router.post("/focus/pins", response_model=FocusEntryRead, status_code=status.HTTP_201_CREATED)
 def pin_task(data: FocusPinCreate, db: Session = Depends(get_db_write)) -> FocusEntryRead:
     """Pin a task into a day's plan. Re-pinning an already pinned task moves its time."""
     task = tasks_service.get_task(db, data.task_id)
@@ -130,9 +126,7 @@ def pin_task(data: FocusPinCreate, db: Session = Depends(get_db_write)) -> Focus
 
 
 @router.put("/focus/pins/order", response_model=list[FocusEntryRead])
-def reorder_pins(
-    data: FocusPinOrder, db: Session = Depends(get_db_write)
-) -> list[FocusEntryRead]:
+def reorder_pins(data: FocusPinOrder, db: Session = Depends(get_db_write)) -> list[FocusEntryRead]:
     """Reorder a day's floating pins; the named pins trade the slots they hold."""
     try:
         pins = focus_plan_service.reorder_pins(
@@ -141,9 +135,7 @@ def reorder_pins(
     except focus_plan_service.FocusEntryError as exc:
         raise _conflict(exc) from exc
     db.commit()
-    logger.info(
-        "focus_pins_reordered", date=data.plan_date.isoformat(), entry_ids=data.entry_ids
-    )
+    logger.info("focus_pins_reordered", date=data.plan_date.isoformat(), entry_ids=data.entry_ids)
     return [focus_plan_service.entry_read(pin) for pin in pins]
 
 
@@ -162,9 +154,7 @@ def add_commitment(
         title=data.title,
         start_minute=focus_plan_service.parse_time(data.start_time),
         duration_minutes=data.duration_minutes,
-        repeat_interval=None
-        if data.repeat_interval is None
-        else data.repeat_interval.model_dump(),
+        repeat_interval=None if data.repeat_interval is None else data.repeat_interval.model_dump(),
     )
     db.commit()
     logger.info(
@@ -310,9 +300,7 @@ def session_log(
     return focus_sessions_service.session_log(db, plan_date)
 
 
-@router.put(
-    "/focus/sessions/{plan_date}/tasks/{task_id}", response_model=FocusFinishedBlockRead
-)
+@router.put("/focus/sessions/{plan_date}/tasks/{task_id}", response_model=FocusFinishedBlockRead)
 def finish_block(
     plan_date: date_type,
     task_id: EntityId,

@@ -156,8 +156,7 @@ class TestTaskDetailBudget:
             read_with_blocked(db_session, loner)
 
         assert len(after) == len(before), (
-            f"unrelated graph changed the cost of one task's read: "
-            f"{len(before)} -> {len(after)}"
+            f"unrelated graph changed the cost of one task's read: {len(before)} -> {len(after)}"
         )
 
 

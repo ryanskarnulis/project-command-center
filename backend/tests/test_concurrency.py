@@ -96,9 +96,7 @@ def _seed_project(factory: sessionmaker[Session]) -> int:
     return project_id
 
 
-def _seed_tasks(
-    factory: sessionmaker[Session], project_id: int, *titles: str
-) -> list[int]:
+def _seed_tasks(factory: sessionmaker[Session], project_id: int, *titles: str) -> list[int]:
     db = factory()
     tasks = [Task(project_id=project_id, title=title) for title in titles]
     db.add_all(tasks)
@@ -287,9 +285,9 @@ class TestConcurrentDependencyCreation:
         db = session_factory()
         try:
             # The invariant that actually matters to a user.
-            assert not (
-                deps_service.is_blocked(db, left) and deps_service.is_blocked(db, right)
-            ), "both tasks block each other and neither can ever be completed"
+            assert not (deps_service.is_blocked(db, left) and deps_service.is_blocked(db, right)), (
+                "both tasks block each other and neither can ever be completed"
+            )
             edges = db.execute(
                 select(func.count())
                 .select_from(TaskDependency)

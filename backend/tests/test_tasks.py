@@ -17,9 +17,7 @@ def test_task_create_markdone_softdelete(db_session: Session) -> None:
     project = projects_service.create_project(db_session, name="Firewall")
     db_session.commit()
 
-    task = tasks_service.create_task(
-        db_session, project_id=project.id, title="audit rules"
-    )
+    task = tasks_service.create_task(db_session, project_id=project.id, title="audit rules")
     db_session.commit()
     assert task.id is not None
     assert task.project_id == project.id
@@ -35,9 +33,7 @@ def test_task_create_markdone_softdelete(db_session: Session) -> None:
     db_session.commit()
 
     assert tasks_service.get_task(db_session, task.id) is None
-    assert task.id not in [
-        t.id for t in tasks_service.list_tasks(db_session, project.id)
-    ]
+    assert task.id not in [t.id for t in tasks_service.list_tasks(db_session, project.id)]
 
 
 def test_read_path_indexes_present_and_hot_queries_correct(
@@ -91,9 +87,7 @@ def test_read_path_indexes_present_and_hot_queries_correct(
     # Subtree fetch via parent_task_id.
     subtasks = tasks_service.list_tasks(db_session, project_id=proj_a.id)
     assert child.id in {t.id for t in subtasks}
-    top_level = tasks_service.list_tasks(
-        db_session, project_id=proj_a.id, top_level_only=True
-    )
+    top_level = tasks_service.list_tasks(db_session, project_id=proj_a.id, top_level_only=True)
     assert child.id not in {t.id for t in top_level}
     assert top.id in {t.id for t in top_level}
 
@@ -106,9 +100,7 @@ def test_read_path_indexes_present_and_hot_queries_correct(
 def test_task_without_project_defaults_to_general(
     db_session: Session,
 ) -> None:
-    task = tasks_service.create_task(
-        db_session, project_id=None, title="unfiled visible work"
-    )
+    task = tasks_service.create_task(db_session, project_id=None, title="unfiled visible work")
     db_session.commit()
 
     general = projects_service.get_default_project(db_session)
@@ -173,9 +165,7 @@ def test_deleted_project_tasks_are_trashed_with_the_project(
     # A deleted project takes its tasks into the trash with it (cascade), rather
     # than rehoming them to General — so they drop out of the global task list.
     project = projects_service.create_project(db_session, name="Firewall")
-    task = tasks_service.create_task(
-        db_session, project_id=project.id, title="cascade work"
-    )
+    task = tasks_service.create_task(db_session, project_id=project.id, title="cascade work")
     db_session.commit()
 
     projects_service.soft_delete_project(db_session, project)
@@ -199,36 +189,26 @@ def test_global_tasks_route_creates_task_in_general(client: TestClient) -> None:
     assert body["project_id"] is not None
 
 
-def test_global_tasks_route_honors_project_id(
-    client: TestClient, db_session: Session
-) -> None:
+def test_global_tasks_route_honors_project_id(client: TestClient, db_session: Session) -> None:
     project = projects_service.create_project(db_session, name="Switches")
     db_session.commit()
 
-    resp = client.post(
-        "/api/tasks", json={"title": "rack new switch", "project_id": project.id}
-    )
+    resp = client.post("/api/tasks", json={"title": "rack new switch", "project_id": project.id})
 
     assert resp.status_code == 201
     assert resp.json()["project_id"] == project.id
 
 
 def test_global_tasks_route_rejects_nonexistent_project(client: TestClient) -> None:
-    resp = client.post(
-        "/api/tasks", json={"title": "orphan", "project_id": 999999}
-    )
+    resp = client.post("/api/tasks", json={"title": "orphan", "project_id": 999999})
 
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Project not found"
 
 
-def test_done_task_archives_and_reopens(
-    client: TestClient, db_session: Session
-) -> None:
+def test_done_task_archives_and_reopens(client: TestClient, db_session: Session) -> None:
     project = projects_service.create_project(db_session, name="Firewall")
-    task = tasks_service.create_task(
-        db_session, project_id=project.id, title="patch box"
-    )
+    task = tasks_service.create_task(db_session, project_id=project.id, title="patch box")
     db_session.commit()
 
     # Mark done: leaves the active list, appears under the completed query.
@@ -239,9 +219,7 @@ def test_done_task_archives_and_reopens(
     active = client.get(f"/api/projects/{project.id}/tasks")
     assert [t["id"] for t in active.json()] == []
 
-    completed = client.get(
-        f"/api/projects/{project.id}/tasks", params={"workflow_status": "done"}
-    )
+    completed = client.get(f"/api/projects/{project.id}/tasks", params={"workflow_status": "done"})
     assert [t["id"] for t in completed.json()] == [task.id]
 
     # Reopen: returns to the active list, gone from the completed query.
@@ -293,9 +271,7 @@ def test_cycle_guard_rejects_self_parent(db_session: Session) -> None:
 
 def test_cycle_guard_rejects_ancestor_cycle(db_session: Session) -> None:
     a = tasks_service.create_task(db_session, project_id=None, title="a")
-    b = tasks_service.create_task(
-        db_session, project_id=None, title="b", parent_task_id=a.id
-    )
+    b = tasks_service.create_task(db_session, project_id=None, title="b", parent_task_id=a.id)
     db_session.commit()
 
     # a -> b already; making a a child of b would close a -> b -> a cycle.
@@ -305,9 +281,7 @@ def test_cycle_guard_rejects_ancestor_cycle(db_session: Session) -> None:
 
 def test_create_subtask_route_409_on_cycle(client: TestClient) -> None:
     a = client.post("/api/tasks", json={"title": "a"}).json()
-    b = client.post(
-        "/api/tasks", json={"title": "b", "parent_task_id": a["id"]}
-    ).json()
+    b = client.post("/api/tasks", json={"title": "b", "parent_task_id": a["id"]}).json()
 
     resp = client.patch(f"/api/tasks/{a['id']}", json={"parent_task_id": b["id"]})
     assert resp.status_code == 409
@@ -334,30 +308,20 @@ def test_soft_delete_cascades_to_subtasks(db_session: Session) -> None:
 def test_estimated_minutes_round_trips_and_rejects_non_positive(
     client: TestClient,
 ) -> None:
-    created = client.post(
-        "/api/tasks", json={"title": "write runbook", "estimated_minutes": 60}
-    )
+    created = client.post("/api/tasks", json={"title": "write runbook", "estimated_minutes": 60})
     assert created.status_code == 201
     task_id = created.json()["id"]
     assert created.json()["estimated_minutes"] == 60
 
-    cleared = client.patch(
-        f"/api/tasks/{task_id}", json={"estimated_minutes": None}
-    )
+    cleared = client.patch(f"/api/tasks/{task_id}", json={"estimated_minutes": None})
     assert cleared.status_code == 200
     assert cleared.json()["estimated_minutes"] is None
 
     assert (
-        client.post(
-            "/api/tasks", json={"title": "bad", "estimated_minutes": 0}
-        ).status_code
-        == 422
+        client.post("/api/tasks", json={"title": "bad", "estimated_minutes": 0}).status_code == 422
     )
     assert (
-        client.post(
-            "/api/tasks", json={"title": "bad", "estimated_minutes": -5}
-        ).status_code
-        == 422
+        client.post("/api/tasks", json={"title": "bad", "estimated_minutes": -5}).status_code == 422
     )
 
 
@@ -459,9 +423,7 @@ def test_update_rejects_explicit_null_on_non_nullable_fields(client: TestClient)
         assert resp.status_code == 422, field
 
     # Legitimately-nullable fields can still be cleared with an explicit null.
-    cleared = client.patch(
-        f"/api/tasks/{task_id}", json={"description": None, "due_date": None}
-    )
+    cleared = client.patch(f"/api/tasks/{task_id}", json={"description": None, "due_date": None})
     assert cleared.status_code == 200
     assert cleared.json()["description"] is None
     assert cleared.json()["due_date"] is None
@@ -521,9 +483,7 @@ def test_patch_accepted_task_with_null_project_rehomes_to_general(
 
 
 def _subtask(db: Session, parent_id: int, **kw: Any) -> Task:
-    return tasks_service.create_task(
-        db, project_id=None, parent_task_id=parent_id, **kw
-    )
+    return tasks_service.create_task(db, project_id=None, parent_task_id=parent_id, **kw)
 
 
 def test_estimate_rolls_up_sum_of_children(db_session: Session) -> None:
@@ -605,9 +565,7 @@ def test_status_rolls_up(
         db_session, project_id=None, title="parent", workflow_status=own_status
     )
     for i, status in enumerate(child_statuses):
-        _subtask(
-            db_session, parent.id, title=f"c{i}", workflow_status=status
-        )
+        _subtask(db_session, parent.id, title=f"c{i}", workflow_status=status)
     db_session.commit()
     rollup = tasks_service.get_rollup(db_session, parent)
     assert rollup.workflow_status == expected
@@ -623,9 +581,7 @@ def test_completed_checklist_parent_leaves_open_list_and_counts(
     # list and the dashboard open counts, which resolve the roll-up, not the stored
     # column.
     project = projects_service.create_project(db_session, name="Chores")
-    parent = tasks_service.create_task(
-        db_session, project_id=project.id, title="release checklist"
-    )
+    parent = tasks_service.create_task(db_session, project_id=project.id, title="release checklist")
     child_a = tasks_service.create_task(
         db_session, project_id=project.id, parent_task_id=parent.id, title="a"
     )
@@ -649,10 +605,7 @@ def test_completed_checklist_parent_leaves_open_list_and_counts(
     db_session.commit()
 
     assert parent.workflow_status == TaskWorkflowStatus.open  # stored, unchanged
-    assert (
-        tasks_service.get_rollup(db_session, parent).workflow_status
-        == TaskWorkflowStatus.done
-    )
+    assert tasks_service.get_rollup(db_session, parent).workflow_status == TaskWorkflowStatus.done
     open_ids = {t.id for t in tasks_service.list_tasks(db_session, exclude_done=True)}
     assert parent.id not in open_ids
     total, per_project = dashboard_service.get_overview(db_session)
@@ -662,10 +615,7 @@ def test_completed_checklist_parent_leaves_open_list_and_counts(
     # It doesn't vanish: the completed view filters on effective status too, so the
     # rolled-up-done parent lands in the archive rather than nowhere.
     completed_ids = {
-        t.id
-        for t in tasks_service.list_tasks(
-            db_session, workflow_status=TaskWorkflowStatus.done
-        )
+        t.id for t in tasks_service.list_tasks(db_session, workflow_status=TaskWorkflowStatus.done)
     }
     assert parent.id in completed_ids
 
@@ -740,9 +690,7 @@ def test_changing_parent_does_not_clobber_children(db_session: Session) -> None:
     parent = tasks_service.create_task(
         db_session, project_id=None, title="parent", priority=TaskPriority.low
     )
-    child = _subtask(
-        db_session, parent.id, title="child", priority=TaskPriority.urgent
-    )
+    child = _subtask(db_session, parent.id, title="child", priority=TaskPriority.urgent)
     db_session.commit()
     tasks_service.update_task(db_session, parent, {"priority": TaskPriority.high})
     db_session.commit()
@@ -752,13 +700,9 @@ def test_changing_parent_does_not_clobber_children(db_session: Session) -> None:
 
 def test_status_change_on_parent_rejected(client: TestClient) -> None:
     parent_id = client.post("/api/tasks", json={"title": "parent"}).json()["id"]
-    client.post(
-        "/api/tasks", json={"title": "child", "parent_task_id": parent_id}
-    )
+    client.post("/api/tasks", json={"title": "child", "parent_task_id": parent_id})
 
-    patched = client.patch(
-        f"/api/tasks/{parent_id}", json={"workflow_status": "done"}
-    )
+    patched = client.patch(f"/api/tasks/{parent_id}", json={"workflow_status": "done"})
     assert patched.status_code == 409
 
     done = client.post(f"/api/tasks/{parent_id}/done")
@@ -835,9 +779,7 @@ def test_status_equal_to_stored_column_on_derived_parent_rejected(
     parent = _derived_parent(db_session)
 
     with pytest.raises(tasks_service.DerivedStatusError):
-        tasks_service.update_task(
-            db_session, parent, {"workflow_status": TaskWorkflowStatus.open}
-        )
+        tasks_service.update_task(db_session, parent, {"workflow_status": TaskWorkflowStatus.open})
 
 
 def test_rejected_derived_patch_writes_no_activity_event(
@@ -847,16 +789,10 @@ def test_rejected_derived_patch_writes_no_activity_event(
     before = db_session.scalar(select(func.count()).select_from(ActivityEvent))
 
     assert (
-        client.patch(
-            f"/api/tasks/{parent.id}", json={"estimated_minutes": 90}
-        ).status_code
-        == 409
+        client.patch(f"/api/tasks/{parent.id}", json={"estimated_minutes": 90}).status_code == 409
     )
     assert (
-        client.patch(
-            f"/api/tasks/{parent.id}", json={"workflow_status": "open"}
-        ).status_code
-        == 409
+        client.patch(f"/api/tasks/{parent.id}", json={"workflow_status": "open"}).status_code == 409
     )
 
     db_session.expire_all()
@@ -867,9 +803,7 @@ def test_rejected_derived_patch_writes_no_activity_event(
     assert stored.estimated_minutes is None
 
 
-def test_non_derived_edits_on_a_parent_still_work(
-    client: TestClient, db_session: Session
-) -> None:
+def test_non_derived_edits_on_a_parent_still_work(client: TestClient, db_session: Session) -> None:
     parent = _derived_parent(db_session)
 
     patched = client.patch(
@@ -927,15 +861,11 @@ def _event_count(db: Session) -> int:
     return count
 
 
-def test_parent_can_be_started_before_any_subtask(
-    client: TestClient, db_session: Session
-) -> None:
+def test_parent_can_be_started_before_any_subtask(client: TestClient, db_session: Session) -> None:
     parent = _parent_with_open_children(db_session)
     before = _event_count(db_session)
 
-    res = client.patch(
-        f"/api/tasks/{parent.id}", json={"workflow_status": "in_progress"}
-    )
+    res = client.patch(f"/api/tasks/{parent.id}", json={"workflow_status": "in_progress"})
     assert res.status_code == 200
     body = res.json()
     assert body["workflow_status"] == "in_progress"
@@ -958,10 +888,7 @@ def test_parent_can_be_started_before_any_subtask(
     }
     assert parent.id in in_progress_ids
     open_ids = {
-        t.id
-        for t in tasks_service.list_tasks(
-            db_session, workflow_status=TaskWorkflowStatus.open
-        )
+        t.id for t in tasks_service.list_tasks(db_session, workflow_status=TaskWorkflowStatus.open)
     }
     assert parent.id not in open_ids
 
@@ -975,23 +902,15 @@ def test_started_parent_returns_to_open_by_either_door(db_session: Session) -> N
     db_session.commit()
     tasks_service.reopen_task(db_session, parent)
     db_session.commit()
-    assert (
-        tasks_service.get_rollup(db_session, parent).workflow_status
-        == TaskWorkflowStatus.open
-    )
+    assert tasks_service.get_rollup(db_session, parent).workflow_status == TaskWorkflowStatus.open
 
     tasks_service.update_task(
         db_session, parent, {"workflow_status": TaskWorkflowStatus.in_progress}
     )
     db_session.commit()
-    tasks_service.update_task(
-        db_session, parent, {"workflow_status": TaskWorkflowStatus.open}
-    )
+    tasks_service.update_task(db_session, parent, {"workflow_status": TaskWorkflowStatus.open})
     db_session.commit()
-    assert (
-        tasks_service.get_rollup(db_session, parent).workflow_status
-        == TaskWorkflowStatus.open
-    )
+    assert tasks_service.get_rollup(db_session, parent).workflow_status == TaskWorkflowStatus.open
 
 
 def test_started_parent_is_still_completed_by_its_subtasks(
@@ -1024,16 +943,11 @@ def test_parent_done_is_never_direct(client: TestClient, db_session: Session) ->
     )
     db_session.commit()
 
-    patched = client.patch(
-        f"/api/tasks/{parent.id}", json={"workflow_status": "done"}
-    )
+    patched = client.patch(f"/api/tasks/{parent.id}", json={"workflow_status": "done"})
     assert patched.status_code == 409
     assert "subtasks" in patched.json()["detail"]
     assert client.post(f"/api/tasks/{parent.id}/done").status_code == 409
-    assert (
-        client.get(f"/api/tasks/{parent.id}").json()["workflow_status"]
-        == "in_progress"
-    )
+    assert client.get(f"/api/tasks/{parent.id}").json()["workflow_status"] == "in_progress"
 
 
 def _parent_with_done_children(db: Session) -> Task:
@@ -1121,9 +1035,7 @@ def test_reopening_a_parent_whose_subtasks_are_under_way_rejected(
     db_session.commit()
     before = _event_count(db_session)
 
-    patched = client.patch(
-        f"/api/tasks/{parent.id}", json={"workflow_status": "open"}
-    )
+    patched = client.patch(f"/api/tasks/{parent.id}", json={"workflow_status": "open"})
     assert patched.status_code == 409
     assert "subtasks" in patched.json()["detail"]
     assert client.post(f"/api/tasks/{parent.id}/reopen").status_code == 409
@@ -1138,18 +1050,12 @@ def test_restarting_a_parent_whose_subtasks_are_all_done_rejected(
     client: TestClient, db_session: Session
 ) -> None:
     parent = tasks_service.create_task(db_session, project_id=None, title="parent")
-    _subtask(
-        db_session, parent.id, title="a", workflow_status=TaskWorkflowStatus.done
-    )
-    _subtask(
-        db_session, parent.id, title="b", workflow_status=TaskWorkflowStatus.done
-    )
+    _subtask(db_session, parent.id, title="a", workflow_status=TaskWorkflowStatus.done)
+    _subtask(db_session, parent.id, title="b", workflow_status=TaskWorkflowStatus.done)
     db_session.commit()
 
     for target in ("in_progress", "open"):
-        res = client.patch(
-            f"/api/tasks/{parent.id}", json={"workflow_status": target}
-        )
+        res = client.patch(f"/api/tasks/{parent.id}", json={"workflow_status": target})
         assert res.status_code == 409, target
     assert client.post(f"/api/tasks/{parent.id}/reopen").status_code == 409
 
@@ -1174,9 +1080,7 @@ def test_status_the_subtasks_already_express_is_a_quiet_no_op(
     db_session.commit()
     before = _event_count(db_session)
 
-    res = client.patch(
-        f"/api/tasks/{parent.id}", json={"workflow_status": "in_progress"}
-    )
+    res = client.patch(f"/api/tasks/{parent.id}", json={"workflow_status": "in_progress"})
     assert res.status_code == 200
     assert res.json()["workflow_status"] == "in_progress"
     stored = db_session.get(Task, parent.id)
@@ -1211,10 +1115,7 @@ def test_done_leaf_that_gains_a_subtask_reads_in_progress(
     tasks_service.reopen_task(db_session, leaf)
     db_session.commit()
     assert leaf.workflow_status == TaskWorkflowStatus.open
-    assert (
-        tasks_service.get_rollup(db_session, leaf).workflow_status
-        == TaskWorkflowStatus.open
-    )
+    assert tasks_service.get_rollup(db_session, leaf).workflow_status == TaskWorkflowStatus.open
 
 
 def test_agent_tool_can_start_a_parent(
@@ -1238,10 +1139,7 @@ def test_agent_tool_can_start_a_parent(
     with factory() as db:
         task = tasks_service.get_task(db, parent_id)
         assert task is not None
-        assert (
-            tasks_service.get_rollup(db, task).workflow_status
-            == TaskWorkflowStatus.in_progress
-        )
+        assert tasks_service.get_rollup(db, task).workflow_status == TaskWorkflowStatus.in_progress
 
 
 def _titled(db: Session, title: str, *, done: bool = False) -> Task:
@@ -1249,9 +1147,7 @@ def _titled(db: Session, title: str, *, done: bool = False) -> Task:
         db,
         project_id=None,
         title=title,
-        workflow_status=(
-            TaskWorkflowStatus.done if done else TaskWorkflowStatus.open
-        ),
+        workflow_status=(TaskWorkflowStatus.done if done else TaskWorkflowStatus.open),
     )
 
 
@@ -1288,9 +1184,7 @@ def test_status_filtered_pages_tile_the_effective_result(
     pages = [
         [
             t.id
-            for t in tasks_service.list_tasks(
-                db_session, exclude_done=True, limit=2, offset=offset
-            )
+            for t in tasks_service.list_tasks(db_session, exclude_done=True, limit=2, offset=offset)
         ]
         for offset in (0, 2, 4, 6)
     ]
@@ -1340,9 +1234,7 @@ def test_offset_past_the_filtered_end_is_empty_not_a_wrapped_page(
     db_session.commit()
 
     assert tasks_service.list_tasks(db_session, exclude_done=True, offset=1) == []
-    assert (
-        tasks_service.list_tasks(db_session, exclude_done=True, limit=2, offset=5) == []
-    )
+    assert tasks_service.list_tasks(db_session, exclude_done=True, limit=2, offset=5) == []
 
 
 # --- Effective top-level orphans (issue #93) ---------------------------------
@@ -1378,9 +1270,7 @@ def _cross_project_orphan(db: Session) -> tuple[Task, int]:
 def test_top_level_only_includes_a_cross_project_orphan(db_session: Session) -> None:
     child, proj_b_id = _cross_project_orphan(db_session)
 
-    scoped = tasks_service.list_tasks(
-        db_session, project_id=proj_b_id, top_level_only=True
-    )
+    scoped = tasks_service.list_tasks(db_session, project_id=proj_b_id, top_level_only=True)
     assert child.id in {t.id for t in scoped}
     globally = tasks_service.list_tasks(db_session, top_level_only=True)
     assert child.id in {t.id for t in globally}
@@ -1396,17 +1286,13 @@ def test_top_level_only_still_excludes_a_live_parents_child(
         db_session, project_id=None, title="child", parent_task_id=parent.id
     )
     db_session.commit()
-    assert child.id not in {
-        t.id for t in tasks_service.list_tasks(db_session, top_level_only=True)
-    }
+    assert child.id not in {t.id for t in tasks_service.list_tasks(db_session, top_level_only=True)}
 
     # Completing the child rolls the parent up to done — but the parent row is
     # still active, so the child stays a subtask rather than being promoted.
     tasks_service.mark_done(db_session, child)
     db_session.commit()
-    assert child.id not in {
-        t.id for t in tasks_service.list_tasks(db_session, top_level_only=True)
-    }
+    assert child.id not in {t.id for t in tasks_service.list_tasks(db_session, top_level_only=True)}
 
 
 def test_read_model_flags_orphan_as_effective_top_level(
@@ -1424,9 +1310,7 @@ def test_read_model_flags_orphan_as_effective_top_level(
     assert detail["is_effective_top_level"] is True
 
     # A genuine subtask on the same payload is not promoted.
-    live_parent = tasks_service.create_task(
-        db_session, project_id=proj_b_id, title="live parent"
-    )
+    live_parent = tasks_service.create_task(db_session, project_id=proj_b_id, title="live parent")
     db_session.commit()
     sub = tasks_service.create_task(
         db_session,

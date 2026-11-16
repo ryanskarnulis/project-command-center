@@ -24,13 +24,14 @@ them either). The DDL is a frozen copy of ``app.db.fts``, which ``create_all``
 uses for tests and evals.
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 
 
-revision: str = 'e3f1a9c2b7d4'
-down_revision: Union[str, None] = 'ada47a0f96cb'
+revision: str = "e3f1a9c2b7d4"
+down_revision: Union[str, None] = "ada47a0f96cb"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -48,20 +49,14 @@ def upgrade() -> None:
         cols = ", ".join(columns)
         new = ", ".join(f"new.{c}" for c in columns)
         old = ", ".join(f"old.{c}" for c in columns)
-        delete_old = (
-            f"INSERT INTO {fts}({fts}, rowid, {cols}) VALUES ('delete', old.id, {old});"
-        )
+        delete_old = f"INSERT INTO {fts}({fts}, rowid, {cols}) VALUES ('delete', old.id, {old});"
         insert_new = f"INSERT INTO {fts}(rowid, {cols}) VALUES (new.id, {new});"
         op.execute(
             f"CREATE VIRTUAL TABLE {fts} USING fts5({cols}, content='{base}', "
             f"content_rowid='id', tokenize='{_TOKENIZE}')"
         )
-        op.execute(
-            f"CREATE TRIGGER {fts}_ai AFTER INSERT ON {base} BEGIN {insert_new} END"
-        )
-        op.execute(
-            f"CREATE TRIGGER {fts}_ad AFTER DELETE ON {base} BEGIN {delete_old} END"
-        )
+        op.execute(f"CREATE TRIGGER {fts}_ai AFTER INSERT ON {base} BEGIN {insert_new} END")
+        op.execute(f"CREATE TRIGGER {fts}_ad AFTER DELETE ON {base} BEGIN {delete_old} END")
         op.execute(
             f"CREATE TRIGGER {fts}_au AFTER UPDATE OF {cols} ON {base} "
             f"BEGIN {delete_old} {insert_new} END"

@@ -198,9 +198,7 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
             .where(projects.where())
             .order_by(
                 project_tier.asc(),
-                case(
-                    (project_tier == _SOME_WORDS_TIER, -projects.word_hits()), else_=0
-                ).asc(),
+                case((project_tier == _SOME_WORDS_TIER, -projects.word_hits()), else_=0).asc(),
                 Project.id.desc(),
             )
             .limit(per_kind)
@@ -286,18 +284,14 @@ def search(db: Session, query: str, *, per_kind: int = 8) -> SearchResults:
     names: dict[int, str] = {}
     if project_ids:
         names = dict(
-            db.execute(
-                select(Project.id, Project.name).where(Project.id.in_(project_ids))
-            )
+            db.execute(select(Project.id, Project.name).where(Project.id.in_(project_ids)))
             .tuples()
             .all()
         )
 
     return SearchResults(
         projects=[
-            SearchResultItem(
-                kind="project", id=p.id, title=p.name, subtitle=p.description
-            )
+            SearchResultItem(kind="project", id=p.id, title=p.name, subtitle=p.description)
             for p in project_rows
         ],
         tasks=[

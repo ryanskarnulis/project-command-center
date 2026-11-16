@@ -325,20 +325,18 @@ def test_tool_call_cap_answers_excess_calls_not_run_and_never_dispatches_them(
     for refused in result.tool_calls[2:]:
         assert refused.error == loop_module._TOOL_CALL_LIMIT_ERROR
     # One role:tool answer per call of the capped turn, in order.
-    turn = next(
-        m for m in reversed(result.messages) if m.get("tool_calls")
-    )
+    turn = next(m for m in reversed(result.messages) if m.get("tool_calls"))
     answers = result.messages[result.messages.index(turn) + 1 :]
-    assert [m["tool_call_id"] for m in answers] == [
-        c["id"] for c in turn["tool_calls"]
-    ]
+    assert [m["tool_call_id"] for m in answers] == [c["id"] for c in turn["tool_calls"]]
     assert all("not run" in m["content"] for m in answers[1:])
     # The refused calls never ran: no project, no audit row.
     with tool_db() as db:
         assert sorted(db.execute(select(Project.name)).scalars().all()) == ["P1", "P2"]
-        created = db.execute(
-            select(ActivityEvent).where(ActivityEvent.action == "created")
-        ).scalars().all()
+        created = (
+            db.execute(select(ActivityEvent).where(ActivityEvent.action == "created"))
+            .scalars()
+            .all()
+        )
         assert len(created) == 2
 
 
@@ -359,9 +357,7 @@ def test_every_model_call_is_capped(tool_db: sessionmaker[Session]) -> None:
         narrations=[_text("Nothing there yet.")],
     )
     AgentLoop(provider).run("What projects do I have?")
-    AgentLoop(provider_capped := ScriptedProvider([_text("Hi.")]), max_tokens=64).run(
-        "Hello."
-    )
+    AgentLoop(provider_capped := ScriptedProvider([_text("Hi.")]), max_tokens=64).run("Hello.")
 
     assert [request["max_tokens"] for request in provider.requests] == [
         loop_module.DEFAULT_MAX_TOKENS,
@@ -381,9 +377,7 @@ def test_cut_off_text_turn_is_dropped_and_ends_truncated(
     provider = ScriptedProvider(
         [
             _calls(("list_projects", {})),
-            ChatResult(
-                content=fragment, tool_calls=[], finish_reason="length", usage=None
-            ),
+            ChatResult(content=fragment, tool_calls=[], finish_reason="length", usage=None),
             # The summary call (#399) fails, so the run keeps no reply.
             ProviderRequestError("connect timeout"),
         ]
@@ -529,9 +523,7 @@ def test_deadline_caps_the_provider_call_timeout(
     assert passed_timeout is not None and 0.0 < passed_timeout <= 30.0
 
 
-def _fake_clock(
-    monkeypatch: pytest.MonkeyPatch, readings: list[float]
-) -> None:
+def _fake_clock(monkeypatch: pytest.MonkeyPatch, readings: list[float]) -> None:
     """Make ``loop.time.monotonic`` return ``readings`` in order (last sticks)."""
     remaining = list(readings)
 
@@ -596,9 +588,7 @@ def test_batch_stops_at_the_call_that_would_cross_the_deadline(
         assert db.execute(select(Task.title)).scalars().all() == ["First"]
 
 
-def _raise_on_tool(
-    monkeypatch: pytest.MonkeyPatch, tool: str, exc: Exception
-) -> None:
+def _raise_on_tool(monkeypatch: pytest.MonkeyPatch, tool: str, exc: Exception) -> None:
     """Make registry dispatch of ``tool`` blow up, leaving other tools alone."""
     real = registry.call_tool
 

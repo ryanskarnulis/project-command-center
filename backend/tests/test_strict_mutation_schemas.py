@@ -111,9 +111,7 @@ def test_create_project_rejects_unknown_field_without_writing(
 ) -> None:
     before = _counts(db_session)
 
-    response = client.post(
-        "/api/projects", json={"name": "Roadmap", "descripton": "lost"}
-    )
+    response = client.post("/api/projects", json={"name": "Roadmap", "descripton": "lost"})
 
     assert response.status_code == 422
     assert _counts(db_session) == before
@@ -195,9 +193,7 @@ def test_omit_versus_explicit_null_still_differ(client: TestClient) -> None:
     assert rejected.status_code == 422
 
 
-def test_empty_patch_body_is_still_accepted(
-    client: TestClient, db_session: Session
-) -> None:
+def test_empty_patch_body_is_still_accepted(client: TestClient, db_session: Session) -> None:
     """``{}`` is a well-formed no-op request and stays a 200 (see PR notes).
 
     A no-op stays a no-op all the way down: issue #218 made the *service* stop
@@ -226,9 +222,7 @@ async def _mcp_client() -> AsyncIterator[ClientSession]:
 
 
 @pytest.fixture
-def _mcp_db(
-    test_engine: Engine, monkeypatch: pytest.MonkeyPatch
-) -> sessionmaker[Session]:
+def _mcp_db(test_engine: Engine, monkeypatch: pytest.MonkeyPatch) -> sessionmaker[Session]:
     from app.tools import runtime
 
     factory: sessionmaker[Session] = sessionmaker(
@@ -245,16 +239,12 @@ async def test_agent_tool_rejects_unknown_nested_mutation_field(
     their argument models, so the typo is caught as a schema error before any
     session is opened."""
     async with _mcp_client() as client:
-        created = await client.call_tool(
-            "create_task", {"title": "Ship", "prioirty": "urgent"}
-        )
+        created = await client.call_tool("create_task", {"title": "Ship", "prioirty": "urgent"})
         assert created.isError
         assert created.content[0].type == "text"
         assert "prioirty" in created.content[0].text
 
-        updated = await client.call_tool(
-            "update_task", {"task_id": 1, "workflow_stats": "done"}
-        )
+        updated = await client.call_tool("update_task", {"task_id": 1, "workflow_stats": "done"})
         # Must fail on the *schema*, not on "task 1 not found" — otherwise this
         # would still pass with extra="ignore".
         assert updated.isError
@@ -264,9 +254,7 @@ async def test_agent_tool_rejects_unknown_nested_mutation_field(
     with _mcp_db() as db:
         # Nothing was written by either rejected call.
         assert db.execute(select(func.count()).select_from(Task)).scalar_one() == 0
-        assert (
-            db.execute(select(func.count()).select_from(ActivityEvent)).scalar_one() == 0
-        )
+        assert db.execute(select(func.count()).select_from(ActivityEvent)).scalar_one() == 0
 
 
 def test_agent_tool_registry_call_raises_validation_error(

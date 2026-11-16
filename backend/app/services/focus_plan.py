@@ -299,15 +299,11 @@ def _ensure_pinnable(db: Session, task: Task) -> None:
     if task.parent_task_id is not None:
         active_ids = set(
             db.execute(
-                select(Task.id).where(
-                    Task.id == task.parent_task_id, Task.deleted_at.is_(None)
-                )
+                select(Task.id).where(Task.id == task.parent_task_id, Task.deleted_at.is_(None))
             ).scalars()
         )
         if not tasks_service.is_effective_top_level(task, active_ids):
-            raise FocusEntryError(
-                f'Task "{task.title}" is a subtask; pin its parent instead'
-            )
+            raise FocusEntryError(f'Task "{task.title}" is a subtask; pin its parent instead')
     rollups = tasks_service.compute_subtree_rollups(db, [task])
     if rollups[task.id].workflow_status == TaskWorkflowStatus.done:
         raise FocusEntryError(f'Task "{task.title}" is done and can\'t be pinned')
@@ -333,9 +329,7 @@ def _label(db: Session, entry: FocusPlanEntry, task_title: str | None) -> str:
     return f'Task "{task_title}" pinned{when} on {day}'
 
 
-def _record(
-    db: Session, entry: FocusPlanEntry, action: str, task: Task | None, verb: str
-) -> None:
+def _record(db: Session, entry: FocusPlanEntry, action: str, task: Task | None, verb: str) -> None:
     activity.record_event(
         db,
         project_id=task.project_id if task is not None else None,
@@ -416,9 +410,7 @@ def _live_exception(db: Session, series_id: int, plan_date: date) -> FocusPlanEn
     ).scalar_one_or_none()
 
 
-def skip_occurrence(
-    db: Session, series: FocusPlanEntry, plan_date: date
-) -> FocusPlanEntry:
+def skip_occurrence(db: Session, series: FocusPlanEntry, plan_date: date) -> FocusPlanEntry:
     """Skip one day's occurrence of a repeating commitment (#376). Caller commits.
 
     Stores a skip row for that day; the series and its other days are
@@ -494,9 +486,7 @@ def edit_occurrence(
     return override
 
 
-def stop_series(
-    db: Session, series: FocusPlanEntry, stop_date: date | None
-) -> FocusPlanEntry:
+def stop_series(db: Session, series: FocusPlanEntry, stop_date: date | None) -> FocusPlanEntry:
     """End a repeating commitment from ``stop_date`` on, or (``None``) lift the end (#428).
 
     The days before ``stop_date`` keep their occurrences, so a past day's plan
@@ -526,9 +516,7 @@ def stop_series(
     return series
 
 
-def update_entry(
-    db: Session, entry: FocusPlanEntry, fields: dict[str, Any]
-) -> FocusPlanEntry:
+def update_entry(db: Session, entry: FocusPlanEntry, fields: dict[str, Any]) -> FocusPlanEntry:
     """Apply a partial edit (``start_time`` as HH:MM or null, ``title``, ``duration_minutes``).
 
     A commitment always keeps a time, title and duration; a pin carries only a
@@ -563,9 +551,7 @@ def update_entry(
     return entry
 
 
-def reorder_pins(
-    db: Session, *, plan_date: date, entry_ids: Sequence[int]
-) -> list[FocusPlanEntry]:
+def reorder_pins(db: Session, *, plan_date: date, entry_ids: Sequence[int]) -> list[FocusPlanEntry]:
     """Put the named pins of ``plan_date`` in ``entry_ids`` order (#375).
 
     ``entry_ids`` may be any subset of the day's live task pins: a client only
@@ -612,10 +598,10 @@ def reorder_pins(
     if moved:
         titles = dict(
             db.execute(
-                select(Task.id, Task.title).where(
-                    Task.id.in_([pin.task_id for pin in ordered])
-                )
-            ).tuples().all()
+                select(Task.id, Task.title).where(Task.id.in_([pin.task_id for pin in ordered]))
+            )
+            .tuples()
+            .all()
         )
         sequence = ", ".join(f'"{titles.get(pin.task_id or 0, "?")}"' for pin in ordered)
         # One event for the whole reorder (a drag shifts several rows and the

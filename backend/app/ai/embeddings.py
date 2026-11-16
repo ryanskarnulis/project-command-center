@@ -65,9 +65,7 @@ class Embedder:
         if not texts:
             raise EmbeddingsUnavailable("nothing to embed")
         try:
-            response = self._client.post(
-                self._url, json={"input": list(texts)}, timeout=timeout
-            )
+            response = self._client.post(self._url, json={"input": list(texts)}, timeout=timeout)
             response.raise_for_status()
             body = response.json()
             data = sorted(body["data"], key=lambda item: item["index"])
@@ -76,9 +74,7 @@ class Embedder:
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             raise EmbeddingsUnavailable(f"{type(exc).__name__}: {exc}") from exc
         if len(vectors) != len(texts) or any(not vector for vector in vectors):
-            raise EmbeddingsUnavailable(
-                f"asked for {len(texts)} vectors, got {len(vectors)}"
-            )
+            raise EmbeddingsUnavailable(f"asked for {len(texts)} vectors, got {len(vectors)}")
         return Embedded(model=model, vectors=vectors)
 
     def embed_documents(self, texts: Sequence[str]) -> Embedded:

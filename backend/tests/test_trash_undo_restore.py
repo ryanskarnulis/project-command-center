@@ -79,17 +79,12 @@ def test_undo_parent_restore_keeps_a_cross_project_child(
 ) -> None:
     other = client.post("/api/projects", json={"name": "Elsewhere"}).json()
     parent = _task(client, title="P")
-    child = _task(
-        client, title="C", parent_task_id=parent["id"], project_id=other["id"]
-    )
+    child = _task(client, title="C", parent_task_id=parent["id"], project_id=other["id"])
     assert client.delete(f"/api/tasks/{parent['id']}").status_code == 204
     _restore(client, child["id"])
     result = _restore(client, parent["id"])
 
-    assert (
-        client.post("/api/trash/tasks/undo-restore", json=result["undo"]).status_code
-        == 204
-    )
+    assert client.post("/api/trash/tasks/undo-restore", json=result["undo"]).status_code == 204
     assert client.get(f"/api/tasks/{parent['id']}").status_code == 404
     live_child = client.get(f"/api/tasks/{child['id']}")
     assert live_child.status_code == 200
@@ -104,10 +99,7 @@ def test_undo_restore_keeps_the_cascade_marker_so_subtree_restore_still_works(
     assert client.delete(f"/api/tasks/{grand['id']}").status_code == 204
 
     result = _restore(client, parent["id"])
-    assert (
-        client.post("/api/trash/tasks/undo-restore", json=result["undo"]).status_code
-        == 204
-    )
+    assert client.post("/api/trash/tasks/undo-restore", json=result["undo"]).status_code == 204
     # P went back as part of G's cascade, so restoring G with its subtree
     # brings P back exactly as it would have before the restore/undo pair.
     resp = client.post(f"/api/tasks/{grand['id']}/restore?restore_subtasks=true")
@@ -131,10 +123,7 @@ def test_undo_restore_is_audited(client: TestClient, db_session: Session) -> Non
     task = _task(client, title="Audited")
     assert client.delete(f"/api/tasks/{task['id']}").status_code == 204
     result = _restore(client, task["id"])
-    assert (
-        client.post("/api/trash/tasks/undo-restore", json=result["undo"]).status_code
-        == 204
-    )
+    assert client.post("/api/trash/tasks/undo-restore", json=result["undo"]).status_code == 204
     actions = [
         e.action
         for e in db_session.execute(
@@ -166,9 +155,7 @@ def test_undo_restore_after_the_task_was_edited_is_a_conflict(
     task = _task(client, title="Original")
     assert client.delete(f"/api/tasks/{task['id']}").status_code == 204
     result = _restore(client, task["id"])
-    edited = client.patch(
-        f"/api/tasks/{task['id']}", json={"title": "Edited since restore"}
-    )
+    edited = client.patch(f"/api/tasks/{task['id']}", json={"title": "Edited since restore"})
     assert edited.status_code == 200
     events_before = _task_event_count(db_session)
 
@@ -235,9 +222,7 @@ def test_undo_restore_ignores_changes_to_rows_it_did_not_restore(
         == 200
     )
     assert (
-        client.patch(
-            f"/api/projects/{project['id']}", json={"name": "Home renamed"}
-        ).status_code
+        client.patch(f"/api/projects/{project['id']}", json={"name": "Home renamed"}).status_code
         == 200
     )
 
@@ -274,9 +259,7 @@ def _checklist_series(client: TestClient) -> tuple[dict[str, Any], list[int]]:
     """A daily checklist occurrence due 2026-09-23 with two steps."""
     root = _task(client, title="Routine", due_date="2026-09-23")
     steps = [
-        _task(client, title=title, parent_task_id=root["id"], due_date="2026-09-23")[
-            "id"
-        ]
+        _task(client, title=title, parent_task_id=root["id"], due_date="2026-09-23")["id"]
         for title in ("Step A", "Step B")
     ]
     resp = client.patch(f"/api/tasks/{root['id']}", json=DAILY)
@@ -329,12 +312,16 @@ def test_undo_unskip_returns_the_series_to_its_pre_restore_state(
     occurrences = series["occurrences"]
     live_rows = [o for o in occurrences if o["deleted_at"] is None]
     assert [o["id"] for o in live_rows] == [successor["id"]]
-    skipped = db_session.execute(
-        select(Task).where(
-            Task.recurrence_id == live["recurrence_id"],
-            Task.skipped_at.is_not(None),
+    skipped = (
+        db_session.execute(
+            select(Task).where(
+                Task.recurrence_id == live["recurrence_id"],
+                Task.skipped_at.is_not(None),
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert [t.due_date.isoformat() for t in skipped if t.due_date] == ["2026-09-23"]
     tombstone = skipped[0]
     # The very row the user restored is the skipped occurrence again (#457).
@@ -343,9 +330,9 @@ def test_undo_unskip_returns_the_series_to_its_pre_restore_state(
     assert tombstone.superseded_at is None
     assert tombstone.id in _trashed_task_ids(client)
     # The skipped occurrence carries its checklist into the trash as one unit.
-    tombstone_steps = db_session.execute(
-        select(Task).where(Task.parent_task_id == tombstone.id)
-    ).scalars().all()
+    tombstone_steps = (
+        db_session.execute(select(Task).where(Task.parent_task_id == tombstone.id)).scalars().all()
+    )
     assert sorted(t.title for t in tombstone_steps) == ["Step A", "Step B"]
     assert all(t.deleted_with_task_id == tombstone.id for t in tombstone_steps)
 
@@ -364,16 +351,12 @@ def test_undo_unskip_after_the_occurrence_moved_is_a_conflict(
     successor = client.post(f"/api/tasks/{root['id']}/skip").json()
     result = _restore(client, root["id"])
     # The user edits the rewound occurrence's date inside the Undo window.
-    moved = client.patch(
-        f"/api/tasks/{successor['id']}", json={"due_date": "2026-09-30"}
-    )
+    moved = client.patch(f"/api/tasks/{successor['id']}", json={"due_date": "2026-09-30"})
     assert moved.status_code == 200
 
     undo = client.post("/api/trash/tasks/undo-restore", json=result["undo"])
     assert undo.status_code == 409
-    assert client.get(f"/api/tasks/{successor['id']}").json()["due_date"] == (
-        "2026-09-30"
-    )
+    assert client.get(f"/api/tasks/{successor['id']}").json()["due_date"] == ("2026-09-30")
 
 
 def test_undo_in_place_unskip_puts_the_occurrence_back_as_skipped(
@@ -438,10 +421,7 @@ def test_undo_project_restore_with_tasks_re_archives_exactly_those_tasks(
 
     body = client.post(f"/api/projects/{pid}/restore?restore_tasks=true").json()
     assert body["restored_task_count"] == 1
-    assert (
-        client.post("/api/trash/projects/undo-restore", json=body["undo"]).status_code
-        == 204
-    )
+    assert client.post("/api/trash/projects/undo-restore", json=body["undo"]).status_code == 204
     trash = client.get("/api/trash").json()
     assert trash["projects"][0]["archived_task_count"] == 1
 
@@ -475,10 +455,7 @@ def test_an_old_project_receipt_stays_dead_after_a_newer_restore(
     stale = client.post("/api/trash/projects/undo-restore", json=first)
     assert stale.status_code == 409
     assert client.get(f"/api/projects/{pid}").status_code == 200
-    assert (
-        client.post("/api/trash/projects/undo-restore", json=second).status_code
-        == 204
-    )
+    assert client.post("/api/trash/projects/undo-restore", json=second).status_code == 204
 
 
 def test_undo_project_restore_rejects_a_marker_from_another_event(
@@ -492,16 +469,10 @@ def test_undo_project_restore_rejects_a_marker_from_another_event(
     other_receipt = client.post(f"/api/projects/{other}/restore").json()["undo"]
 
     forged = {**receipt, "restore_event_id": other_receipt["restore_event_id"]}
-    assert (
-        client.post("/api/trash/projects/undo-restore", json=forged).status_code
-        == 409
-    )
+    assert client.post("/api/trash/projects/undo-restore", json=forged).status_code == 409
     # The old id-list shape is a 422, not silently accepted.
     legacy = {"project_id": pid, "restored_task_ids": [], "unarchived_task_ids": []}
-    assert (
-        client.post("/api/trash/projects/undo-restore", json=legacy).status_code
-        == 422
-    )
+    assert client.post("/api/trash/projects/undo-restore", json=legacy).status_code == 422
     assert client.get(f"/api/projects/{pid}").status_code == 200
 
 
@@ -516,10 +487,7 @@ def test_undo_project_restore_leaves_independently_trashed_tasks_alone(
 
     receipt = client.post(f"/api/projects/{pid}/restore").json()["undo"]
     assert len(_trashed_task_ids(client)) == 2
-    assert (
-        client.post("/api/trash/projects/undo-restore", json=receipt).status_code
-        == 204
-    )
+    assert client.post("/api/trash/projects/undo-restore", json=receipt).status_code == 204
     # Only the cascade task goes back under the project; the one trashed on its
     # own before the project delete stays in the standalone trash.
     trash = client.get("/api/trash").json()
@@ -602,10 +570,7 @@ def test_an_old_unskip_receipt_stays_dead_after_a_newer_unskip(
     assert client.patch(f"/api/tasks/{root['id']}", json=DAILY).status_code == 200
     successor = client.post(f"/api/tasks/{root['id']}/skip").json()
     first = _restore(client, root["id"])
-    assert (
-        client.post("/api/trash/tasks/undo-restore", json=first["undo"]).status_code
-        == 204
-    )
+    assert client.post("/api/trash/tasks/undo-restore", json=first["undo"]).status_code == 204
     tombstone = db_session.execute(
         select(Task.id).where(
             Task.recurrence_id == successor["recurrence_id"],
@@ -618,6 +583,4 @@ def test_an_old_unskip_receipt_stays_dead_after_a_newer_unskip(
 
     stale = client.post("/api/trash/tasks/undo-restore", json=first["undo"])
     assert stale.status_code == 409
-    assert client.get(f"/api/tasks/{successor['id']}").json()["due_date"] == (
-        "2026-09-23"
-    )
+    assert client.get(f"/api/tasks/{successor['id']}").json()["due_date"] == ("2026-09-23")

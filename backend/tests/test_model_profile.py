@@ -62,9 +62,7 @@ def _sent(profile: ModelProfile, *, enable_thinking: bool = False) -> dict[str, 
         )
 
     client = httpx.Client(transport=httpx.MockTransport(server))
-    provider = LlamaCppProvider(
-        "http://llm.test/v1", profile.name, client=client, profile=profile
-    )
+    provider = LlamaCppProvider("http://llm.test/v1", profile.name, client=client, profile=profile)
     provider.chat([{"role": "user", "content": "hi"}], enable_thinking=enable_thinking)
     return bodies[0]
 
@@ -76,10 +74,10 @@ def test_gemma_profile_holds_the_shipped_numbers() -> None:
     gemma = load_profile("gemma-4-12b")
     assert gemma.name == "gemma-4-12b"
     assert gemma.source == "app/ai/profiles/gemma-4-12b.toml"
-    assert gemma.sampling.wire() == {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
+    assert dict(gemma.sampling) == {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
     assert gemma.thinking_kwarg == "enable_thinking"
-    assert gemma.turn_max_tokens == loop_module.DEFAULT_MAX_TOKENS == 2048
-    assert gemma.narrator_max_tokens == loop_module.NARRATOR_MAX_TOKENS == 2048
+    assert gemma.phase("turn").max_tokens == loop_module.DEFAULT_MAX_TOKENS == 2048
+    assert gemma.phase("narrator").max_tokens == loop_module.NARRATOR_MAX_TOKENS == 2048
 
 
 @pytest.mark.skipif(_FLEET_PROFILE is None, reason="needs the ../agent-standard sibling")
@@ -89,7 +87,7 @@ def test_gemma_matches_the_fleet_profile() -> None:
     text = _FLEET_PROFILE.read_text(encoding="utf-8")
     fleet = {key: float(value) for key, value in re.findall(_FLEET_ROW, text)}
     gemma = load_profile("gemma-4-12b")
-    assert fleet == {key: float(value) for key, value in gemma.sampling.wire().items()}
+    assert fleet == {key: float(value) for key, value in dict(gemma.sampling).items()}
     assert f'"{gemma.thinking_kwarg}"' in text
 
 
@@ -121,7 +119,7 @@ def test_the_configured_default_model_has_a_profile() -> None:
         "[phases.turn]\nmax_token = 100\n",  # misspelt phase key
         "[sampling]\ntop_k = 1.5\n",  # wrong type
         "[sampling]\ntop_p = 1.5\n",  # out of range
-        'thinking_kwarg = true\n',  # wrong type
+        "thinking_kwarg = true\n",  # wrong type
         "[phases.turn]\nmax_tokens = 0\n",
         # A cap above the completion reserve could overflow the window.
         f"[phases.turn]\nmax_tokens = {context_budget.COMPLETION_RESERVE_TOKENS + 1}\n",
@@ -138,10 +136,10 @@ def test_a_profile_that_says_anything_unknown_or_mistyped_fails(text: str) -> No
 def test_an_empty_profile_is_the_default_settings_under_its_own_name() -> None:
     profile = parse_profile("blank", "", "test")
     assert profile.name == "blank"
-    assert profile.sampling.wire() == {}
+    assert dict(profile.sampling) == {}
     assert profile.thinking_kwarg is None
-    assert profile.turn_max_tokens == DEFAULT_PROFILE.turn_max_tokens
-    assert profile.narrator_max_tokens == DEFAULT_PROFILE.narrator_max_tokens
+    assert profile.phase("turn").max_tokens == DEFAULT_PROFILE.phase("turn").max_tokens
+    assert profile.phase("narrator").max_tokens == DEFAULT_PROFILE.phase("narrator").max_tokens
 
 
 def test_a_model_with_no_profile_runs_on_the_default_and_says_so() -> None:
@@ -267,7 +265,10 @@ def test_a_thinking_profile_thinks_on_turns_and_never_on_the_narrator(
     # #417: `[phases.turn] thinking = true` opens the turns' thinking channel;
     # the narrator stays a plain call.
     thinking = parse_profile("thinker", "[phases.turn]\nthinking = true\n", "test")
-    assert thinking.turn_thinking and thinking.describe()["turn_thinking"] is True
+    assert (
+        thinking.phase("turn").thinking
+        and thinking.describe()["phases"]["turn"]["thinking"] is True
+    )
     provider = _ProfiledProvider(
         [_calls(("list_projects", {})), _text("I looked; nothing there.")], thinking
     )
@@ -276,7 +277,7 @@ def test_a_thinking_profile_thinks_on_turns_and_never_on_the_narrator(
 
 
 def test_the_default_and_gemma_profiles_never_think(tool_db: sessionmaker[Session]) -> None:
-    assert not DEFAULT_PROFILE.turn_thinking
+    assert not DEFAULT_PROFILE.phase("turn").thinking
     provider = _ProfiledProvider([_text("Hi."), _text("Hey.")], load_profile("gemma-4-12b"))
     AgentLoop(provider, tracer=_Records()).run("hi")
     assert provider.thinking == [False, False]
@@ -288,8 +289,8 @@ def test_a_planner_temperature_is_sent_on_planner_calls_only(
     # #418: `[phases.turn] temperature` cools the planner; the narrator keeps
     # `[sampling]`'s, which the provider sends when no override is given.
     cool = parse_profile("cool", "[phases.turn]\ntemperature = 0.3\n", "test")
-    assert cool.describe()["turn_temperature"] == 0.3
+    assert cool.describe()["phases"]["turn"]["temperature"] == 0.3
     provider = _ProfiledProvider([_calls(("list_projects", {})), _text("None.")], cool)
     AgentLoop(provider, tracer=_Records()).run("What projects?")
     assert provider.temperatures == [0.3, 0.3, None]
-    assert load_profile("gemma-4-12b").turn_temperature == 0.3
+    assert load_profile("gemma-4-12b").phase("turn").temperature == 0.3

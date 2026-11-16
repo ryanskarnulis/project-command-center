@@ -62,9 +62,7 @@ def test_task_lifecycle_emits_events(db_session: Session) -> None:
     project = projects_service.create_project(db_session, name="Home")
     db_session.commit()
 
-    task = tasks_service.create_task(
-        db_session, project_id=project.id, title="loose task"
-    )
+    task = tasks_service.create_task(db_session, project_id=project.id, title="loose task")
     tasks_service.mark_done(db_session, task)
     tasks_service.soft_delete_task(db_session, task)
     db_session.commit()
@@ -80,9 +78,7 @@ def test_task_lifecycle_emits_events(db_session: Session) -> None:
 
 def test_created_task_with_project_emits_created_event(db_session: Session) -> None:
     project = projects_service.create_project(db_session, name="Direct")
-    task = tasks_service.create_task(
-        db_session, project_id=project.id, title="direct task"
-    )
+    task = tasks_service.create_task(db_session, project_id=project.id, title="direct task")
     db_session.commit()
 
     task_events = [

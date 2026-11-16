@@ -21,14 +21,15 @@ satisfies the new check. No backfill.
 Design: docs/focus-day-plan.md.
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = '282c1d7a40b0'
-down_revision: Union[str, None] = '4c7d2e9a1b35'
+revision: str = "282c1d7a40b0"
+down_revision: Union[str, None] = "4c7d2e9a1b35"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -49,39 +50,36 @@ _NEW_KIND = (
 
 
 def upgrade() -> None:
-    with op.batch_alter_table('focus_plan_entries', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('repeat_interval', sa.JSON(none_as_null=True), nullable=True))
-        batch_op.add_column(sa.Column('series_id', sa.Integer(), nullable=True))
+    with op.batch_alter_table("focus_plan_entries", schema=None) as batch_op:
+        batch_op.add_column(sa.Column("repeat_interval", sa.JSON(none_as_null=True), nullable=True))
+        batch_op.add_column(sa.Column("series_id", sa.Integer(), nullable=True))
         batch_op.create_foreign_key(
-            'fk_focus_plan_entries_series_id', 'focus_plan_entries', ['series_id'], ['id']
+            "fk_focus_plan_entries_series_id", "focus_plan_entries", ["series_id"], ["id"]
         )
-        batch_op.drop_constraint('ck_focus_plan_entries_kind', type_='check')
-        batch_op.create_check_constraint('ck_focus_plan_entries_kind', sa.text(_NEW_KIND))
+        batch_op.drop_constraint("ck_focus_plan_entries_kind", type_="check")
+        batch_op.create_check_constraint("ck_focus_plan_entries_kind", sa.text(_NEW_KIND))
         batch_op.create_index(
-            'uq_focus_plan_entries_live_skip',
-            ['series_id', 'plan_date'],
+            "uq_focus_plan_entries_live_skip",
+            ["series_id", "plan_date"],
             unique=True,
-            sqlite_where=sa.text('series_id IS NOT NULL AND deleted_at IS NULL'),
+            sqlite_where=sa.text("series_id IS NOT NULL AND deleted_at IS NULL"),
         )
 
 
 def downgrade() -> None:
     # Series and skips have no shape in the old schema. Soft-deleted rows are
     # history and go too: the narrower check would refuse them all the same.
+    op.execute("DELETE FROM focus_plan_entries WHERE series_id IS NOT NULL")
     op.execute(
-        "DELETE FROM focus_plan_entries WHERE series_id IS NOT NULL"
+        "UPDATE focus_plan_entries SET repeat_interval = NULL WHERE repeat_interval IS NOT NULL"
     )
-    op.execute(
-        "UPDATE focus_plan_entries SET repeat_interval = NULL"
-        " WHERE repeat_interval IS NOT NULL"
-    )
-    with op.batch_alter_table('focus_plan_entries', schema=None) as batch_op:
+    with op.batch_alter_table("focus_plan_entries", schema=None) as batch_op:
         batch_op.drop_index(
-            'uq_focus_plan_entries_live_skip',
-            sqlite_where=sa.text('series_id IS NOT NULL AND deleted_at IS NULL'),
+            "uq_focus_plan_entries_live_skip",
+            sqlite_where=sa.text("series_id IS NOT NULL AND deleted_at IS NULL"),
         )
-        batch_op.drop_constraint('ck_focus_plan_entries_kind', type_='check')
-        batch_op.create_check_constraint('ck_focus_plan_entries_kind', sa.text(_OLD_KIND))
-        batch_op.drop_constraint('fk_focus_plan_entries_series_id', type_='foreignkey')
-        batch_op.drop_column('series_id')
-        batch_op.drop_column('repeat_interval')
+        batch_op.drop_constraint("ck_focus_plan_entries_kind", type_="check")
+        batch_op.create_check_constraint("ck_focus_plan_entries_kind", sa.text(_OLD_KIND))
+        batch_op.drop_constraint("fk_focus_plan_entries_series_id", type_="foreignkey")
+        batch_op.drop_column("series_id")
+        batch_op.drop_column("repeat_interval")

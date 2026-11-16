@@ -157,9 +157,7 @@ def _default_project_id(db: Session, project_id: int | None) -> int:
     return project_id
 
 
-def log_task_event(
-    db: Session, task: Task, action: str, *, detail: str | None = None
-) -> None:
+def log_task_event(db: Session, task: Task, action: str, *, detail: str | None = None) -> None:
     """Record an activity event for a task on its project's feed.
 
     ``detail`` is appended to the summary (``Task "x" completed in 45 min``).
@@ -177,9 +175,7 @@ def log_task_event(
     )
 
 
-def _assert_no_parent_cycle(
-    db: Session, task_id: int | None, new_parent_id: int
-) -> None:
+def _assert_no_parent_cycle(db: Session, task_id: int | None, new_parent_id: int) -> None:
     """Reject self-parenting and any ancestry cycle (no A->B->A).
 
     ``task_id`` is None when creating a brand-new task (no row yet, so it cannot be
@@ -213,8 +209,7 @@ def _assert_no_parent_cycle(
         if current == task_id:
             if through_trash:
                 raise TaskCycleError(
-                    "Parent assignment would create a cycle through a task in "
-                    "the trash"
+                    "Parent assignment would create a cycle through a task in the trash"
                 )
             raise TaskCycleError("Parent assignment would create a cycle")
         if current in visited:
@@ -259,8 +254,7 @@ def detach_if_parent_cycle(db: Session, task: Task) -> bool:
                 entity_id=task.id,
                 action="updated",
                 summary=(
-                    f'Task "{task.title}" moved to top level to break a parent '
-                    "cycle on restore"
+                    f'Task "{task.title}" moved to top level to break a parent cycle on restore'
                 ),
             )
             return True
@@ -310,9 +304,7 @@ def _subtree_height(db: Session, task_id: int, limit: int) -> int:
     while frontier and height <= limit:
         child_ids = (
             db.execute(
-                select(Task.id).where(
-                    Task.parent_task_id.in_(frontier), Task.deleted_at.is_(None)
-                )
+                select(Task.id).where(Task.parent_task_id.in_(frontier), Task.deleted_at.is_(None))
             )
             .scalars()
             .all()
@@ -326,9 +318,7 @@ def _subtree_height(db: Session, task_id: int, limit: int) -> int:
     return height
 
 
-def _assert_within_depth_cap(
-    db: Session, task_id: int | None, new_parent_id: int
-) -> None:
+def _assert_within_depth_cap(db: Session, task_id: int | None, new_parent_id: int) -> None:
     """Reject an edge that would nest past :data:`MAX_SUBTASK_DEPTH` (issue #252).
 
     ``task_id`` is None on create: the new task is a leaf, so it only has to fit
@@ -345,16 +335,13 @@ def _assert_within_depth_cap(
     # Levels still available below the moved/created task itself.
     allowance = MAX_SUBTASK_DEPTH - parent_level - 1
     if allowance < 0:
-        raise TaskDepthError(
-            f"Subtasks can be nested at most {MAX_SUBTASK_DEPTH} levels deep"
-        )
+        raise TaskDepthError(f"Subtasks can be nested at most {MAX_SUBTASK_DEPTH} levels deep")
     if task_id is None:
         return
     height = _subtree_height(db, task_id, allowance)
     if height > allowance:
         raise TaskDepthError(
-            "Moving this task would nest its subtasks more than "
-            f"{MAX_SUBTASK_DEPTH} levels deep"
+            f"Moving this task would nest its subtasks more than {MAX_SUBTASK_DEPTH} levels deep"
         )
 
 
@@ -445,11 +432,7 @@ def effective_top_level_ids(db: Session, tasks: Sequence[Task]) -> set[int]:
     active_parent_ids: set[int] = set()
     if parent_ids:
         active_parent_ids = set(
-            db.execute(
-                select(Task.id).where(
-                    Task.id.in_(parent_ids), Task.deleted_at.is_(None)
-                )
-            )
+            db.execute(select(Task.id).where(Task.id.in_(parent_ids), Task.deleted_at.is_(None)))
             .scalars()
             .all()
         )
@@ -459,9 +442,7 @@ def effective_top_level_ids(db: Session, tasks: Sequence[Task]) -> set[int]:
 def list_subtasks(db: Session, parent_task_id: int) -> Sequence[Task]:
     """Active direct children of a task, ordered by id."""
     return (
-        db.execute(
-            active(Task).where(Task.parent_task_id == parent_task_id).order_by(Task.id)
-        )
+        db.execute(active(Task).where(Task.parent_task_id == parent_task_id).order_by(Task.id))
         .scalars()
         .all()
     )
@@ -553,9 +534,7 @@ def _effective_parent_status(
     return TaskWorkflowStatus.in_progress
 
 
-def capped_status(
-    rollup_status: TaskWorkflowStatus, is_blocked: bool
-) -> TaskWorkflowStatus:
+def capped_status(rollup_status: TaskWorkflowStatus, is_blocked: bool) -> TaskWorkflowStatus:
     """Cap a rolled-up ``done`` to ``in_progress`` when the task is blocked.
 
     A checklist parent's completion is derived from its children, so it never
@@ -598,9 +577,7 @@ class _StatusGraph:
         self.wait_component = _strongly_connected_components(
             nodes, lambda tid: self._children_ids(tid) + deps_of.get(tid, [])
         )
-        self.nest_component = _strongly_connected_components(
-            nodes, self._children_ids
-        )
+        self.nest_component = _strongly_connected_components(nodes, self._children_ids)
 
     def _children_ids(self, task_id: int) -> list[int]:
         return [c.id for c in self.by_parent.get(task_id, [])]
@@ -689,11 +666,7 @@ def _load_status_graph(db: Session, roots: Sequence[Task]) -> _StatusGraph:
         discovered: set[int] = set()
         for chunk in chunked(frontier):
             children = (
-                db.execute(
-                    active(Task)
-                    .where(Task.parent_task_id.in_(chunk))
-                    .order_by(Task.id)
-                )
+                db.execute(active(Task).where(Task.parent_task_id.in_(chunk)).order_by(Task.id))
                 .scalars()
                 .all()
             )
@@ -779,9 +752,7 @@ def _resolve_rollup(
     if cached is not None:
         return cached
     children = [
-        c
-        for c in graph.by_parent.get(task.id, [])
-        if not graph.child_in_cycle(task.id, c.id)
+        c for c in graph.by_parent.get(task.id, []) if not graph.child_in_cycle(task.id, c.id)
     ]
     subtask_status: TaskWorkflowStatus | None = None
     if children:
@@ -855,9 +826,7 @@ def compute_subtree_rollups(db: Session, roots: Sequence[Task]) -> dict[int, Rol
     return _rollups_over(roots, _load_status_graph(db, roots))
 
 
-def compute_rollups_for_full_set(
-    db: Session, tasks: Sequence[Task]
-) -> dict[int, Rollup]:
+def compute_rollups_for_full_set(db: Session, tasks: Sequence[Task]) -> dict[int, Rollup]:
     """Roll-ups for ``tasks`` when it is already the complete active set.
 
     Builds the ``parent_id -> children`` map from the passed rows instead of
@@ -880,10 +849,7 @@ def has_active_children(db: Session, task_id: int) -> bool:
     gated.
     """
     return (
-        db.execute(
-            active(Task).where(Task.parent_task_id == task_id).limit(1)
-        ).first()
-        is not None
+        db.execute(active(Task).where(Task.parent_task_id == task_id).limit(1)).first() is not None
     )
 
 
@@ -953,9 +919,7 @@ def last_future_occurrence(
     )
 
 
-def _parent_status_write_takes_effect(
-    db: Session, task: Task, target: TaskWorkflowStatus
-) -> bool:
+def _parent_status_write_takes_effect(db: Session, task: Task, target: TaskWorkflowStatus) -> bool:
     """Gate a status write on a parent against what its subtasks say.
 
     A parent's ``done`` is derived — only its subtasks can complete it — so a
@@ -1130,9 +1094,7 @@ def list_tasks_page(
 
 
 def get_task(db: Session, task_id: int) -> Task | None:
-    return db.execute(
-        active(Task).where(Task.id == task_id)
-    ).scalar_one_or_none()
+    return db.execute(active(Task).where(Task.id == task_id)).scalar_one_or_none()
 
 
 def get_tasks(db: Session, task_ids: Iterable[int]) -> dict[int, Task]:
@@ -1245,10 +1207,7 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     # with nothing reconciling it, stalling the series (issue #210). Seeding both
     # endpoints keeps the guard intact — reconcile's `seen` set makes the extra seed
     # idempotent — while making the move reconcile the relationship it just created.
-    moved = (
-        "parent_task_id" in control
-        and control["parent_task_id"] != task.parent_task_id
-    )
+    moved = "parent_task_id" in control and control["parent_task_id"] != task.parent_task_id
     previous_parent_id = task.parent_task_id if moved else None
 
     # A parent's estimate is derived from its subtasks (read-only); reject a direct
@@ -1269,9 +1228,7 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
             raise DerivedEstimateError(
                 "This task's estimate is derived from its subtasks and can't be set directly"
             )
-        if not _parent_status_write_takes_effect(
-            db, task, control["workflow_status"]
-        ):
+        if not _parent_status_write_takes_effect(db, task, control["workflow_status"]):
             control.pop("workflow_status")
 
     # A blocked task (waiting on an unfinished dependency) can't be completed.
@@ -1288,12 +1245,9 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     # clearing the due date on a task that stays recurring (which would otherwise
     # leave a series that never spawns and can't be skipped).
     effective_repeat = (
-        control["repeat_interval"] if "repeat_interval" in control
-        else task.repeat_interval
+        control["repeat_interval"] if "repeat_interval" in control else task.repeat_interval
     )
-    effective_due = (
-        control["due_date"] if "due_date" in control else task.due_date
-    )
+    effective_due = control["due_date"] if "due_date" in control else task.due_date
     if effective_repeat is not None and effective_due is None:
         raise RecurrenceError("A recurring task requires a due date")
 
@@ -1322,9 +1276,7 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
             and "repeat_interval" in control
             and task.recurrence_id is not None
         ):
-            latest = last_future_occurrence(
-                db, task.recurrence_id, effective_due, task.id
-            )
+            latest = last_future_occurrence(db, task.recurrence_id, effective_due, task.id)
             if latest is not None and latest.due_date is not None:
                 _recurrence.require_next_due_date(latest.due_date, effective_repeat)
 
@@ -1432,9 +1384,7 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     # fields onto same-series rows due on or after this one. Already-done past
     # rows (earlier due dates) are left alone.
     forward_fields = {
-        key: value
-        for key, value in control.items()
-        if key not in _FORWARD_PATCH_EXCLUDE
+        key: value for key, value in control.items() if key not in _FORWARD_PATCH_EXCLUDE
     }
     if (
         edit_scope == "future"
@@ -1504,9 +1454,7 @@ def update_task(db: Session, task: Task, fields: Mapping[str, Any]) -> Task:
     return task
 
 
-def mark_done(
-    db: Session, task: Task, *, actual_minutes: int | None = None
-) -> Task:
+def mark_done(db: Session, task: Task, *, actual_minutes: int | None = None) -> Task:
     # Mirror update_task's recurrence behaviour: POST /tasks/{id}/done is the path
     # the task lists/cards use, so completing a recurring task here must roll the
     # series forward too. (This endpoint has no skip flag — skipping is the detail
@@ -1617,11 +1565,7 @@ def soft_delete_descendants(db: Session, task: Task) -> None:
     seeds: list[int] = []
     for child in list_subtasks(db, task.id):
         _soft_delete_subtree(db, child, deleted, seeds, root_id=task.id)
-    external = [
-        task_id
-        for task_id in seeds
-        if task_id not in deleted and task_id != task.id
-    ]
+    external = [task_id for task_id in seeds if task_id not in deleted and task_id != task.id]
     if external:
         task_recurrence.reconcile(db, external)
 

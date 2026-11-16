@@ -25,9 +25,7 @@ _UNIQUE_MESSAGE = re.compile(r"UNIQUE constraint failed:\s*(?P<columns>[^\n]+)")
 
 # The uniqueness-flavoured constraint codes. A PRIMARY KEY collision is reported
 # under its own name but with the same message shape.
-_UNIQUE_ERRORNAMES = frozenset(
-    {"SQLITE_CONSTRAINT_UNIQUE", "SQLITE_CONSTRAINT_PRIMARYKEY"}
-)
+_UNIQUE_ERRORNAMES = frozenset({"SQLITE_CONSTRAINT_UNIQUE", "SQLITE_CONSTRAINT_PRIMARYKEY"})
 
 
 def _unique_violation_columns(exc: IntegrityError) -> frozenset[str] | None:
@@ -49,9 +47,7 @@ def _unique_violation_columns(exc: IntegrityError) -> frozenset[str] | None:
     return frozenset(part.strip() for part in match.group("columns").split(","))
 
 
-def violates_unique_columns(
-    exc: IntegrityError, table: str, columns: Sequence[str]
-) -> bool:
+def violates_unique_columns(exc: IntegrityError, table: str, columns: Sequence[str]) -> bool:
     """Is ``exc`` the uniqueness failure of exactly ``table``'s ``columns``?
 
     The column tuple is the only thing SQLite tells us, so it — not the index

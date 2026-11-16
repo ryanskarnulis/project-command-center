@@ -38,9 +38,7 @@ def _two_live_occurrences(db: Session) -> tuple[str, Task, Task]:
     first = tasks_service.create_task(
         db, project_id=project.id, title="water plants", due_date=date(2026, 7, 1)
     )
-    tasks_service.update_task(
-        db, first, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db, first, {"repeat_interval": {"unit": "week", "every": 1}})
     db.commit()
     recurrence_id = first.recurrence_id
     assert recurrence_id is not None
@@ -121,9 +119,7 @@ def test_patch_task_onto_live_sibling_date_returns_409(
 ) -> None:
     _recurrence_id, first, _second = _two_live_occurrences(db_session)
 
-    response = client.patch(
-        f"/api/tasks/{first.id}", json={"due_date": "2026-07-08"}
-    )
+    response = client.patch(f"/api/tasks/{first.id}", json={"due_date": "2026-07-08"})
 
     assert response.status_code == 409
     assert "2026-07-08" in response.json()["detail"]

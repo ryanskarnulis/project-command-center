@@ -33,11 +33,7 @@ NO_DB_WRITE_ROUTES = {
 
 
 def _dependency_names(route: APIRoute) -> set[str]:
-    return {
-        dep.call.__name__
-        for dep in route.dependant.dependencies
-        if dep.call is not None
-    } | {
+    return {dep.call.__name__ for dep in route.dependant.dependencies if dep.call is not None} | {
         sub.call.__name__
         for dep in route.dependant.dependencies
         for sub in dep.dependencies
@@ -64,8 +60,7 @@ class TestWriteRoutesTakeTheWriteLock:
             if "get_db" in names and "get_db_write" not in names:
                 offenders.append(f"{sorted(route.methods)} {route.path}")
         assert not offenders, (
-            "these mutating routes use the read session and can race:\n  "
-            + "\n  ".join(offenders)
+            "these mutating routes use the read session and can race:\n  " + "\n  ".join(offenders)
         )
 
     def test_read_routes_do_not_take_the_write_lock(self) -> None:
@@ -77,9 +72,7 @@ class TestWriteRoutesTakeTheWriteLock:
             and not (route.methods - READ_METHODS)
             and "get_db_write" in _dependency_names(route)
         ]
-        assert not offenders, "read-only routes on the write session:\n  " + "\n  ".join(
-            offenders
-        )
+        assert not offenders, "read-only routes on the write session:\n  " + "\n  ".join(offenders)
 
 
 def _record_begins(engine: Engine, sink: list[str]) -> None:

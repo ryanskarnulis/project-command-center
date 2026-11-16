@@ -43,9 +43,7 @@ def get_trash(
                     "archived_task_count": projects_service.count_tasks_deleted_with_project(
                         db, p.id
                     ),
-                    "purge_task_count": projects_service.count_tasks_purged_with_project(
-                        db, p.id
-                    ),
+                    "purge_task_count": projects_service.count_tasks_purged_with_project(db, p.id),
                 }
             )
             for p in deleted_projects
@@ -67,9 +65,7 @@ def get_trash_count(db: Session = Depends(get_db)) -> TrashCountResult:
 
 
 @router.post("/tasks/{task_id}/restore", response_model=TaskRestoreResult)
-def restore_task(
-    task_id: EntityId, db: Session = Depends(get_db_write)
-) -> TaskRestoreResult:
+def restore_task(task_id: EntityId, db: Session = Depends(get_db_write)) -> TaskRestoreResult:
     """Restore a trashed task and hand back the receipt that undoes it.
 
     The same restore as ``POST /api/tasks/{id}/restore`` (root-only; a skipped
@@ -86,9 +82,7 @@ def restore_task(
     try:
         restored, undo = task_trash.restore_task_with_undo(db, task)
     except tasks_service.OccurrenceConflictError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     db.commit()
     db.refresh(restored)
     logger.info("trash_task_restored", task_id=task_id, restored_id=restored.id)
@@ -96,9 +90,7 @@ def restore_task(
 
 
 @router.post("/tasks/undo-restore", status_code=status.HTTP_204_NO_CONTENT)
-def undo_task_restore(
-    undo: TaskRestoreUndo, db: Session = Depends(get_db_write)
-) -> None:
+def undo_task_restore(undo: TaskRestoreUndo, db: Session = Depends(get_db_write)) -> None:
     """Reverse exactly what one Trash task restore changed.
 
     Not ``DELETE /api/tasks/{id}``: that cascades through every active
@@ -109,24 +101,18 @@ def undo_task_restore(
     try:
         task_trash.undo_task_restore(db, undo)
     except RestoreUndoConflictError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     db.commit()
     logger.info("trash_task_restore_undone", task_id=undo.task_id)
 
 
 @router.post("/projects/undo-restore", status_code=status.HTTP_204_NO_CONTENT)
-def undo_project_restore(
-    undo: ProjectRestoreUndo, db: Session = Depends(get_db_write)
-) -> None:
+def undo_project_restore(undo: ProjectRestoreUndo, db: Session = Depends(get_db_write)) -> None:
     """Reverse exactly what one project restore changed; 409 if it moved on."""
     try:
         projects_service.undo_project_restore(db, undo)
     except RestoreUndoConflictError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     db.commit()
     logger.info("trash_project_restore_undone", project_id=undo.project_id)
 

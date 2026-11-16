@@ -95,9 +95,7 @@ def test_same_value_task_patch_records_nothing(db_session: Session) -> None:
     db_session.commit()
     before = _events(db_session)
 
-    tasks_service.update_task(
-        db_session, task, {"title": "Ship", "description": "why"}
-    )
+    tasks_service.update_task(db_session, task, {"title": "Ship", "description": "why"})
     db_session.commit()
 
     assert _events(db_session) == before
@@ -137,9 +135,7 @@ def test_reopen_on_an_already_open_leaf_records_nothing(db_session: Session) -> 
 def test_empty_and_same_value_project_patches_record_nothing(
     db_session: Session,
 ) -> None:
-    project = projects_service.create_project(
-        db_session, name="Audit", description="the trail"
-    )
+    project = projects_service.create_project(db_session, name="Audit", description="the trail")
     db_session.commit()
     before = _events(db_session)
 
@@ -188,9 +184,7 @@ def test_completing_a_recurring_task_still_rolls_the_series_forward(
         title="Water plants",
         due_date=date(2030, 1, 1),
     )
-    tasks_service.update_task(
-        db_session, task, {"repeat_interval": {"unit": "day", "every": 1}}
-    )
+    tasks_service.update_task(db_session, task, {"repeat_interval": {"unit": "day", "every": 1}})
     db_session.commit()
 
     tasks_service.mark_done(db_session, task)
@@ -198,9 +192,7 @@ def test_completing_a_recurring_task_still_rolls_the_series_forward(
 
     assert "completed" in _actions(db_session, task.id)
     successors = db_session.scalars(
-        select(Task).where(
-            Task.recurrence_id == task.recurrence_id, Task.id != task.id
-        )
+        select(Task).where(Task.recurrence_id == task.recurrence_id, Task.id != task.id)
     ).all()
     assert [t.due_date for t in successors] == [date(2030, 1, 2)]
 
@@ -216,20 +208,14 @@ def test_future_scope_still_patches_and_logs_occurrences_it_moves(
         title="Water plants",
         due_date=date.today(),
     )
-    tasks_service.update_task(
-        db_session, head, {"repeat_interval": {"unit": "day", "every": 1}}
-    )
+    tasks_service.update_task(db_session, head, {"repeat_interval": {"unit": "day", "every": 1}})
     tasks_service.mark_done(db_session, head)
     db_session.commit()
     successor = db_session.scalars(
-        select(Task).where(
-            Task.recurrence_id == head.recurrence_id, Task.id != head.id
-        )
+        select(Task).where(Task.recurrence_id == head.recurrence_id, Task.id != head.id)
     ).one()
     # The head already carries this title; the successor does not.
-    tasks_service.update_task(
-        db_session, successor, {"title": "Water all the plants"}
-    )
+    tasks_service.update_task(db_session, successor, {"title": "Water all the plants"})
     db_session.commit()
 
     later = tasks_service.update_task(
@@ -254,15 +240,11 @@ def test_future_scope_logs_only_the_occurrences_that_change(
         title="Water plants",
         due_date=date.today(),
     )
-    tasks_service.update_task(
-        db_session, head, {"repeat_interval": {"unit": "day", "every": 1}}
-    )
+    tasks_service.update_task(db_session, head, {"repeat_interval": {"unit": "day", "every": 1}})
     tasks_service.mark_done(db_session, head)
     db_session.commit()
     successor = db_session.scalars(
-        select(Task).where(
-            Task.recurrence_id == head.recurrence_id, Task.id != head.id
-        )
+        select(Task).where(Task.recurrence_id == head.recurrence_id, Task.id != head.id)
     ).one()
     successor_id = successor.id
     before_head = _actions(db_session, head.id)
@@ -287,9 +269,7 @@ def test_rest_no_op_task_patches_are_200_and_record_nothing(
     client: TestClient, db_session: Session
 ) -> None:
     project_id = client.post("/api/projects", json={"name": "Audit"}).json()["id"]
-    task = client.post(
-        f"/api/projects/{project_id}/tasks", json={"title": "Ship"}
-    ).json()
+    task = client.post(f"/api/projects/{project_id}/tasks", json={"title": "Ship"}).json()
     before = _events(db_session)
 
     for payload in ({}, {"edit_scope": "future"}, {"title": "Ship"}):
@@ -320,9 +300,7 @@ def test_rest_done_and_reopen_are_idempotent_and_record_one_event_each(
     client: TestClient, db_session: Session
 ) -> None:
     project_id = client.post("/api/projects", json={"name": "Audit"}).json()["id"]
-    task_id = client.post(
-        f"/api/projects/{project_id}/tasks", json={"title": "Ship"}
-    ).json()["id"]
+    task_id = client.post(f"/api/projects/{project_id}/tasks", json={"title": "Ship"}).json()["id"]
 
     # Reopening an already-open task is a no-op.
     assert client.post(f"/api/tasks/{task_id}/reopen").status_code == 200
@@ -337,13 +315,9 @@ def test_rest_done_and_reopen_are_idempotent_and_record_one_event_each(
     assert _actions(db_session, task_id) == ["created", "completed", "reopened"]
 
 
-def test_rest_no_op_patch_does_not_bump_updated_at(
-    client: TestClient, db_session: Session
-) -> None:
+def test_rest_no_op_patch_does_not_bump_updated_at(client: TestClient, db_session: Session) -> None:
     project_id = client.post("/api/projects", json={"name": "Audit"}).json()["id"]
-    task = client.post(
-        f"/api/projects/{project_id}/tasks", json={"title": "Ship"}
-    ).json()
+    task = client.post(f"/api/projects/{project_id}/tasks", json={"title": "Ship"}).json()
 
     patched = client.patch(f"/api/tasks/{task['id']}", json={})
 
@@ -389,9 +363,7 @@ def test_agent_tool_no_op_project_update_records_nothing(
     before = _events(db_session)
     _tool_session(db_session, test_engine, monkeypatch)
 
-    registry.call_tool(
-        "update_project", {"project_id": project_id}, actor="agent"
-    )
+    registry.call_tool("update_project", {"project_id": project_id}, actor="agent")
     registry.call_tool(
         "update_project",
         {"project_id": project_id, "name": "Audit"},

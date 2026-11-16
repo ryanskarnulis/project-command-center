@@ -194,13 +194,13 @@ def test_the_canonical_run_covers_both_phases_tools_and_recall() -> None:
     profile = load_profile(_MODEL)
     # The planner's calls at its own temperature (#418), the narrator's at
     # the sampling's.
-    planner_sampling = {**profile.sampling.wire(), "temperature": profile.turn_temperature}
+    planner_sampling = {**dict(profile.sampling), "temperature": profile.phase("turn").temperature}
     for body in bodies:
-        expected = planner_sampling if "tools" in body else profile.sampling.wire()
+        expected = planner_sampling if "tools" in body else dict(profile.sampling)
         assert {key: body[key] for key in expected} == expected
         assert body["chat_template_kwargs"] == {profile.thinking_kwarg: False}
-    assert {body["max_tokens"] for body in turns} == {profile.turn_max_tokens}
-    assert {body["max_tokens"] for body in narrations} == {profile.narrator_max_tokens}
+    assert {body["max_tokens"] for body in turns} == {profile.phase("turn").max_tokens}
+    assert {body["max_tokens"] for body in narrations} == {profile.phase("narrator").max_tokens}
     assert {body["messages"][0]["content"] for body in narrations} == {loop_module.NARRATOR_PROMPT}
     assert {message["role"] for message in turns[2]["messages"]} == {
         "system",
@@ -213,12 +213,14 @@ def test_the_canonical_run_covers_both_phases_tools_and_recall() -> None:
     follow_up = turns[3]["messages"][1]["content"]
     assert 'The user said: "What projects do I have, and what is task 999?"' in follow_up
     # The first run's read is remembered by what it found; its failed read not.
-    assert 'looked up then: list_projects {} -> found nothing' in follow_up
+    assert "looked up then: list_projects {} -> found nothing" in follow_up
     assert "get_task" not in follow_up
     assert follow_up.endswith("Check my projects again.")
     # The second narrator brief is a limit stop's, with the recall at its head.
     assert narrations[1]["messages"][1]["content"].startswith("Before this run:")
-    assert "What you said then (your words, not a record)" in narrations[1]["messages"][1]["content"]
+    assert (
+        "What you said then (your words, not a record)" in narrations[1]["messages"][1]["content"]
+    )
     # The date is the state block's, at the head of the current turn (#412);
     # the system prompt carries none, so its bytes never move with the day.
     assert _TODAY.isoformat() not in turns[0]["messages"][0]["content"]

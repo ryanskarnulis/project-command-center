@@ -219,9 +219,7 @@ def test_a_traced_run_writes_one_well_formed_record(
     assert len(PLANNER_PROMPT_SHA256) == 64
 
 
-def test_a_caller_bound_run_id_is_reused(
-    tool_db: sessionmaker[Session], trace_path: Path
-) -> None:
+def test_a_caller_bound_run_id_is_reused(tool_db: sessionmaker[Session], trace_path: Path) -> None:
     with structlog.contextvars.bound_contextvars(run_id="given-run"):
         result = _loop(ScriptedProvider([_text("Hi.")]), trace_path).run("Hi")
     assert result.run_id == "given-run"
@@ -497,9 +495,7 @@ def test_the_route_records_the_conversation(
 def test_the_reader_summarises_and_prints_records(
     tool_db: sessionmaker[Session], trace_path: Path
 ) -> None:
-    _loop(ScriptedProvider([_calls(_alpha()), _text("Made Alpha.")]), trace_path).run(
-        "Make Alpha."
-    )
+    _loop(ScriptedProvider([_calls(_alpha()), _text("Made Alpha.")]), trace_path).run("Make Alpha.")
     _loop(ScriptedProvider([_calls(_alpha())]), trace_path, max_iterations=1).run(
         "Make Alpha again."
     )

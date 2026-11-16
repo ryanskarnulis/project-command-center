@@ -61,9 +61,7 @@ class TestGetDashboard:
         assert data["total_open_tasks"] == 0
         assert data["projects"] == []
 
-    def test_counts_open_active_tasks_only(
-        self, client: TestClient, db_session: Session
-    ) -> None:
+    def test_counts_open_active_tasks_only(self, client: TestClient, db_session: Session) -> None:
         p = _create_project(db_session, "Alpha")
         deleted = _create_task(
             db_session,
@@ -178,9 +176,7 @@ class TestGetDashboard:
 
         assert len(statements) <= 5
 
-    def test_deleting_a_project_removes_its_tasks_from_counts(
-        self, db_session: Session
-    ) -> None:
+    def test_deleting_a_project_removes_its_tasks_from_counts(self, db_session: Session) -> None:
         # Tasks are cascade-trashed with their project, so they drop out of the
         # dashboard open-task counts (no longer rehomed to General).
         p = _create_project(db_session, "Alpha")

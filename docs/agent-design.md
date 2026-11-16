@@ -160,7 +160,10 @@ that.
   set per request from the model profile — gemma-4-12b's is temp 1.0 /
   top-p 0.95 / top-k 64). Live smoke:
   `PCC_LLM_INTEGRATION=1 pytest tests/test_ai_llamacpp_integration.py`.
-- **Model profiles** (#402) `app/ai/model_profile.py`, one TOML file per
+- **Model profiles** (#402) `app/ai/model_profile.py` (PCC's phases, files and
+  cache) over the fleet's loader, vendored verbatim in
+  `app/ai/agentkit/model_profile.py` (canonical in
+  `../agent-standard/agentkit/`; re-copy, never edit). One TOML file per
   model in `app/ai/profiles/<llama-swap id>.toml`, picked by
   `LLAMACPP_MODEL`: `[sampling]` (`temperature`/`top_p`/`top_k`; a key left
   out is left to the server), `thinking_kwarg` (the `chat_template_kwargs`

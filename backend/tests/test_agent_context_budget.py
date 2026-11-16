@@ -72,8 +72,7 @@ def _largest_state_block() -> str:
 def test_reserves_leave_a_positive_budget_and_fit_the_real_prompt() -> None:
     """The static reserve really does cover the prompt the loop sends."""
     overhead = context_budget.estimate_tokens(PLANNER_PROMPT) + sum(
-        context_budget.estimate_tokens(spec.model_dump_json())
-        for spec in registry.tool_specs()
+        context_budget.estimate_tokens(spec.model_dump_json()) for spec in registry.tool_specs()
     )
     assert overhead <= context_budget.STATIC_PROMPT_RESERVE_TOKENS
     # The state block at its largest (#412): a full roster of names at the
@@ -160,9 +159,7 @@ def test_history_for_loop_is_bounded_for_a_huge_conversation(
 
     # The persisted transcript is untouched — this is a windowing change on the
     # way out to the model, not a change to what is stored.
-    assert len(conversations_service.list_messages(db_session, conversation_id)) == (
-        _TURNS * 2
-    )
+    assert len(conversations_service.list_messages(db_session, conversation_id)) == (_TURNS * 2)
 
     history = conversations_service.history_for_loop(db_session, conversation_id)
     budget = context_budget.history_token_budget()
@@ -237,9 +234,7 @@ def test_conversation_detail_is_paginated(client: TestClient, db_session: Sessio
         conversations_service.append_user_message(db_session, conversation, f"turn {index}")
     db_session.commit()
 
-    newest = client.get(
-        f"/api/agent/conversations/{conversation.id}", params={"limit": 4}
-    )
+    newest = client.get(f"/api/agent/conversations/{conversation.id}", params={"limit": 4})
     assert newest.status_code == 200
     body = newest.json()
     assert body["message_count"] == 10

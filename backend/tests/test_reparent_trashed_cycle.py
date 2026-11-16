@@ -72,10 +72,7 @@ def test_create_under_orphan_still_allowed_but_cycle_reparent_is_not(
 
     # A itself is an unrelated root in the active forest, but its stored
     # descendant B sits above C — so it is the one task C can't adopt.
-    assert (
-        client.patch(f"/api/tasks/{a}", json={"parent_task_id": c}).status_code
-        == 409
-    )
+    assert client.patch(f"/api/tasks/{a}", json={"parent_task_id": c}).status_code == 409
 
 
 def test_project_cascade_variant_is_rejected_then_restores_cleanly(
@@ -160,9 +157,7 @@ def test_project_restore_detaches_one_row_of_a_cycle_restored_together(
     """Both halves of a two-cycle come back in one batch; exactly one detaches."""
     project = projects_service.create_project(db_session, name="Loop")
     x = tasks_service.create_task(db_session, project_id=project.id, title="X")
-    y = tasks_service.create_task(
-        db_session, project_id=project.id, title="Y", parent_task_id=x.id
-    )
+    y = tasks_service.create_task(db_session, project_id=project.id, title="Y", parent_task_id=x.id)
     db_session.commit()
     projects_service.soft_delete_project(db_session, project)
     db_session.commit()
@@ -170,9 +165,7 @@ def test_project_restore_detaches_one_row_of_a_cycle_restored_together(
 
     deleted = projects_service.get_deleted_project(db_session, project.id)
     assert deleted is not None
-    _, count = projects_service.restore_project(
-        db_session, deleted, restore_tasks=True
-    )
+    _, count = projects_service.restore_project(db_session, deleted, restore_tasks=True)
     db_session.commit()
     assert count == 2
     db_session.refresh(x)
@@ -186,9 +179,7 @@ def test_project_restore_detaches_one_row_of_a_cycle_restored_together(
 def test_rollup_terminates_on_an_active_cycle(db_session: Session) -> None:
     """Belt and braces: no roll-up path recurses forever on corrupt data."""
     x = tasks_service.create_task(db_session, project_id=None, title="X")
-    y = tasks_service.create_task(
-        db_session, project_id=None, title="Y", parent_task_id=x.id
-    )
+    y = tasks_service.create_task(db_session, project_id=None, title="Y", parent_task_id=x.id)
     db_session.commit()
     _force_cycle(db_session, x.id, y.id)
     db_session.expire_all()

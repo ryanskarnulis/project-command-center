@@ -202,9 +202,7 @@ def _range(low: float | None, high: float | None, fmt: str) -> str:
     return lo if lo == hi else f"{lo}–{hi}"
 
 
-def format_report(
-    summaries: list[ScenarioSummary], results: Mapping[str, RateResult]
-) -> str:
+def format_report(summaries: list[ScenarioSummary], results: Mapping[str, RateResult]) -> str:
     """The table printed under ``-s``: count, Wilson interval, verdict, blocks,
     infra retries, iteration and time ranges, the replies' claims backed over
     claims made (#407), and schema corrections (refused calls over all calls,
@@ -287,9 +285,7 @@ def scored_samples(lines: Iterable[str]) -> dict[str, dict[int, bool]]:
     return samples
 
 
-def compare(
-    a: Mapping[str, Mapping[int, bool]], b: Mapping[str, Mapping[int, bool]]
-) -> list[str]:
+def compare(a: Mapping[str, Mapping[int, bool]], b: Mapping[str, Mapping[int, bool]]) -> list[str]:
     """One line per scenario in either arm: both arms' raw counts, then the
     paired verdict on the seeds both arms scored. Read the two together: a
     small p says the arms differ on these seeds, the counts say by how much."""
@@ -297,9 +293,7 @@ def compare(
     for scenario in dict.fromkeys([*a, *b]):
         arm_a, arm_b = a.get(scenario, {}), b.get(scenario, {})
         shared = sorted(set(arm_a) & set(arm_b))
-        _, a_only, b_only, _ = paired_counts(
-            [arm_a[s] for s in shared], [arm_b[s] for s in shared]
-        )
+        _, a_only, b_only, _ = paired_counts([arm_a[s] for s in shared], [arm_b[s] for s in shared])
         lines.append(
             f"{scenario}: A {sum(arm_a.values())}/{len(arm_a)} · "
             f"B {sum(arm_b.values())}/{len(arm_b)} · "

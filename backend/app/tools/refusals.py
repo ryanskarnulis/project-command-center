@@ -102,15 +102,11 @@ def refusal_for(
                 "title": conflict.title,
                 "due_date": None if conflict.due_date is None else conflict.due_date.isoformat(),
             }
-        return ToolRefusal(
-            error, RETRY_DIFFERENT_ARGS if args_fixable else RETRY_NEVER, **details
-        )
+        return ToolRefusal(error, RETRY_DIFFERENT_ARGS if args_fixable else RETRY_NEVER, **details)
     return ToolRefusal(error, RETRY_DIFFERENT_ARGS if args_fixable else RETRY_NEVER)
 
 
-def _derived_status(
-    db: Session, error: str, task: Task, target: TaskWorkflowStatus
-) -> ToolRefusal:
+def _derived_status(db: Session, error: str, task: Task, target: TaskWorkflowStatus) -> ToolRefusal:
     subtasks = tasks_service.list_subtasks(db, task.id)
     statuses = deps_service.effective_statuses(db, [t.id for t in subtasks])
     if target == TaskWorkflowStatus.done:

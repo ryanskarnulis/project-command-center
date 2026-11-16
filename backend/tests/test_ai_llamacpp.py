@@ -215,9 +215,7 @@ def test_chat_structured_sends_schema_and_validates() -> None:
     body = _completion_body(
         {"role": "assistant", "content": '{"title": "Water plants", "priority": "high"}'}
     )
-    draft = _provider_returning(body, captured=captured).chat_structured(
-        _USER, schema=_TaskDraft
-    )
+    draft = _provider_returning(body, captured=captured).chat_structured(_USER, schema=_TaskDraft)
     assert draft == _TaskDraft(title="Water plants", priority="high")
 
     response_format = captured[0]["response_format"]
@@ -311,9 +309,7 @@ def test_a_bad_tool_call_still_carries_the_calls_cost() -> None:
         {
             "role": "assistant",
             "content": None,
-            "tool_calls": [
-                {"id": "c1", "function": {"name": "create_task", "arguments": "{nope"}}
-            ],
+            "tool_calls": [{"id": "c1", "function": {"name": "create_task", "arguments": "{nope"}}],
         },
         finish_reason="tool_calls",
     )
@@ -418,12 +414,20 @@ def test_a_peek_reads_two_calls_by_their_index() -> None:
     body = _sse(
         _delta(
             tool_calls=[
-                {"index": 0, "id": "a", "function": {"name": "create_task", "arguments": '{"title": "x"}'}}
+                {
+                    "index": 0,
+                    "id": "a",
+                    "function": {"name": "create_task", "arguments": '{"title": "x"}'},
+                }
             ]
         ),
         _delta(
             tool_calls=[
-                {"index": 1, "id": "b", "function": {"name": "create_task", "arguments": '{"title": "y"}'}}
+                {
+                    "index": 1,
+                    "id": "b",
+                    "function": {"name": "create_task", "arguments": '{"title": "y"}'},
+                }
             ]
         ),
         {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]},
@@ -442,7 +446,11 @@ def test_a_peeked_tool_call_with_bad_arguments_is_the_typed_error() -> None:
     body = _sse(
         _delta(
             tool_calls=[
-                {"index": 0, "id": "a", "function": {"name": "create_task", "arguments": "{not json"}}
+                {
+                    "index": 0,
+                    "id": "a",
+                    "function": {"name": "create_task", "arguments": "{not json"},
+                }
             ]
         )
     )

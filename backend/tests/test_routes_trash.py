@@ -141,9 +141,7 @@ def test_restore_project_without_tasks_leaves_them_trashed(
     client: TestClient,
 ) -> None:
     pid = client.post("/api/projects", json={"name": "Firewall"}).json()["id"]
-    tid = client.post(f"/api/projects/{pid}/tasks", json={"title": "audit"}).json()[
-        "id"
-    ]
+    tid = client.post(f"/api/projects/{pid}/tasks", json={"title": "audit"}).json()["id"]
     assert client.delete(f"/api/projects/{pid}").status_code == 204
 
     restored = client.post(f"/api/projects/{pid}/restore")  # restore_tasks defaults false
@@ -204,9 +202,7 @@ def test_purge_unknown_task_404(client: TestClient) -> None:
     assert client.delete("/api/tasks/424242/purge").status_code == 404
 
 
-def test_purge_task_cleans_dependency_edges(
-    client: TestClient, db_session: Session
-) -> None:
+def test_purge_task_cleans_dependency_edges(client: TestClient, db_session: Session) -> None:
     a = client.post("/api/tasks", json={"title": "A"}).json()["id"]
     b = client.post("/api/tasks", json={"title": "B"}).json()["id"]
     # A depends on B, and B depends on A's perspective is irrelevant — one edge.
@@ -219,13 +215,11 @@ def test_purge_task_cleans_dependency_edges(
     assert all(a not in (e.task_id, e.depends_on_task_id) for e in edges)
 
 
-def test_purge_parent_task_takes_subtree(
-    client: TestClient, db_session: Session
-) -> None:
+def test_purge_parent_task_takes_subtree(client: TestClient, db_session: Session) -> None:
     parent = client.post("/api/tasks", json={"title": "Parent"}).json()["id"]
-    child = client.post(
-        "/api/tasks", json={"title": "Child", "parent_task_id": parent}
-    ).json()["id"]
+    child = client.post("/api/tasks", json={"title": "Child", "parent_task_id": parent}).json()[
+        "id"
+    ]
     client.delete(f"/api/tasks/{parent}")  # cascade-soft-deletes the child too
 
     assert client.delete(f"/api/tasks/{parent}/purge").status_code == 204
@@ -234,19 +228,13 @@ def test_purge_parent_task_takes_subtree(
     assert db_session.get(Task, child) is None
 
 
-def test_purge_project_cleans_all_fk_edges(
-    client: TestClient, db_session: Session
-) -> None:
+def test_purge_project_cleans_all_fk_edges(client: TestClient, db_session: Session) -> None:
     pid = client.post("/api/projects", json={"name": "Firewall"}).json()["id"]
-    tid = client.post(
-        f"/api/projects/{pid}/tasks", json={"title": "Patch it"}
-    ).json()["id"]
+    tid = client.post(f"/api/projects/{pid}/tasks", json={"title": "Patch it"}).json()["id"]
 
     # The project's activity events hold a real FK into projects that purge must clear.
     assert (
-        db_session.execute(
-            select(ActivityEvent).where(ActivityEvent.project_id == pid)
-        ).first()
+        db_session.execute(select(ActivityEvent).where(ActivityEvent.project_id == pid)).first()
         is not None
     )
 
@@ -265,9 +253,7 @@ def test_purge_project_cleans_all_fk_edges(
     assert db_session.get(Task, tid) is None  # soft-deleted owned task purged
     # Nullable FKs cleared, not dangling; the audit row itself survives.
     assert (
-        db_session.execute(
-            select(ActivityEvent).where(ActivityEvent.project_id == pid)
-        ).first()
+        db_session.execute(select(ActivityEvent).where(ActivityEvent.project_id == pid)).first()
         is None
     )
 
@@ -292,9 +278,7 @@ def test_purge_protected_project_403(client: TestClient, db_session: Session) ->
     assert db_session.get(Project, general.id) is not None  # untouched
 
 
-def test_empty_trash_clears_all_and_is_idempotent(
-    client: TestClient, db_session: Session
-) -> None:
+def test_empty_trash_clears_all_and_is_idempotent(client: TestClient, db_session: Session) -> None:
     pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
     tid = client.post("/api/tasks", json={"title": "Doomed task"}).json()["id"]
     client.delete(f"/api/projects/{pid}")
@@ -322,18 +306,16 @@ def test_empty_trash_clears_all_and_is_idempotent(
 # --- Bulk purge of a selection (BUG-11) -------------------------------------
 
 
-def test_purge_selected_parent_and_child_together(
-    client: TestClient, db_session: Session
-) -> None:
+def test_purge_selected_parent_and_child_together(client: TestClient, db_session: Session) -> None:
     """The regression: selecting a parent *and* its cascaded child must succeed.
 
     Purging the parent takes the child's row with it, so by the child's turn it's
     already gone. That's a success, not a failure — both were removed.
     """
     parent = client.post("/api/tasks", json={"title": "Parent"}).json()["id"]
-    child = client.post(
-        "/api/tasks", json={"title": "Child", "parent_task_id": parent}
-    ).json()["id"]
+    child = client.post("/api/tasks", json={"title": "Child", "parent_task_id": parent}).json()[
+        "id"
+    ]
     client.delete(f"/api/tasks/{parent}")  # cascade-soft-deletes the child too
 
     # Trash lists newest-deleted first, and the cascade stamps the parent last,
@@ -343,9 +325,7 @@ def test_purge_selected_parent_and_child_together(
         child,
     ]
 
-    result = client.post(
-        "/api/trash/purge", json={"project_ids": [], "task_ids": [parent, child]}
-    )
+    result = client.post("/api/trash/purge", json={"project_ids": [], "task_ids": [parent, child]})
     assert result.status_code == 200
     assert result.json() == {"projects": 0, "tasks": 2}
 
@@ -373,18 +353,14 @@ def test_purge_selected_empty_selection_is_a_noop(client: TestClient) -> None:
     tid = client.post("/api/tasks", json={"title": "Survivor"}).json()["id"]
     client.delete(f"/api/tasks/{tid}")
 
-    result = client.post(
-        "/api/trash/purge", json={"project_ids": [], "task_ids": []}
-    )
+    result = client.post("/api/trash/purge", json={"project_ids": [], "task_ids": []})
     assert result.status_code == 200
     assert result.json() == {"projects": 0, "tasks": 0}
     # An empty selection must not be read as "everything".
     assert [t["id"] for t in client.get("/api/trash").json()["tasks"]] == [tid]
 
 
-def test_purge_selected_spares_protected_project(
-    client: TestClient, db_session: Session
-) -> None:
+def test_purge_selected_spares_protected_project(client: TestClient, db_session: Session) -> None:
     client.post("/api/tasks", json={"title": "files into General"})
     general = db_session.execute(
         select(Project).where(Project.system_key == "general")
@@ -392,23 +368,17 @@ def test_purge_selected_spares_protected_project(
     soft_delete(general)
     db_session.commit()
 
-    result = client.post(
-        "/api/trash/purge", json={"project_ids": [general.id], "task_ids": []}
-    )
+    result = client.post("/api/trash/purge", json={"project_ids": [general.id], "task_ids": []})
     assert result.status_code == 200
     assert result.json()["projects"] == 0
     assert db_session.get(Project, general.id) is not None  # untouched
 
 
-def test_purge_selected_removes_projects(
-    client: TestClient, db_session: Session
-) -> None:
+def test_purge_selected_removes_projects(client: TestClient, db_session: Session) -> None:
     pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
     client.delete(f"/api/projects/{pid}")
 
-    result = client.post(
-        "/api/trash/purge", json={"project_ids": [pid], "task_ids": []}
-    )
+    result = client.post("/api/trash/purge", json={"project_ids": [pid], "task_ids": []})
     assert result.status_code == 200
     assert result.json()["projects"] == 1
     assert db_session.get(Project, pid) is None
@@ -430,9 +400,7 @@ def test_purge_selected_counts_tasks_cascaded_with_a_project(
 
     assert client.get("/api/trash").json()["projects"][0]["archived_task_count"] == 2
 
-    result = client.post(
-        "/api/trash/purge", json={"project_ids": [pid], "task_ids": []}
-    )
+    result = client.post("/api/trash/purge", json={"project_ids": [pid], "task_ids": []})
     assert result.status_code == 200
     assert result.json() == {"projects": 1, "tasks": 2}
     assert db_session.get(Project, pid) is None
@@ -445,9 +413,7 @@ def test_purge_selected_counts_a_task_selected_with_its_own_project_once(
 ) -> None:
     """Mixed selection: the shared row is one deletion, so it counts once."""
     pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
-    cascaded = client.post(
-        f"/api/projects/{pid}/tasks", json={"title": "cascade"}
-    ).json()["id"]
+    cascaded = client.post(f"/api/projects/{pid}/tasks", json={"title": "cascade"}).json()["id"]
     standalone = client.post("/api/tasks", json={"title": "standalone"}).json()["id"]
     client.delete(f"/api/tasks/{standalone}")
     client.delete(f"/api/projects/{pid}")
@@ -468,18 +434,14 @@ def test_purge_selected_counts_a_cascaded_subtree_once(
 ) -> None:
     """A project's archived subtree: parent + child are two rows, counted once each."""
     pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
-    parent = client.post(
-        f"/api/projects/{pid}/tasks", json={"title": "Parent"}
-    ).json()["id"]
+    parent = client.post(f"/api/projects/{pid}/tasks", json={"title": "Parent"}).json()["id"]
     child = client.post(
         "/api/tasks",
         json={"title": "Child", "parent_task_id": parent, "project_id": pid},
     ).json()["id"]
     client.delete(f"/api/projects/{pid}")
 
-    result = client.post(
-        "/api/trash/purge", json={"project_ids": [pid], "task_ids": [parent]}
-    )
+    result = client.post("/api/trash/purge", json={"project_ids": [pid], "task_ids": [parent]})
     assert result.status_code == 200
     assert result.json() == {"projects": 1, "tasks": 2}
     assert db_session.get(Task, parent) is None
@@ -504,9 +466,7 @@ def lan_client(client: TestClient) -> Generator[TestClient, None, None]:
         yield test_client
 
 
-def test_lan_client_can_empty_trash(
-    client: TestClient, lan_client: TestClient
-) -> None:
+def test_lan_client_can_empty_trash(client: TestClient, lan_client: TestClient) -> None:
     tid = client.post("/api/tasks", json={"title": "LAN task"}).json()["id"]
     client.delete(f"/api/tasks/{tid}")
 
@@ -515,9 +475,7 @@ def test_lan_client_can_empty_trash(
     assert client.get("/api/trash").json()["tasks"] == []
 
 
-def test_lan_client_can_purge_and_restore(
-    client: TestClient, lan_client: TestClient
-) -> None:
+def test_lan_client_can_purge_and_restore(client: TestClient, lan_client: TestClient) -> None:
     tid = client.post("/api/tasks", json={"title": "LAN-managed task"}).json()["id"]
 
     # Reversible operations stay open to LAN clients (that's the normal app flow)…
@@ -528,9 +486,7 @@ def test_lan_client_can_purge_and_restore(
     assert lan_client.delete(f"/api/tasks/{tid}/purge").status_code == 204
 
 
-def test_lan_client_can_purge_project(
-    client: TestClient, lan_client: TestClient
-) -> None:
+def test_lan_client_can_purge_project(client: TestClient, lan_client: TestClient) -> None:
     pid = client.post("/api/projects", json={"name": "Kept"}).json()["id"]
     client.delete(f"/api/projects/{pid}")
 
@@ -572,9 +528,7 @@ def test_soft_delete_and_purge_are_distinguishable_in_the_audit_log(
     the audit log couldn't answer "was this destroyed?".
     """
     pid = client.post("/api/projects", json={"name": "Firewall"}).json()["id"]
-    tid = client.post(f"/api/projects/{pid}/tasks", json={"title": "Patch"}).json()[
-        "id"
-    ]
+    tid = client.post(f"/api/projects/{pid}/tasks", json={"title": "Patch"}).json()["id"]
 
     client.delete(f"/api/tasks/{tid}")
     assert _actions_for(db_session, "task", tid) == ["created", "deleted"]
@@ -631,9 +585,9 @@ def test_purging_a_parent_audits_every_cascaded_subtree_task(
     client: TestClient, db_session: Session
 ) -> None:
     parent = client.post("/api/tasks", json={"title": "Parent"}).json()["id"]
-    child = client.post(
-        "/api/tasks", json={"title": "Child", "parent_task_id": parent}
-    ).json()["id"]
+    child = client.post("/api/tasks", json={"title": "Child", "parent_task_id": parent}).json()[
+        "id"
+    ]
     client.delete(f"/api/tasks/{parent}")
 
     assert client.delete(f"/api/tasks/{parent}/purge").status_code == 204
@@ -647,9 +601,7 @@ def test_purging_a_project_audits_the_project_and_its_owned_tasks(
     client: TestClient, db_session: Session
 ) -> None:
     pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
-    tid = client.post(f"/api/projects/{pid}/tasks", json={"title": "Owned"}).json()[
-        "id"
-    ]
+    tid = client.post(f"/api/projects/{pid}/tasks", json={"title": "Owned"}).json()["id"]
     client.delete(f"/api/projects/{pid}")
     # Re-file the rehomed task under the trashed project so purge owns it.
     task = db_session.get(Task, tid)
@@ -676,13 +628,9 @@ def test_purging_a_project_audits_the_project_and_its_owned_tasks(
     assert "Doomed" in purge_event.summary
 
 
-def test_empty_trash_audits_every_row_it_removes(
-    client: TestClient, db_session: Session
-) -> None:
+def test_empty_trash_audits_every_row_it_removes(client: TestClient, db_session: Session) -> None:
     pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
-    cascade = client.post(
-        f"/api/projects/{pid}/tasks", json={"title": "Cascade"}
-    ).json()["id"]
+    cascade = client.post(f"/api/projects/{pid}/tasks", json={"title": "Cascade"}).json()["id"]
     standalone = client.post("/api/tasks", json={"title": "Standalone"}).json()["id"]
     client.delete(f"/api/projects/{pid}")  # cascade-soft-deletes its task
     client.delete(f"/api/tasks/{standalone}")
@@ -697,9 +645,7 @@ def test_empty_trash_audits_every_row_it_removes(
         ).scalars()
     ]
     # One event per removed row, and no more: the counts and the audit agree.
-    assert sorted(purged) == sorted(
-        [("project", pid), ("task", cascade), ("task", standalone)]
-    )
+    assert sorted(purged) == sorted([("project", pid), ("task", cascade), ("task", standalone)])
 
 
 def test_purge_selected_audits_only_the_rows_it_actually_removes(
@@ -710,9 +656,7 @@ def test_purge_selected_audits_only_the_rows_it_actually_removes(
     client.delete(f"/api/tasks/{doomed}")
     client.delete(f"/api/tasks/{spared}")
 
-    resp = client.post(
-        "/api/trash/purge", json={"project_ids": [], "task_ids": [doomed, 999999]}
-    )
+    resp = client.post("/api/trash/purge", json={"project_ids": [], "task_ids": [doomed, 999999]})
     assert resp.status_code == 200
     assert resp.json() == {"projects": 0, "tasks": 1}
 
@@ -746,9 +690,7 @@ def test_purge_project_spares_a_trashed_child_owned_by_another_project(
     standalone = db_session.get(Task, child)
     assert standalone is not None and standalone.deleted_with_project_id is None
 
-    entry = next(
-        p for p in client.get("/api/trash").json()["projects"] if p["id"] == a
-    )
+    entry = next(p for p in client.get("/api/trash").json()["projects"] if p["id"] == a)
     # The confirm figure names exactly what the purge destroys: P only.
     assert entry["archived_task_count"] == 1
     assert entry["purge_task_count"] == 1
@@ -886,9 +828,7 @@ def test_restore_subtasks_leaves_independently_trashed_subtasks_alone(
     assert still_trashed.deleted_with_task_id is None
 
 
-def test_restore_without_subtasks_stays_root_only(
-    client: TestClient, db_session: Session
-) -> None:
+def test_restore_without_subtasks_stays_root_only(client: TestClient, db_session: Session) -> None:
     """The default (trash-page) restore keeps its long-standing per-task shape."""
     pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
     parent = client.post(f"/api/projects/{pid}/tasks", json={"title": "P"}).json()["id"]
@@ -995,9 +935,7 @@ def test_purge_audits_the_detach_of_a_cross_project_child_it_spares(
     assert events[-1].summary == 'Task "C" detached from permanently deleted parent "P"'
 
 
-def test_bulk_purge_audits_every_detached_survivor(
-    client: TestClient, db_session: Session
-) -> None:
+def test_bulk_purge_audits_every_detached_survivor(client: TestClient, db_session: Session) -> None:
     """The bulk trash route delegates to the same purge service, so it audits too."""
     pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
     parent = client.post(f"/api/projects/{pid}/tasks", json={"title": "P"}).json()["id"]
@@ -1013,9 +951,7 @@ def test_bulk_purge_audits_every_detached_survivor(
     for child in children:
         assert client.post(f"/api/tasks/{child}/restore").status_code == 200
 
-    resp = client.post(
-        "/api/trash/purge", json={"project_ids": [], "task_ids": [parent]}
-    )
+    resp = client.post("/api/trash/purge", json={"project_ids": [], "task_ids": [parent]})
     assert resp.status_code == 200
     assert resp.json() == {"projects": 0, "tasks": 1}
 
@@ -1031,9 +967,7 @@ def test_bulk_purge_audits_every_detached_survivor(
             "restored",
             "updated",
         ]
-        assert events[-1].summary == (
-            f'Task "C{i}" detached from permanently deleted parent "P"'
-        )
+        assert events[-1].summary == (f'Task "C{i}" detached from permanently deleted parent "P"')
 
 
 def test_empty_trash_audits_the_detach_of_a_surviving_child(
@@ -1064,9 +998,7 @@ def test_empty_trash_audits_the_detach_of_a_surviving_child(
     ]
 
 
-def test_purge_detach_event_carries_the_actor(
-    client: TestClient, db_session: Session
-) -> None:
+def test_purge_detach_event_carries_the_actor(client: TestClient, db_session: Session) -> None:
     """Attribution comes from the shared ``record_event`` actor contextvar."""
     pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
     parent = client.post(f"/api/projects/{pid}/tasks", json={"title": "P"}).json()["id"]
@@ -1102,9 +1034,7 @@ def test_restoring_a_task_whose_project_is_trashed_rehomes_it_to_general(
     end. ``project_id`` is NOT NULL, so there is no "leave it unfiled" option here.
     """
     pid = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
-    tid = client.post(f"/api/projects/{pid}/tasks", json={"title": "Survivor"}).json()[
-        "id"
-    ]
+    tid = client.post(f"/api/projects/{pid}/tasks", json={"title": "Survivor"}).json()["id"]
 
     assert client.delete(f"/api/tasks/{tid}").status_code == 204  # trashed on its own
     assert client.delete(f"/api/projects/{pid}").status_code == 204  # project follows

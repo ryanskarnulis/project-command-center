@@ -36,16 +36,12 @@ MAX_ACTIVITY_LIMIT = 200
 def _get_or_404(db: Session, project_id: int) -> Project:
     project = projects_service.get_project(db, project_id)
     if project is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     return project
 
 
 @router.get("", response_model=list[ProjectRead])
-def list_projects(
-    include_closed: bool = False, db: Session = Depends(get_db)
-) -> Sequence[Project]:
+def list_projects(include_closed: bool = False, db: Session = Depends(get_db)) -> Sequence[Project]:
     return projects_service.list_projects(db, include_closed=include_closed)
 
 
@@ -57,9 +53,7 @@ def reorder_projects(
     try:
         projects = projects_service.reorder_projects(db, data.project_ids)
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     db.commit()
     logger.info("projects_reordered", project_ids=data.project_ids)
     return projects
@@ -72,9 +66,7 @@ def get_project(project_id: EntityId, db: Session = Depends(get_db)) -> Project:
 
 @router.post("", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
 def create_project(data: ProjectCreate, db: Session = Depends(get_db_write)) -> Project:
-    project = projects_service.create_project(
-        db, name=data.name, description=data.description
-    )
+    project = projects_service.create_project(db, name=data.name, description=data.description)
     db.commit()
     db.refresh(project)
     logger.info("project_created", project_id=project.id)
@@ -86,9 +78,7 @@ def update_project(
     project_id: EntityId, data: ProjectUpdate, db: Session = Depends(get_db_write)
 ) -> Project:
     project = _get_or_404(db, project_id)
-    updated = projects_service.update_project(
-        db, project, data.model_dump(exclude_unset=True)
-    )
+    updated = projects_service.update_project(db, project, data.model_dump(exclude_unset=True))
     db.commit()
     db.refresh(updated)
     logger.info("project_updated", project_id=updated.id)
@@ -146,16 +136,12 @@ def restore_project(
             restored,
             restored_task_count,
             undo,
-        ) = projects_service.restore_project_with_undo(
-            db, project, restore_tasks=restore_tasks
-        )
+        ) = projects_service.restore_project_with_undo(db, project, restore_tasks=restore_tasks)
     except tasks_service.OccurrenceConflictError as exc:
         # A state conflict, not bad input: a cascade task's occurrence date is
         # taken by a live sibling. 409 with the actionable detail, rather than the
         # generic integrity 409 the raw IntegrityError used to produce.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     db.commit()
     db.refresh(restored)
     logger.info(
@@ -184,9 +170,7 @@ def purge_project(project_id: EntityId, db: Session = Depends(get_db_write)) -> 
     try:
         projects_service.purge_project(db, project)
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     db.commit()
     logger.info("project_purged", project_id=project_id)
 

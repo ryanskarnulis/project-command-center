@@ -91,18 +91,14 @@ def test_reparent_accounts_for_the_moved_subtree_height(client: TestClient) -> N
     # A separate two-level branch (height 1) fits: it would land at cap-1 and cap.
     short_root = _create(client, project_id, "short root", None)
     _create(client, project_id, "short leaf", short_root)
-    moved = client.patch(
-        f"/api/tasks/{short_root}", json={"parent_task_id": trunk[-1]}
-    )
+    moved = client.patch(f"/api/tasks/{short_root}", json={"parent_task_id": trunk[-1]})
     assert moved.status_code == 200, moved.text
 
     # A three-level branch (height 2) does not: its leaf would land one past the cap.
     tall_root = _create(client, project_id, "tall root", None)
     tall_mid = _create(client, project_id, "tall mid", tall_root)
     _create(client, project_id, "tall leaf", tall_mid)
-    rejected = client.patch(
-        f"/api/tasks/{tall_root}", json={"parent_task_id": trunk[-1]}
-    )
+    rejected = client.patch(f"/api/tasks/{tall_root}", json={"parent_task_id": trunk[-1]})
     assert rejected.status_code == 422, rejected.text
 
     # The rejected move left the branch where it was.
@@ -116,9 +112,7 @@ def test_reparent_under_a_task_at_the_cap_is_422(client: TestClient) -> None:
     ids = _chain(client, project_id, MAX_SUBTASK_DEPTH)
     orphan = _create(client, project_id, "leaf looking for a home", None)
 
-    response = client.patch(
-        f"/api/tasks/{orphan}", json={"parent_task_id": ids[-1]}
-    )
+    response = client.patch(f"/api/tasks/{orphan}", json={"parent_task_id": ids[-1]})
     assert response.status_code == 422, response.text
 
     # The cap gates *new* nesting only: a PATCH that echoes a task's existing
@@ -153,9 +147,7 @@ def test_chain_at_the_cap_survives_the_whole_lifecycle(client: TestClient) -> No
     trash = client.get("/api/trash")
     assert trash.status_code == 200
 
-    restored = client.post(
-        f"/api/tasks/{root}/restore", params={"restore_subtasks": "true"}
-    )
+    restored = client.post(f"/api/tasks/{root}/restore", params={"restore_subtasks": "true"})
     assert restored.status_code == 200, restored.text
     assert client.get(f"/api/tasks/{leaf}").status_code == 200
 

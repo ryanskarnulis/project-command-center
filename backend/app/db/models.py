@@ -5,7 +5,17 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
 
-from sqlalchemy import JSON, CheckConstraint, Connection, ForeignKey, Index, String, event, func, text
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    Connection,
+    ForeignKey,
+    Index,
+    String,
+    event,
+    func,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.db import fts
@@ -28,9 +38,7 @@ def utcnow() -> datetime:
 
 
 class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(
-        default=utcnow, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         default=utcnow, onupdate=utcnow, server_default=func.now()
     )
@@ -123,14 +131,10 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     # Self-referential nesting (Sprint 7 task-model slice). A null parent is a
     # top-level task; cycle prevention (no A->B->A) lives in services/tasks.py,
     # not the DB. Soft-deleting a parent cascade-soft-deletes its subtree.
-    parent_task_id: Mapped[int | None] = mapped_column(
-        ForeignKey("tasks.id"), default=None
-    )
+    parent_task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id"), default=None)
     title: Mapped[str]
     description: Mapped[str | None] = mapped_column(default=None)
-    workflow_status: Mapped[TaskWorkflowStatus] = mapped_column(
-        default=TaskWorkflowStatus.open
-    )
+    workflow_status: Mapped[TaskWorkflowStatus] = mapped_column(default=TaskWorkflowStatus.open)
     priority: Mapped[TaskPriority] = mapped_column(default=TaskPriority.medium)
     due_date: Mapped[date | None] = mapped_column(default=None)
     # Day-plan snooze (Focus page "defer"). The scheduler skips this task while
@@ -197,9 +201,7 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     project: Mapped[Project | None] = relationship(
         back_populates="tasks", foreign_keys=[project_id]
     )
-    parent: Mapped[Task | None] = relationship(
-        back_populates="subtasks", remote_side=[id]
-    )
+    parent: Mapped[Task | None] = relationship(back_populates="subtasks", remote_side=[id])
     subtasks: Mapped[list[Task]] = relationship(back_populates="parent")
 
 
@@ -306,9 +308,7 @@ class FocusPlanEntry(Base, TimestampMixin, SoftDeleteMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     plan_date: Mapped[date] = mapped_column(index=True)
-    task_id: Mapped[int | None] = mapped_column(
-        ForeignKey("tasks.id"), default=None, index=True
-    )
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id"), default=None, index=True)
     title: Mapped[str | None] = mapped_column(default=None)
     start_minute: Mapped[int | None] = mapped_column(default=None)
     duration_minutes: Mapped[int | None] = mapped_column(default=None)
@@ -438,9 +438,7 @@ class ConversationMessage(Base, TimestampMixin):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    conversation_id: Mapped[int] = mapped_column(
-        ForeignKey("conversations.id"), index=True
-    )
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id"), index=True)
     role: Mapped[ConversationRole]
     content: Mapped[str | None] = mapped_column(default=None)
     tool_calls: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, default=None)

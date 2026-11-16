@@ -111,9 +111,7 @@ def test_nested_blocked_subtask_holds_recurring_parent_open(
 
     assert _status(client, c) == "done"
     assert _status(client, p) == "done"
-    assert deps_service.effective_statuses(db_session, [p])[p] == (
-        TaskWorkflowStatus.done
-    )
+    assert deps_service.effective_statuses(db_session, [p])[p] == (TaskWorkflowStatus.done)
     assert p in _ids(client, "?workflow_status=done")
     assert p not in _ids(client)
     assert _series_due_dates(client, p) == ["2026-09-23", "2026-09-24"]

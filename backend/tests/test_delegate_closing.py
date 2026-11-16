@@ -308,9 +308,7 @@ def test_a_read_does_not_arm_the_peek(
     client: TestClient, tool_db: sessionmaker[Session], trace_path: Path
 ) -> None:
     """A read's next words may answer a question: they stay the model's."""
-    provider = PeekingProvider(
-        [tool_calls_turn(("list_tasks", {})), text_turn("Nothing is due.")]
-    )
+    provider = PeekingProvider([tool_calls_turn(("list_tasks", {})), text_turn("Nothing is due.")])
     body = _ask(client, provider, trace_path, "what's due today", DELEGATE)
 
     assert provider.sent == ["chat", "chat"]
@@ -337,9 +335,7 @@ def test_a_write_on_the_last_turn_keeps_its_limit_stop(
     """A run out of turns says so, as it would with the note."""
     provider = PeekingProvider([tool_calls_turn(WATER)])
     _use(provider, trace_path, max_iterations=1)
-    response = _post(
-        client, _thread(client), "add a task to water the plants tomorrow", DELEGATE
-    )
+    response = _post(client, _thread(client), "add a task to water the plants tomorrow", DELEGATE)
     body = response.json()["assistant_message"]
     assert body["stop_reason"] == "max_iterations"
     assert provider.sent == ["chat"]
@@ -404,15 +400,18 @@ def test_a_confirm_token_answer_is_the_code_built_note(
     client: TestClient, tool_db: sessionmaker[Session], trace_path: Path
 ) -> None:
     project_id = _kitchen(client)
-    _use(ScriptedProvider([tool_calls_turn(("trash_project", {"project_id": project_id}))]), trace_path)
+    _use(
+        ScriptedProvider([tool_calls_turn(("trash_project", {"project_id": project_id}))]),
+        trace_path,
+    )
     conversation_id = _thread(client)
     asked = _post(client, conversation_id, "wipe the kitchen project", DELEGATE).json()
     token = asked["assistant_message"]["confirm_required"]["token"]
     _use(ScriptedProvider([]), trace_path)
 
-    body = _post(
-        client, conversation_id, "yes", {**DELEGATE, "Confirm-Token": token}
-    ).json()["assistant_message"]
+    body = _post(client, conversation_id, "yes", {**DELEGATE, "Confirm-Token": token}).json()[
+        "assistant_message"
+    ]
 
     assert body["content"] == f'Trashed project {project_id} "Kitchen" and its 3 tasks.'
 
@@ -421,9 +420,7 @@ def test_a_confirm_token_answer_is_the_code_built_note(
 
 
 def _task(task_id: int, title: str, due: str | None = None) -> str:
-    return json.dumps(
-        {"id": task_id, "title": title, "workflow_status": "open", "due_date": due}
-    )
+    return json.dumps({"id": task_id, "title": title, "workflow_status": "open", "due_date": due})
 
 
 CREATED: dict[str, Any] = {
@@ -479,10 +476,7 @@ def test_every_note_is_backed_by_its_run() -> None:
     """The claim reader (#407) holds the note to the calls it was built from."""
     for calls in ([CREATED], [CREATED, COMPLETED, REFUSED], [TRASHED]):
         evidence = Evidence.of(
-            [
-                ToolCall(c["tool"], c["arguments"], c.get("result"), c.get("error"))
-                for c in calls
-            ],
+            [ToolCall(c["tool"], c["arguments"], c.get("result"), c.get("error")) for c in calls],
             date.today(),
         )
         assert not unbacked(read_claims(closing.note(calls), evidence)), calls

@@ -42,9 +42,7 @@ def _active_children(db: Session, parent_id: int) -> Sequence[Task]:
 
 def _active_titled(db: Session, title: str) -> Sequence[Task]:
     return (
-        db.execute(
-            select(Task).where(Task.title == title, Task.deleted_at.is_(None))
-        )
+        db.execute(select(Task).where(Task.title == title, Task.deleted_at.is_(None)))
         .scalars()
         .all()
     )
@@ -60,9 +58,7 @@ def _build_checklist(db: Session) -> tuple[Task, Task, Task, Task]:
         due_date=date(2026, 8, 5),
     )
     db.commit()
-    tasks_service.update_task(
-        db, root, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db, root, {"repeat_interval": {"unit": "week", "every": 1}})
     db.commit()
     child = tasks_service.create_task(
         db, project_id=project.id, parent_task_id=root.id, title="Step"
@@ -141,9 +137,7 @@ def test_restore_after_the_successor_is_trashed_brings_the_checklist_back(
     # Exactly one live occurrence, and exactly one live copy of each restored row:
     # the successor's clones went to trash with it and must not be revived.
     live_series = [
-        t
-        for t in task_recurrence.get_series(db_session, recurrence_id)
-        if t.deleted_at is None
+        t for t in task_recurrence.get_series(db_session, recurrence_id) if t.deleted_at is None
     ]
     assert [t.id for t in live_series] == [root_id]
     assert [t.id for t in _active_titled(db_session, "Step")] == [child_id]
@@ -194,9 +188,7 @@ def test_unskip_still_rewinds_a_live_successor(db_session: Session) -> None:
     assert live.id != root_id
     assert live.due_date == date(2026, 8, 5)
     live_series = [
-        t
-        for t in task_recurrence.get_series(db_session, recurrence_id)
-        if t.deleted_at is None
+        t for t in task_recurrence.get_series(db_session, recurrence_id) if t.deleted_at is None
     ]
     assert [t.id for t in live_series] == [live.id]
     original_child = db_session.get(Task, child_id)

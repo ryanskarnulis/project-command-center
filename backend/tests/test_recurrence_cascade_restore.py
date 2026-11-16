@@ -45,9 +45,7 @@ def test_cascade_restore_does_not_advance_an_incomplete_checklist(
         title="weekly review",
         due_date=date(2026, 7, 26),
     )
-    tasks_service.update_task(
-        db_session, root, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, root, {"repeat_interval": {"unit": "week", "every": 1}})
     db_session.commit()
     recurrence_id = root.recurrence_id
     assert recurrence_id is not None
@@ -94,9 +92,7 @@ def test_cascade_restore_does_not_advance_an_incomplete_checklist(
     # 6. restore the root with its subtasks
     trashed_root = task_trash.get_deleted_task(db_session, root_id)
     assert trashed_root is not None
-    restored, restored_count = task_trash.restore_task_subtree(
-        db_session, trashed_root
-    )
+    restored, restored_count = task_trash.restore_task_subtree(db_session, trashed_root)
     db_session.commit()
 
     assert restored.id == root_id
@@ -122,9 +118,7 @@ def test_cascade_restore_still_respawns_when_the_subtree_is_done(
         title="weekly review",
         due_date=date(2026, 7, 26),
     )
-    tasks_service.update_task(
-        db_session, root, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db_session, root, {"repeat_interval": {"unit": "week", "every": 1}})
     child = tasks_service.create_task(
         db_session,
         project_id=project.id,

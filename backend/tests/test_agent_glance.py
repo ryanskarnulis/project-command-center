@@ -26,9 +26,7 @@ MAX_CHARS = 600
 
 
 def _task(db: Session, title: str, due: date | None = None, **kwargs: Any) -> Task:
-    task = tasks_service.create_task(
-        db, project_id=None, title=title, due_date=due, **kwargs
-    )
+    task = tasks_service.create_task(db, project_id=None, title=title, due_date=due, **kwargs)
     db.commit()
     return task
 
@@ -79,13 +77,9 @@ def test_overdue_is_a_count_not_a_list(client: TestClient, db_session: Session) 
     assert [t["title"] for t in body["due_today"]] == ["Today"]
 
 
-def test_done_and_trashed_tasks_do_not_count(
-    client: TestClient, db_session: Session
-) -> None:
+def test_done_and_trashed_tasks_do_not_count(client: TestClient, db_session: Session) -> None:
     done = _task(db_session, "Finished", TODAY - DAY)
-    tasks_service.update_task(
-        db_session, done, {"workflow_status": TaskWorkflowStatus.done}
-    )
+    tasks_service.update_task(db_session, done, {"workflow_status": TaskWorkflowStatus.done})
     gone = _task(db_session, "Trashed", TODAY)
     gone.deleted_at = func.now()
     db_session.commit()
@@ -134,9 +128,7 @@ def test_focus_ignores_other_days_and_finished_tasks(
     focus_plan_service.pin_task(db_session, plan_date=TODAY + DAY, task=tomorrow)
     finished = _task(db_session, "Already done")
     focus_plan_service.pin_task(db_session, plan_date=TODAY, task=finished)
-    tasks_service.update_task(
-        db_session, finished, {"workflow_status": TaskWorkflowStatus.done}
-    )
+    tasks_service.update_task(db_session, finished, {"workflow_status": TaskWorkflowStatus.done})
     db_session.commit()
 
     assert _glance(client)["focus"] is None
@@ -154,9 +146,7 @@ def test_lists_are_capped_with_a_count_for_the_rest(
     assert body["due_today_more"] == 9 - len(body["due_today"])
 
 
-def test_worst_case_stays_inside_the_token_budget(
-    client: TestClient, db_session: Session
-) -> None:
+def test_worst_case_stays_inside_the_token_budget(client: TestClient, db_session: Session) -> None:
     long_title = "An extremely long task title " * 20
     for _ in range(30):
         _task(db_session, long_title, TODAY)
@@ -174,16 +164,12 @@ def test_worst_case_stays_inside_the_token_budget(
 
 def test_read_only_no_audit_rows(client: TestClient, db_session: Session) -> None:
     _task(db_session, "Something", TODAY)
-    before = db_session.execute(
-        select(func.count()).select_from(ActivityEvent)
-    ).scalar_one()
+    before = db_session.execute(select(func.count()).select_from(ActivityEvent)).scalar_one()
 
     _glance(client)
     _glance(client)
 
-    after = db_session.execute(
-        select(func.count()).select_from(ActivityEvent)
-    ).scalar_one()
+    after = db_session.execute(select(func.count()).select_from(ActivityEvent)).scalar_one()
     assert after == before
 
 

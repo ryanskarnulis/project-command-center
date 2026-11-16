@@ -22,21 +22,22 @@ Revises: e3f1a9c2b7d4
 Create Date: 2026-10-21 12:26:34.487486
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = '184cfae0a4e9'
-down_revision: Union[str, None] = 'e3f1a9c2b7d4'
+revision: str = "184cfae0a4e9"
+down_revision: Union[str, None] = "e3f1a9c2b7d4"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('tasks', sa.Column('superseded_at', sa.DateTime(), nullable=True))
+    op.add_column("tasks", sa.Column("superseded_at", sa.DateTime(), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column('tasks', 'superseded_at')
+    op.drop_column("tasks", "superseded_at")

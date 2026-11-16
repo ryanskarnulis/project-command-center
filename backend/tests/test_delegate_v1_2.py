@@ -143,9 +143,7 @@ def test_a_message_without_context_reads_as_before(client: TestClient) -> None:
         {"content": "x", "mode": "write"},
     ],
 )
-def test_context_and_mode_are_bounded_and_strict(
-    client: TestClient, body: dict[str, Any]
-) -> None:
+def test_context_and_mode_are_bounded_and_strict(client: TestClient, body: dict[str, Any]) -> None:
     _use_loop(ScriptedProvider([]))
 
     assert _post(client, _thread(client), body).status_code == 422
@@ -165,9 +163,7 @@ def test_read_mode_never_runs_a_write_and_goes_on_from_its_reads(
     )
     _use_loop(provider)
 
-    response = _post(
-        client, _thread(client), {"content": "what's due?", "mode": "read"}
-    )
+    response = _post(client, _thread(client), {"content": "what's due?", "mode": "read"})
 
     assert response.status_code == 200
     record = response.json()["assistant_message"]["record"]
@@ -180,9 +176,14 @@ def test_read_mode_never_runs_a_write_and_goes_on_from_its_reads(
     # The model was told, in the tool's own answer.
     told = [m for m in provider.requests[1]["messages"] if m.get("role") == "tool"]
     assert "not run: read mode" in str(told[0]["content"])
-    assert db_session.execute(
-        select(ConversationMessage.mode).where(ConversationMessage.role == ConversationRole.user)
-    ).scalar_one() == "read"
+    assert (
+        db_session.execute(
+            select(ConversationMessage.mode).where(
+                ConversationMessage.role == ConversationRole.user
+            )
+        ).scalar_one()
+        == "read"
+    )
 
 
 def test_a_read_mode_run_asking_again_for_its_write_ends_answered(
@@ -300,7 +301,11 @@ def test_a_picked_ref_is_accepted_and_marked_for_the_planner(client: TestClient)
     _use_loop(provider)
     ref = {"app": "tasks", "kind": "task", "id": "7", "title": "Pay the bill", "picked": True}
 
-    response = _post(client, _thread(client), {"content": "the second one", "context": {"refs": [ref]}})
+    response = _post(
+        client, _thread(client), {"content": "the second one", "context": {"refs": [ref]}}
+    )
 
     assert response.status_code == 200
-    assert "- task 7 “Pay the bill”, the person's pick from your question" in _planner_turn(provider)
+    assert "- task 7 “Pay the bill”, the person's pick from your question" in _planner_turn(
+        provider
+    )

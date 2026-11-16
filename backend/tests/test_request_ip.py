@@ -13,8 +13,7 @@ def make_request(host: str | None, headers: dict[str, str] | None = None) -> Req
         "type": "http",
         "client": (host, 12345) if host is not None else None,
         "headers": [
-            (key.lower().encode(), value.encode())
-            for key, value in (headers or {}).items()
+            (key.lower().encode(), value.encode()) for key, value in (headers or {}).items()
         ],
     }
     return Request(scope)
@@ -98,9 +97,7 @@ def test_unparseable_trusted_entry_is_skipped(
         ("garbage", False),
     ],
 )
-def test_proxy_is_host_only(
-    monkeypatch: pytest.MonkeyPatch, bind: str, expected: bool
-) -> None:
+def test_proxy_is_host_only(monkeypatch: pytest.MonkeyPatch, bind: str, expected: bool) -> None:
     settings = Settings(frontend_bind=bind)
     monkeypatch.setattr(request_ip, "get_settings", lambda: settings)
     assert request_ip.proxy_is_host_only() is expected

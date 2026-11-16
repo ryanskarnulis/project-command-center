@@ -51,9 +51,7 @@ def get_glance(db: Session, *, today: date) -> Glance:
         key=lambda task: (_PRIORITY_RANK[task.priority], task.id),
     )
     overdue = sum(1 for task in open_tasks if task.due_date and task.due_date < today)
-    upcoming = [
-        task.due_date for task in open_tasks if task.due_date and task.due_date >= today
-    ]
+    upcoming = [task.due_date for task in open_tasks if task.due_date and task.due_date >= today]
 
     focus: Task | None = None
     for entry in focus_plan_service.list_entries(db, today):

@@ -74,17 +74,13 @@ def _skipped_nested_checklist(db: Session) -> tuple[int, int, int, int]:
         db, project_id=project.id, title="weekly checklist", due_date=SKIPPED_DUE
     )
     db.commit()
-    tasks_service.update_task(
-        db, parent, {"repeat_interval": {"unit": "week", "every": 1}}
-    )
+    tasks_service.update_task(db, parent, {"repeat_interval": {"unit": "week", "every": 1}})
     db.commit()
     child = tasks_service.create_task(
         db, project_id=project.id, parent_task_id=parent.id, title="step one"
     )
     db.commit()
-    tasks_service.create_task(
-        db, project_id=project.id, parent_task_id=child.id, title="sub step"
-    )
+    tasks_service.create_task(db, project_id=project.id, parent_task_id=child.id, title="sub step")
     db.commit()
     skipped_root_id = parent.id
 
@@ -101,9 +97,7 @@ def _skipped_nested_checklist(db: Session) -> tuple[int, int, int, int]:
 def test_unskip_rewinds_and_audits_every_changed_descendant(
     db_session: Session,
 ) -> None:
-    skipped_id, live_id, child_id, grandchild_id = _skipped_nested_checklist(
-        db_session
-    )
+    skipped_id, live_id, child_id, grandchild_id = _skipped_nested_checklist(db_session)
     assert _actions(db_session, child_id) == ["created"]
     assert _actions(db_session, grandchild_id) == ["created"]
 
@@ -128,9 +122,7 @@ def test_unskip_rewinds_and_audits_every_changed_descendant(
 
 def test_unskip_events_carry_the_current_actor(db_session: Session) -> None:
     """Attribution is the point: the rewind is somebody's write, not the system's."""
-    skipped_id, _live_id, child_id, grandchild_id = _skipped_nested_checklist(
-        db_session
-    )
+    skipped_id, _live_id, child_id, grandchild_id = _skipped_nested_checklist(db_session)
     skipped = task_trash.get_deleted_task(db_session, skipped_id)
     assert skipped is not None
     task_trash.restore_task(db_session, skipped)
@@ -148,9 +140,7 @@ def test_unskip_does_not_log_a_descendant_already_on_the_target_date(
     db_session: Session,
 ) -> None:
     """No-op rows must not gain a false ``updated`` — and the walk must not stop."""
-    skipped_id, _live_id, child_id, grandchild_id = _skipped_nested_checklist(
-        db_session
-    )
+    skipped_id, _live_id, child_id, grandchild_id = _skipped_nested_checklist(db_session)
     # Hand-move the middle row onto the un-skip target ahead of time. Its child
     # stays on the successor's date, so the rewind still has work below it.
     child = db_session.get(Task, child_id)
@@ -178,9 +168,7 @@ def test_tool_unskip_attributes_the_rewind_to_the_agent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The API/tool path: an agent-driven un-skip is attributable per changed row."""
-    skipped_id, live_id, child_id, grandchild_id = _skipped_nested_checklist(
-        db_session
-    )
+    skipped_id, live_id, child_id, grandchild_id = _skipped_nested_checklist(db_session)
     # The in-memory engine hands out one connection (StaticPool); release the
     # test session's transaction so the tool's own session can open one.
     db_session.close()
@@ -189,9 +177,7 @@ def test_tool_unskip_attributes_the_rewind_to_the_agent(
     )
     monkeypatch.setattr(runtime, "session_factory", factory)
 
-    result = registry.call_tool(
-        "restore_task", {"task_id": skipped_id}, actor="agent:mcp"
-    )
+    result = registry.call_tool("restore_task", {"task_id": skipped_id}, actor="agent:mcp")
 
     assert result.id == live_id
     assert result.due_date == SKIPPED_DUE

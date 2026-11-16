@@ -48,9 +48,7 @@ AXES = list(CONCEPTS)
 
 def concept_vector(text: str) -> list[float]:
     words = text.lower().replace("|", " ").replace(".", " ").split()
-    vector = [1.0] + [
-        1.0 if any(w in words for w in CONCEPTS[axis]) else 0.0 for axis in AXES
-    ]
+    vector = [1.0] + [1.0 if any(w in words for w in CONCEPTS[axis]) else 0.0 for axis in AXES]
     norm = math.sqrt(sum(x * x for x in vector))
     return [x / norm for x in vector]
 
@@ -68,9 +66,7 @@ class FakeService:
             raise httpx.ConnectError("refused", request=request)
         texts = json.loads(request.content)["input"]
         self.requests.append(texts)
-        data = [
-            {"index": i, "embedding": concept_vector(text)} for i, text in enumerate(texts)
-        ]
+        data = [{"index": i, "embedding": concept_vector(text)} for i, text in enumerate(texts)]
         # Out of order on purpose: the client sorts by index.
         return httpx.Response(200, json={"model": self.model, "data": data[::-1]})
 
@@ -187,7 +183,9 @@ def test_meaning_finds_a_misheard_name_keywords_cannot(
         ids["Car service appointment"],
     ]
     # The query went out with the query prefix.
-    assert service.requests[-1] == ["task: search result | query: push the dennis appointment to friday"]
+    assert service.requests[-1] == [
+        "task: search result | query: push the dennis appointment to friday"
+    ]
 
 
 def test_chit_chat_finds_nothing(tool_db: sessionmaker[Session], service: FakeService) -> None:
@@ -259,7 +257,7 @@ def test_trashed_tasks_are_never_matches(
 def test_a_focus_commitment_is_a_match_beside_a_look_alike_task(
     tool_db: sessionmaker[Session],
 ) -> None:
-    """"Skip today's team standup": the repeating commitment, by its entry id,
+    """ "Skip today's team standup": the repeating commitment, by its entry id,
     not only the recurring task that also says "standup"."""
     today = date.today()
     with tool_db() as db:
@@ -274,8 +272,11 @@ def test_a_focus_commitment_is_a_match_beside_a_look_alike_task(
             repeat_interval={"unit": "day", "every": 1},
         )
         gone = focus_plan_service.add_commitment(
-            db, plan_date=today - timedelta(days=1), title="Old standup",
-            start_minute=600, duration_minutes=15,
+            db,
+            plan_date=today - timedelta(days=1),
+            title="Old standup",
+            start_minute=600,
+            duration_minutes=15,
         )
         db.commit()
         standup_id, gone_id = standup.id, gone.id

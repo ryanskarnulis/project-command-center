@@ -41,9 +41,7 @@ def _rollup_update(rollup: tasks_service.Rollup) -> dict[str, object]:
     return update
 
 
-def _next_occurrence_update(
-    task: Task, rollup_update: dict[str, object]
-) -> dict[str, object]:
+def _next_occurrence_update(task: Task, rollup_update: dict[str, object]) -> dict[str, object]:
     """The ``next_occurrence_date`` override, keyed off the *effective* status.
 
     Reuses the status already resolved for this payload by ``_rollup_update`` — a
@@ -53,9 +51,7 @@ def _next_occurrence_update(
     """
     effective = rollup_update["workflow_status"]
     assert isinstance(effective, TaskWorkflowStatus)
-    return {
-        "next_occurrence_date": task_recurrence.next_occurrence_date(task, effective)
-    }
+    return {"next_occurrence_date": task_recurrence.next_occurrence_date(task, effective)}
 
 
 def _blocking_update(blocked_task_count: int) -> dict[str, object]:

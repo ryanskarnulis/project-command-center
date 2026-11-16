@@ -96,9 +96,7 @@ def get_deleted_task(db: Session, task_id: int) -> Task | None:
     Included so a restore by id gets ``SupersededTaskError``'s explanation
     rather than a bare "not in trash", and a purge by id still finds the row.
     """
-    return db.execute(
-        deleted(Task).where(Task.id == task_id)
-    ).scalar_one_or_none()
+    return db.execute(deleted(Task).where(Task.id == task_id)).scalar_one_or_none()
 
 
 def restore_task(db: Session, task: Task, *, defer_reconcile: bool = False) -> Task:
@@ -147,11 +145,7 @@ def restore_task_with_undo(
     # Gated on ``skipped_at``: this rewinds the series and retires the restored
     # row, which is only what the user meant if they SKIPPED it. A normally-trashed
     # occurrence falls through to the plain restore below and comes back in place.
-    if (
-        task.skipped_at is not None
-        and task.recurrence_id is not None
-        and task.due_date is not None
-    ):
+    if task.skipped_at is not None and task.recurrence_id is not None and task.due_date is not None:
         # The occurrence that replaced this one when it was skipped: the earliest
         # active sibling due on or after it. Filtering by date avoids retargeting an
         # earlier, already-completed occurrence (e.g. a done checklist parent).
@@ -187,8 +181,7 @@ def restore_task_with_undo(
                     skipped_due_date=skipped_due,
                     superseded_task_id=task.id,
                     previous_due_dates=[
-                        RescheduledDate(task_id=row.id, due_date=before[row.id])
-                        for row in rewound
+                        RescheduledDate(task_id=row.id, due_date=before[row.id]) for row in rewound
                     ],
                 ),
             )
@@ -317,9 +310,7 @@ def _skip_cascade(db: Session, root: Task) -> list[Task]:
     already names exactly those rows, whatever project they live in.
     """
     rows = db.execute(
-        deleted(Task)
-        .where(Task.deleted_with_task_id == root.id)
-        .order_by(Task.id.asc())
+        deleted(Task).where(Task.deleted_with_task_id == root.id).order_by(Task.id.asc())
     ).scalars()
     return [root, *rows]
 
@@ -369,9 +360,7 @@ def _check_restore_event(db: Session, undo: TaskRestoreUndo) -> None:
         or event.entity_type != "task"
         or event.entity_id != undo.task_id
         or event.action != "restored"
-        or _task_events_after(
-            db, [undo.task_id], undo.restore_event_id, action="restored"
-        )
+        or _task_events_after(db, [undo.task_id], undo.restore_event_id, action="restored")
     ):
         raise RestoreUndoConflictError("This restore can no longer be undone.")
 
@@ -418,8 +407,7 @@ def undo_task_restore(db: Session, undo: TaskRestoreUndo) -> None:
         row = get_task(db, task_id)
         if row is None:
             raise RestoreUndoConflictError(
-                "Something this restore brought back is gone again; "
-                "nothing to undo."
+                "Something this restore brought back is gone again; nothing to undo."
             )
         rows.append(row)
     if _task_events_after(db, ids, undo.restore_event_id):
@@ -485,8 +473,7 @@ def _undo_unskip(db: Session, task_id: int, unskip: UnskipUndo) -> None:
     live = get_task(db, task_id)
     if live is None or live.recurrence_id is None or live.due_date != skipped_due:
         raise RestoreUndoConflictError(
-            "This occurrence has changed since it was restored; "
-            "skip it again instead."
+            "This occurrence has changed since it was restored; skip it again instead."
         )
     original = get_deleted_task(db, unskip.superseded_task_id)
     if (
@@ -496,8 +483,7 @@ def _undo_unskip(db: Session, task_id: int, unskip: UnskipUndo) -> None:
         or original.due_date != skipped_due
     ):
         raise RestoreUndoConflictError(
-            "The skipped occurrence this restore replaced is gone; "
-            "skip it again instead."
+            "The skipped occurrence this restore replaced is gone; skip it again instead."
         )
     previous = {entry.task_id: entry.due_date for entry in unskip.previous_due_dates}
     target = previous.get(live.id)
@@ -505,18 +491,13 @@ def _undo_unskip(db: Session, task_id: int, unskip: UnskipUndo) -> None:
     if (
         target is None
         or any(
-            row_id not in subtree or subtree[row_id].due_date != skipped_due
-            for row_id in previous
+            row_id not in subtree or subtree[row_id].due_date != skipped_due for row_id in previous
         )
-        or find_live_occurrence_on(
-            db, live.recurrence_id, target, exclude_id=live.id
-        )
-        is not None
+        or find_live_occurrence_on(db, live.recurrence_id, target, exclude_id=live.id) is not None
         or find_skipped_occurrence_on(db, live.recurrence_id, skipped_due) is not None
     ):
         raise RestoreUndoConflictError(
-            "This series has changed since the occurrence was restored; "
-            "skip it again instead."
+            "This series has changed since the occurrence was restored; skip it again instead."
         )
     for row_id, due in previous.items():
         subtree[row_id].due_date = due
@@ -543,9 +524,7 @@ def _undo_unskip(db: Session, task_id: int, unskip: UnskipUndo) -> None:
     log_task_event(db, original, "skipped")
 
 
-def log_rewound_by_unskip(
-    db: Session, rewound: Sequence[Task], *, root: Task
-) -> None:
+def log_rewound_by_unskip(db: Session, rewound: Sequence[Task], *, root: Task) -> None:
     """Audit the rows an un-skip's date rewind rewrote, excluding ``root``.
 
     ``reschedule_occurrence`` sets a whole checklist to the un-skipped date in one
@@ -662,10 +641,7 @@ def restore_task_subtree(db: Session, task: Task) -> tuple[Task, int]:
     restored_ids = [
         descendant_id
         for descendant_id in marked_ids
-        if db.execute(
-            active(Task).where(Task.id == descendant_id)
-        ).scalar_one_or_none()
-        is not None
+        if db.execute(active(Task).where(Task.id == descendant_id)).scalar_one_or_none() is not None
     ]
     # Now that the subtree is whole again, judge the series once against the
     # final effective state. Seeding every restored id keeps the fan-out the
@@ -750,10 +726,7 @@ def log_task_detached_by_purge(
         entity_type="task",
         entity_id=task_id,
         action="updated",
-        summary=(
-            f'Task "{title}" detached from permanently deleted '
-            f'parent "{parent_title}"'
-        ),
+        summary=(f'Task "{title}" detached from permanently deleted parent "{parent_title}"'),
     )
 
 

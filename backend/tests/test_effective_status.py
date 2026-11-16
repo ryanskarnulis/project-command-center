@@ -88,22 +88,15 @@ def test_done_blocked_leaf_reads_in_progress_everywhere(db_session: Session) -> 
     assert read.workflow_status == TaskWorkflowStatus.in_progress
     assert read.is_blocked is True
 
-    assert deps_service.effective_statuses(db_session, [a]) == {
-        a: TaskWorkflowStatus.in_progress
-    }
+    assert deps_service.effective_statuses(db_session, [a]) == {a: TaskWorkflowStatus.in_progress}
 
 
 def test_done_blocked_leaf_list_and_dashboard_agree(db_session: Session) -> None:
     a, _b = _stranded_done_blocked_leaf(db_session)
 
-    not_done_ids = {
-        t.id for t in tasks_service.list_tasks(db_session, exclude_done=True)
-    }
+    not_done_ids = {t.id for t in tasks_service.list_tasks(db_session, exclude_done=True)}
     done_ids = {
-        t.id
-        for t in tasks_service.list_tasks(
-            db_session, workflow_status=TaskWorkflowStatus.done
-        )
+        t.id for t in tasks_service.list_tasks(db_session, workflow_status=TaskWorkflowStatus.done)
     }
     assert a in not_done_ids
     assert a not in done_ids
@@ -116,9 +109,7 @@ def test_done_blocked_leaf_list_and_dashboard_agree(db_session: Session) -> None
 # --- #2: checklist-parent blocker reads as effectively done ------------------
 
 
-def test_done_checklist_parent_blocker_reads_done(
-    client: TestClient, db_session: Session
-) -> None:
+def test_done_checklist_parent_blocker_reads_done(client: TestClient, db_session: Session) -> None:
     parent = _task(db_session, "release checklist")
     _done_child(db_session, parent, "cut branch")
     _done_child(db_session, parent, "tag build")
@@ -188,9 +179,7 @@ def test_dashboard_total_matches_effective_not_done(db_session: Session) -> None
     # Parity: overview total equals the count of effective-not-done active tasks.
     active = tasks_service.list_tasks(db_session)
     effective = deps_service.effective_statuses(db_session, [t.id for t in active])
-    expected_open = sum(
-        1 for t in active if effective.get(t.id) != TaskWorkflowStatus.done
-    )
+    expected_open = sum(1 for t in active if effective.get(t.id) != TaskWorkflowStatus.done)
     assert total == expected_open
     # And the blocked-done parent is among the counted-open tasks.
     open_ids = {t.id for t in dashboard_service._split_by_effective_status(db_session)[0]}
@@ -233,9 +222,7 @@ def test_effective_statuses_equals_capped_rollup(db_session: Session) -> None:
 # --- no-regression: normal tasks are untouched -------------------------------
 
 
-def test_unblocked_tasks_keep_stored_status(
-    client: TestClient, db_session: Session
-) -> None:
+def test_unblocked_tasks_keep_stored_status(client: TestClient, db_session: Session) -> None:
     open_leaf = _task(db_session, "draft")
     done_leaf = _task(db_session, "archive")
     _complete(db_session, done_leaf)

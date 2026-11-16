@@ -100,9 +100,7 @@ class Recall:
         if self.requests:
             parts.append(
                 "What the user asked earlier, in their own words, oldest first:\n"
-                + "\n".join(
-                    f"- {r}" if r.startswith("(") else f'- "{r}"' for r in self.requests
-                )
+                + "\n".join(f"- {r}" if r.startswith("(") else f'- "{r}"' for r in self.requests)
             )
         if self.last is not None:
             said, reply = self.last

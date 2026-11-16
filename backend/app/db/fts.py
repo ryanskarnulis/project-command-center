@@ -41,17 +41,13 @@ def _statements_for(fts: str, base: str, columns: tuple[str, ...]) -> list[str]:
     cols = ", ".join(columns)
     new = ", ".join(f"new.{c}" for c in columns)
     old = ", ".join(f"old.{c}" for c in columns)
-    delete_old = (
-        f"INSERT INTO {fts}({fts}, rowid, {cols}) VALUES ('delete', old.id, {old});"
-    )
+    delete_old = f"INSERT INTO {fts}({fts}, rowid, {cols}) VALUES ('delete', old.id, {old});"
     insert_new = f"INSERT INTO {fts}(rowid, {cols}) VALUES (new.id, {new});"
     return [
         f"CREATE VIRTUAL TABLE IF NOT EXISTS {fts} USING fts5("
         f"{cols}, content='{base}', content_rowid='id', tokenize='{TOKENIZE}')",
-        f"CREATE TRIGGER IF NOT EXISTS {fts}_ai AFTER INSERT ON {base} BEGIN "
-        f"{insert_new} END",
-        f"CREATE TRIGGER IF NOT EXISTS {fts}_ad AFTER DELETE ON {base} BEGIN "
-        f"{delete_old} END",
+        f"CREATE TRIGGER IF NOT EXISTS {fts}_ai AFTER INSERT ON {base} BEGIN {insert_new} END",
+        f"CREATE TRIGGER IF NOT EXISTS {fts}_ad AFTER DELETE ON {base} BEGIN {delete_old} END",
         # Only a change to an indexed column touches the index: status, dates
         # and soft-delete stamps write the row often and must not churn it.
         f"CREATE TRIGGER IF NOT EXISTS {fts}_au AFTER UPDATE OF {cols} ON {base} "

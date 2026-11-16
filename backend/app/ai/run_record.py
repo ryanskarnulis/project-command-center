@@ -75,6 +75,7 @@ LIMIT_REASONS: dict[str, str] = {
     "tool_call_limit": "it reached its limit of tool calls for one request",
 }
 
+
 def classify(record: ToolCallRecord) -> Outcome:
     """Sort one call by what its record shows happened."""
     if record.result is not None:
@@ -98,9 +99,7 @@ def any_ran(records: Sequence[ToolCallRecord]) -> bool:
     return any(classify(record) != "not_run" for record in records)
 
 
-def render(
-    records: Sequence[ToolCallRecord], answers: Sequence[str | None] | None = None
-) -> str:
+def render(records: Sequence[ToolCallRecord], answers: Sequence[str | None] | None = None) -> str:
     """The record as the narrator reads it, grouped, one line per call.
 
     ``#n`` is the call's 1-based position in the run, so lines in different

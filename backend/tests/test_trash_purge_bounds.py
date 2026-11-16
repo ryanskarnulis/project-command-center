@@ -78,9 +78,7 @@ def test_purge_accepts_both_lists_at_the_cap(client: TestClient) -> None:
     None of the ids are in trash, so the purge is a no-op — the assertion is that
     the id-resolution reads execute at all at this size.
     """
-    response = _purge(
-        client, task_ids=_ids(MAX_PURGE_IDS), project_ids=_ids(MAX_PURGE_IDS)
-    )
+    response = _purge(client, task_ids=_ids(MAX_PURGE_IDS), project_ids=_ids(MAX_PURGE_IDS))
 
     assert response.status_code == 200, response.text
     assert response.json() == {"projects": 0, "tasks": 0}
@@ -89,15 +87,11 @@ def test_purge_accepts_both_lists_at_the_cap(client: TestClient) -> None:
 def test_purge_still_removes_a_normal_selection(client: TestClient) -> None:
     """Happy path: an ordinary selection purges exactly what it names."""
     project = client.post("/api/projects", json={"name": "Bounded"}).json()
-    task = client.post(
-        f"/api/projects/{project['id']}/tasks", json={"title": "purge me"}
-    ).json()
+    task = client.post(f"/api/projects/{project['id']}/tasks", json={"title": "purge me"}).json()
     assert client.delete(f"/api/tasks/{task['id']}").status_code == 204
     assert client.delete(f"/api/projects/{project['id']}").status_code == 204
 
-    response = _purge(
-        client, task_ids=[task["id"]], project_ids=[project["id"]]
-    )
+    response = _purge(client, task_ids=[task["id"]], project_ids=[project["id"]])
 
     assert response.status_code == 200, response.text
     assert response.json() == {"projects": 1, "tasks": 1}

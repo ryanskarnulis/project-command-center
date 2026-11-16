@@ -85,7 +85,11 @@ def candidates_of(result: str) -> tuple[Candidate, ...]:
     if not isinstance(rows, list):
         return ()
     return tuple(
-        Candidate(id=row["id"], title=str(row.get("title") or ""), updated_at=str(row.get("updated_at") or ""))
+        Candidate(
+            id=row["id"],
+            title=str(row.get("title") or ""),
+            updated_at=str(row.get("updated_at") or ""),
+        )
         for row in rows
         if isinstance(row, dict) and isinstance(row.get("id"), int)
     )

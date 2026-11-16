@@ -32,16 +32,12 @@ def list_projects(db: Session, *, include_closed: bool = False) -> Sequence[Proj
 
 
 def get_project(db: Session, project_id: int) -> Project | None:
-    return db.execute(
-        active(Project).where(Project.id == project_id)
-    ).scalar_one_or_none()
+    return db.execute(active(Project).where(Project.id == project_id)).scalar_one_or_none()
 
 
 def create_project(db: Session, *, name: str, description: str | None = None) -> Project:
     # New projects land at the end of the manual order.
-    next_order = db.execute(
-        select(func.coalesce(func.max(Project.sort_order), 0) + 1)
-    ).scalar_one()
+    next_order = db.execute(select(func.coalesce(func.max(Project.sort_order), 0) + 1)).scalar_one()
     project = Project(name=name, description=description, sort_order=next_order)
     db.add(project)
     db.flush()
@@ -220,9 +216,7 @@ def soft_delete_project(db: Session, project: Project) -> int:
     deleted_ids: set[int] = set()
     deleted_events: list[tuple[int, str]] = []
     seeds: list[int] = []
-    for task in db.execute(
-        active(Task).where(Task.project_id == project.id)
-    ).scalars().all():
+    for task in db.execute(active(Task).where(Task.project_id == project.id)).scalars().all():
         task.deleted_with_project_id = project.id
         soft_delete(task)
         deleted_ids.add(task.id)
@@ -283,9 +277,7 @@ def list_deleted_projects(db: Session, *, limit: int = 50) -> Sequence[Project]:
 
 
 def get_deleted_project(db: Session, project_id: int) -> Project | None:
-    return db.execute(
-        deleted(Project).where(Project.id == project_id)
-    ).scalar_one_or_none()
+    return db.execute(deleted(Project).where(Project.id == project_id)).scalar_one_or_none()
 
 
 def count_tasks_deleted_with_project(db: Session, project_id: int) -> int:
@@ -363,9 +355,7 @@ def restore_project(
     db: Session, project: Project, *, restore_tasks: bool = False
 ) -> tuple[Project, int]:
     """Restore a trashed project; see ``restore_project_with_undo``."""
-    restored, count, _ = restore_project_with_undo(
-        db, project, restore_tasks=restore_tasks
-    )
+    restored, count, _ = restore_project_with_undo(db, project, restore_tasks=restore_tasks)
     return restored, count
 
 
@@ -395,13 +385,17 @@ def restore_project_with_undo(
 
     tasks: Sequence[Task] = ()
     if restore_tasks:
-        tasks = db.execute(
-            deleted(Task)
-            .where(Task.deleted_with_project_id == project.id)
-            # Deterministic order: it decides which row a pre-existing parent
-            # cycle detaches (``detach_if_parent_cycle`` below).
-            .order_by(Task.id.asc())
-        ).scalars().all()
+        tasks = (
+            db.execute(
+                deleted(Task)
+                .where(Task.deleted_with_project_id == project.id)
+                # Deterministic order: it decides which row a pre-existing parent
+                # cycle detaches (``detach_if_parent_cycle`` below).
+                .order_by(Task.id.asc())
+            )
+            .scalars()
+            .all()
+        )
         # Same invariant standalone task restore enforces (``task_trash.restore_task``):
         # a restored occurrence must not land on a date a live sibling of its series
         # already holds. Checked for the whole batch *before* any write so a conflict
@@ -602,19 +596,13 @@ def undo_project_restore(db: Session, undo: ProjectRestoreUndo) -> None:
     start = _restore_window_start(db, project.id, undo.restore_event_id)
     restored_ids = set(
         db.execute(
-            _restore_task_ids(
-                project.id, start, undo.restore_event_id, "restored", "restored"
-            )
+            _restore_task_ids(project.id, start, undo.restore_event_id, "restored", "restored")
         )
         .scalars()
         .all()
     )
     active_ids = set(
-        db.execute(
-            select(Task.id).where(
-                Task.project_id == project.id, Task.deleted_at.is_(None)
-            )
-        )
+        db.execute(select(Task.id).where(Task.project_id == project.id, Task.deleted_at.is_(None)))
         .scalars()
         .all()
     )
@@ -676,15 +664,10 @@ def purge_project(db: Session, project: Project) -> None:
     # when we reach it (a prior root's subtree purge took it), so re-fetch and skip
     # the misses rather than holding stale ORM rows.
     owned_ids = [
-        t.id
-        for t in db.execute(
-            deleted(Task).where(Task.project_id == project.id)
-        ).scalars()
+        t.id for t in db.execute(deleted(Task).where(Task.project_id == project.id)).scalars()
     ]
     for task_id in owned_ids:
-        task = db.execute(
-            deleted(Task).where(Task.id == task_id)
-        ).scalar_one_or_none()
+        task = db.execute(deleted(Task).where(Task.id == task_id)).scalar_one_or_none()
         if task is not None:
             task_trash.purge_task(db, task)
 
@@ -703,9 +686,7 @@ def purge_project(db: Session, project: Project) -> None:
     )
 
     db.execute(
-        update(ActivityEvent)
-        .where(ActivityEvent.project_id == project.id)
-        .values(project_id=None)
+        update(ActivityEvent).where(ActivityEvent.project_id == project.id).values(project_id=None)
     )
     db.execute(
         update(Task)

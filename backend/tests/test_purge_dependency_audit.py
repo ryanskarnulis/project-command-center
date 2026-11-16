@@ -76,12 +76,10 @@ def test_purging_a_blocker_audits_the_surviving_dependent(
     afterwards, so the event has to carry the snapshot.
     """
     pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
-    survivor = client.post(
-        f"/api/projects/{pid}/tasks", json={"title": "A survivor"}
-    ).json()["id"]
-    blocker = client.post(
-        f"/api/projects/{pid}/tasks", json={"title": "B doomed blocker"}
-    ).json()["id"]
+    survivor = client.post(f"/api/projects/{pid}/tasks", json={"title": "A survivor"}).json()["id"]
+    blocker = client.post(f"/api/projects/{pid}/tasks", json={"title": "B doomed blocker"}).json()[
+        "id"
+    ]
     _add_edge(client, survivor, blocker)
 
     assert client.delete(f"/api/tasks/{blocker}").status_code == 204
@@ -118,9 +116,7 @@ def test_purging_a_dependent_audits_the_surviving_blocker(
     dependent = client.post(
         f"/api/projects/{pid}/tasks", json={"title": "A doomed dependent"}
     ).json()["id"]
-    survivor = client.post(
-        f"/api/projects/{pid}/tasks", json={"title": "B survivor"}
-    ).json()["id"]
+    survivor = client.post(f"/api/projects/{pid}/tasks", json={"title": "B survivor"}).json()["id"]
     _add_edge(client, dependent, survivor)
 
     assert client.delete(f"/api/tasks/{dependent}").status_code == 204
@@ -140,9 +136,7 @@ def test_purging_a_dependent_audits_the_surviving_blocker(
     )
 
 
-def test_purge_audits_every_edge_a_survivor_loses(
-    client: TestClient, db_session: Session
-) -> None:
+def test_purge_audits_every_edge_a_survivor_loses(client: TestClient, db_session: Session) -> None:
     """One event per severed edge, matching ``remove_dependency``'s per-edge event.
 
     The purged parent takes its trashed child with it, and the survivor was
@@ -153,9 +147,7 @@ def test_purge_audits_every_edge_a_survivor_loses(
     child = client.post(
         f"/api/projects/{pid}/tasks", json={"title": "C", "parent_task_id": parent}
     ).json()["id"]
-    survivor = client.post(f"/api/projects/{pid}/tasks", json={"title": "S"}).json()[
-        "id"
-    ]
+    survivor = client.post(f"/api/projects/{pid}/tasks", json={"title": "S"}).json()["id"]
     _add_edge(client, survivor, parent)
     _add_edge(client, survivor, child)
 
@@ -163,9 +155,7 @@ def test_purge_audits_every_edge_a_survivor_loses(
     assert client.delete(f"/api/tasks/{parent}/purge").status_code == 204
 
     summaries = [
-        e.summary
-        for e in _events_for(db_session, survivor)
-        if e.action == "dependency_removed"
+        e.summary for e in _events_for(db_session, survivor) if e.action == "dependency_removed"
     ]
     # Ordered by edge id, so the feed replays them in the order they were added.
     assert summaries == [
@@ -174,23 +164,15 @@ def test_purge_audits_every_edge_a_survivor_loses(
     ]
 
 
-def test_bulk_purge_audits_the_surviving_dependent(
-    client: TestClient, db_session: Session
-) -> None:
+def test_bulk_purge_audits_the_surviving_dependent(client: TestClient, db_session: Session) -> None:
     """The ``/trash/purge`` caller inherits it — the fix lives inside ``purge_task``."""
     pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
-    survivor = client.post(f"/api/projects/{pid}/tasks", json={"title": "A"}).json()[
-        "id"
-    ]
-    blocker = client.post(f"/api/projects/{pid}/tasks", json={"title": "B"}).json()[
-        "id"
-    ]
+    survivor = client.post(f"/api/projects/{pid}/tasks", json={"title": "A"}).json()["id"]
+    blocker = client.post(f"/api/projects/{pid}/tasks", json={"title": "B"}).json()["id"]
     _add_edge(client, survivor, blocker)
     assert client.delete(f"/api/tasks/{blocker}").status_code == 204
 
-    resp = client.post(
-        "/api/trash/purge", json={"project_ids": [], "task_ids": [blocker]}
-    )
+    resp = client.post("/api/trash/purge", json={"project_ids": [], "task_ids": [blocker]})
     assert resp.status_code == 200
     assert resp.json() == {"projects": 0, "tasks": 1}
 
@@ -208,12 +190,8 @@ def test_empty_trash_audits_the_surviving_dependent(
 ) -> None:
     """Same for the nuclear option: A is still active, so it must be told."""
     pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
-    survivor = client.post(f"/api/projects/{pid}/tasks", json={"title": "A"}).json()[
-        "id"
-    ]
-    blocker = client.post(f"/api/projects/{pid}/tasks", json={"title": "B"}).json()[
-        "id"
-    ]
+    survivor = client.post(f"/api/projects/{pid}/tasks", json={"title": "A"}).json()["id"]
+    blocker = client.post(f"/api/projects/{pid}/tasks", json={"title": "B"}).json()["id"]
     _add_edge(client, survivor, blocker)
     assert client.delete(f"/api/tasks/{blocker}").status_code == 204
 
@@ -241,12 +219,8 @@ def test_project_purge_audits_a_dependent_in_another_project(
     """
     doomed = client.post("/api/projects", json={"name": "Doomed"}).json()["id"]
     keeper = client.post("/api/projects", json={"name": "Keeper"}).json()["id"]
-    blocker = client.post(
-        f"/api/projects/{doomed}/tasks", json={"title": "B"}
-    ).json()["id"]
-    survivor = client.post(
-        f"/api/projects/{keeper}/tasks", json={"title": "A"}
-    ).json()["id"]
+    blocker = client.post(f"/api/projects/{doomed}/tasks", json={"title": "B"}).json()["id"]
+    survivor = client.post(f"/api/projects/{keeper}/tasks", json={"title": "A"}).json()["id"]
     _add_edge(client, survivor, blocker)
 
     assert client.delete(f"/api/projects/{doomed}").status_code == 204
@@ -312,12 +286,8 @@ def test_bulk_purge_of_both_endpoints_audits_the_one_still_standing(
     is then purged in its turn.
     """
     pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
-    dependent = client.post(f"/api/projects/{pid}/tasks", json={"title": "A"}).json()[
-        "id"
-    ]
-    blocker = client.post(f"/api/projects/{pid}/tasks", json={"title": "B"}).json()[
-        "id"
-    ]
+    dependent = client.post(f"/api/projects/{pid}/tasks", json={"title": "A"}).json()["id"]
+    blocker = client.post(f"/api/projects/{pid}/tasks", json={"title": "B"}).json()["id"]
     _add_edge(client, dependent, blocker)
     assert client.delete(f"/api/tasks/{dependent}").status_code == 204
     assert client.delete(f"/api/tasks/{blocker}").status_code == 204
@@ -344,17 +314,11 @@ def test_an_already_removed_edge_is_not_audited_twice(
     Destroying its tombstone in the purge is bookkeeping, not a second removal.
     """
     pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
-    survivor = client.post(f"/api/projects/{pid}/tasks", json={"title": "A"}).json()[
-        "id"
-    ]
-    blocker = client.post(f"/api/projects/{pid}/tasks", json={"title": "B"}).json()[
-        "id"
-    ]
+    survivor = client.post(f"/api/projects/{pid}/tasks", json={"title": "A"}).json()["id"]
+    blocker = client.post(f"/api/projects/{pid}/tasks", json={"title": "B"}).json()["id"]
     edge = _add_edge(client, survivor, blocker)
 
-    assert (
-        client.delete(f"/api/tasks/{survivor}/dependencies/{edge}").status_code == 204
-    )
+    assert client.delete(f"/api/tasks/{survivor}/dependencies/{edge}").status_code == 204
     assert client.delete(f"/api/tasks/{blocker}").status_code == 204
     assert client.delete(f"/api/tasks/{blocker}/purge").status_code == 204
 
@@ -369,9 +333,7 @@ def test_an_already_removed_edge_is_not_audited_twice(
     assert events[-1].summary == 'Task "A" no longer waits on "B"'
 
 
-def test_a_trashed_survivor_is_audited_too(
-    client: TestClient, db_session: Session
-) -> None:
+def test_a_trashed_survivor_is_audited_too(client: TestClient, db_session: Session) -> None:
     """The survivor need not be active — only restorable.
 
     A is in the trash on its own terms and is not part of B's purge set, so it can
@@ -379,12 +341,8 @@ def test_a_trashed_survivor_is_audited_too(
     call for the mirror case (removing an edge whose blocker is trashed).
     """
     pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
-    survivor = client.post(f"/api/projects/{pid}/tasks", json={"title": "A"}).json()[
-        "id"
-    ]
-    blocker = client.post(f"/api/projects/{pid}/tasks", json={"title": "B"}).json()[
-        "id"
-    ]
+    survivor = client.post(f"/api/projects/{pid}/tasks", json={"title": "A"}).json()["id"]
+    blocker = client.post(f"/api/projects/{pid}/tasks", json={"title": "B"}).json()["id"]
     _add_edge(client, survivor, blocker)
     assert client.delete(f"/api/tasks/{survivor}").status_code == 204
     assert client.delete(f"/api/tasks/{blocker}").status_code == 204
@@ -402,17 +360,11 @@ def test_a_trashed_survivor_is_audited_too(
     ]
 
 
-def test_the_severed_edge_event_carries_the_actor(
-    client: TestClient, db_session: Session
-) -> None:
+def test_the_severed_edge_event_carries_the_actor(client: TestClient, db_session: Session) -> None:
     """Attribution comes from the shared ``record_event`` actor contextvar."""
     pid = client.post("/api/projects", json={"name": "Ops"}).json()["id"]
-    survivor = client.post(f"/api/projects/{pid}/tasks", json={"title": "A"}).json()[
-        "id"
-    ]
-    blocker = client.post(f"/api/projects/{pid}/tasks", json={"title": "B"}).json()[
-        "id"
-    ]
+    survivor = client.post(f"/api/projects/{pid}/tasks", json={"title": "A"}).json()["id"]
+    blocker = client.post(f"/api/projects/{pid}/tasks", json={"title": "B"}).json()["id"]
     _add_edge(client, survivor, blocker)
     assert client.delete(f"/api/tasks/{blocker}").status_code == 204
 

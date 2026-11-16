@@ -78,9 +78,7 @@ def test_the_last_day_of_the_month_is_its_own_end_and_tomorrow_rolls_over() -> N
 
 
 def test_february_ends_on_the_leap_day() -> None:
-    assert "End of this month: Tuesday 2028-02-29" in state_block.calendar_lines(
-        date(2028, 2, 3)
-    )
+    assert "End of this month: Tuesday 2028-02-29" in state_block.calendar_lines(date(2028, 2, 3))
 
 
 # --- The text -----------------------------------------------------------------

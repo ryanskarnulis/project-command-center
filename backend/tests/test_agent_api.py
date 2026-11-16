@@ -59,11 +59,7 @@ def test_conversation_service_happy_path(db_session: Session) -> None:
     run = AgentRunResult(
         reply="Here is the plan.",
         stop_reason="completed",
-        tool_calls=[
-            ToolCallRecord(
-                tool="get_focus_plan", arguments={}, result='{"blocks": []}'
-            )
-        ],
+        tool_calls=[ToolCallRecord(tool="get_focus_plan", arguments={}, result='{"blocks": []}')],
         iterations=2,
         messages=[],
     )
@@ -122,9 +118,7 @@ def test_conversation_crud_over_api(client: TestClient) -> None:
     assert detail.status_code == 200
     assert detail.json()["messages"] == []
 
-    assert (
-        client.delete(f"/api/agent/conversations/{conversation_id}").status_code == 204
-    )
+    assert client.delete(f"/api/agent/conversations/{conversation_id}").status_code == 204
     assert client.get(f"/api/agent/conversations/{conversation_id}").status_code == 404
     assert (
         client.post(
@@ -135,26 +129,20 @@ def test_conversation_crud_over_api(client: TestClient) -> None:
     )
 
 
-def test_deleted_conversation_can_be_restored(
-    client: TestClient, db_session: Session
-) -> None:
+def test_deleted_conversation_can_be_restored(client: TestClient, db_session: Session) -> None:
     """The undo behind the phone's swipe-to-delete (M07f): DELETE then restore
     brings the thread — messages included — back exactly as it was."""
     conversation_id = client.post(
         "/api/agent/conversations", json={"title": "Weekly triage"}
     ).json()["id"]
-    assert (
-        client.delete(f"/api/agent/conversations/{conversation_id}").status_code == 204
-    )
+    assert client.delete(f"/api/agent/conversations/{conversation_id}").status_code == 204
     assert client.get("/api/agent/conversations").json() == []
 
     restored = client.post(f"/api/agent/conversations/{conversation_id}/restore")
     assert restored.status_code == 200
     assert restored.json()["id"] == conversation_id
     assert restored.json()["title"] == "Weekly triage"
-    assert [c["id"] for c in client.get("/api/agent/conversations").json()] == [
-        conversation_id
-    ]
+    assert [c["id"] for c in client.get("/api/agent/conversations").json()] == [conversation_id]
     assert client.get(f"/api/agent/conversations/{conversation_id}").status_code == 200
 
     # Restore is audited like the delete it reverses.
@@ -170,10 +158,7 @@ def test_deleted_conversation_can_be_restored(
     assert actions == ["created", "deleted", "restored"]
 
     # A live thread has nothing to restore; a stale undo must not be told it did.
-    assert (
-        client.post(f"/api/agent/conversations/{conversation_id}/restore").status_code
-        == 404
-    )
+    assert client.post(f"/api/agent/conversations/{conversation_id}/restore").status_code == 404
     assert client.post("/api/agent/conversations/999999/restore").status_code == 404
 
 
@@ -196,9 +181,7 @@ def test_conversation_rename_over_api(client: TestClient) -> None:
         == 422
     )
     assert (
-        client.patch(
-            f"/api/agent/conversations/{conversation_id}", json={"titel": "x"}
-        ).status_code
+        client.patch(f"/api/agent/conversations/{conversation_id}", json={"titel": "x"}).status_code
         == 422
     )
     assert client.delete(f"/api/agent/conversations/{conversation_id}").status_code == 204
@@ -220,9 +203,7 @@ def test_conversation_list_pages_past_the_default_limit(client: TestClient) -> N
     first = client.get("/api/agent/conversations").json()
     assert len(first) == 50  # the default page
 
-    second = client.get(
-        "/api/agent/conversations", params={"limit": 50, "offset": 50}
-    ).json()
+    second = client.get("/api/agent/conversations", params={"limit": 50, "offset": 50}).json()
     assert len(second) == 5
 
     paged = [c["id"] for c in first] + [c["id"] for c in second]
@@ -232,13 +213,9 @@ def test_conversation_list_pages_past_the_default_limit(client: TestClient) -> N
 
 
 def test_conversation_list_limit_is_bounded(client: TestClient) -> None:
-    assert (
-        client.get("/api/agent/conversations", params={"limit": 501}).status_code == 422
-    )
+    assert client.get("/api/agent/conversations", params={"limit": 501}).status_code == 422
     assert client.get("/api/agent/conversations", params={"limit": 0}).status_code == 422
-    assert (
-        client.get("/api/agent/conversations", params={"offset": -1}).status_code == 422
-    )
+    assert client.get("/api/agent/conversations", params={"offset": -1}).status_code == 422
 
 
 def test_post_message_runs_loop_and_persists_exchange(
@@ -261,9 +238,7 @@ def test_post_message_runs_loop_and_persists_exchange(
     assert response.status_code == 200
     exchange = response.json()
     assert exchange["user_message"]["role"] == "user"
-    assert exchange["assistant_message"]["content"] == (
-        "Created 'Ship slice 2' in General."
-    )
+    assert exchange["assistant_message"]["content"] == ("Created 'Ship slice 2' in General.")
     assert exchange["assistant_message"]["stop_reason"] == "completed"
     tool_calls = exchange["assistant_message"]["tool_calls"]
     assert [c["tool"] for c in tool_calls] == ["create_task"]
@@ -273,9 +248,7 @@ def test_post_message_runs_loop_and_persists_exchange(
     task = db_session.execute(select(Task)).scalar_one()
     assert task.title == "Ship slice 2"
     task_events = (
-        db_session.execute(
-            select(ActivityEvent).where(ActivityEvent.entity_type == "task")
-        )
+        db_session.execute(select(ActivityEvent).where(ActivityEvent.entity_type == "task"))
         .scalars()
         .all()
     )
@@ -387,9 +360,7 @@ def test_provider_failure_before_any_tool_is_502_with_a_truthful_turn(
     )
     assert response.status_code == 502
 
-    messages = client.get(f"/api/agent/conversations/{conversation_id}").json()[
-        "messages"
-    ]
+    messages = client.get(f"/api/agent/conversations/{conversation_id}").json()["messages"]
     assert [m["role"] for m in messages] == ["user", "assistant"]
     assert messages[0]["content"] == "Anyone home?"
     assistant = messages[1]
@@ -425,9 +396,7 @@ def test_provider_failure_mid_run_records_the_tools_that_already_ran(
     assert [t.title for t in tasks] == ["Half-done"]
 
     # The conversation records the truth: the create_task that ran, then failure.
-    assistant = client.get(f"/api/agent/conversations/{conversation_id}").json()[
-        "messages"
-    ][1]
+    assistant = client.get(f"/api/agent/conversations/{conversation_id}").json()["messages"][1]
     assert assistant["stop_reason"] == "provider_error"
     assert assistant["content"] is None
     assert [c["tool"] for c in assistant["tool_calls"]] == ["create_task"]
@@ -472,9 +441,7 @@ def test_unexpected_tool_exception_is_500_with_the_partial_trajectory(
     # The task the first call created stays committed and undoable.
     assert db_session.execute(select(Task.title)).scalars().all() == ["Committed"]
 
-    messages = client.get(f"/api/agent/conversations/{conversation_id}").json()[
-        "messages"
-    ]
+    messages = client.get(f"/api/agent/conversations/{conversation_id}").json()["messages"]
     assert [m["role"] for m in messages] == ["user", "assistant"]
     assistant = messages[1]
     assert assistant["stop_reason"] == "internal_error"
@@ -504,9 +471,7 @@ def test_run_over_budget_is_504_with_a_timed_out_turn(
     )
     assert response.status_code == 504
 
-    assistant = client.get(f"/api/agent/conversations/{conversation_id}").json()[
-        "messages"
-    ][1]
+    assistant = client.get(f"/api/agent/conversations/{conversation_id}").json()["messages"][1]
     assert assistant["stop_reason"] == "timed_out"
     assert assistant["content"] is None
 
@@ -532,9 +497,7 @@ def test_x_agent_actor_attributes_mutations_to_the_delegate(
     assert response.status_code == 200
 
     task_events = (
-        db_session.execute(
-            select(ActivityEvent).where(ActivityEvent.entity_type == "task")
-        )
+        db_session.execute(select(ActivityEvent).where(ActivityEvent.entity_type == "task"))
         .scalars()
         .all()
     )
@@ -569,9 +532,7 @@ def test_actor_falls_back_to_loop_when_header_absent_or_unrecognized(
     assert response.status_code == 200
 
     task_events = (
-        db_session.execute(
-            select(ActivityEvent).where(ActivityEvent.entity_type == "task")
-        )
+        db_session.execute(select(ActivityEvent).where(ActivityEvent.entity_type == "task"))
         .scalars()
         .all()
     )
@@ -603,9 +564,7 @@ def test_missing_and_soft_deleted_threads_404_across_endpoints(
     # Soft-deleted: identical 404s, so conductor's retry recreates rather than
     # resurrecting a trashed thread.
     conversation_id = client.post("/api/agent/conversations", json={}).json()["id"]
-    assert (
-        client.delete(f"/api/agent/conversations/{conversation_id}").status_code == 204
-    )
+    assert client.delete(f"/api/agent/conversations/{conversation_id}").status_code == 204
     assert client.get(f"/api/agent/conversations/{conversation_id}").status_code == 404
     assert (
         client.post(
@@ -614,9 +573,7 @@ def test_missing_and_soft_deleted_threads_404_across_endpoints(
         ).status_code
         == 404
     )
-    assert (
-        client.delete(f"/api/agent/conversations/{conversation_id}").status_code == 404
-    )
+    assert client.delete(f"/api/agent/conversations/{conversation_id}").status_code == 404
 
 
 def test_post_message_is_rate_limited(
@@ -676,9 +633,7 @@ def test_rate_limited_first_message_leaves_the_conversation_usable(
         f"/api/agent/conversations/{claimed_id}/messages", json={"content": "two"}
     )
     assert retried.status_code == 200
-    assert (
-        len(client.get(f"/api/agent/conversations/{claimed_id}").json()["messages"]) == 2
-    )
+    assert len(client.get(f"/api/agent/conversations/{claimed_id}").json()["messages"]) == 2
 
 
 def test_second_message_while_a_run_is_in_progress_gets_409(

@@ -122,9 +122,7 @@ def test_compare_pairs_arms_on_shared_seeds() -> None:
     assert compare({"x": {1: True}}, {}) == ["x: A 1/1 · B 0/0 · no shared seeds"]
 
 
-def test_main_compares_two_report_files(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_main_compares_two_report_files(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     _report(tmp_path / "a.jsonl", "find_and_complete", {1: "PASS", 2: "PASS", 3: "FAIL"})
     _report(tmp_path / "b.jsonl", "find_and_complete", {1: "PASS", 2: "FAIL", 3: "FAIL"})
     assert main([str(tmp_path / "a.jsonl"), str(tmp_path / "b.jsonl")]) == 0
