@@ -33,7 +33,6 @@ from app.ai.loop import (
 )
 from app.ai.providers.llamacpp import (
     ChatResult,
-    PromptTokensDetails,
     ProviderRequestError,
     ServerStamp,
     ToolCallArgumentsError,
@@ -119,7 +118,7 @@ def _metered(turn: ChatResult, prompt: int = 100, completion: int = 10) -> ChatR
                 prompt_tokens=prompt,
                 completion_tokens=completion,
                 total_tokens=prompt + completion,
-                prompt_tokens_details=PromptTokensDetails(cached_tokens=prompt // 2),
+                cached_tokens=prompt // 2,
             ),
             "server": ServerStamp(model="gemma-weights", fingerprint="b1", server_ms=40),
         }
