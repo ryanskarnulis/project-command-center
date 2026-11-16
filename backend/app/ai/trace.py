@@ -22,21 +22,24 @@ documented in ``docs/agent-tracing.md``.
 
 from __future__ import annotations
 
-import hashlib
-import json
-import threading
-import uuid
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal
 
+# Re-exported: the fleet's trace writer, vendored (agent-standard/agentkit).
+from app.ai.agentkit.trace import (
+    JsonlTracer as JsonlTracer,
+    Tracer as Tracer,
+    new_run_id as new_run_id,
+    sha256 as sha256,
+    tool_schemas_sha256 as tool_schemas_sha256,
+    write_record as write_record,
+)
 from app.config import get_settings
 
 if TYPE_CHECKING:
     from app.ai.loop import AgentRunResult
-    from app.ai.providers.llamacpp import ServerStamp, ToolSpec, Usage
+    from app.ai.providers.llamacpp import ServerStamp, Usage
 
 # The record layout's version. A reader keys off it rather than off which
 # fields happen to be present; bump it on any change a reader must branch on.
@@ -80,23 +83,6 @@ CallStatus = Literal["ok", "truncated", "bad_args", "failed", "peeked"]
 # schema 5 said ``planner`` for both. Records before schema 4 say ``turn`` and
 # ``summary`` (the limit summary the narrator replaced, #399).
 CallPhase = Literal["planner", "closing", "narrator"]
-
-
-def new_run_id() -> str:
-    """A fresh id for one run: what the record, the run's log lines and #401's
-    byte capture are keyed by. Full uuid4 hex — unique across processes."""
-    return uuid.uuid4().hex
-
-
-def sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def tool_schemas_sha256(specs: Sequence[ToolSpec]) -> str:
-    """One hash over every offered tool's wire schema, canonicalised (sorted
-    keys) so it changes with the schemas, never with dict ordering."""
-    wire = [spec.to_wire() for spec in specs]
-    return sha256(json.dumps(wire, sort_keys=True, separators=(",", ":")))
 
 
 @dataclass
@@ -299,37 +285,6 @@ class RunTrace:
                 "tools_offered": self.tools_offered,
             },
         }
-
-
-class Tracer(Protocol):
-    """Whatever records a finished run. Free to fail: the loop swallows it."""
-
-    def write(self, record: dict[str, Any]) -> None: ...
-
-
-# One lock for every JsonlTracer in the process: runs on different
-# conversations finish concurrently in worker threads, and two appends must
-# never interleave inside one line.
-_WRITE_LOCK = threading.Lock()
-
-
-@dataclass(frozen=True)
-class JsonlTracer:
-    """Appends each run to a JSONL file, newest last, one line per run.
-
-    JSONL because runs are appended forever and read back a few at a time: a
-    crash mid-write costs at most the last line, ``tail -f`` works during a
-    live session, and a file of runs loads with a one-line comprehension.
-    """
-
-    path: Path
-
-    def write(self, record: dict[str, Any]) -> None:
-        line = json.dumps(record, default=str, ensure_ascii=False)
-        with _WRITE_LOCK:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a", encoding="utf-8") as handle:
-                handle.write(line + "\n")
 
 
 def tracer_from_settings() -> Tracer | None:

@@ -729,22 +729,22 @@ class AgentLoop:
         The trace is diagnostics: a full disk, a bad path or an unserialisable
         value is logged as a warning and the run's outcome stands.
         """
-        if self._tracer is None:
-            return
-        try:
-            record = trace.record(
+
+        def failed(exc: Exception) -> None:
+            logger.warning(
+                "agent_trace_write_failed", error=str(exc), error_type=type(exc).__name__
+            )
+
+        run_trace.write_record(
+            self._tracer,
+            lambda: trace.record(
                 result,
                 limit=_STOP_LIMITS.get(result.stop_reason),
                 error=error,
                 total_ms=_ms_since(started),
-            )
-            self._tracer.write(record)
-        except Exception as exc:
-            logger.warning(
-                "agent_trace_write_failed",
-                error=str(exc),
-                error_type=type(exc).__name__,
-            )
+            ),
+            failed=failed,
+        )
 
     def _chat(
         self,
