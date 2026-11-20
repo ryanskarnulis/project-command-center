@@ -9,17 +9,21 @@ by code from the live rows, never by the model.
 
 Two ways to answer, both only on the thread that asked:
 
-- **The token.** A message carrying ``Confirm-Token`` runs exactly the armed
-  call, once, with no model turn (``routes_agent``).
+- **The token.** A message carrying ``Confirm-Token`` runs exactly what was
+  armed, once, with no model turn (``routes_agent``).
 - **The app's own yes** (the v1 path, chess's answer reader). The next
-  message's run may re-issue the identical call, and :class:`Gate` lets it
-  through.
+  message's run may re-issue the identical calls, and :class:`Gate` lets
+  them through.
+
+One question covers one model turn's gated calls (#545): "delete the test
+tasks" is five ``trash_task`` calls, and the person is asked once, about all
+five by name. A yes runs every one of them.
 
 Anything else voids it: the next message on the thread without the token
 takes the pending confirmation off the thread, whatever the run then does.
 
-A token is bound to the thread, the tool, its canonical arguments, and the
-state it previewed (the row's ``updated_at``), and expires after
+A token is bound to the thread, each call's tool and canonical arguments, and
+the state it previewed (the row's ``updated_at``), and expires after
 :data:`TOKEN_TTL_SECONDS`. Tokens live in this process only: a restart
 forgets them, which a client meets as ``unknown`` and asks again. PCC's own
 chat (the in-app actor) is never gated: there, trash is the undo.
@@ -49,6 +53,9 @@ GATED_TOOLS = frozenset({"trash_task", "trash_project"})
 # How long a question stays answerable (the contract's default).
 TOKEN_TTL_SECONDS = 600
 
+# The contract's cap on the entity refs a preview lists.
+PREVIEW_REFS = 20
+
 # The ``reason`` a gated call's record entry carries: it never ran.
 NOT_RUN_REASON = "not run: needs confirmation"
 
@@ -63,9 +70,13 @@ class ConfirmRefused(Exception):
         self.kind: Refusal = kind
 
 
+Call = tuple[str, dict[str, Any]]
+
+
 @dataclass
 class Pending:
-    """One armed confirmation: exactly one call, on one thread."""
+    """One armed confirmation on one thread: the gated calls of one model
+    turn, asked about together. ``tool`` and ``arguments`` are the first."""
 
     token: str
     conversation_id: int
@@ -78,13 +89,29 @@ class Pending:
     used: bool = False
     # The assistant turn that asked, so a replayed exchange still carries it.
     message_id: int | None = None
-    _key: str = field(init=False)
+    # The calls asked about after the first, in the order the model made them.
+    more: list[Call] = field(default_factory=list)
+    # Each call's previewed state by call key; a re-issued call spends its key.
+    _states: dict[str, str] = field(init=False)
 
     def __post_init__(self) -> None:
-        self._key = _call_key(self.tool, self.arguments)
+        states = self.state.split(_STATE_SEPARATOR)
+        self._states = {
+            _call_key(tool, arguments): state
+            for (tool, arguments), state in zip(self.calls, states, strict=True)
+        }
 
-    def matches(self, tool: str, arguments: dict[str, Any]) -> bool:
-        return self._key == _call_key(tool, arguments)
+    @property
+    def calls(self) -> list[Call]:
+        return [(self.tool, self.arguments), *self.more]
+
+    def covers(self, tool: str, arguments: dict[str, Any]) -> bool:
+        return _call_key(tool, arguments) in self._states
+
+    def spend(self, tool: str, arguments: dict[str, Any]) -> str | None:
+        """Take one call off the confirmation: the state it previewed, or
+        ``None`` if it is not (or no longer) one of the calls asked about."""
+        return self._states.pop(_call_key(tool, arguments), None)
 
     def wire(self) -> dict[str, Any]:
         """``assistant_message.confirm_required`` as the contract shows it."""
@@ -97,6 +124,9 @@ class Pending:
             "expires_at": expires.isoformat(),
         }
 
+
+# Joins the calls' states into ``Pending.state`` (never part of one state).
+_STATE_SEPARATOR = "\n"
 
 _lock = threading.Lock()
 _by_token: dict[str, Pending] = {}
@@ -132,34 +162,54 @@ class Gate:
         return tool in GATED_TOOLS
 
     def allows(self, tool: str, arguments: dict[str, Any]) -> bool:
-        """Whether this call is the identical one the thread was asked about,
-        with the state it previewed. It may run once."""
+        """Whether this call is identical to one the thread was asked about,
+        with the state it previewed. Each call asked about may run once."""
         answered = self._answered
-        if answered is None or not answered.matches(tool, arguments):
+        if answered is None:
             return False
-        self._answered = None
-        if _expired(answered) or _fingerprint(tool, arguments) != answered.state:
+        state = answered.spend(tool, arguments)
+        if state is None:
+            # Not one of the calls asked about: the yes covers nothing more.
+            self._answered = None
+            return False
+        if _expired(answered) or _fingerprint(tool, arguments) != state:
+            self._answered = None
             return False
         with _lock:
             answered.used = True
         return True
 
-    def arm(self, tool: str, arguments: dict[str, Any]) -> Pending | None:
-        """Arm a confirmation for this call, or ``None`` if its row isn't there
-        (the call then runs, and the service layer refuses it)."""
-        built = _question(tool, arguments)
-        if built is None:
-            return None
-        state, question, preview = built
+    def arm(self, calls: list[Call]) -> Pending | None:
+        """Arm one confirmation for a model turn's gated calls, or ``None`` if
+        the first one's row isn't there (that call then runs, and the service
+        layer refuses it). A later call whose row isn't there, or that repeats
+        an earlier one, is left out of the question."""
+        asked: list[tuple[Call, _Asked]] = []
+        seen: set[str] = set()
+        for tool, arguments in calls:
+            key = _call_key(tool, arguments)
+            built = None if key in seen else _asked(tool, arguments)
+            if built is None:
+                if not asked:
+                    return None
+                continue
+            seen.add(key)
+            asked.append(((tool, dict(arguments)), built))
+        (tool, arguments), _first = asked[0]
+        touched = [ref for _call, item in asked for ref in item.touched]
         pending = Pending(
             token=secrets.token_urlsafe(18),
             conversation_id=self._conversation_id,
             tool=tool,
-            arguments=dict(arguments),
-            state=state,
-            question=question,
-            preview=preview,
+            arguments=arguments,
+            state=_STATE_SEPARATOR.join(item.state for _call, item in asked),
+            question=_ask([item for _call, item in asked]),
+            preview={
+                "count": sum(item.count for _call, item in asked),
+                "touched": touched[:PREVIEW_REFS],
+            },
             expires_at=time.time() + TOKEN_TTL_SECONDS,
+            more=[call for call, _item in asked[1:]],
         )
         with _lock:
             _sweep()
@@ -201,7 +251,8 @@ def redeem(token: str, conversation_id: int) -> Pending:
         pending.used = True
         if _by_thread.get(conversation_id) == token:
             del _by_thread[conversation_id]
-    if _fingerprint(pending.tool, pending.arguments) != pending.state:
+    now = _STATE_SEPARATOR.join(str(_fingerprint(*call)) for call in pending.calls)
+    if now != pending.state:
         raise ConfirmRefused("stale")
     return pending
 
@@ -223,12 +274,46 @@ def reset() -> None:
 
 
 def _fingerprint(tool: str, arguments: dict[str, Any]) -> str | None:
-    built = _question(tool, arguments)
-    return None if built is None else built[0]
+    built = _asked(tool, arguments)
+    return None if built is None else built.state
 
 
-def _question(tool: str, arguments: dict[str, Any]) -> tuple[str, str, dict[str, Any]] | None:
-    """``(state, question, preview)`` for a gated call, from the live rows."""
+@dataclass(frozen=True)
+class _Asked:
+    """One gated call as the question shows it, read from the live rows."""
+
+    state: str
+    kind: str  # "task" | "project"
+    title: str
+    # What goes with it: a task's subtasks, a project's tasks.
+    inside: int
+    touched: list[dict[str, Any]]
+
+    @property
+    def count(self) -> int:
+        return 1 + self.inside
+
+    def phrase(self) -> str:
+        if not self.inside:
+            return f'{self.kind} "{self.title}"'
+        noun = "subtask" if self.kind == "task" else "task"
+        return f'{self.kind} "{self.title}" and its {self.inside} {noun}{"" if self.inside == 1 else "s"}'
+
+
+def _ask(items: list[_Asked]) -> str:
+    """The question for one call, or for several asked about together."""
+    if len(items) == 1:
+        return f"Trash {items[0].phrase()}?"
+    if all(item.kind == items[0].kind and not item.inside for item in items):
+        names = [f'"{item.title}"' for item in items]
+        return f"Trash {len(items)} {items[0].kind}s: {', '.join(names[:-1])} and {names[-1]}?"
+    phrases = [item.phrase() for item in items]
+    which = "both" if len(items) == 2 else f"all {len(items)}"
+    return f"Trash {which} of these: {'; '.join(phrases[:-1])}; and {phrases[-1]}?"
+
+
+def _asked(tool: str, arguments: dict[str, Any]) -> _Asked | None:
+    """A gated call's row as the question shows it, or ``None`` if it's gone."""
     with tool_session(f"confirm:{tool}", write=False) as db:
         if tool == "trash_project":
             project = projects_service.get_project(db, int(arguments.get("project_id", 0)))
@@ -241,17 +326,13 @@ def _question(tool: str, arguments: dict[str, Any]) -> tuple[str, str, dict[str,
                     .where(Task.project_id == project.id, Task.deleted_at.is_(None))
                 ).scalar_one()
             )
-            noun = "task" if tasks == 1 else "tasks"
-            question = (
-                f'Trash project "{project.name}" and its {tasks} {noun}?'
-                if tasks
-                else f'Trash project "{project.name}"?'
-            )
             ref = {"app": "tasks", "kind": "project", "id": str(project.id), "title": project.name}
-            return (
-                f"project:{project.id}:{project.updated_at.isoformat()}:{tasks}",
-                question,
-                {"count": 1 + tasks, "touched": [ref]},
+            return _Asked(
+                state=f"project:{project.id}:{project.updated_at.isoformat()}:{tasks}",
+                kind="project",
+                title=project.name,
+                inside=tasks,
+                touched=[ref],
             )
         if tool == "trash_task":
             task = tasks_service.get_task(db, int(arguments.get("task_id", 0)))
@@ -264,16 +345,12 @@ def _question(tool: str, arguments: dict[str, Any]) -> tuple[str, str, dict[str,
                     .where(Task.parent_task_id == task.id, Task.deleted_at.is_(None))
                 ).scalar_one()
             )
-            noun = "subtask" if subtasks == 1 else "subtasks"
-            question = (
-                f'Trash task "{task.title}" and its {subtasks} {noun}?'
-                if subtasks
-                else f'Trash task "{task.title}"?'
-            )
             ref = {"app": "tasks", "kind": "task", "id": str(task.id), "title": task.title}
-            return (
-                f"task:{task.id}:{task.updated_at.isoformat()}:{subtasks}",
-                question,
-                {"count": 1 + subtasks, "touched": [ref]},
+            return _Asked(
+                state=f"task:{task.id}:{task.updated_at.isoformat()}:{subtasks}",
+                kind="task",
+                title=task.title,
+                inside=subtasks,
+                touched=[ref],
             )
     return None
