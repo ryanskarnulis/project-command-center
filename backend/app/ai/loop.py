@@ -513,12 +513,12 @@ class AgentRunResult(BaseModel):
     # closing note (#516): built by code, so its only model words are
     # ``note`` (``None`` for the closing note). Not persisted; the trace keeps it.
     handed_off: bool = False
-    # The confirmation a gated call armed (#503, ``stop_reason``
-    # ``confirm_required``). Not persisted: the token lives in
+    # The confirmations a turn's gated calls armed, one each (#503, #545;
+    # ``stop_reason`` ``confirm_required``). Not persisted: the tokens live in
     # :mod:`app.ai.confirmation`.
-    # A :class:`confirmation.Pending`, typed loosely so pydantic never
-    # validates or copies it.
-    confirm: Any = None
+    # :class:`confirmation.Pending` objects, typed loosely so pydantic never
+    # validates or copies them.
+    confirms: list[Any] = Field(default_factory=list)
 
 
 class AgentRunFailed(Exception):
@@ -1097,17 +1097,15 @@ class AgentLoop:
                     and gate.gated(call.name)
                     and not gate.allows(call.name, call.arguments)
                 ):
-                    # One question for this turn's gated calls (#545): the
-                    # rest of them are asked about with this one, not dropped.
+                    # A question for each of this turn's gated calls (#545):
+                    # the rest of them are asked about too, not dropped.
                     rest = result.tool_calls[index:]
-                    pending = gate.arm([(c.name, c.arguments) for c in rest if gate.gated(c.name)])
-                    if pending is not None:
+                    armed = gate.arm([(c.name, c.arguments) for c in rest if gate.gated(c.name)])
+                    if armed:
                         # Never dispatched: the app asks first (#503). The
-                        # question is code's, from the live rows.
+                        # questions are code's, from the live rows.
                         for later in rest:
-                            held = gate.gated(later.name) and pending.covers(
-                                later.name, later.arguments
-                            )
+                            held = any(p.matches(later.name, later.arguments) for p in armed)
                             self._skip_remaining(
                                 [later],
                                 records,
@@ -1116,9 +1114,13 @@ class AgentLoop:
                                 reason="confirm_required",
                             )
                         finished = self._finish(
-                            "confirm_required", pending.question, records, iteration, messages
+                            "confirm_required",
+                            "\n".join(p.question for p in armed),
+                            records,
+                            iteration,
+                            messages,
                         )
-                        finished.confirm = pending
+                        finished.confirms = armed
                         return finished
                 dispatched += 1
                 try:
@@ -1415,16 +1417,12 @@ class AgentLoop:
             error_type=type(exc).__name__,
         )
 
-    def dispatch_confirmed(self, pending: confirmation.Pending, actor: str) -> list[ToolCallRecord]:
-        """Run exactly the calls a redeemed ``Confirm-Token`` names, each once
-        and in order, with no model turn (#503, #545). Each outcome is its
-        record's: done or refused. A refused one does not stop the rest."""
-        records: list[ToolCallRecord] = []
-        for tool, arguments in pending.calls:
-            call = ToolCall(id="confirmed", name=tool, arguments=arguments)
-            record, _feedback, _schema_error = self._dispatch(call, actor)
-            records.append(record)
-        return records
+    def dispatch_confirmed(self, pending: confirmation.Pending, actor: str) -> ToolCallRecord:
+        """Run exactly the call a redeemed ``Confirm-Token`` names, once, with
+        no model turn (#503). Its outcome is the record's: done or refused."""
+        call = ToolCall(id="confirmed", name=pending.tool, arguments=pending.arguments)
+        record, _feedback, _schema_error = self._dispatch(call, actor)
+        return record
 
     def _dispatch(self, call: ToolCall, actor: str) -> tuple[ToolCallRecord, str, bool]:
         """Run one tool call as ``actor``.
