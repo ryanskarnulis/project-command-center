@@ -295,3 +295,132 @@ def test_a_replayed_question_still_carries_its_token(
 
     assert again.json() == first.json()
     assert again.json()["assistant_message"]["confirm_required"]["token"]
+
+
+# --- several gated calls in one turn (#545) -----------------------------------
+
+
+def _three_tasks(client: TestClient) -> list[int]:
+    project_id = int(client.post("/api/projects", json={"name": "Tests"}).json()["id"])
+    ids = []
+    for title in ("Test the fence", "Test the mower", "Test the tools"):
+        response = client.post("/api/tasks", json={"title": title, "project_id": project_id})
+        assert response.status_code == 201, response.text
+        ids.append(int(response.json()["id"]))
+    return ids
+
+
+def _trashed(client: TestClient, task_id: int) -> bool:
+    return client.get(f"/api/tasks/{task_id}").status_code == 404
+
+
+def _ask_to_trash_tasks(client: TestClient, ids: list[int]) -> tuple[int, dict[str, Any]]:
+    _use_loop(ScriptedProvider([tool_calls_turn(*[("trash_task", {"task_id": i}) for i in ids])]))
+    conversation_id = _thread(client)
+    response = _post(client, conversation_id, "delete the test tasks")
+    assert response.status_code == 200
+    return conversation_id, response.json()["assistant_message"]
+
+
+def test_one_question_names_every_trash_of_the_turn(
+    client: TestClient, tool_db: sessionmaker[Session]
+) -> None:
+    ids = _three_tasks(client)
+
+    _, asked = _ask_to_trash_tasks(client, ids)
+
+    assert asked["stop_reason"] == "confirm_required"
+    assert asked["content"] == (
+        'Trash 3 tasks: "Test the fence", "Test the mower" and "Test the tools"?'
+    )
+    preview = asked["confirm_required"]["preview"]
+    assert preview["count"] == 3
+    assert [ref["id"] for ref in preview["touched"]] == [str(i) for i in ids]
+    assert [entry["reason"] for entry in asked["record"]] == [confirmation.NOT_RUN_REASON] * 3
+    assert not any(_trashed(client, i) for i in ids)
+
+
+def test_the_token_runs_every_call_that_was_asked_about(
+    client: TestClient, tool_db: sessionmaker[Session]
+) -> None:
+    ids = _three_tasks(client)
+    conversation_id, asked = _ask_to_trash_tasks(client, ids)
+    _use_loop(ScriptedProvider([]))  # the model must not be called
+
+    response = _post(
+        client,
+        conversation_id,
+        "yes",
+        headers={"Confirm-Token": asked["confirm_required"]["token"]},
+    )
+
+    assert response.status_code == 200
+    record = response.json()["assistant_message"]["record"]
+    assert [entry["outcome"] for entry in record] == ["done"] * 3
+    assert [entry["undo"]["handle"] for entry in record] == [f"restore_task:{i}" for i in ids]
+    assert all(_trashed(client, i) for i in ids)
+
+
+def test_a_batch_token_is_stale_if_any_row_changed(
+    client: TestClient, tool_db: sessionmaker[Session]
+) -> None:
+    ids = _three_tasks(client)
+    conversation_id, asked = _ask_to_trash_tasks(client, ids)
+    assert client.patch(f"/api/tasks/{ids[2]}", json={"title": "Keep me"}).status_code == 200
+
+    response = _post(
+        client,
+        conversation_id,
+        "yes",
+        headers={"Confirm-Token": asked["confirm_required"]["token"]},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["confirm"] == "stale"
+    assert not any(_trashed(client, i) for i in ids)
+
+
+def test_the_apps_own_yes_runs_the_calls_asked_about_and_no_others(
+    client: TestClient, tool_db: sessionmaker[Session]
+) -> None:
+    ids = _three_tasks(client)
+    conversation_id, _ = _ask_to_trash_tasks(client, ids[:2])
+    _use_loop(
+        ScriptedProvider(
+            [tool_calls_turn(*[("trash_task", {"task_id": i}) for i in ids])],
+        )
+    )
+
+    response = _post(client, conversation_id, "yes")
+
+    body = response.json()["assistant_message"]
+    # The two asked about ran; the third was never asked, so it asks now.
+    assert [entry["outcome"] for entry in body["record"]] == ["done", "done", "not_run"]
+    assert body["stop_reason"] == "confirm_required"
+    assert body["content"] == 'Trash task "Test the tools"?'
+    assert [_trashed(client, i) for i in ids] == [True, True, False]
+
+
+def test_a_mixed_batch_spells_out_what_goes_with_each(
+    client: TestClient, tool_db: sessionmaker[Session]
+) -> None:
+    project_id = _kitchen(client)
+    [task_id, *_] = _three_tasks(client)
+    _use_loop(
+        ScriptedProvider(
+            [
+                tool_calls_turn(
+                    ("trash_task", {"task_id": task_id}),
+                    ("trash_project", {"project_id": project_id}),
+                    ("trash_task", {"task_id": task_id}),
+                )
+            ]
+        )
+    )
+
+    asked = _post(client, _thread(client), "clear these out").json()["assistant_message"]
+
+    assert asked["content"] == (
+        'Trash both of these: task "Test the fence"; and project "Kitchen" and its 2 tasks?'
+    )
+    assert asked["confirm_required"]["preview"]["count"] == 4

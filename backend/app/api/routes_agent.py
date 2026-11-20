@@ -502,19 +502,19 @@ def _run_confirmed(
     loop: AgentLoop,
     actor: str,
 ) -> MessageExchange:
-    """The answer to a redeemed ``Confirm-Token``: exactly the armed call,
-    once, no model turn. The reply is the code-built record of that call."""
+    """The answer to a redeemed ``Confirm-Token``: exactly the armed calls,
+    each once, no model turn. The reply is the code-built record of them."""
     user_message = conversations_service.append_user_message(
         db, conversation, content, idempotency_key
     )
     # Commit first: the tool takes its own write session (see above).
     db.commit()
-    record = loop.dispatch_confirmed(pending, actor)
+    records = loop.dispatch_confirmed(pending, actor)
     run = AgentRunResult(
         # The same code-built note an agent caller's run closes with (#516).
-        reply=closing.note([record.model_dump()]),
+        reply=closing.note([record.model_dump() for record in records]),
         stop_reason="completed",
-        tool_calls=[record],
+        tool_calls=records,
         iterations=0,
         messages=[],
     )
@@ -524,7 +524,8 @@ def _run_confirmed(
         "agent_confirmed_call",
         conversation_id=conversation.id,
         tool=pending.tool,
-        ok=record.error is None,
+        calls=len(records),
+        ok=all(record.error is None for record in records),
     )
     return MessageExchange(
         user_message=MessageRead.model_validate(user_message),
