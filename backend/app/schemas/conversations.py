@@ -106,6 +106,9 @@ class MessageRead(BaseModel):
     # tool, question, preview, expires_at}``. Only on the reply that asked
     # (and its replay); history reads carry ``None``.
     confirm_required: dict[str, Any] | None = None
+    # Every question the turn's gated calls armed, in call order, each with
+    # its own token (#545). ``confirm_required`` is the first of them.
+    confirms_required: list[dict[str, Any]] | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property

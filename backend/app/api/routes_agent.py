@@ -297,13 +297,11 @@ def _context_of(data: MessageCreate) -> dict[str, Any] | None:
 
 
 def _assistant_read(
-    message: ConversationMessage, pending: confirmation.Pending | None
+    message: ConversationMessage, pendings: list[confirmation.Pending]
 ) -> MessageRead:
-    """The assistant turn as read, with the confirmation it asked (#503)."""
+    """The assistant turn as read, with the confirmations it asked (#503)."""
     read = MessageRead.model_validate(message)
-    if pending is None:
-        return read
-    return read.model_copy(update={"confirm_required": pending.wire()})
+    return read.model_copy(update=confirmation.wire(pendings)) if pendings else read
 
 
 def _confirm_refused(kind: str) -> JSONResponse:
@@ -485,11 +483,11 @@ def post_message(
 
         assistant_message = conversations_service.append_assistant_message(db, conversation, run)
         db.commit()
-        if run.confirm is not None:
-            run.confirm.message_id = assistant_message.id
+        for pending in run.confirms:
+            pending.message_id = assistant_message.id
         return MessageExchange(
             user_message=MessageRead.model_validate(user_message),
-            assistant_message=_assistant_read(assistant_message, run.confirm),
+            assistant_message=_assistant_read(assistant_message, run.confirms),
         )
 
 
@@ -502,19 +500,19 @@ def _run_confirmed(
     loop: AgentLoop,
     actor: str,
 ) -> MessageExchange:
-    """The answer to a redeemed ``Confirm-Token``: exactly the armed calls,
-    each once, no model turn. The reply is the code-built record of them."""
+    """The answer to a redeemed ``Confirm-Token``: exactly the armed call,
+    once, no model turn. The reply is the code-built record of that call."""
     user_message = conversations_service.append_user_message(
         db, conversation, content, idempotency_key
     )
     # Commit first: the tool takes its own write session (see above).
     db.commit()
-    records = loop.dispatch_confirmed(pending, actor)
+    record = loop.dispatch_confirmed(pending, actor)
     run = AgentRunResult(
         # The same code-built note an agent caller's run closes with (#516).
-        reply=closing.note([record.model_dump() for record in records]),
+        reply=closing.note([record.model_dump()]),
         stop_reason="completed",
-        tool_calls=records,
+        tool_calls=[record],
         iterations=0,
         messages=[],
     )
@@ -524,8 +522,7 @@ def _run_confirmed(
         "agent_confirmed_call",
         conversation_id=conversation.id,
         tool=pending.tool,
-        calls=len(records),
-        ok=all(record.error is None for record in records),
+        ok=record.error is None,
     )
     return MessageExchange(
         user_message=MessageRead.model_validate(user_message),

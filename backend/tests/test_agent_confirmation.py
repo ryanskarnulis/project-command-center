@@ -322,7 +322,11 @@ def _ask_to_trash_tasks(client: TestClient, ids: list[int]) -> tuple[int, dict[s
     return conversation_id, response.json()["assistant_message"]
 
 
-def test_one_question_names_every_trash_of_the_turn(
+def _yes(client: TestClient, conversation_id: int, token: str) -> httpx.Response:
+    return _post(client, conversation_id, "yes", headers={"Confirm-Token": token})
+
+
+def test_every_trash_of_the_turn_gets_its_own_question(
     client: TestClient, tool_db: sessionmaker[Session]
 ) -> None:
     ids = _three_tasks(client)
@@ -330,53 +334,70 @@ def test_one_question_names_every_trash_of_the_turn(
     _, asked = _ask_to_trash_tasks(client, ids)
 
     assert asked["stop_reason"] == "confirm_required"
-    assert asked["content"] == (
-        'Trash 3 tasks: "Test the fence", "Test the mower" and "Test the tools"?'
-    )
-    preview = asked["confirm_required"]["preview"]
-    assert preview["count"] == 3
-    assert [ref["id"] for ref in preview["touched"]] == [str(i) for i in ids]
+    questions = [
+        'Trash task "Test the fence"?',
+        'Trash task "Test the mower"?',
+        'Trash task "Test the tools"?',
+    ]
+    assert asked["content"] == "\n".join(questions)
+    confirms = asked["confirms_required"]
+    assert [c["question"] for c in confirms] == questions
+    assert [c["preview"]["touched"][0]["id"] for c in confirms] == [str(i) for i in ids]
+    assert len({c["token"] for c in confirms}) == 3
+    assert asked["confirm_required"] == confirms[0]
     assert [entry["reason"] for entry in asked["record"]] == [confirmation.NOT_RUN_REASON] * 3
     assert not any(_trashed(client, i) for i in ids)
 
 
-def test_the_token_runs_every_call_that_was_asked_about(
+def test_each_token_runs_its_own_call_and_leaves_the_others_open(
     client: TestClient, tool_db: sessionmaker[Session]
 ) -> None:
     ids = _three_tasks(client)
     conversation_id, asked = _ask_to_trash_tasks(client, ids)
+    tokens = [c["token"] for c in asked["confirms_required"]]
     _use_loop(ScriptedProvider([]))  # the model must not be called
 
-    response = _post(
-        client,
-        conversation_id,
-        "yes",
-        headers={"Confirm-Token": asked["confirm_required"]["token"]},
-    )
+    # Answered out of order; the middle one is never answered.
+    last = _yes(client, conversation_id, tokens[2])
+    first = _yes(client, conversation_id, tokens[0])
 
-    assert response.status_code == 200
-    record = response.json()["assistant_message"]["record"]
-    assert [entry["outcome"] for entry in record] == ["done"] * 3
-    assert [entry["undo"]["handle"] for entry in record] == [f"restore_task:{i}" for i in ids]
-    assert all(_trashed(client, i) for i in ids)
+    for response, task_id in ((last, ids[2]), (first, ids[0])):
+        assert response.status_code == 200
+        [entry] = response.json()["assistant_message"]["record"]
+        assert entry["outcome"] == "done"
+        assert entry["undo"]["handle"] == f"restore_task:{task_id}"
+    assert [_trashed(client, i) for i in ids] == [True, False, True]
+    assert _yes(client, conversation_id, tokens[0]).json()["confirm"] == "used"
 
 
-def test_a_batch_token_is_stale_if_any_row_changed(
+def test_one_stale_row_refuses_only_its_own_token(
     client: TestClient, tool_db: sessionmaker[Session]
 ) -> None:
     ids = _three_tasks(client)
     conversation_id, asked = _ask_to_trash_tasks(client, ids)
+    tokens = [c["token"] for c in asked["confirms_required"]]
     assert client.patch(f"/api/tasks/{ids[2]}", json={"title": "Keep me"}).status_code == 200
 
-    response = _post(
-        client,
-        conversation_id,
-        "yes",
-        headers={"Confirm-Token": asked["confirm_required"]["token"]},
-    )
+    stale = _yes(client, conversation_id, tokens[2])
+    fine = _yes(client, conversation_id, tokens[1])
 
-    assert response.status_code == 409
-    assert response.json()["confirm"] == "stale"
+    assert stale.status_code == 409 and stale.json()["confirm"] == "stale"
+    assert fine.status_code == 200
+    assert [_trashed(client, i) for i in ids] == [False, True, False]
+
+
+def test_a_message_without_a_token_voids_every_open_question(
+    client: TestClient, tool_db: sessionmaker[Session]
+) -> None:
+    ids = _three_tasks(client)
+    conversation_id, asked = _ask_to_trash_tasks(client, ids)
+    _use_loop(ScriptedProvider([text_turn("Okay."), text_turn("Okay.")]))
+
+    assert _post(client, conversation_id, "never mind").status_code == 200
+
+    for confirm in asked["confirms_required"]:
+        refused = _yes(client, conversation_id, confirm["token"])
+        assert refused.status_code == 409 and refused.json()["confirm"] == "unknown"
     assert not any(_trashed(client, i) for i in ids)
 
 
@@ -401,7 +422,7 @@ def test_the_apps_own_yes_runs_the_calls_asked_about_and_no_others(
     assert [_trashed(client, i) for i in ids] == [True, True, False]
 
 
-def test_a_mixed_batch_spells_out_what_goes_with_each(
+def test_a_repeated_call_is_asked_once_and_ungated_calls_are_not_held(
     client: TestClient, tool_db: sessionmaker[Session]
 ) -> None:
     project_id = _kitchen(client)
@@ -413,6 +434,7 @@ def test_a_mixed_batch_spells_out_what_goes_with_each(
                     ("trash_task", {"task_id": task_id}),
                     ("trash_project", {"project_id": project_id}),
                     ("trash_task", {"task_id": task_id}),
+                    ("list_tasks", {}),
                 )
             ]
         )
@@ -420,7 +442,25 @@ def test_a_mixed_batch_spells_out_what_goes_with_each(
 
     asked = _post(client, _thread(client), "clear these out").json()["assistant_message"]
 
-    assert asked["content"] == (
-        'Trash both of these: task "Test the fence"; and project "Kitchen" and its 2 tasks?'
-    )
-    assert asked["confirm_required"]["preview"]["count"] == 4
+    assert [c["question"] for c in asked["confirms_required"]] == [
+        'Trash task "Test the fence"?',
+        'Trash project "Kitchen" and its 2 tasks?',
+    ]
+    assert [c["preview"]["count"] for c in asked["confirms_required"]] == [1, 3]
+    assert [entry["outcome"] for entry in asked["record"]] == ["not_run"] * 4
+
+
+def test_a_replayed_question_still_carries_every_open_token(
+    client: TestClient, tool_db: sessionmaker[Session]
+) -> None:
+    ids = _three_tasks(client)
+    _use_loop(ScriptedProvider([tool_calls_turn(*[("trash_task", {"task_id": i}) for i in ids])]))
+    conversation_id = _thread(client)
+    key = {"Idempotency-Key": "delete-tests"}
+    first = _post(client, conversation_id, "delete the test tasks", headers=key).json()
+    tokens = [c["token"] for c in first["assistant_message"]["confirms_required"]]
+    assert _yes(client, conversation_id, tokens[0]).status_code == 200
+
+    replay = _post(client, conversation_id, "delete the test tasks", headers=key).json()
+
+    assert [c["token"] for c in replay["assistant_message"]["confirms_required"]] == tokens[1:]

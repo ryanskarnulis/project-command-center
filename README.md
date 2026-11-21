@@ -596,7 +596,9 @@ expires_at}`. A follow-up carrying `Confirm-Token` runs exactly that call once,
 with no model turn. The token is single-use, expires after 10 minutes, and is
 bound to the thread, the call and the row's state; anything else is a 409
 naming why. A plain "yes" whose run re-issues the identical call also runs it
-(the v1 path). Any other next message voids the question. Tokens live in the
+(the v1 path). Any other next message voids the question. Several gated calls
+in one turn each get their own question and token
+(`assistant_message.confirms_required`), answered one by one in any order. Tokens live in the
 process, so a restart means asking again. PCC's own chat is never gated:
 there, trash is the undo.
 

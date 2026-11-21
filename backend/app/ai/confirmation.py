@@ -9,21 +9,21 @@ by code from the live rows, never by the model.
 
 Two ways to answer, both only on the thread that asked:
 
-- **The token.** A message carrying ``Confirm-Token`` runs exactly what was
-  armed, once, with no model turn (``routes_agent``).
+- **The token.** A message carrying ``Confirm-Token`` runs exactly the armed
+  call, once, with no model turn (``routes_agent``).
 - **The app's own yes** (the v1 path, chess's answer reader). The next
   message's run may re-issue the identical calls, and :class:`Gate` lets
   them through.
 
-One question covers one model turn's gated calls (#545): "delete the test
-tasks" is five ``trash_task`` calls, and the person is asked once, about all
-five by name. A yes runs every one of them.
+Every gated call of one model turn gets its own question and token (#545):
+"delete the test tasks" is five ``trash_task`` calls and five questions, each
+answered on its own. Answering one with its token leaves the others open.
 
-Anything else voids it: the next message on the thread without the token
-takes the pending confirmation off the thread, whatever the run then does.
+Anything else voids them: the next message on the thread without a token
+takes every pending confirmation off the thread, whatever the run then does.
 
-A token is bound to the thread, each call's tool and canonical arguments, and
-the state it previewed (the row's ``updated_at``), and expires after
+A token is bound to the thread, the tool, its canonical arguments, and the
+state it previewed (the row's ``updated_at``), and expires after
 :data:`TOKEN_TTL_SECONDS`. Tokens live in this process only: a restart
 forgets them, which a client meets as ``unknown`` and asks again. PCC's own
 chat (the in-app actor) is never gated: there, trash is the undo.
@@ -53,9 +53,6 @@ GATED_TOOLS = frozenset({"trash_task", "trash_project"})
 # How long a question stays answerable (the contract's default).
 TOKEN_TTL_SECONDS = 600
 
-# The contract's cap on the entity refs a preview lists.
-PREVIEW_REFS = 20
-
 # The ``reason`` a gated call's record entry carries: it never ran.
 NOT_RUN_REASON = "not run: needs confirmation"
 
@@ -75,8 +72,7 @@ Call = tuple[str, dict[str, Any]]
 
 @dataclass
 class Pending:
-    """One armed confirmation on one thread: the gated calls of one model
-    turn, asked about together. ``tool`` and ``arguments`` are the first."""
+    """One armed confirmation: exactly one call, on one thread."""
 
     token: str
     conversation_id: int
@@ -89,32 +85,16 @@ class Pending:
     used: bool = False
     # The assistant turn that asked, so a replayed exchange still carries it.
     message_id: int | None = None
-    # The calls asked about after the first, in the order the model made them.
-    more: list[Call] = field(default_factory=list)
-    # Each call's previewed state by call key; a re-issued call spends its key.
-    _states: dict[str, str] = field(init=False)
+    _key: str = field(init=False)
 
     def __post_init__(self) -> None:
-        states = self.state.split(_STATE_SEPARATOR)
-        self._states = {
-            _call_key(tool, arguments): state
-            for (tool, arguments), state in zip(self.calls, states, strict=True)
-        }
+        self._key = _call_key(self.tool, self.arguments)
 
-    @property
-    def calls(self) -> list[Call]:
-        return [(self.tool, self.arguments), *self.more]
-
-    def covers(self, tool: str, arguments: dict[str, Any]) -> bool:
-        return _call_key(tool, arguments) in self._states
-
-    def spend(self, tool: str, arguments: dict[str, Any]) -> str | None:
-        """Take one call off the confirmation: the state it previewed, or
-        ``None`` if it is not (or no longer) one of the calls asked about."""
-        return self._states.pop(_call_key(tool, arguments), None)
+    def matches(self, tool: str, arguments: dict[str, Any]) -> bool:
+        return self._key == _call_key(tool, arguments)
 
     def wire(self) -> dict[str, Any]:
-        """``assistant_message.confirm_required`` as the contract shows it."""
+        """One confirmation as the contract shows it."""
         expires = datetime.fromtimestamp(self.expires_at, UTC)
         return {
             "token": self.token,
@@ -125,12 +105,10 @@ class Pending:
         }
 
 
-# Joins the calls' states into ``Pending.state`` (never part of one state).
-_STATE_SEPARATOR = "\n"
-
 _lock = threading.Lock()
 _by_token: dict[str, Pending] = {}
-_by_thread: dict[int, str] = {}
+# A thread's open confirmations, in the order they were asked.
+_by_thread: dict[int, list[str]] = {}
 
 
 def _call_key(tool: str, arguments: dict[str, Any]) -> str:
@@ -144,19 +122,27 @@ def _expired(pending: Pending) -> bool:
 def _sweep() -> None:
     """Forget tokens past their window (called under the lock)."""
     for token in [t for t, p in _by_token.items() if _expired(p)]:
-        pending = _by_token.pop(token)
-        if _by_thread.get(pending.conversation_id) == token:
-            del _by_thread[pending.conversation_id]
+        _forget(_by_token.pop(token))
+
+
+def _forget(pending: Pending) -> None:
+    """Take a token off its thread's open list (called under the lock)."""
+    tokens = _by_thread.get(pending.conversation_id)
+    if tokens is None or pending.token not in tokens:
+        return
+    tokens.remove(pending.token)
+    if not tokens:
+        del _by_thread[pending.conversation_id]
 
 
 class Gate:
     """What one delegate run may and may not dispatch (handed to the loop)."""
 
-    def __init__(self, conversation_id: int, answered: Pending | None = None) -> None:
+    def __init__(self, conversation_id: int, answered: list[Pending] | None = None) -> None:
         self._conversation_id = conversation_id
-        # The confirmation this message may answer with a re-issued call.
-        self._answered = answered
-        self.armed: Pending | None = None
+        # The confirmations this message may answer with re-issued calls.
+        self._answered = list(answered or [])
+        self.armed: list[Pending] = []
 
     def gated(self, tool: str) -> bool:
         return tool in GATED_TOOLS
@@ -164,82 +150,73 @@ class Gate:
     def allows(self, tool: str, arguments: dict[str, Any]) -> bool:
         """Whether this call is identical to one the thread was asked about,
         with the state it previewed. Each call asked about may run once."""
-        answered = self._answered
+        answered = next((p for p in self._answered if p.matches(tool, arguments)), None)
         if answered is None:
             return False
-        state = answered.spend(tool, arguments)
-        if state is None:
-            # Not one of the calls asked about: the yes covers nothing more.
-            self._answered = None
-            return False
-        if _expired(answered) or _fingerprint(tool, arguments) != state:
-            self._answered = None
+        self._answered.remove(answered)
+        if _expired(answered) or _fingerprint(tool, arguments) != answered.state:
             return False
         with _lock:
             answered.used = True
         return True
 
-    def arm(self, calls: list[Call]) -> Pending | None:
-        """Arm one confirmation for a model turn's gated calls, or ``None`` if
-        the first one's row isn't there (that call then runs, and the service
-        layer refuses it). A later call whose row isn't there, or that repeats
-        an earlier one, is left out of the question."""
-        asked: list[tuple[Call, _Asked]] = []
+    def arm(self, calls: list[Call]) -> list[Pending]:
+        """Arm one confirmation per gated call of a model turn, in order.
+        Empty if the first one's row isn't there (that call then runs, and
+        the service layer refuses it). A later call whose row isn't there, or
+        that repeats an earlier one, is left out."""
+        armed: list[Pending] = []
         seen: set[str] = set()
+        expires_at = time.time() + TOKEN_TTL_SECONDS
         for tool, arguments in calls:
             key = _call_key(tool, arguments)
-            built = None if key in seen else _asked(tool, arguments)
-            if built is None:
-                if not asked:
-                    return None
+            asked = None if key in seen else _asked(tool, arguments)
+            if asked is None:
+                if not armed:
+                    return []
                 continue
             seen.add(key)
-            asked.append(((tool, dict(arguments)), built))
-        (tool, arguments), _first = asked[0]
-        touched = [ref for _call, item in asked for ref in item.touched]
-        pending = Pending(
-            token=secrets.token_urlsafe(18),
-            conversation_id=self._conversation_id,
-            tool=tool,
-            arguments=arguments,
-            state=_STATE_SEPARATOR.join(item.state for _call, item in asked),
-            question=_ask([item for _call, item in asked]),
-            preview={
-                "count": sum(item.count for _call, item in asked),
-                "touched": touched[:PREVIEW_REFS],
-            },
-            expires_at=time.time() + TOKEN_TTL_SECONDS,
-            more=[call for call, _item in asked[1:]],
-        )
+            armed.append(
+                Pending(
+                    token=secrets.token_urlsafe(18),
+                    conversation_id=self._conversation_id,
+                    tool=tool,
+                    arguments=dict(arguments),
+                    state=asked.state,
+                    question=f"Trash {asked.phrase()}?",
+                    preview={"count": asked.count, "touched": asked.touched},
+                    expires_at=expires_at,
+                )
+            )
         with _lock:
             _sweep()
-            previous = _by_thread.pop(self._conversation_id, None)
-            if previous is not None:
+            for previous in _by_thread.pop(self._conversation_id, []):
                 _by_token.pop(previous, None)
-            _by_token[pending.token] = pending
-            _by_thread[self._conversation_id] = pending.token
-        self.armed = pending
-        return pending
+            for pending in armed:
+                _by_token[pending.token] = pending
+            _by_thread[self._conversation_id] = [pending.token for pending in armed]
+        self.armed = armed
+        return armed
 
 
-def take_for_thread(conversation_id: int) -> Pending | None:
-    """The next message without a token settles the thread's confirmation:
-    it comes off the thread now, and only a re-issued identical call in this
-    message's run can still use it (:meth:`Gate.allows`)."""
+def take_for_thread(conversation_id: int) -> list[Pending]:
+    """The next message without a token settles the thread's confirmations:
+    they come off the thread now, and only re-issued identical calls in this
+    message's run can still use them (:meth:`Gate.allows`)."""
     with _lock:
         _sweep()
-        token = _by_thread.pop(conversation_id, None)
-        if token is None:
-            return None
-        pending = _by_token.get(token)
-        if pending is not None:
+        taken = []
+        for token in _by_thread.pop(conversation_id, []):
             # The token itself is spent as well: the thread moved on.
-            del _by_token[token]
-        return pending if pending is not None and not pending.used else None
+            pending = _by_token.pop(token, None)
+            if pending is not None and not pending.used:
+                taken.append(pending)
+        return taken
 
 
 def redeem(token: str, conversation_id: int) -> Pending:
-    """Validate a ``Confirm-Token`` and spend it, or raise :class:`ConfirmRefused`."""
+    """Validate a ``Confirm-Token`` and spend it, or raise
+    :class:`ConfirmRefused`. The thread's other confirmations stay open."""
     with _lock:
         pending = _by_token.get(token)
         if pending is None or pending.conversation_id != conversation_id:
@@ -249,21 +226,31 @@ def redeem(token: str, conversation_id: int) -> Pending:
         if _expired(pending):
             raise ConfirmRefused("expired")
         pending.used = True
-        if _by_thread.get(conversation_id) == token:
-            del _by_thread[conversation_id]
-    now = _STATE_SEPARATOR.join(str(_fingerprint(*call)) for call in pending.calls)
-    if now != pending.state:
+        _forget(pending)
+    if _fingerprint(pending.tool, pending.arguments) != pending.state:
         raise ConfirmRefused("stale")
     return pending
 
 
-def for_message(message_id: int) -> Pending | None:
-    """The live confirmation an assistant turn asked, for a replayed exchange."""
+def for_message(message_id: int) -> list[Pending]:
+    """The live confirmations an assistant turn asked, for a replayed exchange."""
     with _lock:
-        for pending in _by_token.values():
-            if pending.message_id == message_id and not pending.used and not _expired(pending):
-                return pending
-    return None
+        return [
+            pending
+            for pending in _by_token.values()
+            if pending.message_id == message_id and not pending.used and not _expired(pending)
+        ]
+
+
+def wire(pendings: list[Pending]) -> dict[str, Any]:
+    """What an assistant turn carries for the confirmations it asked:
+    ``confirm_required`` is the first, ``confirms_required`` is all of them."""
+    if not pendings:
+        return {}
+    return {
+        "confirm_required": pendings[0].wire(),
+        "confirms_required": [pending.wire() for pending in pendings],
+    }
 
 
 def reset() -> None:
@@ -298,18 +285,6 @@ class _Asked:
             return f'{self.kind} "{self.title}"'
         noun = "subtask" if self.kind == "task" else "task"
         return f'{self.kind} "{self.title}" and its {self.inside} {noun}{"" if self.inside == 1 else "s"}'
-
-
-def _ask(items: list[_Asked]) -> str:
-    """The question for one call, or for several asked about together."""
-    if len(items) == 1:
-        return f"Trash {items[0].phrase()}?"
-    if all(item.kind == items[0].kind and not item.inside for item in items):
-        names = [f'"{item.title}"' for item in items]
-        return f"Trash {len(items)} {items[0].kind}s: {', '.join(names[:-1])} and {names[-1]}?"
-    phrases = [item.phrase() for item in items]
-    which = "both" if len(items) == 2 else f"all {len(items)}"
-    return f"Trash {which} of these: {'; '.join(phrases[:-1])}; and {phrases[-1]}?"
 
 
 def _asked(tool: str, arguments: dict[str, Any]) -> _Asked | None:
