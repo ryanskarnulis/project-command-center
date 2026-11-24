@@ -2678,14 +2678,14 @@ def _delegate_thread(sample: Sample) -> None:
 
 
 def _delegate_confirm_trash(sample: Sample) -> None:
-    """A delegate's "delete the Garage project" asks first; the user's plain
-    "yes" runs it (#503, delegate-api "Confirmation", the v1 path with no
-    token).
+    """A delegate's "delete the Garage project" asks first, and a plain "yes"
+    approves nothing (#503, #551, delegate-api "Confirmation": only the
+    card's token does, and redeeming it takes no model turn).
 
     Turn one must stop ``confirm_required`` with PCC's code-built question and
-    nothing written. Turn two is the model's half of the gate: on "yes" it has
-    to re-issue the identical ``trash_project`` call, which the gate then lets
-    through, once.
+    nothing written. Turn two is the model's half: whatever it does with
+    "yes" (re-issue the call, which asks again, or say so), nothing is
+    trashed.
     """
     delegate = "agent:conductor"
     garage_id, _ = _seed_garage(sample)
@@ -2699,23 +2699,16 @@ def _delegate_confirm_trash(sample: Sample) -> None:
         assert step.events == (), f"wrote {list(step.events)}"
         assert step.world.projects[garage_id][1] is False, "Garage was trashed unasked"
 
-    def check_trashed(thread: Thread) -> None:
-        _assert_completed(thread)
+    def check_still_asking(thread: Thread) -> None:
         step = thread.step
-        assert _successful(step.result, "trash_project"), _trajectory(step.result)
-        assert step.world.projects[garage_id][1] is True, "Garage is still live"
-        garage_tasks = [t for t in step.world.tasks.values() if t.project_id == garage_id]
-        assert garage_tasks and all(t.deleted for t in garage_tasks)
-        others = {pid: row for pid, row in step.world.projects.items() if pid != garage_id}
-        assert others == {
-            pid: row for pid, row in thread.before.projects.items() if pid != garage_id
-        }, "another project was touched"
-        assert all(e[3] == delegate for e in step.events), list(step.events)
+        assert step.events == (), f"a yes wrote {list(step.events)}"
+        assert step.world.projects[garage_id][1] is False, "a spoken yes trashed Garage"
+        assert not _successful(step.result, "trash_project"), _trajectory(step.result)
 
     sample.converse(
         [
             ("Delete the Garage project.", check_asked),
-            ("Yes, delete it.", check_trashed),
+            ("Yes, delete it.", check_still_asking),
         ],
         headers={"X-Agent-Actor": delegate},
     )

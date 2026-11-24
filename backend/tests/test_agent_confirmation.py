@@ -3,12 +3,16 @@
 The contract is ``../agent-standard/delegate-api.md`` "Confirmation": a
 delegate's destructive call never runs unasked; a ``Confirm-Token`` runs
 exactly that call once; the token is bound to the thread, the call and the
-state it previewed. PCC's own chat is never gated.
+state it previewed. Only the token approves (#551, conductor#251): no words
+do, other messages leave a question open, and a redeem re-checks the row.
+PCC's own chat is never gated.
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import Generator
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -188,53 +192,97 @@ def test_a_token_whose_preview_changed_is_stale(
 
     assert response.status_code == 409
     assert response.json()["confirm"] == "stale"
+    assert response.json()["detail"] == (
+        'project "Kitchen" and its 2 tasks changed since you were asked, so nothing was trashed'
+    )
     assert _alive(db_session, project_id)
 
 
-def test_the_apps_own_yes_runs_the_identical_call(
-    client: TestClient, tool_db: sessionmaker[Session], db_session: Session
+def test_a_token_lives_as_long_as_the_card(
+    client: TestClient, tool_db: sessionmaker[Session]
 ) -> None:
-    """The v1 path: no token, but the next run re-issues the same call."""
     project_id = _kitchen(client)
-    conversation_id, _ = _ask_to_trash(client, project_id)
-    _use_loop(
-        ScriptedProvider(
-            [
-                tool_calls_turn(("trash_project", {"project_id": project_id})),
-                text_turn("Trashed it."),
-                text_turn("Trashed it."),
-            ]
-        )
+    before = time.time()
+
+    _, asked = _ask_to_trash(client, project_id)
+
+    expires = datetime.fromisoformat(asked["confirm_required"]["expires_at"]).timestamp()
+    assert confirmation.TOKEN_TTL_SECONDS == 3 * 60 * 60
+    assert 0 <= expires - before - confirmation.TOKEN_TTL_SECONDS < 60
+
+
+def test_a_task_finished_since_it_was_asked_about_is_stale_and_says_so(
+    client: TestClient, tool_db: sessionmaker[Session]
+) -> None:
+    [task_id, *_] = _three_tasks(client)
+    conversation_id, asked = _ask_to_trash_tasks(client, [task_id])
+    done = client.patch(f"/api/tasks/{task_id}", json={"workflow_status": "done"})
+    assert done.status_code == 200, done.text
+
+    response = _yes(client, conversation_id, asked["confirm_required"]["token"])
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "confirm": "stale",
+        "detail": (
+            'task "Test the fence" was finished since you were asked, so nothing was trashed'
+        ),
+    }
+    assert not _trashed(client, task_id)
+
+
+def test_a_task_trashed_since_it_was_asked_about_is_stale_and_says_so(
+    client: TestClient, tool_db: sessionmaker[Session]
+) -> None:
+    [task_id, *_] = _three_tasks(client)
+    conversation_id, asked = _ask_to_trash_tasks(client, [task_id])
+    assert client.delete(f"/api/tasks/{task_id}").status_code in (200, 204)
+
+    response = _yes(client, conversation_id, asked["confirm_required"]["token"])
+
+    assert response.status_code == 409
+    assert response.json()["confirm"] == "stale"
+    assert response.json()["detail"] == (
+        'task "Test the fence" is no longer there, so nothing was trashed'
     )
 
-    response = _post(client, conversation_id, "yes")
 
-    assert response.status_code == 200
-    body = response.json()["assistant_message"]
-    assert body["stop_reason"] == "completed"
-    assert body["record"][0]["outcome"] == "done"
+def test_a_yes_approves_nothing_and_the_call_is_asked_again(
+    client: TestClient, tool_db: sessionmaker[Session], db_session: Session
+) -> None:
+    """No words approve: a run that re-issues the call on "yes" asks again,
+    and the new question replaces the old one."""
+    project_id = _kitchen(client)
+    conversation_id, asked = _ask_to_trash(client, project_id)
+    _use_loop(ScriptedProvider([tool_calls_turn(("trash_project", {"project_id": project_id}))]))
+
+    again = _post(client, conversation_id, "yes").json()["assistant_message"]
+
+    assert again["stop_reason"] == "confirm_required"
+    assert again["record"][0]["outcome"] == "not_run"
+    assert _alive(db_session, project_id)
+    old, new = asked["confirm_required"]["token"], again["confirm_required"]["token"]
+    assert old != new
+    assert _yes(client, conversation_id, old).json()["confirm"] == "unknown"
+    assert _alive(db_session, project_id)
+    assert _yes(client, conversation_id, new).status_code == 200
     assert not _alive(db_session, project_id)
 
 
-def test_any_other_message_voids_the_question(
+def test_another_message_leaves_the_question_open(
     client: TestClient, tool_db: sessionmaker[Session], db_session: Session
 ) -> None:
     project_id = _kitchen(client)
     conversation_id, asked = _ask_to_trash(client, project_id)
     _use_loop(ScriptedProvider([text_turn("Okay, leaving it."), text_turn("Okay.")]))
     _post(client, conversation_id, "actually, never mind")
+    assert _alive(db_session, project_id)
     _use_loop(ScriptedProvider([]))
 
-    response = _post(
-        client,
-        conversation_id,
-        "yes",
-        headers={"Confirm-Token": asked["confirm_required"]["token"]},
-    )
+    response = _yes(client, conversation_id, asked["confirm_required"]["token"])
 
-    assert response.status_code == 409
-    assert response.json()["confirm"] == "unknown"
-    assert _alive(db_session, project_id)
+    assert response.status_code == 200
+    assert not _alive(db_session, project_id)
 
 
 def test_pccs_own_chat_is_never_gated(
@@ -386,40 +434,40 @@ def test_one_stale_row_refuses_only_its_own_token(
     assert [_trashed(client, i) for i in ids] == [False, True, False]
 
 
-def test_a_message_without_a_token_voids_every_open_question(
+def test_a_message_without_a_token_leaves_every_question_open(
     client: TestClient, tool_db: sessionmaker[Session]
 ) -> None:
     ids = _three_tasks(client)
     conversation_id, asked = _ask_to_trash_tasks(client, ids)
     _use_loop(ScriptedProvider([text_turn("Okay."), text_turn("Okay.")]))
 
-    assert _post(client, conversation_id, "never mind").status_code == 200
+    assert _post(client, conversation_id, "what's due today?").status_code == 200
 
-    for confirm in asked["confirms_required"]:
-        refused = _yes(client, conversation_id, confirm["token"])
-        assert refused.status_code == 409 and refused.json()["confirm"] == "unknown"
     assert not any(_trashed(client, i) for i in ids)
+    for confirm in asked["confirms_required"]:
+        assert _yes(client, conversation_id, confirm["token"]).status_code == 200
+    assert all(_trashed(client, i) for i in ids)
 
 
-def test_the_apps_own_yes_runs_the_calls_asked_about_and_no_others(
+def test_a_call_asked_again_replaces_its_old_question_and_no_other(
     client: TestClient, tool_db: sessionmaker[Session]
 ) -> None:
     ids = _three_tasks(client)
-    conversation_id, _ = _ask_to_trash_tasks(client, ids[:2])
+    conversation_id, first = _ask_to_trash_tasks(client, ids[:2])
     _use_loop(
-        ScriptedProvider(
-            [tool_calls_turn(*[("trash_task", {"task_id": i}) for i in ids])],
-        )
+        ScriptedProvider([tool_calls_turn(*[("trash_task", {"task_id": i}) for i in ids[1:]])])
     )
 
-    response = _post(client, conversation_id, "yes")
+    second = _post(client, conversation_id, "and the others").json()["assistant_message"]
 
-    body = response.json()["assistant_message"]
-    # The two asked about ran; the third was never asked, so it asks now.
-    assert [entry["outcome"] for entry in body["record"]] == ["done", "done", "not_run"]
-    assert body["stop_reason"] == "confirm_required"
-    assert body["content"] == 'Trash task "Test the tools"?'
-    assert [_trashed(client, i) for i in ids] == [True, True, False]
+    assert [entry["outcome"] for entry in second["record"]] == ["not_run", "not_run"]
+    assert not any(_trashed(client, i) for i in ids)
+    kept, replaced = (c["token"] for c in first["confirms_required"])
+    assert _yes(client, conversation_id, replaced).json()["confirm"] == "unknown"
+    assert _yes(client, conversation_id, kept).status_code == 200
+    for confirm in second["confirms_required"]:
+        assert _yes(client, conversation_id, confirm["token"]).status_code == 200
+    assert all(_trashed(client, i) for i in ids)
 
 
 def test_a_repeated_call_is_asked_once_and_ungated_calls_are_not_held(

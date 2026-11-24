@@ -154,17 +154,39 @@ def test_a_turn_of_only_done_tasks_runs_none_and_the_run_goes_on(
     assert not any(_trashed(client, i) for i in done)
 
 
-def test_the_apps_own_yes_still_runs_done_tasks_it_asked_about(
+def test_a_token_still_runs_the_done_task_it_asked_about(
     client: TestClient, tool_db: sessionmaker[Session]
 ) -> None:
+    # #551: only the card's token approves, with no model turn and no guard:
+    # the question named that task, and it is as done as when it was asked.
     ids = _tasks(client)
     done = [ids[title] for title in DONE]
     asked = _ask(client, "delete the finished test tasks", _trash(*done))
     assert len(asked["confirms_required"]) == 2
 
-    _ask(client, "yes", _trash(*done), text_turn("Done."), conversation_id=asked["conversation_id"])
+    for confirm in asked["confirms_required"]:
+        answered = client.post(
+            f"/api/agent/conversations/{asked['conversation_id']}/messages",
+            json={"content": "yes"},
+            headers={**DELEGATE, "Confirm-Token": confirm["token"]},
+        )
+        assert answered.status_code == 200, answered.text
 
     assert all(_trashed(client, i) for i in done)
+
+
+def test_a_spoken_yes_runs_nothing_and_done_tasks_stay_held_back(
+    client: TestClient, tool_db: sessionmaker[Session]
+) -> None:
+    # #551: no words approve. A run that re-issues the calls on "yes" is
+    # guarded like any other, and "yes" doesn't ask for done tasks.
+    ids = _tasks(client)
+    done = [ids[title] for title in DONE]
+    asked = _ask(client, "delete the finished test tasks", _trash(*done))
+
+    _ask(client, "yes", _trash(*done), text_turn("Done."), conversation_id=asked["conversation_id"])
+
+    assert not any(_trashed(client, i) for i in done)
 
 
 def test_pccs_own_chat_is_not_guarded(client: TestClient, tool_db: sessionmaker[Session]) -> None:

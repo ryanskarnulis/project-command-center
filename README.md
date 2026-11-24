@@ -592,18 +592,20 @@ Destructive delegate writes are confirmed structurally (#503,
 never run unasked. The run stops `confirm_required` with a code-built question
 ("Trash project "Kitchen" and its 12 tasks?") and
 `assistant_message.confirm_required {token, tool, question, preview,
-expires_at}`. A follow-up carrying `Confirm-Token` runs exactly that call once,
-with no model turn. The token is single-use, expires after 10 minutes, and is
-bound to the thread, the call and the row's state; anything else is a 409
-naming why. A plain "yes" whose run re-issues the identical call also runs it
-(the v1 path). Any other next message voids the question. Several gated calls
-in one turn each get their own question and token
-(`assistant_message.confirms_required`), answered one by one in any order. A
-turn that trashes several tasks never asks about the done ones (recorded
-`not_run`) unless the words say done, finished or completed (#550,
-`app/ai/done_guard.py`). Tokens live in the
-process, so a restart means asking again. PCC's own chat is never gated:
-there, trash is the undo.
+expires_at}`. Only a follow-up carrying `Confirm-Token` runs that call, once,
+with no model turn (#551): the caller sends it when the person taps the
+question's card, and no words approve. The token is single-use, lives as long
+as the card (3 hours), and is bound to the thread, the call and the row's
+state; anything else is a 409 naming why. A row changed, finished or trashed
+since it was asked about is `stale`, and `detail` says which. Other messages
+leave a question open; a run that re-issues the call asks again, and the new
+question replaces the old. Several gated calls in one turn each get their own
+question and token (`assistant_message.confirms_required`), answered one by
+one in any order. A turn that trashes several tasks never asks about the done
+ones (recorded `not_run`) unless the words say done, finished or completed
+(#550, `app/ai/done_guard.py`). Tokens live in the process, so a restart
+means asking again. PCC's own chat is never gated, so it has nothing to
+approve: there, trash is the undo.
 
 Runs on one conversation are serialized: a second message that arrives mid-run
 waits for the first to finish (so it sees the reply in history) or gets a 409.

@@ -1109,11 +1109,7 @@ class AgentLoop:
                     seen.add(refused)
                     read_refused += 1
                     continue
-                if (
-                    gate is not None
-                    and gate.gated(call.name)
-                    and not gate.allows(call.name, call.arguments)
-                ):
+                if gate is not None and gate.gated(call.name):
                     # A question for each of this turn's gated calls (#545):
                     # the rest of them are asked about too, not dropped.
                     rest = result.tool_calls[index:]
