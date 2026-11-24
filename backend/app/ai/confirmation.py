@@ -7,26 +7,24 @@ service layer. The loop arms a :class:`Pending` here, records the call "not
 run", and stops the run ``confirm_required`` with a question and preview built
 by code from the live rows, never by the model.
 
-Two ways to answer, both only on the thread that asked:
-
-- **The token.** A message carrying ``Confirm-Token`` runs exactly the armed
-  call, once, with no model turn (``routes_agent``).
-- **The app's own yes** (the v1 path, chess's answer reader). The next
-  message's run may re-issue the identical calls, and :class:`Gate` lets
-  them through.
+A question is a card, and only its tap approves it (conductor#251). The one
+way to answer is the token: a message carrying ``Confirm-Token`` runs exactly
+the armed call, once, with no model turn (``routes_agent``). No words approve
+one: a "yes" whose run re-issues the call is asked again.
 
 Every gated call of one model turn gets its own question and token (#545):
 "delete the test tasks" is five ``trash_task`` calls and five questions, each
-answered on its own. Answering one with its token leaves the others open.
-
-Anything else voids them: the next message on the thread without a token
-takes every pending confirmation off the thread, whatever the run then does.
+answered on its own. Other messages on the thread leave them open. The same
+call asked again replaces its old question, so a call has one open token.
 
 A token is bound to the thread, the tool, its canonical arguments, and the
-state it previewed (the row's ``updated_at``), and expires after
-:data:`TOKEN_TTL_SECONDS`. Tokens live in this process only: a restart
-forgets them, which a client meets as ``unknown`` and asks again. PCC's own
-chat (the in-app actor) is never gated: there, trash is the undo.
+state it previewed (the row's ``updated_at``), and lives as long as the card:
+:data:`TOKEN_TTL_SECONDS`, the caller's conversation window. Redeeming one
+re-checks the row: changed, finished or gone since it was asked about is
+``stale``, said in words, and nothing runs. Tokens live in this process only:
+a restart forgets them, which a client meets as ``unknown`` and asks again.
+PCC's own chat (the in-app actor) is never gated, so it has nothing to
+approve: there, trash is the undo.
 """
 
 from __future__ import annotations
@@ -41,7 +39,7 @@ from typing import Any, Literal
 
 from sqlalchemy import func, select
 
-from app.db.models import Task
+from app.db.models import Task, TaskWorkflowStatus
 from app.services import projects as projects_service
 from app.services import tasks as tasks_service
 from app.tools.runtime import tool_session
@@ -50,8 +48,9 @@ from app.tools.runtime import tool_session
 # what hangs off it (a project's tasks, a task's subtasks).
 GATED_TOOLS = frozenset({"trash_task", "trash_project"})
 
-# How long a question stays answerable (the contract's default).
-TOKEN_TTL_SECONDS = 600
+# How long a question stays answerable: as long as its card, which lapses with
+# the caller's conversation window (conductor's quiet gap, 3 h).
+TOKEN_TTL_SECONDS = 3 * 60 * 60
 
 # The ``reason`` a gated call's record entry carries: it never ran.
 NOT_RUN_REASON = "not run: needs confirmation"
@@ -62,9 +61,11 @@ Refusal = Literal["unknown", "expired", "used", "stale"]
 class ConfirmRefused(Exception):
     """A ``Confirm-Token`` that can't be honoured; nothing runs (a 409)."""
 
-    def __init__(self, kind: Refusal) -> None:
+    def __init__(self, kind: Refusal, detail: str | None = None) -> None:
         super().__init__(kind)
         self.kind: Refusal = kind
+        # What changed, in words fit to show the person (``stale`` only).
+        self.detail = detail
 
 
 Call = tuple[str, dict[str, Any]]
@@ -82,6 +83,8 @@ class Pending:
     question: str
     preview: dict[str, Any]
     expires_at: float
+    # Whether the row was already finished when it was asked about.
+    done: bool = False
     used: bool = False
     # The assistant turn that asked, so a replayed exchange still carries it.
     message_id: int | None = None
@@ -138,33 +141,19 @@ def _forget(pending: Pending) -> None:
 class Gate:
     """What one delegate run may and may not dispatch (handed to the loop)."""
 
-    def __init__(self, conversation_id: int, answered: list[Pending] | None = None) -> None:
+    def __init__(self, conversation_id: int) -> None:
         self._conversation_id = conversation_id
-        # The confirmations this message may answer with re-issued calls.
-        self._answered = list(answered or [])
         self.armed: list[Pending] = []
 
     def gated(self, tool: str) -> bool:
         return tool in GATED_TOOLS
 
-    def allows(self, tool: str, arguments: dict[str, Any]) -> bool:
-        """Whether this call is identical to one the thread was asked about,
-        with the state it previewed. Each call asked about may run once."""
-        answered = next((p for p in self._answered if p.matches(tool, arguments)), None)
-        if answered is None:
-            return False
-        self._answered.remove(answered)
-        if _expired(answered) or _fingerprint(tool, arguments) != answered.state:
-            return False
-        with _lock:
-            answered.used = True
-        return True
-
     def arm(self, calls: list[Call]) -> list[Pending]:
         """Arm one confirmation per gated call of a model turn, in order.
         Empty if the first one's row isn't there (that call then runs, and
         the service layer refuses it). A later call whose row isn't there, or
-        that repeats an earlier one, is left out."""
+        that repeats an earlier one, is left out. A call the thread was
+        already asked about is asked again: the new question replaces it."""
         armed: list[Pending] = []
         seen: set[str] = set()
         expires_at = time.time() + TOKEN_TTL_SECONDS
@@ -186,37 +175,27 @@ class Gate:
                     question=f"Trash {asked.phrase()}?",
                     preview={"count": asked.count, "touched": asked.touched},
                     expires_at=expires_at,
+                    done=asked.done,
                 )
             )
         with _lock:
             _sweep()
-            for previous in _by_thread.pop(self._conversation_id, []):
-                _by_token.pop(previous, None)
+            open_tokens = _by_thread.setdefault(self._conversation_id, [])
+            for token in list(open_tokens):
+                if _by_token[token]._key in seen:
+                    open_tokens.remove(token)
+                    del _by_token[token]
             for pending in armed:
                 _by_token[pending.token] = pending
-            _by_thread[self._conversation_id] = [pending.token for pending in armed]
+                open_tokens.append(pending.token)
         self.armed = armed
         return armed
 
 
-def take_for_thread(conversation_id: int) -> list[Pending]:
-    """The next message without a token settles the thread's confirmations:
-    they come off the thread now, and only re-issued identical calls in this
-    message's run can still use them (:meth:`Gate.allows`)."""
-    with _lock:
-        _sweep()
-        taken = []
-        for token in _by_thread.pop(conversation_id, []):
-            # The token itself is spent as well: the thread moved on.
-            pending = _by_token.pop(token, None)
-            if pending is not None and not pending.used:
-                taken.append(pending)
-        return taken
-
-
 def redeem(token: str, conversation_id: int) -> Pending:
     """Validate a ``Confirm-Token`` and spend it, or raise
-    :class:`ConfirmRefused`. The thread's other confirmations stay open."""
+    :class:`ConfirmRefused`. The thread's other confirmations stay open. The
+    row is read again: one changed, finished or gone since is ``stale``."""
     with _lock:
         pending = _by_token.get(token)
         if pending is None or pending.conversation_id != conversation_id:
@@ -227,9 +206,22 @@ def redeem(token: str, conversation_id: int) -> Pending:
             raise ConfirmRefused("expired")
         pending.used = True
         _forget(pending)
-    if _fingerprint(pending.tool, pending.arguments) != pending.state:
-        raise ConfirmRefused("stale")
+    now = _asked(pending.tool, pending.arguments)
+    if now is None or now.state != pending.state:
+        raise ConfirmRefused("stale", _what_changed(pending, now))
     return pending
+
+
+def _what_changed(pending: Pending, now: _Asked | None) -> str:
+    """Why a stale token ran nothing, in words for the person."""
+    thing = pending.question.removeprefix("Trash ").removesuffix("?")
+    if now is None:
+        what = "is no longer there"
+    elif now.done and not pending.done:
+        what = "was finished since you were asked"
+    else:
+        what = "changed since you were asked"
+    return f"{thing} {what}, so nothing was trashed"
 
 
 def for_message(message_id: int) -> list[Pending]:
@@ -260,11 +252,6 @@ def reset() -> None:
         _by_thread.clear()
 
 
-def _fingerprint(tool: str, arguments: dict[str, Any]) -> str | None:
-    built = _asked(tool, arguments)
-    return None if built is None else built.state
-
-
 @dataclass(frozen=True)
 class _Asked:
     """One gated call as the question shows it, read from the live rows."""
@@ -275,6 +262,8 @@ class _Asked:
     # What goes with it: a task's subtasks, a project's tasks.
     inside: int
     touched: list[dict[str, Any]]
+    # A task already finished (a project has no such state).
+    done: bool = False
 
     @property
     def count(self) -> int:
@@ -327,5 +316,6 @@ def _asked(tool: str, arguments: dict[str, Any]) -> _Asked | None:
                 title=task.title,
                 inside=subtasks,
                 touched=[ref],
+                done=task.workflow_status == TaskWorkflowStatus.done,
             )
     return None

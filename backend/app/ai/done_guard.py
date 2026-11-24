@@ -11,8 +11,9 @@ asks to trash several tasks, the calls on tasks whose ``workflow_status`` is
 words ask for done tasks. One task named on its own is never held back:
 "delete the task Test the docker container" trashes a done task as before.
 
-The loop calls :func:`spared` where it arms the confirmations, so a call the
-thread was already asked about (the app's own yes) never comes here.
+The loop calls :func:`spared` where it arms the confirmations. A call the
+thread was asked about runs from its card's token, with no model turn (#551),
+so it never comes here: a done task the person was asked about is trashed.
 """
 
 from __future__ import annotations

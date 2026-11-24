@@ -373,29 +373,6 @@ def test_a_peek_that_fails_fails_like_the_call(
     assert [r.tool for r in failed.value.result.tool_calls] == ["create_task"]
 
 
-def test_the_apps_own_yes_is_answered_by_code(
-    client: TestClient, tool_db: sessionmaker[Session], trace_path: Path
-) -> None:
-    """The v1 confirmation path: the question is unchanged, and the run that
-    re-issues the call on "yes" ends on the code-built note."""
-    project_id = _kitchen(client)
-    trash = ("trash_project", {"project_id": project_id})
-    _use(PeekingProvider([tool_calls_turn(trash)]), trace_path)
-    conversation_id = _thread(client)
-    asked = _post(client, conversation_id, "wipe the kitchen project", DELEGATE).json()
-    assert asked["assistant_message"]["content"] == 'Trash project "Kitchen" and its 3 tasks?'
-
-    provider = PeekingProvider([tool_calls_turn(trash), text_turn("Trashed it.")])
-    _use(provider, trace_path)
-    body = _post(client, conversation_id, "yes", DELEGATE).json()["assistant_message"]
-
-    assert provider.sent == ["chat", "peek"]
-    assert body["stop_reason"] == "completed"
-    [entry] = body["record"]
-    assert "count" not in entry  # the record's shape is main's (#520)
-    assert body["content"] == f'Trashed project {project_id} "Kitchen" and its 3 tasks.'
-
-
 def test_a_confirm_token_answer_is_the_code_built_note(
     client: TestClient, tool_db: sessionmaker[Session], trace_path: Path
 ) -> None:
