@@ -6,7 +6,7 @@ pays for every character in prefill for the rest of the run, so before a
 result becomes a ``role: tool`` message it is projected here: a task is its
 id, title, project *name*, status, priority, due date and the flags that are
 true; a project is its id, name and open-task count; a task list says how many
-match and whether there is more. Nulls and false flags are left out.
+match, whether there is more, and code's counts of the whole match. Nulls and false flags are left out.
 
 Results with no view here (strings, focus, dependencies, search, activity)
 pass through unchanged.
@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Project
 from app.schemas.projects import ProjectRead
-from app.schemas.tasks import TaskPage, TaskRead
+from app.schemas.tasks import TaskCounts, TaskPage, TaskRead
 from app.schemas.trash import ProjectRestoreResult, ProjectTrashRead, TrashRead
 from app.services import dashboard
 from app.tools import runtime
@@ -34,13 +34,20 @@ def agent_view(outcome: Any) -> Any:
         with runtime.session_factory() as db:
             return task_detail(outcome, project_names(db, [outcome.project_id]))
     if isinstance(outcome, TaskPage):
+        tally = outcome.counts
         with runtime.session_factory() as db:
-            names = project_names(db, (t.project_id for t in outcome.items))
-        return {
+            names = project_names(
+                db,
+                [t.project_id for t in outcome.items] + list(tally.by_project if tally else []),
+            )
+        view: dict[str, Any] = {
             "tasks": [task_row(t, names) for t in outcome.items],
             "total": outcome.total,
             "has_more": outcome.has_more,
         }
+        if tally is not None:
+            view["counts"] = counts_view(tally, names)
+        return view
     if isinstance(outcome, ProjectRead):
         with runtime.session_factory() as db:
             return project_view(outcome, dashboard.open_task_counts(db), detail=True)
@@ -91,6 +98,17 @@ def task_row(task: TaskRead, project_names: Mapping[int, str]) -> dict[str, Any]
     if task.is_blocking:
         row["blocking"] = True
     return row
+
+
+def counts_view(counts: TaskCounts, project_names: Mapping[int, str]) -> dict[str, Any]:
+    """A list's counts with projects by name, most tasks first; zeros left out."""
+    by_project = sorted(counts.by_project.items(), key=lambda item: (-item[1], item[0]))
+    return {
+        "by_project": {project_names.get(pid, f"#{pid}"): n for pid, n in by_project},
+        "by_status": counts.by_status,
+        "blocked": counts.blocked,
+        "overdue": counts.overdue,
+    }
 
 
 def task_detail(task: TaskRead, project_names: Mapping[int, str]) -> dict[str, Any]:

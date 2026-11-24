@@ -23,7 +23,7 @@ Deliberately not registered: ``purge_task``, ``purge_project``, ``empty_trash``
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date as date_type
 from typing import Annotated, Any, TypeVar
@@ -49,7 +49,7 @@ from app.schemas.focus import (
 from app.schemas.projects import ProjectCreate, ProjectRead, ProjectUpdate
 from app.schemas.search import SearchResults
 from app.schemas.task_dependencies import TaskDependenciesRead, TaskDependencyRead
-from app.schemas.tasks import TaskCreate, TaskPage, TaskRead, TaskUpdate
+from app.schemas.tasks import TaskCounts, TaskCreate, TaskPage, TaskRead, TaskUpdate
 from app.schemas.trash import ProjectRestoreResult, ProjectTrashRead, TrashRead
 from app.services import activity as activity_service
 from app.services import focus as focus_service
@@ -293,13 +293,16 @@ def list_tasks(
     exclude_done: bool = False,
     top_level_only: bool = False,
     due_date: date_type | None = None,
-    limit: _ListLimit = 20,
+    limit: _ListLimit = 100,
     offset: PaginationOffset = 0,
 ) -> TaskPage:
-    """List active tasks, oldest first. Omit project_id to search all projects."""
+    """List active tasks, oldest first. Omit project_id to search all projects.
+    `counts` breaks down every matching task (by project, status, blocked,
+    overdue): use those numbers, never count the rows."""
     with tool_session("list_tasks", write=False) as db:
         if project_id is not None:
             _ensure_project_exists(db, project_id)
+        # The whole matching set, so the counts cover more than the page.
         tasks, total = tasks_service.list_tasks_page(
             db,
             project_id,
@@ -307,14 +310,31 @@ def list_tasks(
             exclude_done=exclude_done,
             top_level_only=top_level_only,
             due_date=due_date,
-            limit=limit,
-            offset=offset,
         )
+        reads = reads_with_blocked(db, tasks)
+        page = reads[offset : offset + limit]
         return TaskPage(
-            items=reads_with_blocked(db, tasks),
+            items=page,
             total=total,
-            has_more=offset + len(tasks) < total,
+            has_more=offset + len(page) < total,
+            counts=task_counts(reads, date_type.today()),
         )
+
+
+def task_counts(tasks: Sequence[TaskRead], today: date_type) -> TaskCounts:
+    """What a list's whole matching set holds, counted by code (blocked and
+    overdue only among unfinished tasks, as the dashboard counts them)."""
+    by_project: dict[int, int] = {}
+    by_status: dict[str, int] = {}
+    blocked = overdue = 0
+    for task in tasks:
+        by_project[task.project_id] = by_project.get(task.project_id, 0) + 1
+        status = task.workflow_status.value
+        by_status[status] = by_status.get(status, 0) + 1
+        if task.workflow_status != TaskWorkflowStatus.done:
+            blocked += task.is_blocked
+            overdue += task.due_date is not None and task.due_date < today
+    return TaskCounts(by_project=by_project, by_status=by_status, blocked=blocked, overdue=overdue)
 
 
 @_read_tool

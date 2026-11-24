@@ -176,6 +176,15 @@ class TaskRead(BaseModel):
     is_effective_top_level: bool = True
 
 
+class TaskCounts(BaseModel):
+    """How a task list's whole matching set breaks down (by effective status)."""
+
+    by_project: dict[int, int]
+    by_status: dict[str, int]
+    blocked: int
+    overdue: int
+
+
 class TaskPage(BaseModel):
     """One page of a task list: the rows, how many match in all, and whether
     a larger offset holds more."""
@@ -183,6 +192,9 @@ class TaskPage(BaseModel):
     items: list[TaskRead]
     total: int
     has_more: bool
+    # Counted by code over every matching task, not just this page, so the
+    # agent reads numbers instead of counting rows. Only the agent's tool sets it.
+    counts: TaskCounts | None = None
 
 
 class TaskSeries(BaseModel):

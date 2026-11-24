@@ -4,7 +4,7 @@
       "type": "function",
       "function": {
         "name": "list_tasks",
-        "description": "List active tasks, oldest first. Omit project_id to search all projects.",
+        "description": "List active tasks, oldest first. Omit project_id to search all projects.\n`counts` breaks down every matching task (by project, status, blocked,\noverdue): use those numbers, never count the rows.",
         "parameters": {
           "$defs": {
             "TaskWorkflowStatus": {
@@ -68,7 +68,7 @@
               "title": "Due Date"
             },
             "limit": {
-              "default": 20,
+              "default": 100,
               "maximum": 200,
               "minimum": 1,
               "title": "Limit",
@@ -1417,7 +1417,7 @@
   "mcp": [
     {
       "name": "list_tasks",
-      "description": "List active tasks, oldest first. Omit project_id to search all projects.",
+      "description": "List active tasks, oldest first. Omit project_id to search all projects.\n`counts` breaks down every matching task (by project, status, blocked,\noverdue): use those numbers, never count the rows.",
       "inputSchema": {
         "$defs": {
           "TaskWorkflowStatus": {
@@ -1481,7 +1481,7 @@
             "title": "Due Date"
           },
           "limit": {
-            "default": 20,
+            "default": 100,
             "maximum": 200,
             "minimum": 1,
             "title": "Limit",
@@ -1525,6 +1525,41 @@
               "every"
             ],
             "title": "RepeatInterval",
+            "type": "object"
+          },
+          "TaskCounts": {
+            "description": "How a task list's whole matching set breaks down (by effective status).",
+            "properties": {
+              "by_project": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "title": "By Project",
+                "type": "object"
+              },
+              "by_status": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "title": "By Status",
+                "type": "object"
+              },
+              "blocked": {
+                "title": "Blocked",
+                "type": "integer"
+              },
+              "overdue": {
+                "title": "Overdue",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "by_project",
+              "by_status",
+              "blocked",
+              "overdue"
+            ],
+            "title": "TaskCounts",
             "type": "object"
           },
           "TaskPriority": {
@@ -1765,6 +1800,17 @@
           "has_more": {
             "title": "Has More",
             "type": "boolean"
+          },
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TaskCounts"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [

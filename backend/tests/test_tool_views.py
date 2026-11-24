@@ -3,7 +3,8 @@
 The tools answer with the REST read models (what MCP and the persisted run
 record keep); ``app/tools/views.py`` projects them for the local model: a task
 row names its project, carries no timestamps or nulls, and shows a flag only
-when it is true; a task list says how many match and whether there is more.
+when it is true; a task list says how many match, whether there is more, and code's counts
+of the whole match.
 """
 
 from __future__ import annotations
@@ -64,6 +65,12 @@ def test_a_task_row_names_its_project_and_drops_nulls_and_timestamps(
         ],
         "total": 1,
         "has_more": False,
+        "counts": {
+            "by_project": {"Garage": 1},
+            "by_status": {"open": 1},
+            "blocked": 0,
+            "overdue": 0,
+        },
     }
 
 
@@ -163,6 +170,44 @@ def test_a_page_counts_every_match_and_says_whether_there_is_more(
     assert (first.total, first.has_more) == (5, True)
     assert [t.title for t in last.items] == ["Task 4"]
     assert (last.total, last.has_more) == (5, False)
+
+
+def test_counts_cover_every_match_not_just_the_page(tool_db: sessionmaker[Session]) -> None:
+    # The live report counted per project from a page of 20 of 39 tasks; the
+    # counts are code's, over the whole match, so a page can't skew them.
+    garage = _call("create_project", {"name": "Garage"})
+    music = _call("create_project", {"name": "Music"})
+    for n in range(3):
+        _call("create_task", {"title": f"Garage {n}", "project_id": garage.id})
+    blocker = _call(
+        "create_task", {"title": "Old", "project_id": music.id, "due_date": "2020-01-01"}
+    )
+    waiting = _call("create_task", {"title": "Waits", "project_id": music.id})
+    _call("add_dependency", {"task_id": waiting.id, "depends_on_task_id": blocker.id})
+    done = _call("create_task", {"title": "Finished", "project_id": music.id})
+    _call("update_task", {"task_id": done.id, "workflow_status": "done"})
+
+    page = _view("list_tasks", {"exclude_done": True, "limit": 2})
+
+    assert [row["title"] for row in page["tasks"]] == ["Garage 0", "Garage 1"]
+    assert (page["total"], page["has_more"]) == (5, True)
+    assert page["counts"] == {
+        "by_project": {"Garage": 3, "Music": 2},
+        "by_status": {"open": 5},
+        "blocked": 1,
+        "overdue": 1,
+    }
+
+
+def test_the_default_page_holds_a_household_backlog(tool_db: sessionmaker[Session]) -> None:
+    _call("create_project", {"name": "Garage"})
+    for n in range(45):
+        _call("create_task", {"title": f"Task {n}", "project_id": 1})
+
+    page = _call("list_tasks", {"exclude_done": True})
+
+    assert isinstance(page, TaskPage)
+    assert (len(page.items), page.total, page.has_more) == (45, 45, False)
 
 
 def test_results_without_a_view_pass_through(tool_db: sessionmaker[Session]) -> None:
