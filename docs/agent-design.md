@@ -319,7 +319,9 @@ that.
   in-app "cleared"), claims 524/525; the conductor-phrased tier 7/7 at 5/5.
   After the brief's opening line was reworded (name up to three things,
   else count): report 4/5 (the miss a narrator call that timed out on a
-  shared GPU, so no `answer`), due-week 5/5, read-mode 5/5.
+  shared GPU, so no `answer`), due-week 5/5, read-mode 5/5. The 12B still
+  opened "you've got two things due this week" 5/5 without naming them;
+  conductor names a short list from the record itself.
   The report costs about what the in-app answer does: a median 32 s
   delegated against 33 s in-app (n=6 each, a shared GPU), since the
   narrator call is the one the in-app run makes. Both paths page: 39 open tasks is two
