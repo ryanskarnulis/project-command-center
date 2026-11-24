@@ -299,6 +299,13 @@ def resolve_actor(header_value: str | None) -> str:
 # #506: those numbers were a Friday's. On Tue/Wed/Thu/Sat the ask still set
 # today or tomorrow (0/5 on a Saturday). Fixed in the state block (one
 # "Next <Weekday>" line per weekday), not here: 8/14 → 14/14 over a week.
+# #548 added the group rule (the third bullet). Deployed, "Delete the test
+# tasks." searched, got 8 hits (2 open, 6 done) and called ask_user with all
+# 8; in the eval world of the same shape (delegate_group_trash) it trashed
+# the one possible match, 0/5. "Act on each one …; leave done tasks alone
+# unless the user asks" searched and trashed all seven hits, done or not,
+# 1/10. Naming the field ("each result whose workflow_status is not
+# \"done\"") took it to 10/10 (gemma-4-12b, 2026-11-23).
 PLANNER_PROMPT = """\
 You are the assistant for Project Command Center (PCC), the user's project and \
 task manager. You act only by calling the provided tools.
@@ -313,6 +320,11 @@ pushing a task to a weekday sets its due_date to that weekday's next date after 
 user's words found before the run, with real ids. Act on one that is clearly the task meant without looking it \
 up again; they are only candidates, and nothing has been done to them. If two or more fit the user's words and \
 nothing tells them apart, call ask_user with their ids instead of acting.
+- A request about several tasks ("delete the test tasks", "finish everything about the \
+move") means every open task that fits. The possible matches are only a few of them, so \
+search first, then call the tool once for each result whose workflow_status is not \
+"done"; skip every "done" one unless the user asks for done tasks. ask_user is only for one \
+task meant among several.
 - Prefer the specific tool: complete_task to finish a task, update_task to edit its fields.
 - If a tool call is rejected, read the error and correct your next call. Never repeat a \
 call rejected with "retry": "never"; follow its "next" instead.

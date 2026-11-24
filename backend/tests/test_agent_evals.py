@@ -233,6 +233,7 @@ _FLOORS: dict[str, float] = {
         "delegate_read_mode",
         "delegate_context_ref",
         "delegate_needs_input",
+        "delegate_group_trash",
         "compose_create_and_pin",
         "compose_move_due_today",
         "compose_finish_and_follow_up",
@@ -2789,6 +2790,54 @@ def _delegate_needs_input(sample: Sample) -> None:
     )
 
 
+# The deployed turn's shape (#548): the words' own matches are old done tasks
+# about deleting and tasks, so the planner has to search, and the search
+# returns done "Test…" tasks beside the two open ones.
+_GROUP_OPEN = ("Test the gutters", "Test out listening to the Beatles Abbey Road album")
+_GROUP_DONE = (
+    "Test WoL from external network",
+    "Test the docker container",
+    "Test the discord bot path",
+    "Test the new slash commands",
+    "Add tests and an eval golden for the lyrics route",
+    "Delete interim /etc/hosts entries on the workstation",
+    "Keep nested tasks together",
+    "After creating a task you get sent straight to the task list",
+    "Make add task button open a modal similar to the edit task button",
+    "Assert nothing destructive is registered",
+)
+
+
+def _delegate_group_trash(sample: Sample) -> None:
+    """A group named in the plural ("delete the test tasks") is every open
+    task that fits, one trash question each (#548): not a pick-one
+    ``ask_user``, and not the done tasks that share the word."""
+    delegate = "agent:conductor"
+    with sample.db() as db:
+        home = projects_service.create_project(db, name="General")
+        lab = projects_service.create_project(db, name="Home Lab")
+        ids: dict[str, int] = {}
+        for title in (*_GROUP_OPEN, "mow the lawn"):
+            ids[title] = tasks_service.create_task(db, project_id=home.id, title=title).id
+        for title in _GROUP_DONE:
+            done = tasks_service.create_task(db, project_id=lab.id, title=title)
+            tasks_service.update_task(db, done, {"workflow_status": TaskWorkflowStatus.done})
+        db.commit()
+    wanted = {ids[title] for title in _GROUP_OPEN}
+
+    def check(thread: Thread) -> None:
+        step = thread.step
+        assert step.result.stop_reason == "confirm_required", (
+            f"stopped: {step.result.stop_reason}; {_trajectory(step.result)}"
+        )
+        _assert_wrote_nothing(thread)
+        assert all(p.tool == "trash_task" for p in step.result.confirms), step.result.confirms
+        asked = {int(p.arguments["task_id"]) for p in step.result.confirms}
+        assert asked == wanted, f"asked about {asked}, wanted {wanted}"
+
+    sample.converse([("Delete the test tasks.", check)], headers={"X-Agent-Actor": delegate})
+
+
 # --- Compositions, date math and misheard speech (#406) -----------------------
 #
 # Every scenario above asks for one thing, in clean text. These three families
@@ -3374,6 +3423,10 @@ def test_eval_delegate_read_mode() -> None:
 
 def test_eval_delegate_context_ref() -> None:
     _gate("delegate_context_ref", _delegate_context_ref)
+
+
+def test_eval_delegate_group_trash() -> None:
+    _gate("delegate_group_trash", _delegate_group_trash)
 
 
 def test_eval_delegate_needs_input() -> None:
