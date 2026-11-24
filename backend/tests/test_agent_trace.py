@@ -69,6 +69,7 @@ RECORD_KEYS = {
     "error",
     "reply",
     "note",
+    "answer",
     "narrated",
     "handed_off",
     "closed_by_code",

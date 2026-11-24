@@ -290,6 +290,7 @@ def append_assistant_message(
         content=run.reply,
         tool_calls=([record.model_dump() for record in run.tool_calls] if run.tool_calls else None),
         stop_reason=run.stop_reason,
+        answer=run.answer,
     )
     conversation.updated_at = utcnow()
     db.add(message)

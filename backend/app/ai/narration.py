@@ -25,6 +25,7 @@ Pure: builds the request, makes no call.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -77,13 +78,16 @@ def brief(
     stop_reason: str,
     state: str,
     asked: Sequence[Candidate] = (),
+    relayed: bool = False,
 ) -> str:
     """The narrator's one user message: the run handed over as data. ``state``
     is the state block the planner's run opened with (#412): the app's facts
     as of the run's start — the calendar, the projects' open counts — which
     the planner may have answered from without a tool. ``asked`` are the
     candidates of the ``ask_user`` the run ended on (#420): the reply asks
-    which one the user meant, naming them in that order."""
+    which one the user meant, naming them in that order. ``relayed``: the
+    reply is a read's answer another agent passes on (:func:`answer`), so it
+    opens with a line that can be said aloud on its own."""
     parts = [earlier] if earlier else []
     parts.append(state)
     parts.append(f"The user said:\n{user_message}")
@@ -110,6 +114,8 @@ def brief(
             f"The run stopped because {why}. {run_record.LIMIT_NOTE}\n"
             "Tell the user what was done and that the rest was not; they can ask again."
         )
+    elif relayed:
+        parts.append(RELAYED_CLOSE)
     else:
         parts.append("Now reply to the user.")
     return "\n\n".join(parts)
@@ -153,6 +159,57 @@ def handoff(
         why = run_record.LIMIT_REASONS[stop_reason]
         parts.append(f"The run stopped because {why}. {run_record.LIMIT_NOTE}")
     return "\n\n".join(parts)
+
+
+# How the brief ends for a read another agent passes on (delegate-api v1.3,
+# conductor#241). The user may be listening, not reading: the opening line is
+# what gets said, the rest is shown.
+RELAYED_CLOSE = (
+    "Now reply to the user. They may hear only your opening, so open with one or two short "
+    "sentences that answer on their own: up to three things by name, or the count when there "
+    "are more. If there is more worth showing (a list, a breakdown), leave a blank line and "
+    "put it after. No links."
+)
+
+# The contract's bounds on an answer (delegate-api v1.3).
+ANSWER_TEXT_CHARS = 4000
+ANSWER_SPOKEN_CHARS = 300
+ANSWER_SPOKEN_SENTENCES = 2
+
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+_MARKUP = re.compile(r"[*_#`|>]+")
+_BULLET = re.compile(r"^\s*(?:[-•]|\d+[.)])\s+")
+
+
+def answerable(records: Sequence[ToolCallRecord]) -> bool:
+    """Whether a run's record lets its reply go out as an ``answer``
+    (delegate-api v1.3): at least one look-up and nothing else. A write, a
+    refusal or a call not run means the caller speaks from the record."""
+    return bool(records) and all(run_record.classify(record) == "looked_up" for record in records)
+
+
+def answer(reply: str | None) -> dict[str, Any] | None:
+    """The narrator's reply as delegate-api v1.3's ``answer``: ``text`` whole
+    (cut at the contract's bound) and ``spoken``, its opening paragraph cut to
+    two sentences with the markup taken out. PCC's titles are the person's
+    own or came through its confirm gate; it marks none ``untrusted``, and a
+    caller that knows a title is outside text marks it itself."""
+    text = (reply or "").strip()
+    if not text:
+        return None
+    if len(text) > ANSWER_TEXT_CHARS:
+        text = text[: ANSWER_TEXT_CHARS - 1].rstrip() + "…"
+    opening = text.split("\n\n", 1)[0]
+    # A reply that opens straight on a list has no line to say.
+    lines = [line for line in opening.splitlines() if line.strip()]
+    said = " ".join(line for line in lines if not _BULLET.match(line))
+    said = " ".join(_MARKUP.sub("", said).split())
+    spoken = " ".join(_SENTENCE_END.split(said)[:ANSWER_SPOKEN_SENTENCES])
+    if len(spoken) > ANSWER_SPOKEN_CHARS:
+        spoken = _SENTENCE_END.split(spoken)[0]
+    if len(spoken) > ANSWER_SPOKEN_CHARS:
+        spoken = spoken[: ANSWER_SPOKEN_CHARS - 1].rstrip() + "…"
+    return {"text": text, "spoken": spoken or None, "untrusted": False}
 
 
 def handoff_words(reply: str) -> str | None:

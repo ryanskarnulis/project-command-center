@@ -451,6 +451,10 @@ class ConversationMessage(Base, TimestampMixin):
     # audit. History replays the words only.
     context: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
     mode: Mapped[str | None] = mapped_column(String(16), default=None)
+    # A read's answer for the person, on the assistant turn of an agent
+    # caller's run that changed nothing (delegate-api v1.3, conductor#241): ``{text,
+    # spoken, untrusted}``. Stored so a retried exchange replays it.
+    answer: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 
