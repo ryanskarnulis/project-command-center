@@ -227,7 +227,8 @@ Key decisions:
   here (the audit log records only mutations and can't reconstruct it), while
   `activity_events` remains the audit source of truth for what changed. A
   user turn may carry the delegate's `idempotency_key` (indexed with its
-  conversation), and a v1.2 caller's `context` and `mode` for audit.
+  conversation), and a v1.2 caller's `context` and `mode` for audit. An
+  assistant turn may carry a delegate read's `answer`.
 - **`tasks` read-path indexes** back the hot list/read queries: `deleted_at`
   (active-task list, search, and the trash `deleted_at IS NOT NULL` scan) plus
   single `project_id`, `parent_task_id`, `recurrence_id`, plus the partial unique
@@ -586,6 +587,12 @@ reads; a `Confirm-Token` on such a message is a 422. A landed `ask_user` in a
 run that did nothing is `assistant_message.needs_input {question,
 candidates}`, built by code. A retry under an `Idempotency-Key` must match the
 words, `context` and `mode`.
+
+And v1.3 (conductor#241, `narration.answer`): a completed delegate run whose
+record is all look-ups also carries `assistant_message.answer {text, spoken,
+untrusted}`, the narrator's own words for the caller to pass on to the
+person. `content` stays the handoff. A run that wrote, was refused or asked
+gets none.
 
 Destructive delegate writes are confirmed structurally (#503,
 `app/ai/confirmation.py`). On a delegate run, `trash_task` and `trash_project`

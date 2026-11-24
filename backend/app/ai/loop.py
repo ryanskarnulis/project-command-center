@@ -84,7 +84,9 @@ nothing ran never calls it. ``cancelled`` and the failure stops never narrate:
 the user asked it to stop, or the run broke. A delegate caller (#482,
 :data:`DELEGATE_ACTORS`) speaks for itself, so wherever the narrator would
 speak its run replies with the code-built handoff (``narration.handoff``)
-and makes no narrator call. After a turn whose calls were all writes that
+and makes no narrator call, except for a read: a completed run whose record
+is all look-ups also carries the narrator's words as ``answer``
+(delegate-api v1.3, conductor#241), which the caller passes on. After a turn whose calls were all writes that
 landed, a delegate's next planner call is *peeked* (#516, :mod:`app.ai.closing`):
 streamed, and stopped at its first words if the model turned to its closing
 line, the reply then the code-built note; a turn that opens with a tool call is
@@ -530,6 +532,10 @@ class AgentRunResult(BaseModel):
     # closing note (#516): built by code, so its only model words are
     # ``note`` (``None`` for the closing note). Not persisted; the trace keeps it.
     handed_off: bool = False
+    # A read's answer for the person (delegate-api v1.3, conductor#241):
+    # ``{text, spoken, untrusted}``, the narrator's words on an agent caller's
+    # completed run whose record is all look-ups. Stored with the turn.
+    answer: dict[str, Any] | None = None
     # The confirmations a turn's gated calls armed, one each (#503, #545;
     # ``stop_reason`` ``confirm_required``). Not persisted: the tokens live in
     # :mod:`app.ai.confirmation`.
@@ -1311,8 +1317,20 @@ class AgentLoop:
         code-built, so it is the reply whatever the time left.
         """
         if ctx.delegate:
+            # A read's answer goes beside the handoff, in PCC's own words, for
+            # the caller to pass on (delegate-api v1.3): the record of a
+            # look-up names what was found, not what it says. Never for a run
+            # that wrote, was refused or is asking.
+            answer = None
+            if stop_reason == "completed" and not ctx.asked and narration.answerable(records):
+                answer = narration.answer(
+                    self._narrate(stop_reason, ctx, records, note, relayed=True)
+                )
+                # The reply is still the handoff; the narrator's words are
+                # the answer beside it.
+                ctx.trace.narrated = False
             ctx.trace.handed_off = True
-            logger.info("agent_handed_off", stop_reason=stop_reason)
+            logger.info("agent_handed_off", stop_reason=stop_reason, answered=answer is not None)
             result = self._finish(
                 stop_reason,
                 narration.handoff(
@@ -1328,6 +1346,7 @@ class AgentLoop:
             )
             result.note = note
             result.handed_off = True
+            result.answer = answer
             return result
         reply = self._narrate(stop_reason, ctx, records, note)
         if reply is None and ctx.asked:
@@ -1344,6 +1363,8 @@ class AgentLoop:
         ctx: _RunContext,
         records: list[ToolCallRecord],
         note: str | None,
+        *,
+        relayed: bool = False,
     ) -> str | None:
         """One tool-free model call that tells the user what the run did.
 
@@ -1375,6 +1396,7 @@ class AgentLoop:
                 stop_reason=stop_reason,
                 state=ctx.state,
                 asked=ctx.asked,
+                relayed=relayed,
             ),
         )
         try:

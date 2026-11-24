@@ -257,6 +257,9 @@ class RunTrace:
             "error": error,
             "reply": result.reply if result is not None else None,
             "note": result.note if result is not None else None,
+            # A read's answer for the person, beside a delegate's handoff
+            # (delegate-api v1.3): the narrator's words, or ``None``.
+            "answer": result.answer if result is not None else None,
             "narrated": self.narrated,
             "handed_off": self.handed_off,
             "closed_by_code": self.closed_by_code,

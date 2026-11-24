@@ -109,6 +109,10 @@ class MessageRead(BaseModel):
     # Every question the turn's gated calls armed, in call order, each with
     # its own token (#545). ``confirm_required`` is the first of them.
     confirms_required: list[dict[str, Any]] | None = None
+    # A read's answer in PCC's own words, for the caller to pass on to the
+    # person (delegate-api v1.3, conductor#241): ``{text, spoken, untrusted}``, only on
+    # an agent caller's run whose record is all look-ups.
+    answer: dict[str, Any] | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property

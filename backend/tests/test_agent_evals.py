@@ -233,6 +233,8 @@ _FLOORS: dict[str, float] = {
         "delegate_read_mode",
         "delegate_context_ref",
         "delegate_needs_input",
+        "delegate_read_report",
+        "delegate_read_due_week",
         "delegate_group_trash",
         "delegate_group_trash_restated",
         "compose_create_and_pin",
@@ -549,6 +551,8 @@ class Step:
     typed_record: tuple[dict[str, Any], ...] = ()
     # What the turn asked the person, as the route said it (delegate v1.2, #527).
     needs_input: dict[str, Any] | None = None
+    # A read's answer for the person, as the route sent it (delegate v1.3).
+    answer: dict[str, Any] | None = None
 
     @property
     def reply(self) -> str:
@@ -577,6 +581,9 @@ class Step:
             # The planner's handoff (#418): what it thought it did, beside
             # what the narrator said.
             "note": (self.result.note or "")[:1000],
+            # A read's answer for the person (delegate v1.3), in full: it is
+            # what a caller shows.
+            "answer": (self.result.answer or {}).get("text"),
         }
 
 
@@ -776,6 +783,11 @@ class Sample:
         evidence = Evidence.of(self.calls, date.today(), self.shown)
         said = result.note if result.handed_off else result.reply
         self.claims.extend((self.step_label, c) for c in read_claims(said, evidence))
+        # And a read's answer (delegate v1.3): the caller shows it as written.
+        if result.answer:
+            self.claims.extend(
+                (self.step_label, c) for c in read_claims(result.answer["text"], evidence)
+            )
 
     def _died(
         self,
@@ -921,6 +933,7 @@ class Sample:
                             response.json()["assistant_message"].get("record") or ()
                         ),
                         needs_input=response.json()["assistant_message"].get("needs_input"),
+                        answer=response.json()["assistant_message"].get("answer"),
                     )
                     state.steps.append(step)
                     self.steps.append(step)
@@ -2790,6 +2803,150 @@ def _delegate_needs_input(sample: Sample) -> None:
     )
 
 
+# --- Delegate v1.3: a read's answer for the person (conductor#241) ----------------
+
+# The deployed turn's shape (2026-11-24): a few dozen open tasks across six
+# projects and far more done ones, two of them blocked.
+_REPORT_PROJECTS = {
+    "Home network": (
+        "Install Tailscale on the gateway host",
+        "Label the patch panel",
+        "Replace the garage access point",
+        "Back up the router config",
+        "Move the NAS to the rack",
+        "Plan the guest VLAN",
+        "Renew the domain",
+    ),
+    "3D printing": (
+        "Design a 3D printed case",
+        "Level the print bed",
+        "Order PETG filament",
+        "Print the cable clips",
+        "Dry the old filament",
+        "Replace the nozzle",
+    ),
+    "Garden": (
+        "Test the fence",
+        "Plant the garlic",
+        "Clean the gutters",
+        "Mulch the beds",
+        "Drain the hose",
+        "Prune the apple tree",
+        "Order seeds for spring",
+    ),
+    "Music library": (
+        "Sort the unsorted folder",
+        "Fix the album art",
+        "Tag the live recordings",
+        "Remove the duplicate albums",
+        "Rip the box set",
+        "Export the liked songs",
+    ),
+    "Car": (
+        "Book the oil change",
+        "Rotate the tires",
+        "Renew the registration",
+        "Replace the wiper blades",
+        "Fix the dome light",
+        "Vacuum the trunk",
+        "Check the spare",
+    ),
+    "Paperwork": (
+        "File the receipts",
+        "Renew the passport",
+        "Scan the insurance letters",
+        "Update the will",
+        "Cancel the old card",
+        "Send the tax forms",
+    ),
+}
+_REPORT_OPEN = sum(len(titles) for titles in _REPORT_PROJECTS.values())
+_REPORT_DONE_EACH = 19
+
+
+def _seed_report(sample: Sample) -> None:
+    with sample.db() as db:
+        for name, titles in _REPORT_PROJECTS.items():
+            project = projects_service.create_project(db, name=name)
+            for n in range(_REPORT_DONE_EACH):
+                done = tasks_service.create_task(
+                    db, project_id=project.id, title=f"{name} chore {n + 1}"
+                )
+                tasks_service.mark_done(db, done)
+            for title in titles:
+                tasks_service.create_task(db, project_id=project.id, title=title)
+        db.commit()
+
+
+def _spoken_fits(answer: dict[str, Any]) -> None:
+    spoken = answer.get("spoken") or ""
+    assert spoken, f"nothing to say aloud: {answer['text'][:200]!r}"
+    assert len(spoken) <= 300, spoken
+    assert len(re.findall(r"[.!?](?:\s|$)", spoken)) <= 2, spoken
+    assert not re.search(r"[*_#`|]", spoken), spoken
+
+
+def _delegate_read_report(sample: Sample) -> None:
+    """The live turn (conductor#240): "Can you give me a report of my tasks?"
+    sent ``mode: "read"``. The reply carries ``answer``: PCC's own words,
+    with the open count, most of the projects by name, and an opening that
+    can be said aloud; nothing is written. The number of ``list_tasks`` calls
+    is in the report's trajectory."""
+    _seed_report(sample)
+
+    def check(thread: Thread) -> None:
+        _assert_completed(thread)
+        _assert_wrote_nothing(thread)
+        step = thread.step
+        assert step.typed_record and all(e["outcome"] == "looked_up" for e in step.typed_record), (
+            step.typed_record
+        )
+        answer = step.answer
+        assert answer is not None, f"no answer; {_trajectory(step.result)}"
+        text = answer["text"]
+        assert str(_REPORT_OPEN) in text, f"no open count ({_REPORT_OPEN}): {text[:300]!r}"
+        named = [name for name in _REPORT_PROJECTS if name.lower() in text.lower()]
+        assert len(named) >= 4, f"names {named}: {text[:300]!r}"
+        _spoken_fits(answer)
+        assert step.reply.startswith("PCC's record of this run"), step.reply[:80]
+
+    sample.converse(
+        [("Can you give me a report of my tasks?", check)],
+        headers={"X-Agent-Actor": "agent:conductor"},
+        body={"mode": "read"},
+    )
+
+
+def _delegate_read_due_week(sample: Sample) -> None:
+    """A read that returns a list: "what's due this week?" names the tasks due
+    in the next days and not the one due next month, as ``answer``."""
+    today = date.today()
+    with sample.db() as db:
+        home = projects_service.create_project(db, name="Home")
+        for title, days in (("Pay rent", 1), ("Call the plumber", 2), ("Renew the passport", 40)):
+            tasks_service.create_task(
+                db, project_id=home.id, title=title, due_date=today + timedelta(days=days)
+            )
+        tasks_service.create_task(db, project_id=home.id, title="Sort the garage")
+        db.commit()
+
+    def check(thread: Thread) -> None:
+        _assert_completed(thread)
+        _assert_wrote_nothing(thread)
+        answer = thread.step.answer
+        assert answer is not None, f"no answer; {_trajectory(thread.step.result)}"
+        text = answer["text"].lower()
+        assert "pay rent" in text and "call the plumber" in text, answer["text"]
+        assert "renew the passport" not in text, answer["text"]
+        _spoken_fits(answer)
+
+    sample.converse(
+        [("What's due this week?", check)],
+        headers={"X-Agent-Actor": "agent:conductor"},
+        body={"mode": "read"},
+    )
+
+
 # The deployed turn's shape (#548): the words' own matches are old done tasks
 # about deleting and tasks, so the planner has to search, and the search
 # returns done "Test…" tasks beside the two open ones.
@@ -3487,6 +3644,14 @@ def test_eval_delegate_read_mode() -> None:
 
 def test_eval_delegate_context_ref() -> None:
     _gate("delegate_context_ref", _delegate_context_ref)
+
+
+def test_eval_delegate_read_report() -> None:
+    _gate("delegate_read_report", _delegate_read_report)
+
+
+def test_eval_delegate_read_due_week() -> None:
+    _gate("delegate_read_due_week", _delegate_read_due_week)
 
 
 def test_eval_delegate_group_trash() -> None:

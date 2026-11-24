@@ -297,6 +297,24 @@ that.
   since recall keeps that record already. Shown whole as the last reply, the
   next planner copied the record's format into its own note.
 
+  **Except for a read** (conductor#241, delegate-api v1.3,
+  `narration.answer`). A look-up's record names what was found, not what it
+  says, so conductor retold "a report of my tasks" as counts while the
+  planner's note held the whole report. A completed delegate run whose
+  record is all look-ups (at least one; no write, refusal, call not run or
+  `ask_user`) now also calls the narrator, on the same brief as an in-app
+  run, and sends its words as `assistant_message.answer {text, spoken,
+  untrusted}` beside the unchanged handoff. The brief ends by asking for an
+  opening of one or two sentences that answer on their own
+  (`RELAYED_CLOSE`); code cuts `spoken` from that opening. PCC marks nothing
+  `untrusted`. Stored on the turn (`conversation_messages.answer`), so a
+  retried key replays it. A narrator that can't speak leaves `answer` null.
+  The eval claim reader grades the answer too.
+
+  **Measured** (2026-11-24, gemma-4-12b): `delegate_read_report` (the live
+  turn, 39 open tasks in 6 projects among 114 done) and
+  `delegate_read_due_week`, both gated; numbers in the PR.
+
   **Measured** (2026-10-23, gemma-4-12b): `delegate_actor` 5/5 and
   `delegate_thread` 5/5, with every claim backed. Before the recall fix,
   `delegate_thread` was 8/10, and both misses were that copied note. On the

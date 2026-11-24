@@ -307,13 +307,18 @@ def test_a_refused_write_does_not_arm_the_peek(
 def test_a_read_does_not_arm_the_peek(
     client: TestClient, tool_db: sessionmaker[Session], trace_path: Path
 ) -> None:
-    """A read's next words may answer a question: they stay the model's."""
-    provider = PeekingProvider([tool_calls_turn(("list_tasks", {})), text_turn("Nothing is due.")])
+    """A read's next words may answer a question: they stay the model's, and
+    the narrator then answers for the person (delegate-api v1.3)."""
+    provider = PeekingProvider(
+        [tool_calls_turn(("list_tasks", {})), text_turn("Nothing is due.")],
+        narrations=[text_turn("Nothing's due today.")],
+    )
     body = _ask(client, provider, trace_path, "what's due today", DELEGATE)
 
-    assert provider.sent == ["chat", "chat"]
+    assert provider.sent == ["chat", "chat", "narrate"]
     assert body["record"][0]["outcome"] == "looked_up"
     assert "Nothing is due." in body["content"]
+    assert body["answer"]["text"] == "Nothing's due today."
 
 
 def test_a_question_to_the_person_stays_the_models_question(
