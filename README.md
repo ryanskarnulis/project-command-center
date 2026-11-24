@@ -598,7 +598,10 @@ bound to the thread, the call and the row's state; anything else is a 409
 naming why. A plain "yes" whose run re-issues the identical call also runs it
 (the v1 path). Any other next message voids the question. Several gated calls
 in one turn each get their own question and token
-(`assistant_message.confirms_required`), answered one by one in any order. Tokens live in the
+(`assistant_message.confirms_required`), answered one by one in any order. A
+turn that trashes several tasks never asks about the done ones (recorded
+`not_run`) unless the words say done, finished or completed (#550,
+`app/ai/done_guard.py`). Tokens live in the
 process, so a restart means asking again. PCC's own chat is never gated:
 there, trash is the undo.
 

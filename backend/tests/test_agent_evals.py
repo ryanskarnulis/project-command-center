@@ -95,7 +95,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.ai import confirmation, gather
+from app.ai import clarification, confirmation, gather, narration
 from app.ai import loop as agent_loop
 from app.ai import trace as run_trace
 from app.ai.loop import (
@@ -129,7 +129,7 @@ from app.services import projects as projects_service
 from app.services import task_dependencies as deps_service
 from app.services import task_trash
 from app.services import tasks as tasks_service
-from app.tools import registry, runtime
+from app.tools import registry, runtime, views
 from tests.claims import (
     Claim,
     Evidence,
@@ -234,6 +234,7 @@ _FLOORS: dict[str, float] = {
         "delegate_context_ref",
         "delegate_needs_input",
         "delegate_group_trash",
+        "delegate_group_trash_restated",
         "compose_create_and_pin",
         "compose_move_due_today",
         "compose_finish_and_follow_up",
@@ -846,7 +847,7 @@ class Sample:
         self,
         turns: Sequence[Turn],
         *,
-        thread: Sequence[tuple[str, str]] = (),
+        thread: Sequence[tuple[str, str | AgentRunResult]] = (),
         headers: Mapping[str, str] | None = None,
         body: Mapping[str, Any] | None = None,
     ) -> Thread:
@@ -854,7 +855,9 @@ class Sample:
 
         ``thread`` is stored first, through the conversations service, as
         (user, assistant) text pairs: a long history costs no model turns, and
-        the route reads it back exactly as it reads a real one. Then each turn
+        the route reads it back exactly as it reads a real one. An assistant
+        side given as a run is stored with its tool calls (an open ``ask_user``,
+        #550). Then each turn
         is posted to ``POST /api/agent/conversations/{id}/messages`` (with
         ``headers``, e.g. ``X-Agent-Actor``), metered on its own, snapshotted,
         and checked straight away. The world (projects, tasks) is the
@@ -873,7 +876,11 @@ class Sample:
             for user_text, assistant_text in thread:
                 conversations_service.append_user_message(db, conversation, user_text)
                 conversations_service.append_assistant_message(
-                    db, conversation, _stored_turn(assistant_text)
+                    db,
+                    conversation,
+                    _stored_turn(assistant_text)
+                    if isinstance(assistant_text, str)
+                    else assistant_text,
                 )
             db.commit()
             state = Thread(conversation.id, World.read(db), len(thread))
@@ -2808,11 +2815,9 @@ _GROUP_DONE = (
 )
 
 
-def _delegate_group_trash(sample: Sample) -> None:
-    """A group named in the plural ("delete the test tasks") is every open
-    task that fits, one trash question each (#548): not a pick-one
-    ``ask_user``, and not the done tasks that share the word."""
-    delegate = "agent:conductor"
+def _seed_group(sample: Sample) -> set[int]:
+    """The group world: the two open "Test…" tasks (their ids), an unrelated
+    open task, and the done tasks that share the words."""
     with sample.db() as db:
         home = projects_service.create_project(db, name="General")
         lab = projects_service.create_project(db, name="Home Lab")
@@ -2823,7 +2828,12 @@ def _delegate_group_trash(sample: Sample) -> None:
             done = tasks_service.create_task(db, project_id=lab.id, title=title)
             tasks_service.update_task(db, done, {"workflow_status": TaskWorkflowStatus.done})
         db.commit()
-    wanted = {ids[title] for title in _GROUP_OPEN}
+    return {ids[title] for title in _GROUP_OPEN}
+
+
+def _check_group_asked(wanted: set[int]) -> Callable[[Thread], None]:
+    """The step stops on one trash question per task in ``wanted``, no other,
+    and writes nothing."""
 
     def check(thread: Thread) -> None:
         step = thread.step
@@ -2835,7 +2845,68 @@ def _delegate_group_trash(sample: Sample) -> None:
         asked = {int(p.arguments["task_id"]) for p in step.result.confirms}
         assert asked == wanted, f"asked about {asked}, wanted {wanted}"
 
-    sample.converse([("Delete the test tasks.", check)], headers={"X-Agent-Actor": delegate})
+    return check
+
+
+def _delegate_group_trash(sample: Sample) -> None:
+    """A group named in the plural ("delete the test tasks") is every open
+    task that fits, one trash question each (#548): not a pick-one
+    ``ask_user``, and not the done tasks that share the word."""
+    wanted = _seed_group(sample)
+    sample.converse(
+        [("Delete the test tasks.", _check_group_asked(wanted))],
+        headers={"X-Agent-Actor": "agent:conductor"},
+    )
+
+
+def _landed(tool: str, arguments: dict[str, Any], actor: str) -> tuple[ToolCallRecord, Any]:
+    """A call an earlier run landed, for a seeded turn: run through the
+    registry now, recorded as the loop records it; and what it returned."""
+    outcome = registry.call_tool(tool, arguments, actor=actor)
+    record = ToolCallRecord(tool=tool, arguments=arguments, result=agent_loop._result_text(outcome))
+    record._answer = agent_loop._result_text(views.agent_view(outcome))
+    return record, outcome
+
+
+def _delegate_group_trash_restated(sample: Sample) -> None:
+    """The group request said again while a pick-one question is open (#550).
+
+    The deployed turn: an earlier run searched "test" and asked which of the
+    hits was meant, done ones among them. The person repeats the request and
+    conductor sends it as the answer. The same outcome as the fresh request:
+    a question for each open match, none for a done one.
+    """
+    delegate = "agent:conductor"
+    request = "Delete the test tasks."
+    wanted = _seed_group(sample)
+    searched, hits = _landed("search", {"query": "test"}, delegate)
+    candidates = [task.id for task in hits.tasks]
+    assert wanted < set(candidates), f"the seeded search found {candidates}"
+    asked, _ = _landed("ask_user", {"task_ids": candidates}, delegate)
+    records = [searched, asked]
+    earlier = AgentRunResult(
+        reply=narration.handoff(
+            records=records,
+            answers=[record.answer for record in records],
+            note=None,
+            stop_reason="completed",
+            asked=clarification.candidates_of(asked.result or ""),
+        ),
+        stop_reason="completed",
+        tool_calls=records,
+        iterations=2,
+        messages=[],
+    )
+    sample.converse(
+        [
+            (
+                f"{request} (the person's answer to your question: {request})",
+                _check_group_asked(wanted),
+            )
+        ],
+        thread=[(request, earlier)],
+        headers={"X-Agent-Actor": delegate},
+    )
 
 
 # --- Compositions, date math and misheard speech (#406) -----------------------
@@ -3427,6 +3498,10 @@ def test_eval_delegate_context_ref() -> None:
 
 def test_eval_delegate_group_trash() -> None:
     _gate("delegate_group_trash", _delegate_group_trash)
+
+
+def test_eval_delegate_group_trash_restated() -> None:
+    _gate("delegate_group_trash_restated", _delegate_group_trash_restated)
 
 
 def test_eval_delegate_needs_input() -> None:

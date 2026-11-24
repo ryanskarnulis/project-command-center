@@ -129,6 +129,7 @@ from app.ai import (
     closing,
     confirmation,
     delegate_context,
+    done_guard,
     gather,
     model_profile,
     narration,
@@ -306,6 +307,10 @@ def resolve_actor(header_value: str | None) -> str:
 # unless the user asks" searched and trashed all seven hits, done or not,
 # 1/10. Naming the field ("each result whose workflow_status is not
 # \"done\"") took it to 10/10 (gemma-4-12b, 2026-11-23).
+# #550: the rule does not hold when the search result is history. The request
+# said again to an open ask_user trashed every candidate, done or not
+# (delegate_group_trash_restated 0/10). Fixed in code, not here: done_guard
+# holds the done ones back at the gate, 10/10 with this wording unchanged.
 PLANNER_PROMPT = """\
 You are the assistant for Project Command Center (PCC), the user's project and \
 task manager. You act only by calling the provided tools.
@@ -1112,18 +1117,35 @@ class AgentLoop:
                     # A question for each of this turn's gated calls (#545):
                     # the rest of them are asked about too, not dropped.
                     rest = result.tool_calls[index:]
-                    armed = gate.arm([(c.name, c.arguments) for c in rest if gate.gated(c.name)])
+                    # Done tasks stay out of a group delete (#550): never
+                    # asked about, answered "not run".
+                    spared = done_guard.spared(
+                        [(c.name, c.arguments) for c in result.tool_calls],
+                        user_message,
+                        question.request if question is not None else None,
+                    )
+                    armed = gate.arm(
+                        [
+                            (c.name, c.arguments)
+                            for at, c in enumerate(rest, start=index)
+                            if gate.gated(c.name) and at not in spared
+                        ]
+                    )
                     if armed:
                         # Never dispatched: the app asks first (#503). The
                         # questions are code's, from the live rows.
-                        for later in rest:
+                        for at, later in enumerate(rest, start=index):
                             held = any(p.matches(later.name, later.arguments) for p in armed)
                             self._skip_remaining(
                                 [later],
                                 records,
                                 messages,
-                                error=confirmation.NOT_RUN_REASON if held else _CONFIRM_ERROR,
-                                reason="confirm_required",
+                                error=done_guard.NOT_RUN_ERROR
+                                if at in spared
+                                else confirmation.NOT_RUN_REASON
+                                if held
+                                else _CONFIRM_ERROR,
+                                reason="done_spared" if at in spared else "confirm_required",
                             )
                         finished = self._finish(
                             "confirm_required",
@@ -1134,6 +1156,20 @@ class AgentLoop:
                         )
                         finished.confirms = armed
                         return finished
+                    if index in spared:
+                        # Nothing left to ask about: the model is told, and
+                        # the run goes on (a repeat is no progress).
+                        self._skip_remaining(
+                            [call],
+                            records,
+                            messages,
+                            error=done_guard.NOT_RUN_ERROR,
+                            reason="done_spared",
+                        )
+                        refused = _exchange_key(call.name, call.arguments, done_guard.NOT_RUN_ERROR)
+                        progressed = progressed or refused not in seen
+                        seen.add(refused)
+                        continue
                 dispatched += 1
                 try:
                     record, feedback, schema_error = self._dispatch(call, actor)
