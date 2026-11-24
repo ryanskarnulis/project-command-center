@@ -317,6 +317,9 @@ that.
   every project and the tasks, and `spoken` is its opening line. Full gate
   57/57 not below floor (56 at 5/5, `misfire_complete_parent` 4/5 on an
   in-app "cleared"), claims 524/525; the conductor-phrased tier 7/7 at 5/5.
+  After the brief's opening line was reworded (name up to three things,
+  else count): report 4/5 (the miss a narrator call that timed out on a
+  shared GPU, so no `answer`), due-week 5/5, read-mode 5/5.
   The report costs about what the in-app answer does: a median 32 s
   delegated against 33 s in-app (n=6 each, a shared GPU), since the
   narrator call is the one the in-app run makes. Both paths page: 39 open tasks is two

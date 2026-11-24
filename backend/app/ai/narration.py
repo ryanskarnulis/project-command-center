@@ -166,9 +166,9 @@ def handoff(
 # what gets said, the rest is shown.
 RELAYED_CLOSE = (
     "Now reply to the user. They may hear only your opening, so open with one or two short "
-    "sentences that answer on their own: the count, or the one thing that matters. If there "
-    "is more worth showing (a list, a breakdown), leave a blank line and put it after. "
-    "No links."
+    "sentences that answer on their own: up to three things by name, or the count when there "
+    "are more. If there is more worth showing (a list, a breakdown), leave a blank line and "
+    "put it after. No links."
 )
 
 # The contract's bounds on an answer (delegate-api v1.3).
