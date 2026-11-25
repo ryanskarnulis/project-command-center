@@ -311,6 +311,27 @@ that.
   retried key replays it. A narrator that can't speak leaves `answer` null.
   The eval claim reader grades the answer too.
 
+  **A read looks again** (#558). Live, conductor sent the same report twice
+  into one thread. The second run called nothing and rewrote the stored
+  report from recall and the state block, so it carried no `answer`. Now a
+  read-mode run's recall opens "Before this run (as of then, never current
+  data):". A read-mode run about to finish with no call at all is sent back
+  once (`delegate_context.LOOK_AGAIN`). That counts against `max_corrections`,
+  and with none left it is not sent back. If it answers in words again, it
+  finishes as before, with no `answer`. In-app chat and a delegate's write
+  mode are unchanged: a follow-up there may use the earlier result.
+
+  **Measured** (2026-11-25, gemma-4-12b): `delegate_read_report_again`
+  (a real report, three tasks added, then the same read) went from 0/10 on
+  main to 10/10. Every main miss called nothing and rewrote the old report.
+  On the branch, 8 of 10 were sent back and 2 looked first time. Being sent
+  back costs about 6 s. Full gate: 58/58 not below floor, 56 at 5/5, claims
+  661/661, infra 0/25. `delegate_read_report_again` was 4/5: the miss used
+  the whole 240 s budget before its narrator call, because a conductor eval
+  was sharing the GPU. `delegate_read_due_week` was 4/5 with a `no_progress`
+  stop on a run this change doesn't touch (tool calls, no history). The
+  conductor-phrased tier was 7/7 at 5/5.
+
   **Measured** (2026-11-24, gemma-4-12b): `delegate_read_report` (the live
   turn, 39 open tasks in 6 projects among 114 done) 5/5 and
   `delegate_read_due_week` 5/5, both gated; the answer names the count,

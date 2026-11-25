@@ -163,6 +163,9 @@ def test_unparseable_turns_are_the_user_messages_after_the_runs_prompt() -> None
     assert unparseable_turns(messages, prompt) == 1
     assert unparseable_turns(messages[:4], prompt) == 0
     assert unparseable_turns(messages, "something else") == 0
+    # A read sent back to look (#558) is a correction, not a schema one.
+    sent_back = [*messages, {"role": "user", "content": "Look again."}]
+    assert unparseable_turns(sent_back, prompt, ignore={"Look again."}) == 1
 
 
 def test_unparseable_turns_find_the_prompt_behind_a_state_block() -> None:

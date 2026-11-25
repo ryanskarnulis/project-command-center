@@ -86,7 +86,8 @@ the user asked it to stop, or the run broke. A delegate caller (#482,
 speak its run replies with the code-built handoff (``narration.handoff``)
 and makes no narrator call, except for a read: a completed run whose record
 is all look-ups also carries the narrator's words as ``answer``
-(delegate-api v1.3, conductor#241), which the caller passes on. After a turn whose calls were all writes that
+(delegate-api v1.3, conductor#241), which the caller passes on; a read-mode
+run that looked nothing up is sent back once to look (#558). After a turn whose calls were all writes that
 landed, a delegate's next planner call is *peeked* (#516, :mod:`app.ai.closing`):
 streamed, and stopped at its first words if the model turned to its closing
 line, the reply then the code-built note; a turn that opens with a tool call is
@@ -629,7 +630,9 @@ class AgentLoop:
         ``context`` and ``read_mode`` are a delegate-api v1.2 caller's (#527):
         refs and facts the planner reads after the words, as data; and no
         write reaches the service layer (each is recorded ``not run: read
-        mode`` and the run goes on from its reads).
+        mode`` and the run goes on from its reads). A read-mode run reads
+        its history as of then, and one that turns to words with no call at
+        all is sent back once to look, against ``max_corrections`` (#558).
 
         ``gate`` (a delegate run, #503) holds back destructive calls: a gated
         call it doesn't allow arms a confirmation, is recorded not run, and the
@@ -895,12 +898,10 @@ class AgentLoop:
         # earlier runs' tools did. Its parts are capped (``recall``), so a long
         # thread costs a bounded section, not a growing transcript.
         earlier = recall.Recall.of(history or [])
-        user_turn = state_block.with_state(
-            block,
-            user_message,
-            matches,
-            recall.section(earlier, recall.PLANNER_REPLY_LABEL),
-        )
+        # A read answers from this run's look-ups, so its recall says it is
+        # as of then (#558).
+        before = recall.section(earlier, recall.PLANNER_REPLY_LABEL, as_of_then=read_mode)
+        user_turn = state_block.with_state(block, user_message, matches, before)
         # A v1.2 caller's refs and facts come after the words, as data (#527).
         given = delegate_context.section(context)
         if given is not None:
@@ -912,7 +913,7 @@ class AgentLoop:
         trace.tools_offered = len(specs)
         trace.history_given = len(history or [])
         trace.history_kept = list(history or [])
-        trace.recall = recall.section(earlier, recall.PLANNER_REPLY_LABEL)
+        trace.recall = before
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": PLANNER_PROMPT},
             {"role": "user", "content": user_turn},
@@ -923,7 +924,7 @@ class AgentLoop:
             deadline=deadline,
             cancel=cancel,
             trace=trace,
-            earlier=recall.section(earlier, recall.NARRATOR_REPLY_LABEL),
+            earlier=recall.section(earlier, recall.NARRATOR_REPLY_LABEL, as_of_then=read_mode),
             gathered=matches,
             state=block,
             delegate=actor in DELEGATE_ACTORS,
@@ -938,6 +939,8 @@ class AgentLoop:
         # the next planner call is peeked, and one that opens with words ends
         # the run on code's note.
         peek_next = False
+        # Whether a read-mode run was sent back to look (#558): once only.
+        looked_again = False
         logger.info(
             "agent_run_started",
             tools=len(specs),
@@ -1035,6 +1038,21 @@ class AgentLoop:
                 # A text turn ends the planner, even when content is empty: it
                 # is the handoff note, and the narrator speaks (#418).
                 messages.append(result.to_message())
+                if (
+                    read_mode
+                    and not records
+                    and not looked_again
+                    and corrections < self._max_corrections
+                ):
+                    # A read that called nothing answered from what came
+                    # before the run (#558): sent back once, as a
+                    # correction. Words again finish as below.
+                    looked_again = True
+                    corrections += 1
+                    trace.corrections = corrections
+                    logger.info("agent_read_sent_back", corrections=corrections)
+                    messages.append({"role": "user", "content": delegate_context.LOOK_AGAIN})
+                    continue
                 return self._narrated_finish(
                     "completed", ctx, records, iteration, messages, note=result.content
                 )

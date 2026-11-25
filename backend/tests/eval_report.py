@@ -142,7 +142,9 @@ def schema_errors(
     return refused + unparseable
 
 
-def unparseable_turns(messages: Sequence[Mapping[str, Any]], prompt: str) -> int:
+def unparseable_turns(
+    messages: Sequence[Mapping[str, Any]], prompt: str, *, ignore: Container[str] = ()
+) -> int:
     """The turns a run spent on tool calls whose arguments weren't JSON.
 
     The loop answers such a turn with a user-role correction (there is no call
@@ -151,6 +153,8 @@ def unparseable_turns(messages: Sequence[Mapping[str, Any]], prompt: str) -> int
     only be history, and no correction repeats the prompt. Since #412 the
     run's turn is the state block, a blank line, then the prompt, so a turn
     ending that way counts too (and a bare prompt still does, for older trees).
+    A user message whose text is in ``ignore`` is another kind of correction
+    (a read sent back to look, #558) and is not counted.
     """
     starts = [
         index
@@ -161,7 +165,11 @@ def unparseable_turns(messages: Sequence[Mapping[str, Any]], prompt: str) -> int
     ]
     if not starts:
         return 0
-    return sum(1 for message in messages[starts[-1] + 1 :] if message.get("role") == "user")
+    return sum(
+        1
+        for message in messages[starts[-1] + 1 :]
+        if message.get("role") == "user" and message.get("content") not in ignore
+    )
 
 
 def schema_stats(samples: Sequence[tuple[int, int]]) -> dict[str, Any]:

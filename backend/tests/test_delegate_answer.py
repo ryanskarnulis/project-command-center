@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.ai import narration
+from app.ai import delegate_context, narration, recall
 from app.ai.loop import AgentLoop
 from app.api import routes_agent
 from app.main import app
@@ -151,6 +151,96 @@ def test_a_run_with_no_lookup_gets_no_answer(client: TestClient) -> None:
     _use_loop(ScriptedProvider([text_turn("Nothing to look up.")]))
     assistant = _post(client, {"content": "hello"}, CONDUCTOR).json()["assistant_message"]
     assert assistant["record"] == [] and assistant["answer"] is None
+
+
+def _planner_calls(provider: ScriptedProvider) -> list[dict[str, Any]]:
+    return [request for request in provider.requests if request["tools"]]
+
+
+def test_a_read_asked_again_looks_again_and_carries_the_answer(
+    client: TestClient, tool_db: sessionmaker[Session]
+) -> None:
+    """#558, live: the same read in a thread that already held its answer
+    called nothing and rewrote the old report, so no ``answer``. Sent back
+    once, it looks."""
+    provider = ScriptedProvider(
+        [
+            tool_calls_turn(("list_tasks", {"exclude_done": True})),
+            text_turn("Two open tasks."),
+            text_turn("Two open tasks, as before."),
+            tool_calls_turn(("list_tasks", {"exclude_done": True})),
+            text_turn("Two open tasks."),
+        ],
+        narrations=[text_turn(REPORT), text_turn(REPORT)],
+    )
+    _use_loop(provider)
+    thread = client.post("/api/agent/conversations", json={}).json()["id"]
+    url = f"/api/agent/conversations/{thread}/messages"
+    ask = {"content": "give me a report of my tasks", "mode": "read"}
+
+    client.post(url, json=ask, headers=CONDUCTOR)
+    again = client.post(url, json=ask, headers=CONDUCTOR).json()["assistant_message"]
+
+    assert again["stop_reason"] == "completed"
+    assert [(e["tool"], e["outcome"]) for e in again["record"]] == [("list_tasks", "looked_up")]
+    assert again["answer"]["text"] == REPORT
+    first, sent_back = _planner_calls(provider)[2:4]
+    # The history it read is labelled as of then.
+    assert recall.AS_OF_THEN_HEAD in first["messages"][1]["content"]
+    # Its words stay in the transcript, and the correction follows them.
+    assert sent_back["messages"][-2] == {
+        "role": "assistant",
+        "content": "Two open tasks, as before.",
+    }
+    assert sent_back["messages"][-1] == {"role": "user", "content": delegate_context.LOOK_AGAIN}
+
+
+def test_a_read_that_still_calls_nothing_finishes_as_before(client: TestClient) -> None:
+    provider = ScriptedProvider([text_turn("Hello."), text_turn("Nothing to look up.")])
+    _use_loop(provider)
+
+    assistant = _post(client, {"content": "hello", "mode": "read"}, CONDUCTOR).json()[
+        "assistant_message"
+    ]
+
+    assert assistant["stop_reason"] == "completed"
+    assert assistant["record"] == [] and assistant["answer"] is None
+    assert "Nothing to look up." in assistant["content"]
+    assert len(provider.requests) == 2
+
+
+def test_a_read_with_no_corrections_left_is_not_sent_back(
+    tool_db: sessionmaker[Session],
+) -> None:
+    provider = ScriptedProvider([text_turn("Hello.")])
+
+    result = AgentLoop(provider, max_corrections=0).run(
+        "hello", actor="agent:conductor", read_mode=True
+    )
+
+    assert result.stop_reason == "completed" and len(provider.requests) == 1
+
+
+@pytest.mark.parametrize("headers", [CONDUCTOR, {}], ids=["delegate", "in_app"])
+def test_a_run_not_in_read_mode_is_not_sent_back(
+    client: TestClient, headers: dict[str, str]
+) -> None:
+    """In-app chat and a delegate's write mode keep answering follow-ups from
+    the thread ("which of those is oldest?"), unlabelled."""
+    provider = ScriptedProvider([text_turn("Hi."), text_turn("Still here.")])
+    _use_loop(provider)
+    thread = client.post("/api/agent/conversations", json={}).json()["id"]
+    url = f"/api/agent/conversations/{thread}/messages"
+
+    client.post(url, json={"content": "hello"}, headers=headers)
+    client.post(url, json={"content": "still there?"}, headers=headers)
+
+    planner = _planner_calls(provider)
+    assert len(planner) == 2
+    follow_up = planner[1]["messages"]
+    assert [m["role"] for m in follow_up] == ["system", "user"]
+    assert f"\n\n{recall.HEAD}\n\n" in follow_up[1]["content"]
+    assert recall.AS_OF_THEN_HEAD not in follow_up[1]["content"]
 
 
 def test_a_narrator_that_cannot_speak_leaves_the_handoff_alone(
