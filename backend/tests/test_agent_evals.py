@@ -95,7 +95,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.ai import clarification, confirmation, gather, narration
+from app.ai import clarification, confirmation, delegate_context, gather, narration
 from app.ai import loop as agent_loop
 from app.ai import trace as run_trace
 from app.ai.loop import (
@@ -234,6 +234,7 @@ _FLOORS: dict[str, float] = {
         "delegate_context_ref",
         "delegate_needs_input",
         "delegate_read_report",
+        "delegate_read_report_again",
         "delegate_read_due_week",
         "delegate_group_trash",
         "delegate_group_trash_restated",
@@ -390,7 +391,9 @@ def _schema_errors(result: AgentRunResult | None, prompt: str | None) -> int:
         ((record.tool, record.error) for record in result.tool_calls),
         known_tools=_KNOWN_TOOLS,
         invalid_prefix=INVALID_ARGUMENTS_PREFIX,
-        unparseable=0 if prompt is None else unparseable_turns(result.messages, prompt),
+        unparseable=0
+        if prompt is None
+        else unparseable_turns(result.messages, prompt, ignore={delegate_context.LOOK_AGAIN}),
     )
 
 
@@ -2917,6 +2920,57 @@ def _delegate_read_report(sample: Sample) -> None:
     )
 
 
+def _delegate_read_report_again(sample: Sample) -> None:
+    """The report asked twice in one delegate thread (#558).
+
+    The live turn: conductor sent the same read again into a thread that held
+    the first run's report, and the run called nothing and rewrote that
+    report, so no ``answer``. Here the first step is a real report run; then
+    three tasks are added, and the second step must look again: ``list_tasks``,
+    and an answer with the live open count."""
+    delegate = "agent:conductor"
+    request = "Can you give me a report of my tasks?"
+    _seed_report(sample)
+    added = ("Fix the gate latch", "Sharpen the shears", "Edge the lawn")
+    live = _REPORT_OPEN + len(added)
+
+    def check_first(thread: Thread) -> None:
+        _assert_completed(thread)
+        _assert_wrote_nothing(thread)
+        step = thread.step
+        assert _successful(step.result, "list_tasks"), f"no look-up: {_trajectory(step.result)}"
+        # The world moves on after the report.
+        with sample.db() as db:
+            garden = db.execute(select(Project).where(Project.name == "Garden")).scalar_one()
+            for title in added:
+                tasks_service.create_task(db, project_id=garden.id, title=title)
+            db.commit()
+
+    def check_again(thread: Thread) -> None:
+        _assert_completed(thread)
+        step = thread.step
+        # The three added tasks are the step's only new rows, and the user's.
+        assert all(event[3] is None for event in step.events), f"wrote {list(step.events)}"
+        assert all(r.error is not None for r in _mutations(step.result)), _trajectory(step.result)
+        assert _successful(step.result, "list_tasks"), f"no look-up: {_trajectory(step.result)}"
+        assert step.typed_record and all(e["outcome"] == "looked_up" for e in step.typed_record), (
+            step.typed_record
+        )
+        answer = step.answer
+        assert answer is not None, f"no answer; {_trajectory(step.result)}"
+        text = answer["text"]
+        assert str(live) in text, f"no live open count ({live}): {text[:300]!r}"
+        named = [name for name in _REPORT_PROJECTS if name.lower() in text.lower()]
+        assert len(named) >= 4, f"names {named}: {text[:300]!r}"
+        _spoken_fits(answer)
+
+    sample.converse(
+        [(request, check_first), (request, check_again)],
+        headers={"X-Agent-Actor": delegate},
+        body={"mode": "read"},
+    )
+
+
 def _delegate_read_due_week(sample: Sample) -> None:
     """A read that returns a list: "what's due this week?" names the tasks due
     in the next days and not the one due next month, as ``answer``."""
@@ -3648,6 +3702,10 @@ def test_eval_delegate_context_ref() -> None:
 
 def test_eval_delegate_read_report() -> None:
     _gate("delegate_read_report", _delegate_read_report)
+
+
+def test_eval_delegate_read_report_again() -> None:
+    _gate("delegate_read_report_again", _delegate_read_report_again)
 
 
 def test_eval_delegate_read_due_week() -> None:

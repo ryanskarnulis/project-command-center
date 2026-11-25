@@ -8,7 +8,9 @@ Three fields, decided in conductor#145:
   another app's are names. An outside (``untrusted``) title stays marked.
 - ``mode: "read"``: the loop stops any call the registry doesn't mark
   read-only before it reaches the service layer (:data:`READ_MODE_ERROR`),
-  tells the model the same, and the run answers from its reads.
+  tells the model the same, and the run answers from its reads. A run that
+  turns to words with no call at all is sent back once (:data:`LOOK_AGAIN`,
+  #558): what came before it is as of then.
 - ``needs_input`` on the reply: built by code from the run's tool calls
   (:func:`needs_input`), never from the reply's wording. PCC asks only
   through its question tool, ``ask_user``; it has no refusal that offers
@@ -30,6 +32,13 @@ READ_MODE = "read"
 # Recorded (and fed back) for a write in a read-mode run: it never reached the
 # registry or the service layer.
 READ_MODE_ERROR = f"{run_record.NOT_RUN_PREFIX}read mode"
+
+# Said to a read-mode planner that turned to words with no call at all
+# (#558): live, it rewrote an earlier run's report from history.
+LOOK_AGAIN = (
+    "You called no tool. What came before this run is as of then, never current: "
+    "look the answer up with the tools now."
+)
 
 # What PCC asks when ``ask_user`` lands: code's words, beside the candidates.
 QUESTION = "Which task do you mean?"

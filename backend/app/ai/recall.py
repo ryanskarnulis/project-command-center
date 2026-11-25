@@ -57,6 +57,11 @@ LAST_EXCHANGE_CHARS = 1200
 NARRATOR_REPLY_LABEL = "What you said then (your words, not a record)"
 PLANNER_REPLY_LABEL = "The assistant said then (its words, not a record)"
 
+# How the section opens. A read-mode run (#558) is told outright that none of
+# it is current: live, one rewrote an earlier run's report from it.
+HEAD = "Before this run:"
+AS_OF_THEN_HEAD = "Before this run (as of then, never current data):"
+
 
 @dataclass(frozen=True)
 class Recall:
@@ -114,10 +119,12 @@ class Recall:
         return "\n\n".join(parts)
 
 
-def section(recall: Recall, reply_label: str) -> str | None:
-    """The block a phase's prompt opens with, or ``None`` before any history."""
+def section(recall: Recall, reply_label: str, *, as_of_then: bool = False) -> str | None:
+    """The block a phase's prompt opens with, or ``None`` before any history.
+    ``as_of_then`` opens it with :data:`AS_OF_THEN_HEAD`."""
     rendered = recall.render(reply_label)
-    return f"Before this run:\n\n{rendered}" if rendered else None
+    head = AS_OF_THEN_HEAD if as_of_then else HEAD
+    return f"{head}\n\n{rendered}" if rendered else None
 
 
 def _flat(text: str) -> str:
